@@ -69,7 +69,17 @@ cd MassFlow
 pip install numpy h5py matplotlib pympler
 ```
 
-## Recommended Trae/VSCode Extensions (Python & Code Quality)
+## Development and Contributing
+
+### Contribution Workflow & Standards
+- Contributing guide: see `docs/CONTRIBUTING_EN.md` (English) and `docs/CONTRIBUTING.md` (Chinese)
+- Issue templates: `.github/ISSUE_TEMPLATE/feature.md`, `.github/ISSUE_TEMPLATE/bug.md` and English templates `feature_en.md`, `bug_en.md` (available in GitHub “New issue” page)
+- Naming conventions: see `docs/NAMING_CONVENTIONS_EN.md` and `docs/NAMING_CONVENTIONS.md`
+- Commit messages: follow Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `refactor:`, `test:`). Example: `feat(data-manager): support split/merge write modes`
+- Local checks (sample commands): `ruff .`, `black .`, `isort .`, `pylint module/`
+- PR checklist highlights: consistent interfaces and naming, no obvious performance/memory issues, assertions and error handling in place, docs/examples/tests updated, CI passes, clear change description
+
+### Recommended Trae/VSCode Extensions (Python & Code Quality)
 
 To improve code quality and developer experience, install the following extensions. The workspace file `.vscode/extensions.json` also recommends them automatically.
 
@@ -124,44 +134,6 @@ msi_dm2.load_full_data_from_file()
 
 # Plot images in the loaded range
 msi2.plot_msi()
-```
-
-### Example 3: Process MATLAB .mat Files
-
-```python
-from module.msi_data_manager_zys import MSIDataManagerZYS
-
-# Create MSI instance for .mat file
-msi3 = MSI(name='20250329_sample', version=1.0, mask=None, need_base_mask=True)
-
-# Initialize ZYS data manager
-msi_dm_zys = MSIDataManagerZYS(msi3, filepath="./data/sample.mat")
-
-# Load and rebuild data
-msi_dm_zys.load_data_from_zys_mat()
-msi_dm_zys.rebuild_hdf5_file_from_zys()
-
-# Plot specific m/z range
-msi3.plot_msi(target_mz_range=[100, 150])
-```
-
-### Example 4: Export Data
-
-```python
-# Export as merged file
-msi_dm_zys.write2local(mode='merge', output_fold='./data')
-
-# Export as split files (one file per m/z)
-msi_dm_zys.write2local(mode='split')
-```
-
-### Example 5: Query Specific m/z Values
-
-```python
-# Get MSI slices for a specific m/z value
-msi_list = msi3.get_msi_by_mz(mz_value_min=88.1122, tol=1e-3)
-image = msi_list[0].msroi.T
-base_mask = msi_list[0].base_mask.T
 ```
 
 ## Project Structure

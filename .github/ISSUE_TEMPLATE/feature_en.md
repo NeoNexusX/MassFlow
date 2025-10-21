@@ -12,7 +12,7 @@ Describe the problem context.
 ## Requirements / Summary
 Briefly explain the core goals and scope of the feature ("what").
 
-## Proposed Approach (Optional)
+## Proposed Approach
 If you already have ideas, describe a possible implementation ("how"), including:
 - Core logic/flow
 - Data structures or storage formats (e.g., HDF5 group/dataset naming)
