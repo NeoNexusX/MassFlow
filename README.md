@@ -69,6 +69,30 @@ cd MassFlow
 pip install numpy h5py matplotlib pympler
 ```
 
+## Recommended Trae/VSCode Extensions (Python & Code Quality)
+
+To improve code quality and developer experience, install the following extensions. The workspace file `.vscode/extensions.json` also recommends them automatically.
+
+- `ms-python.python` — Python support
+- `ms-python.vscode-pylance` — IntelliSense and type analysis
+- `ms-python.pylint` — Static analysis (uses repo `.pylintrc`)
+- `charliermarsh.ruff` — Fast linting and style enforcement
+- `ms-python.black-formatter` — Code formatting (Black)
+- `ms-python.isort` — Import sorting
+- `h5web.vscode-h5web` — HDF5 visualization
+
+Command line install (optional):
+
+```bash
+code --install-extension ms-python.python \
+  && code --install-extension ms-python.vscode-pylance \
+  && code --install-extension ms-python.pylint \
+  && code --install-extension charliermarsh.ruff \
+  && code --install-extension ms-python.black-formatter \
+  && code --install-extension ms-python.isort \
+  && code --install-extension h5web.vscode-h5web
+```
+
 ## Quick Start
 
 ### Example 1: Load Complete MSI Data

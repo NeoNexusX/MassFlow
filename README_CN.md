@@ -65,6 +65,30 @@ cd MassFlow
 pip install numpy h5py matplotlib pympler
 ```
 
+## 推荐的 Trae/VSCode 扩展（Python 与代码质量控制）
+
+为提升代码质量和开发体验，建议安装以下扩展。工作区文件 `.vscode/extensions.json` 会自动推荐这些扩展。
+
+- `ms-python.python` — Python 支持
+- `ms-python.vscode-pylance` — 智能提示与类型分析
+- `ms-python.pylint` — 静态检查（使用仓库 `.pylintrc`）
+- `charliermarsh.ruff` — 快速代码规范与风格检查
+- `ms-python.black-formatter` — 代码格式化（Black）
+- `ms-python.isort` — 导入排序
+- `h5web.vscode-h5web` — HDF5 可视化
+
+命令行安装（可选）：
+
+```bash
+code --install-extension ms-python.python \
+  && code --install-extension ms-python.vscode-pylance \
+  && code --install-extension ms-python.pylint \
+  && code --install-extension charliermarsh.ruff \
+  && code --install-extension ms-python.black-formatter \
+  && code --install-extension ms-python.isort \
+  && code --install-extension h5web.vscode-h5web
+```
+
 ## 快速开始
 
 ### 示例 1：加载完整 MSI 数据
