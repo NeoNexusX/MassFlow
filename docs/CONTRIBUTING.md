@@ -16,7 +16,7 @@
 
 ## 提交流程（Issue → 分支 → PR）
 1. 创建 Issue：描述背景、目标与验收标准（DoD）
-2. 认领与拆解：确认负责人与标签（如 `type/feature`, `area/data-manager`, `priority/high`）。
+2. 认领与拆解：确认标签（如 `type/feature`, `area/data-manager`, `priority/high`）。
 3. 开发与自检：遵循代码规范，运行本地检查与必要测试。
 4. 提交 PR：
    - 标题精炼（建议遵循 Conventional Commits）：例如 `feat(msi): add HDF5 group writer`
