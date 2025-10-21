@@ -32,19 +32,16 @@ MassFlow 是一个模块化的高性能质谱成像（MSI）数据预处理框�
 
 #### 专用处理器
 - **MSIDataManager**：用于 `.h5`/`.msi` 文件的通用数据管理器
-- **MSIDataManagerZYS**：用于 MATLAB `.mat` 格式的专用处理器，具有自定义预处理功能
+- **MSIDataManagerZYS**：用于 MATLAB `.mat` 格式的专用管理器
 
 ### 📋 计划功能（TODO）
 
-#### 数据导入
-- imzML 格式支持
-- mzML 格式支持
-- Bruker `.d` 格式支持
-- Agilent `.bd` 格式支持
+#### 数据导入与导出
+- .imzML 格式支持
+- .msi 格式支持
+- .mat 格式支持
 
 #### 基线校正
-例如：TopHat 滤波器
-
 #### 去噪与平滑
 
 #### 峰检测

@@ -36,11 +36,10 @@ MassFlow is a modular and high-performance preprocessing framework for Mass Spec
 
 ### 📋 Planned Features (TODO)
 
-#### Data Import
-- imzML format support
-- mzML format support
-- Bruker `.d` format support
-- Agilent `.bd` format support
+#### Data Import and output
+- .imzML format support
+- .msi format support
+- .mat format support only import may output
 
 #### Baseline Correction
 
