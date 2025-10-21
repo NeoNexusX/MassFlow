@@ -4,7 +4,7 @@
 
 ## 快速开始
 - Fork 仓库或从 `main` 切出你的工作分支（推荐分支命名见下文）。
-- 在本地安装推荐的 VSCode 插件（见 README 与 `.vscode/extensions.json`）。
+- 在本地安装推荐的 Cursor/Trae/VSCode 插件（见 README 与 `.vscode/extensions.json`）。Pycharm 可以略过
 - 遵循命名规范与代码风格（`NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`、`.pylintrc`）。
 - 完成任务后提交 PR，按照评审清单自检并请求评审。
 
@@ -44,7 +44,7 @@
   - 断言与错误信息明确：`assert condition, "message"`
 
 ## 编辑器与工具
-- VSCode：
+- Cursor/Trae/VSCode：
   - 安装推荐扩展（Python、Pylance、Pylint、Ruff、Black、isort、Jupyter、Markdownlint、GitLens、H5Web）
   - 工作区 `.vscode/extensions.json` 将自动提示安装
 - 可选：启用保存自动格式化（Format on Save）并配置 Black/isort 一致性。
@@ -68,6 +68,7 @@
 - 模板：
   - `ISSUE_TEMPLATE/feature.md`（背景、方案、验收标准）
   - `ISSUE_TEMPLATE/bug.md`（复现步骤、预期/实际、环境信息）
+  -  可以直接选用对应模板使用
 - 自动评审指派：通过 `CODEOWNERS` 指定模块负责人
 - 本地钩子：配置 `pre-commit` 在提交前自动进行格式化与 lint
 - CI：在 PR 上运行 `ruff/pylint/black/isort` 与测试

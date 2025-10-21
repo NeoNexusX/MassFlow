@@ -4,7 +4,7 @@ Thank you for contributing to MassFlow! This document defines the shared workflo
 
 ## Quick Start
 - Fork the repository or branch off `main` for your work branch (recommended naming below).
-- Install the recommended VSCode extensions locally (see README and `.vscode/extensions.json`).
+- Install the recommended Cursor/Trae/VSCode extensions locally (see README and `.vscode/extensions.json`). PyCharm users can skip this.
 - Follow naming conventions and code style (`NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`, `.pylintrc`).
 - When your task is done, open a PR, self-check with the review checklist, and request review.
 
@@ -16,7 +16,7 @@ Thank you for contributing to MassFlow! This document defines the shared workflo
 
 ## Workflow (Issue → Branch → PR)
 1. Create an Issue: describe background, goals, and acceptance criteria (DoD).
-2. Claim and break down: confirm assignee and labels (e.g., `type/feature`, `area/data-manager`, `priority/high`).
+2. Claim and break down: confirm labels (e.g., `type/feature`, `area/data-manager`, `priority/high`).
 3. Develop and self-check: follow code standards; run local checks and required tests.
 4. Open a PR:
    - Concise title (Conventional Commits recommended), e.g., `feat(msi): add HDF5 group writer`.
@@ -44,7 +44,7 @@ Thank you for contributing to MassFlow! This document defines the shared workflo
   - Clear assertions and error messages: `assert condition, "message"`.
 
 ## Editor and Tools
-- VSCode:
+- Cursor/Trae/VSCode:
   - Install recommended extensions (Python, Pylance, Pylint, Ruff, Black, isort, Jupyter, Markdownlint, GitLens, H5Web).
   - The workspace `.vscode/extensions.json` will prompt you to install them automatically.
 - Optional: enable Format on Save and configure Black/isort consistency.
@@ -68,6 +68,7 @@ Thank you for contributing to MassFlow! This document defines the shared workflo
 - Templates:
   - `ISSUE_TEMPLATE/feature.md` (background, approach, acceptance criteria).
   - `ISSUE_TEMPLATE/bug.md` (repro steps, expected/actual, environment info).
+  - You can directly use the corresponding templates.
 - Auto reviewer assignment: use `CODEOWNERS` to designate module owners.
 - Local hooks: configure `pre-commit` to auto-format and lint before commits.
 - CI: run `ruff/pylint/black/isort` and tests on PRs.
