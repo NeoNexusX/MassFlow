@@ -7,7 +7,7 @@ from module.msi_data_manager_imzml import MSIDataManagerImzML
 # Run examples when executing this file directly
 if __name__ == "__main__":
 
-    '''
+
     # Replace with your data file path
     FILE_PATH = "./data/2Moderate_20250421_6L_1uL_02MPa_3000V_95ACN_20um.mat" 
     # msi = MSI(name='example', version=1.0, mask=None, need_base_mask=True)
@@ -41,31 +41,3 @@ if __name__ == "__main__":
     msi_list = msi3.get_msi_by_mz(mz_value_min=88.1122, tol=1e-3)
     image = msi_list[0].msroi.T
     base_mask  = msi_list[0].base_mask.T
-    '''
-
-    print("\n--- 示例：测试 .imzML 加载器 ---")
-
-    FILE_PATH_IMZML = "./data/15DAN- 2-2-2xie_y 25um 70000 100-1500 k3.8 180_165.imzML"
-
-    # 1. 测试加载特定范围
-    msi_imzml = MSI(name='imzml_example', version=1.0, mask=None, need_base_mask=True)
-
-    msi_dm_imzml = MSIDataManagerImzML(
-        msi_imzml,
-        target_mz_range=[700, 701],
-        filepath=FILE_PATH_IMZML,
-        mz_tolerance=0.1
-    )
-
-    msi_dm_imzml.load_full_data_from_file()
-    msi_dm_imzml.inspect_data()
-
-    if len(msi_imzml) > 0:
-        msi_imzml.plot_msi()
-    else:
-        print("MSI object is empty (imzML range test).")
-
-    msi_dm_imzml.write2local(
-        mode="merge",
-        output_fold="./data/output_msi_test1"
-    )
