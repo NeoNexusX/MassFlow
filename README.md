@@ -4,60 +4,6 @@ English | [简体中文](README_CN.md)
 
 MassFlow is a modular and high-performance preprocessing framework for Mass Spectrometry Imaging (MSI) data. It provides efficient data management, processing, and visualization capabilities for MSI research.
 
-## Features
-
-### ✅ Implemented Features
-
-#### Data Import and Export
-- **Supported formats**: `.h5`, `.msi`, `.mat` (MATLAB format)
-- **Batch processing**: Import entire directories of MSI files
-- **Flexible storage modes**: 
-  - Split mode: Each m/z value saved as a separate file
-  - Merge mode: All data combined into a single file
-- **Data filtering**: Load specific m/z ranges to reduce memory usage
-- **Metadata management**: Automatic metadata extraction and storage
-
-#### Data Management
-- **MSI Domain Model**: Clean API with metadata, slice queue, and optional data matrix
-- **Memory-efficient loading**: Selective m/z range loading to minimize memory footprint
-- **Data normalization**: Per-channel min-max normalization
-- **Base mask generation**: Automatic generation of tissue region masks
-- **Sparsity filtering**: Filter channels based on sparsity threshold
-
-#### Visualization
-- **MSI image plotting**: Display images for specified m/z ranges
-- **Customizable display**: Adjustable thresholds, colormaps, and figure sizes
-- **Batch visualization**: Plot multiple images within a specified range
-- **Export support**: Save plots to file or display interactively
-
-#### Specialized Processors
-- **MSIDataManager**: General-purpose data manager for `.h5`/`.msi` files
-- **MSIDataManagerZYS**: Specialized processor for MATLAB `.mat` format with custom preprocessing
-
-### 📋 Planned Features (TODO)
-
-#### Data Import and output
-- .imzML format support
-- .msi format support
-- .mat format support only import may output
-
-#### Baseline Correction
-
-For example：TopHat Filter.
-
-#### Denoising & Smoothing
-
-#### Peak Detection
-
-#### Peak Alignment
-
-#### Normalization
-
-- Total Ion Current (TIC)
-- Median Normalization
-- Reference Ion Normalization
-- Binning（Resampling & Spectral Binning
-
 ## Installation
 
 ```bash
@@ -66,7 +12,7 @@ git clone https://github.com/NeoNexusX/MassFlow.git
 cd MassFlow
 
 # Install dependencies
-pip install numpy h5py matplotlib pympler
+pip install -r requirements.txt
 ```
 
 ## Development and Contributing
