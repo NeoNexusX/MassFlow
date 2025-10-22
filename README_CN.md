@@ -4,58 +4,6 @@
 
 MassFlow 是一个模块化的高性能质谱成像（MSI）数据预处理框架。它为 MSI 研究提供高效的数据管理、处理和可视化功能。
 
-## 功能特性
-
-### ✅ 已实现功能
-
-#### 数据导入和导出
-- **支持格式**：`.h5`、`.msi`、`.mat`（MATLAB 格式）
-- **批量处理**：导入整个目录的 MSI 文件
-- **灵活的存储模式**：
-  - Split 模式：每个 m/z 值保存为单独文件
-  - Merge 模式：所有数据合并到单个文件
-- **数据过滤**：加载特定 m/z 范围以减少内存使用
-- **元数据管理**：自动提取和存储元数据
-
-#### 数据管理
-- **MSI 领域模型**：提供清晰的 API，包含元数据、切片队列和可选数据矩阵
-- **内存高效加载**：选择性 m/z 范围加载以最小化内存占用
-- **数据归一化**：逐通道最小-最大归一化
-- **基础掩码生成**：自动生成组织区域掩码
-- **稀疏性过滤**：基于稀疏性阈值过滤通道
-
-#### 可视化
-- **MSI 图像绘制**：显示指定 m/z 范围的图像
-- **可自定义显示**：可调节阈值、色图和图形尺寸
-- **批量可视化**：在指定范围内绘制多个图像
-- **导出支持**：保存图像到文件或交互式显示
-
-#### 专用处理器
-- **MSIDataManager**：用于 `.h5`/`.msi` 文件的通用数据管理器
-- **MSIDataManagerZYS**：用于 MATLAB `.mat` 格式的专用处理器，具有自定义预处理功能
-
-### 📋 计划功能（TODO）
-
-#### 数据导入
-- imzML 格式支持
-- mzML 格式支持
-- Bruker `.d` 格式支持
-- Agilent `.bd` 格式支持
-
-#### 基线校正
-例如：TopHat 滤波器
-
-#### 去噪与平滑
-
-#### 峰检测
-
-#### 峰对齐
-
-#### 归一化
-- 总离子流（TIC）
-- 中位数归一化
-- 参考离子归一化
-- 分箱（重采样和光谱分箱）
 
 ## 安装
 
@@ -65,7 +13,7 @@ git clone https://github.com/NeoNexusX/MassFlow.git
 cd MassFlow
 
 # 安装依赖
-pip install numpy h5py matplotlib pympler
+pip install -r requirements.txt
 ```
 
 ## 快速开始
@@ -99,44 +47,6 @@ msi_dm2.load_full_data_from_file()
 
 # Plot images in the loaded range
 msi2.plot_msi()
-```
-
-### 示例 3：处理 MATLAB .mat 文件
-
-```python
-from module.msi_data_manager_zys import MSIDataManagerZYS
-
-# Create MSI instance for .mat file
-msi3 = MSI(name='20250329_sample', version=1.0, mask=None, need_base_mask=True)
-
-# Initialize ZYS data manager
-msi_dm_zys = MSIDataManagerZYS(msi3, filepath="./data/sample.mat")
-
-# Load and rebuild data
-msi_dm_zys.load_data_from_zys_mat()
-msi_dm_zys.rebuild_hdf5_file_from_zys()
-
-# Plot specific m/z range
-msi3.plot_msi(target_mz_range=[100, 150])
-```
-
-### 示例 4：导出数据
-
-```python
-# Export as merged file
-msi_dm_zys.write2local(mode='merge', output_fold='./data')
-
-# Export as split files (one file per m/z)
-msi_dm_zys.write2local(mode='split')
-```
-
-### 示例 5：查询特定 m/z 值
-
-```python
-# Get MSI slices for a specific m/z value
-msi_list = msi3.get_msi_by_mz(mz_value_min=88.1122, tol=1e-3)
-image = msi_list[0].msroi.T
-base_mask = msi_list[0].base_mask.T
 ```
 
 ## 项目结构
@@ -176,6 +86,39 @@ MATLAB `.mat` 文件的专用管理器，具有：
 - 逐通道归一化
 - 基于稀疏性的过滤
 - HDF5 转换功能
+
+## 开发与贡献指南
+
+### 贡献流程与规范
+- 贡献指南：参见 `docs/CONTRIBUTING.md`（中文）与 `docs/CONTRIBUTING_EN.md`（英文）
+- Issue 模板：`.github/ISSUE_TEMPLATE/feature.md`、`.github/ISSUE_TEMPLATE/bug.md` 及英文模板 `feature_en.md`、`bug_en.md`（在 GitHub 的 `New issue` 页面自动可选）
+- 命名规范：参见 `docs/NAMING_CONVENTIONS.md` 与 `docs/NAMING_CONVENTIONS_EN.md`
+- 提交信息：推荐使用 Conventional Commits（如 `feat:`、`fix:`、`docs:`、`refactor:`、`test:`），示例：`feat(data-manager): support split/merge write modes`
+- PR 检查清单要点：接口与命名一致、性能/内存无明显问题、断言与错误处理到位、文档/示例/测试同步更新、CI 通过、变更说明清晰
+
+### 推荐的 Trae/VSCode 扩展（Python 与代码质量控制）
+
+为提升代码质量和开发体验，建议安装以下扩展。工作区文件 `.vscode/extensions.json` 会自动推荐这些扩展。
+
+- `ms-python.python` — Python 支持
+- `ms-python.vscode-pylance` — 智能提示与类型分析
+- `ms-python.pylint` — 静态检查（使用仓库 `.pylintrc`）
+- `charliermarsh.ruff` — 快速代码规范与风格检查
+- `ms-python.black-formatter` — 代码格式化（Black）
+- `ms-python.isort` — 导入排序
+- `h5web.vscode-h5web` — HDF5 可视化
+
+命令行安装（可选）：
+
+```bash
+code --install-extension ms-python.python \
+  && code --install-extension ms-python.vscode-pylance \
+  && code --install-extension ms-python.pylint \
+  && code --install-extension charliermarsh.ruff \
+  && code --install-extension ms-python.black-formatter \
+  && code --install-extension ms-python.isort \
+  && code --install-extension h5web.vscode-h5web
+```
 
 ## 许可证
 

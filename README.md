@@ -4,61 +4,6 @@ English | [简体中文](README_CN.md)
 
 MassFlow is a modular and high-performance preprocessing framework for Mass Spectrometry Imaging (MSI) data. It provides efficient data management, processing, and visualization capabilities for MSI research.
 
-## Features
-
-### ✅ Implemented Features
-
-#### Data Import and Export
-- **Supported formats**: `.h5`, `.msi`, `.mat` (MATLAB format)
-- **Batch processing**: Import entire directories of MSI files
-- **Flexible storage modes**: 
-  - Split mode: Each m/z value saved as a separate file
-  - Merge mode: All data combined into a single file
-- **Data filtering**: Load specific m/z ranges to reduce memory usage
-- **Metadata management**: Automatic metadata extraction and storage
-
-#### Data Management
-- **MSI Domain Model**: Clean API with metadata, slice queue, and optional data matrix
-- **Memory-efficient loading**: Selective m/z range loading to minimize memory footprint
-- **Data normalization**: Per-channel min-max normalization
-- **Base mask generation**: Automatic generation of tissue region masks
-- **Sparsity filtering**: Filter channels based on sparsity threshold
-
-#### Visualization
-- **MSI image plotting**: Display images for specified m/z ranges
-- **Customizable display**: Adjustable thresholds, colormaps, and figure sizes
-- **Batch visualization**: Plot multiple images within a specified range
-- **Export support**: Save plots to file or display interactively
-
-#### Specialized Processors
-- **MSIDataManager**: General-purpose data manager for `.h5`/`.msi` files
-- **MSIDataManagerZYS**: Specialized processor for MATLAB `.mat` format with custom preprocessing
-
-### 📋 Planned Features (TODO)
-
-#### Data Import
-- imzML format support
-- mzML format support
-- Bruker `.d` format support
-- Agilent `.bd` format support
-
-#### Baseline Correction
-
-For example：TopHat Filter.
-
-#### Denoising & Smoothing
-
-#### Peak Detection
-
-#### Peak Alignment
-
-#### Normalization
-
-- Total Ion Current (TIC)
-- Median Normalization
-- Reference Ion Normalization
-- Binning（Resampling & Spectral Binning
-
 ## Installation
 
 ```bash
@@ -67,7 +12,41 @@ git clone https://github.com/NeoNexusX/MassFlow.git
 cd MassFlow
 
 # Install dependencies
-pip install numpy h5py matplotlib pympler
+pip install -r requirements.txt
+```
+
+## Development and Contributing
+
+### Contribution Workflow & Standards
+- Contributing guide: see `docs/CONTRIBUTING_EN.md` (English) and `docs/CONTRIBUTING.md` (Chinese)
+- Issue templates: `.github/ISSUE_TEMPLATE/feature.md`, `.github/ISSUE_TEMPLATE/bug.md` and English templates `feature_en.md`, `bug_en.md` (available in GitHub “New issue” page)
+- Naming conventions: see `docs/NAMING_CONVENTIONS_EN.md` and `docs/NAMING_CONVENTIONS.md`
+- Commit messages: follow Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `refactor:`, `test:`). Example: `feat(data-manager): support split/merge write modes`
+- Local checks (sample commands): `ruff .`, `black .`, `isort .`, `pylint module/`
+- PR checklist highlights: consistent interfaces and naming, no obvious performance/memory issues, assertions and error handling in place, docs/examples/tests updated, CI passes, clear change description
+
+### Recommended Trae/VSCode Extensions (Python & Code Quality)
+
+To improve code quality and developer experience, install the following extensions. The workspace file `.vscode/extensions.json` also recommends them automatically.
+
+- `ms-python.python` — Python support
+- `ms-python.vscode-pylance` — IntelliSense and type analysis
+- `ms-python.pylint` — Static analysis (uses repo `.pylintrc`)
+- `charliermarsh.ruff` — Fast linting and style enforcement
+- `ms-python.black-formatter` — Code formatting (Black)
+- `ms-python.isort` — Import sorting
+- `h5web.vscode-h5web` — HDF5 visualization
+
+Command line install (optional):
+
+```bash
+code --install-extension ms-python.python \
+  && code --install-extension ms-python.vscode-pylance \
+  && code --install-extension ms-python.pylint \
+  && code --install-extension charliermarsh.ruff \
+  && code --install-extension ms-python.black-formatter \
+  && code --install-extension ms-python.isort \
+  && code --install-extension h5web.vscode-h5web
 ```
 
 ## Quick Start
@@ -101,44 +80,6 @@ msi_dm2.load_full_data_from_file()
 
 # Plot images in the loaded range
 msi2.plot_msi()
-```
-
-### Example 3: Process MATLAB .mat Files
-
-```python
-from module.msi_data_manager_zys import MSIDataManagerZYS
-
-# Create MSI instance for .mat file
-msi3 = MSI(name='20250329_sample', version=1.0, mask=None, need_base_mask=True)
-
-# Initialize ZYS data manager
-msi_dm_zys = MSIDataManagerZYS(msi3, filepath="./data/sample.mat")
-
-# Load and rebuild data
-msi_dm_zys.load_data_from_zys_mat()
-msi_dm_zys.rebuild_hdf5_file_from_zys()
-
-# Plot specific m/z range
-msi3.plot_msi(target_mz_range=[100, 150])
-```
-
-### Example 4: Export Data
-
-```python
-# Export as merged file
-msi_dm_zys.write2local(mode='merge', output_fold='./data')
-
-# Export as split files (one file per m/z)
-msi_dm_zys.write2local(mode='split')
-```
-
-### Example 5: Query Specific m/z Values
-
-```python
-# Get MSI slices for a specific m/z value
-msi_list = msi3.get_msi_by_mz(mz_value_min=88.1122, tol=1e-3)
-image = msi_list[0].msroi.T
-base_mask = msi_list[0].base_mask.T
 ```
 
 ## Project Structure
