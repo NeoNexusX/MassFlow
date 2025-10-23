@@ -38,7 +38,9 @@ class MSIPreprocessor():
         self.processed_data = msi.copy()
         self.original_data = msi
 
-    def peak_pick(self,method: str):
+
+    @staticmethod
+    def peak_pick(method: str):
         """
         Perform peak picking on MSI data.
         
@@ -55,7 +57,8 @@ class MSIPreprocessor():
             NotImplementedError: If not implemented by subclass
         """
 
-    def tic_normalization(self,method: str = 'total_ion_current') -> MSI:
+    @staticmethod
+    def tic_normalization(method: str = 'total_ion_current'):
         """
         Perform Total Ion Current (TIC) normalization.
         
@@ -72,7 +75,8 @@ class MSIPreprocessor():
             NotImplementedError: If not implemented by subclass
         """
 
-    def peak_alignment(self)-> MSI:
+    @staticmethod
+    def peak_alignment():
         """
         Perform peak alignment across spectra.
         
@@ -89,7 +93,8 @@ class MSIPreprocessor():
             NotImplementedError: If not implemented by subclass
         """
 
-    def baseline_correction(self) -> MSI:
+    @staticmethod
+    def baseline_correction():
         """
         Perform baseline correction on MSI data.
         
@@ -106,7 +111,8 @@ class MSIPreprocessor():
             NotImplementedError: If not implemented by subclass
         """
 
-    def noise_reduction(self) -> MSI:
+    @staticmethod
+    def noise_reduction():
         """
         Perform noise reduction on MSI data.
         
@@ -122,7 +128,8 @@ class MSIPreprocessor():
             NotImplementedError: If not implemented by subclass
         """
 
-    def preprocess_pipeline(self) -> np.ndarray:
+    @staticmethod
+    def preprocess_pipeline() -> MSI:
         """
         Execute a complete preprocessing pipeline.
         
@@ -138,4 +145,3 @@ class MSIPreprocessor():
         Raises:
             ValueError: If invalid preprocessing step is specified
         """
-        return self.processed_data

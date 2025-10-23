@@ -1,5 +1,6 @@
 import numpy as np
 from matplotlib import pyplot as plt
+
 class MSIBaseModule:
 
     def __init__(self, mz, msroi, base_mask=None):
