@@ -86,14 +86,31 @@ msi2.plot_msi()
 
 ```
 MassFlow/
-├── module/
-│   ├── __init__.py
-│   ├── msi_module.py              # Core MSI domain model
-│   ├── msi_data_manager.py         # General data manager
-│   └── msi_data_manager_zys.py     # MATLAB .mat format processor
-├── example.py                       # Usage examples
-├── README.md
-└── LICENSE                          # GNU GPL v3
+├── module/                           # Source code package (Python modules for the current project)
+│   ├── __init__.py                   # Package initialization (exports main classes/interfaces)
+│   ├── msi_module.py                 # Core MSI domain models (MSI class, slices, etc.)
+│   ├── msi_data_manager.py           # Generic data manager (.h5 / .msi files, etc.)
+│   ├── msi_data_manager_msi.py       # .msi/.h5 specific implementation (if exists)
+│   ├── msi_data_manager_zys.py       # MATLAB .mat specific manager
+│   └── msi_preprocess.py             # Preprocessing utilities and workflows
+├── example.py                         # Usage examples / quick start script
+├── data/                              # Sample data (can be added to .gitignore)
+├── docs/                              # Documentation (contribution guidelines, naming conventions, etc.)
+│   ├── CONTRIBUTING.md
+│   ├── CONTRIBUTING_EN.md
+│   ├── NAMING_CONVENTIONS.md
+│   └── NAMING_CONVENTIONS_EN.md
+├── tests/                             # Unit tests
+│   └── test_imports.py
+├── .github/                           # GitHub configuration (Issue templates, CI, etc.)
+│   └── ISSUE_TEMPLATE/
+├── .vscode/                           # VSCode workspace suggestions (extensions.json, etc.)
+├── README.md                          # English documentation
+├── README_CN.md                       # Chinese documentation (current file)
+├── requirements.txt                   # Dependencies list
+├── .pylintrc                          # pylint configuration
+├── LICENSE                            # License (GNU GPL v3)
+└── setup.cfg / pyproject.toml         # Optional packaging/build configuration
 ```
 
 ## Core Components

@@ -53,15 +53,31 @@ msi2.plot_msi()
 
 ```
 MassFlow/
-├── module/
-│   ├── __init__.py
-│   ├── msi_module.py              # 核心 MSI 领域模型
-│   ├── msi_data_manager.py         # 通用数据管理器
-│   └── msi_data_manager_zys.py     # MATLAB .mat 格式处理器
-├── example.py                       # 使用示例
-├── README.md                        # 英文文档
-├── README_CN.md                     # 中文文档
-└── LICENSE                          # GNU GPL v3 许可证
+├── module/                           # 源码包（当前项目的 Python 模块）
+│   ├── __init__.py                   # 包初始化（导出主要类/接口）
+│   ├── msi_module.py                 # 核心 MSI 领域模型（MSI 类、切片等）
+│   ├── msi_data_manager.py           # 通用数据管理器（.h5 / .msi 等）
+│   ├── msi_data_manager_msi.py       # .msi/.h5 专用实现（若存在）
+│   ├── msi_data_manager_zys.py       # MATLAB .mat 专用管理器
+│   └── msi_preprocess.py             # 预处理相关工具与流程
+├── example.py                         # 使用示例 / 快速上手脚本
+├── data/                              # 示例数据（可加入 .gitignore）
+├── docs/                              # 文档（贡献指南、命名约定等）
+│   ├── CONTRIBUTING.md
+│   ├── CONTRIBUTING_EN.md
+│   ├── NAMING_CONVENTIONS.md
+│   └── NAMING_CONVENTIONS_EN.md
+├── tests/                             # 单元测试
+│   └── test_imports.py
+├── .github/                           # GitHub 配置（Issue 模板、CI 等）
+│   └── ISSUE_TEMPLATE/
+├── .vscode/                           # VSCode 工作区建议（extensions.json 等）
+├── README.md                          # 英文文档
+├── README_CN.md                       # 中文文档（当前文件）
+├── requirements.txt                   # 依赖列表
+├── .pylintrc                          # pylint 配置
+├── LICENSE                            # 许可证（GNU GPL v3）
+└── setup.cfg / pyproject.toml         # 可选的打包/构建配置
 ```
 
 ## 核心组件
