@@ -14,6 +14,7 @@ from .msi_data_manager import MSIDataManager
 from .msi_module import MSIBaseModule
 
 
+
 class MSIDataManagerImzML(MSIDataManager):
     """
     MSI Data Manager for .imzML files.
@@ -57,13 +58,13 @@ class MSIDataManagerImzML(MSIDataManager):
             return
 
         if self.filepath.lower().endswith('.imzml'):
-            self.load_data_from_imzml()
+            self.load_data_from_imzml() #一切正常的话，这个方法里主要就执行这一句
         else:
             print(f"Warning: Filepath {self.filepath} is not .imzML. "
                   "Attempting to load with parent class...", file=sys.stderr)
             super().load_full_data_from_file()
 
-    def load_data_from_imzml(self):
+    def load_data_from_imzml(self): #整体的工作流程在这
         """
         Main logic for parsing and loading data from an .imzML file.
         """
@@ -88,7 +89,7 @@ class MSIDataManagerImzML(MSIDataManager):
         self._msi.meta_mask = mask
 
         # 4. Collect m/z values
-        mzs_to_load = self._collect_mz_values(parser)
+        mzs_to_load = self._collect_mz_values(parser) #给mzs_to_load的返回值是一个列表，里面是通道值
         if mzs_to_load is None or len(mzs_to_load) == 0:
             print("No m/z values to load. Aborting.")
             return
@@ -101,7 +102,7 @@ class MSIDataManagerImzML(MSIDataManager):
         self._load_ion_images(parser, mzs_to_load, shape)
 
         print(f"Finished loading {self.filepath}")
-        print(f"Total slices loaded: {self.current_num}")
+        print(f"Total slices loaded: {self.current_image_num}")
 
         #同步元数据
         self._msi.update_metadata()
@@ -167,7 +168,7 @@ class MSIDataManagerImzML(MSIDataManager):
         return mask
 
 
-    def _collect_mz_values(self, parser):
+    def _collect_mz_values(self, parser): #收集离子通道数
         """
         Collect unique m/z values.
         Tries to get a global m/z list first (Processed Data).
@@ -191,7 +192,7 @@ class MSIDataManagerImzML(MSIDataManager):
                 print("Error: No spectra coordinates found.", file=sys.stderr)
                 return None
 
-            sample_indices = np.linspace(0, total_spectra - 1, sample_size, dtype=int)
+            sample_indices = np.linspace(0, total_spectra - 1, sample_size, dtype=int)#生成sample_indices
 
             all_mzs_set = set()  # 使用新名称避免混淆
             for idx in sample_indices:
@@ -202,7 +203,7 @@ class MSIDataManagerImzML(MSIDataManager):
                     print(f"Warning: Failed to read spectrum {idx}: {e}", file=sys.stderr)
                     continue
 
-            # === 你正确的安全检查必须保留在这里 ===
+            # 安全检查
             if not all_mzs_set:
                 print("Error: No m/z values could be collected from sampling.", file=sys.stderr)
                 return None
@@ -253,13 +254,13 @@ class MSIDataManagerImzML(MSIDataManager):
                     base_mask = np.where(msi_image > 0, 1, 0).astype(np.uint8)
 
                 # Fill the 3D data matrix
-                self._msi.data[self.current_num, :, :] = msi_image
+                self._msi.data[self.current_image_num, :, :] = msi_image
 
                 # Add a slice to the MSI queue
                 self._msi.add_msi_slice(
                     MSIBaseModule(
                         mz=mz_value,
-                        msroi=self._msi.data[self.current_num],
+                        msroi=self._msi.data[self.current_image_num],
                         base_mask=base_mask
                     )
                 )
@@ -269,7 +270,7 @@ class MSIDataManagerImzML(MSIDataManager):
                     print(f'Loaded slice {i + 1}/{len(mzs_to_load)} '
                           f'(m/z {mz_value:.4f})')
 
-                self.current_num += 1
+                self.current_image_num += 1
 
             except Exception as e:
                 print(f"Error loading m/z {mz_value:.4f}: {e}", file=sys.stderr)
