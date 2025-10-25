@@ -4,6 +4,7 @@ from matplotlib import pyplot as plt
 class MSIBaseModule:
 
     def __init__(self, mz, msroi, base_mask=None):
+        #TODO ：mz 要转变成set
         self.mz = mz
         self.msroi = msroi
         self.base_mask = base_mask
