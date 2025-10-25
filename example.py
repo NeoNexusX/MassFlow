@@ -1,13 +1,16 @@
-from module.msi_data_manager_msi import MSIDataManagerMSI
-from module.msi_data_manager_zys import MSIDataManagerZYS
+import os
 from module.msi_module import MSI
+from module.msi_data_manager_imzml import MSIDataManagerImzML
+from module.msi_data_manager_msi import MSIDataManagerMSI  # 导入 .msi 文件的加载器
+from module.msi_data_manager_zys import MSIDataManagerZYS
 
 
 # Run examples when executing this file directly
 if __name__ == "__main__":
 
+
     # Replace with your data file path
-    FILE_PATH = "./data/MSI_2Moderate_20250325_15uL_90ACN+HAC_4000V_20um_merge_1.0.msi"
+    FILE_PATH = "./data/generated_msi_output/MSI_imzml_test_merge_1.0.msi"
     # example usage for MSIDataManager:
     msi = MSI(name='example1', version=1.0, mask=None, need_base_mask=True)
     msi_dm = MSIDataManagerMSI(msi,filepath=FILE_PATH)
@@ -17,10 +20,11 @@ if __name__ == "__main__":
 
     # example for MSI_DataManager read file with specific mz range file:
     msi2 = MSI(name='example2', version=1.0, mask=None, need_base_mask=True)
-    msi_dm2 = MSIDataManagerMSI(msi2, target_mz_range=[101, 102], filepath=FILE_PATH)
+    msi_dm2 = MSIDataManagerMSI(msi2, target_mz_range=[600, 600.5], filepath=FILE_PATH)
     msi_dm2.inspect_data()
     msi_dm2.load_full_data_from_file()
     msi2.plot_msi()
+
 
     # example for MSI_DataManager_ZYS read file with specific mz range file:
     msi3 = MSI(name='2Moderate_20250325_15uL_90ACN+HAC_4000V_20um', version=1.0, mask=None, need_base_mask=True)

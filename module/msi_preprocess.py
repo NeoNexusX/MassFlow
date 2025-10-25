@@ -58,6 +58,24 @@ class MSIPreprocessor():
         """
 
     @staticmethod
+    def peak_pick_pixel(method: str):
+        """
+        Perform peak picking on MSI data.
+
+        Abstract method that must be implemented by concrete classes to identify
+        significant peaks in the mass spectra.
+
+        Args:
+            Fill this
+
+        Returns:
+            processed_data (MSI): Processed MSI object with peak-picked data
+
+        Raises:
+            NotImplementedError: If not implemented by subclass
+        """
+
+    @staticmethod
     def tic_normalization(method: str = 'total_ion_current'):
         """
         Perform Total Ion Current (TIC) normalization.
