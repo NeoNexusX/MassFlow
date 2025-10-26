@@ -8,6 +8,7 @@ and generates merged or split outputs.
 
 import os
 from abc import ABC, abstractmethod
+from typing import Self
 import h5py
 import numpy as np
 from .msi_module import MSI
@@ -67,12 +68,12 @@ class MSIDataManager(ABC):
         """
 
         print("MSI meta data:")
-        for msi_attr, meta_data in self._msi.metadata.items():
-            shape = getattr(meta_data, 'shape', None)
+        for attr, value in self._msi.meta.items():
+            shape = getattr(value, 'shape', None)
             if shape is not None:
-                print(f"    MSI_{msi_attr}: {shape}")
+                print(f"    meta_{attr}: {shape}")
             else:
-                print(f"    MSI_{msi_attr}: {meta_data}")
+                print(f"    meta_{attr}: {value}")
 
         print("MSI  information:")
         if self._msi.get_queue():
@@ -91,20 +92,20 @@ class MSIDataManager(ABC):
     def _write_meta_data(self, output_path):
 
         with h5py.File(output_path, 'a') as file_handle:
-            self._msi.update_metadata()
-            # 先写入不带下划线前缀的属性名（如 meta_version），优先使用 getter 的值
-            for private_key, _ in self._msi.metadata.items():
-                public_key = private_key[1:]  # 去掉前导下划线：'_meta_xxx' -> 'meta_xxx'
-                value = getattr(self._msi, public_key)
-                if file_handle.get(public_key) is None:
+
+            for attr, value in self._msi.meta.items():
+                ds_name = f"meta_{attr}"
+                if file_handle.get(ds_name) is None:
                     if value is None:
-                        print("leak meta data with {value}")
                         continue
-                    elif 'num' in public_key or 'version' in public_key:
+                    if isinstance(value, str):
+                        dtype = h5py.string_dtype(encoding='utf-8')
+                    elif ('num' in attr) or ('version' in attr):
                         dtype = np.float32
                     else:
-                        dtype = h5py.string_dtype(encoding='utf-8') if isinstance(value, str) else None
-                    file_handle.create_dataset(public_key, data=value, dtype=dtype)
+                        dtype = None
+                    self._upsert_dataset(file_handle, ds_name, value, dtype=dtype)
+
 
     def write2local(self, mode="merge", prefix="MSI", output_fold=None, compression_opts=9):
         """
@@ -124,10 +125,13 @@ class MSIDataManager(ABC):
         if len(self._msi) == 0:
             print("No MSI images to write. Please rebuild or load the HDF5 file first.")
 
-        self._msi.meta_storage_mode = mode
+        self._msi.meta.storage_mode = mode
+
+        meta_name = self._msi.meta.get('name')
+        meta_version = self._msi.meta.get('version')
 
         output_fold = (
-            f'./{prefix}_{self._msi.meta_name}_{self._msi.meta_version}'
+            f'./{prefix}_{meta_name}_{meta_version}'
             if output_fold is None else output_fold
         )
         os.makedirs(output_fold, exist_ok=True)
@@ -137,7 +141,7 @@ class MSIDataManager(ABC):
             if mode == "split":
                 file_name = f"{prefix}_{mz_data:.4f}.msi"
             elif mode == "merge":
-                file_name = f"{prefix}_{self._msi.meta_name}_merge_{self._msi.meta_version}.msi"
+                file_name = f"{prefix}_{meta_name}_merge_{meta_version}.msi"
             else:
                 assert False, f"Error: {mode} is not a valid mode. Please use 'split' or 'merge'."
 
@@ -167,10 +171,34 @@ class MSIDataManager(ABC):
                 group = file_handle.create_group(group_name)
 
             if 'mz' not in group and mz_data is not None:
-                group.create_dataset('mz', data=mz_data)
+                MSIDataManager._upsert_dataset(group, 'mz', data=mz_data)
 
             if 'msroi' not in group and msroi is not None:
-                group.create_dataset('msroi',
-                                     data=msroi,
-                                     compression=compression,
-                                     compression_opts=compression_opts)
+                MSIDataManager._upsert_dataset(group, 
+                                               'msroi',
+                                                data=msroi,
+                                                compression=compression,
+                                                compression_opts=compression_opts)
+                
+    @staticmethod
+    def _upsert_dataset(group, name, data, dtype=None, compression=None, compression_opts=None):
+        """
+        Update dataset in-place when possible; otherwise delete and recreate.
+        """
+        if data is None:
+            return
+        if name in group:
+            ds = group[name]
+            try:
+                ds[...] = data
+                return
+            except (TypeError, ValueError):
+                # dtype/shape not compatible -> drop and recreate
+                del group[name]
+        kwargs = {}
+        if dtype is not None:
+            kwargs['dtype'] = dtype
+        if compression is not None:
+            kwargs['compression'] = compression
+            kwargs['compression_opts'] = compression_opts
+        group.create_dataset(name, data=data, **kwargs)

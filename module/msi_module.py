@@ -1,6 +1,6 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from .msi_meta_data import MSIMetadataBase
+from .meta_data import MetaDataBase
 
 
 
@@ -10,27 +10,71 @@ class MSIBaseModule:
     """
 
     def __init__(self, mz, msroi, base_mask=None):
-        #TODO ：mz 要转变成set
         self.mz = mz
         self.msroi = msroi
         self.base_mask = base_mask
 
 
-class MSI(MSIMetadataBase):
+class MSIMetaData(MetaDataBase):
+    """
+    Metadata class for MSI data models.
+    Inherits all metadata handling from MetaDataBase.
+    Adds an additional field for need_base_mask.
+    """
+    def __init__(self,
+                 name,
+                 version=1.0,
+                 mz_num=None,
+                 storage_mode='split',
+                 mask=None,
+                 need_base_mask: bool = False):
+
+        super().__init__(name, version, mz_num, storage_mode)
+
+        self._mask = None
+        self._need_base_mask = None
+
+        # Set actual value through property
+        self.mask = mask
+        self.need_base_mask = need_base_mask
+
+    @property
+    def mask(self):
+        return self._mask
+
+    @mask.setter
+    def mask(self, mask):
+        self._mask = mask
+        self._set('mask', mask)
+
+    @property
+    def need_base_mask(self):
+        return self._need_base_mask
+
+    @need_base_mask.setter
+    def need_base_mask(self, need_base_mask: bool):
+        self._need_base_mask = need_base_mask
+        self._set('need_base_mask', need_base_mask)
+
+class MSI:
     """
     Domain model for MSI data (Image Matrix format).
-    Inherits all metadata handling from MSIMetadataBase.
     Adds logic for the slice queue and the 3D data matrix.
 
     All metadata properties are inherited
     from MSIMetadataBase and automatically synchronized to the metadata dict.
     """
 
-    def __init__(self, name, version=1.0, mask=None, mz_num=None,
-                 storage_mode='split', need_base_mask: bool = False):
+    def __init__(self,
+                 name,
+                 version=1.0,
+                 mask=None,
+                 mz_num=None,
+                 storage_mode='split',
+                 need_base_mask: bool = False):
 
         # Call parent class __init__ to initialize all metadata
-        super().__init__(name, version, mask, mz_num, storage_mode, need_base_mask)
+        self.meta = MSIMetaData(name, version, mz_num, storage_mode, mask, need_base_mask)
 
         # Initialize MSI-specific private fields
         self._queue = []
@@ -45,15 +89,16 @@ class MSI(MSIMetadataBase):
     def data(self, data_matrix):
         self._data = data_matrix
 
+    @property
+    def queue(self):
+        return self._queue
+
     # ---- Queue accessors ----
-    def add_msi_slice(self, msi):
+    def add_msi_img(self, msi):
         if isinstance(msi, MSIBaseModule):
             self._queue.append(msi)
         else:
             raise ValueError("Only MSIBaseModule instances can be added to the queue.")
-
-    def get_queue(self):
-        return self._queue
 
     def __getitem__(self, index):
         return self._queue[index]
@@ -109,12 +154,11 @@ class MSI(MSIMetadataBase):
 
     def allocate_data_from_meta(self, dtype=np.float32):
 
-        assert self.meta_mask is not None, "meta_mask is None"
-        assert hasattr(self.meta_mask, 'shape') and len(self.meta_mask.shape) == 2, "meta_mask must be 2D"
-        assert self.meta_mz_num > 0, "meta_mz_num must be greater than 0"
+        assert self.meta.mask is not None, "meta_mask cannot be None"
+        assert self.meta.mz_num > 0, "meta_mz_num must be greater than 0"
 
         self.data = np.zeros(
-            (int(self.meta_mz_num), int(self.meta_mask.shape[0]), int(self.meta_mask.shape[1])),
+            (int(self.meta.mz_num), int(self.meta.mask.shape[0]), int(self.meta.mask.shape[1])),
             dtype=dtype
         )
         return self.data

@@ -39,17 +39,17 @@ class MSIDataManagerMSI(MSIDataManager):
 
         Steps:
         1. Call load_data_helper to read all metadata.
-        2. Preallocate a 3D data matrix using meta_mz_num and mask dimensions.
+        2. Preallocate a 3D data matrix using meta.mz_num and mask dimensions.
         3. Call load_data_helper again to read all image data and fill the matrix.
 
         Notes:
-        - Requires meta_mz_num > 0, otherwise an assertion error is raised.
+        - Requires meta.mz_num > 0, otherwise an assertion error is raised.
         - If target_mz_range is set, only load m/z images within that range.
         """
 
         # Read metadata
         self.__load_data_helper(fn_name='meta')
-        assert self.get_msi().meta_mz_num > 0, "meta_mz_num must be greater than 0"
+        assert self.get_msi().meta.mz_num > 0, "meta.mz_num must be greater than 0"
 
         # Initialize data storage matrix via MSI API
         self.get_msi().allocate_data_from_meta(dtype=np.float32)
@@ -71,14 +71,14 @@ class MSIDataManagerMSI(MSIDataManager):
             assert False, f"Error: {self.filepath} is not a valid .h5 file or .msi file or directory."
 
         if fn_name != 'meta':
-            # Check if current_num exceeds meta_mz_num after loading data
-            assert self.current_image_num <= self._msi.meta_mz_num, (
-                f"current_num {self.current_image_num} != meta_mz_num "
-                f"{self._msi.meta_mz_num}"
+            # Check if current_num exceeds meta.mz_num after loading data
+            assert self.current_image_num <= self._msi.meta.mz_num, (
+                f"current_num {self.current_image_num} != meta.mz_num "
+                f"{self._msi.meta.mz_num}"
             )
-            #update meta_mz_num if current_num is smaller
-            if self.target_mz_range is not None and self.current_image_num <= self._msi.meta_mz_num:
-                self._msi.meta_mz_num = self.current_image_num
+            #update meta.mz_num if current_num is smaller
+            if self.target_mz_range is not None and self.current_image_num <= self._msi.meta.mz_num:
+                self._msi.meta.mz_num = self.current_image_num
 
     def __load_meta_from_file(self, file):
         """
@@ -124,7 +124,7 @@ class MSIDataManagerMSI(MSIDataManager):
                         continue
                     # Compute base_mask based on metadata if needed
                     msi_image = group['msroi'][()]
-                    base_mask = np.where(msi_image > 0, 1, 0) if self._msi.meta_need_base_mask else None
+                    base_mask = np.where(msi_image > 0, 1, 0) if self._msi.meta.need_base_mask else None
 
                     self._msi.data[self.current_image_num, :, :] = msi_image
                     self._msi.add_msi_slice(
@@ -168,20 +168,6 @@ class MSIDataManagerMSI(MSIDataManager):
 
         print("=== memory usage ===")
 
-        # Metadata section
-        print("\n--- Metadata part ---")
-        metadata_total_size = 0
-
-        # Update metadata to ensure latest values
-        self._msi.update_metadata()
-
-        for key, meta_item in self._msi.metadata.items():
-            item_size = sys.getsizeof(meta_item)
-            metadata_total_size += item_size
-            print(f"Metadata[{key}]: {item_size} bytes")
-
-        print(f"Metadata fullsize: {metadata_total_size} bytes ({metadata_total_size / 1024:.2f} KB)")
-
         # Data matrix section
         data_matrix_size = 0
         data = self._msi.data
@@ -201,7 +187,7 @@ class MSIDataManagerMSI(MSIDataManager):
         print(f"Queue size: {queue_total_size} bytes ({queue_total_size / (1024 * 1024):.2f} MB)")
 
         # Total
-        total_size = metadata_total_size + queue_total_size + data_matrix_size
+        total_size = queue_total_size + data_matrix_size
         print("\n================ Sum ================")
         print(f"sum usage: ({total_size / 1024:.2f} KB, {total_size / (1024 * 1024):.2f} MB)")
 
