@@ -3,7 +3,6 @@ from matplotlib import pyplot as plt
 from .meta_data import MetaDataBase
 
 
-
 class MSIBaseModule:
     """
     Basic MSI data slice containing m/z value, intensity matrix, and optional mask.
@@ -44,8 +43,9 @@ class MSIMetaData(MetaDataBase):
 
     @mask.setter
     def mask(self, mask):
-        self._mask = mask
-        self._set('mask', mask)
+        if mask is not None:
+            self._mask = mask
+            self._set('mask', mask)
 
     @property
     def need_base_mask(self):
@@ -53,8 +53,9 @@ class MSIMetaData(MetaDataBase):
 
     @need_base_mask.setter
     def need_base_mask(self, need_base_mask: bool):
-        self._need_base_mask = need_base_mask
-        self._set('need_base_mask', need_base_mask)
+        if need_base_mask is not None:
+            self._need_base_mask = need_base_mask
+            self._set('need_base_mask', need_base_mask)
 
 class MSI:
     """
@@ -75,7 +76,7 @@ class MSI:
 
         # Call parent class __init__ to initialize all metadata
         self.meta = MSIMetaData(name, version, mz_num, storage_mode, mask, need_base_mask)
-
+        # msi.meta[name]
         # Initialize MSI-specific private fields
         self._queue = []
         self._data = None

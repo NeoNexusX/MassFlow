@@ -8,7 +8,6 @@ and generates merged or split outputs.
 
 import os
 from abc import ABC, abstractmethod
-from typing import Self
 import h5py
 import numpy as np
 from .msi_module import MSI
@@ -76,14 +75,14 @@ class MSIDataManager(ABC):
                 print(f"    meta_{attr}: {value}")
 
         print("MSI  information:")
-        if self._msi.get_queue():
-            mz_values = [module.mz for module in self._msi.get_queue()]
+        if self._msi.queue:
+            mz_values = [module.mz for module in self._msi.queue]
             max_mz = max(mz_values)
             min_mz = min(mz_values)
-            non_empty_count = sum(1 for module in self._msi.get_queue() if module.base_mask is not None)
+            non_empty_count = sum(1 for module in self._msi.queue if module.base_mask is not None)
             print(f"    MSI max mz: {max_mz}")
             print(f"    MSI min mz: {min_mz}")
-            print(f"    MSI len : {len(self._msi.get_queue())}")
+            print(f"    MSI len : {len(self._msi)}")
             print(f"    base_mask not empty is {non_empty_count}")
             # print(f"MSI queue mz values: {[mz.item() for mz in mz_values]}")
         else:
@@ -95,17 +94,17 @@ class MSIDataManager(ABC):
 
             for attr, value in self._msi.meta.items():
                 ds_name = f"meta_{attr}"
-                if file_handle.get(ds_name) is None:
-                    if value is None:
-                        continue
-                    if isinstance(value, str):
-                        dtype = h5py.string_dtype(encoding='utf-8')
-                    elif ('num' in attr) or ('version' in attr):
-                        dtype = np.float32
-                    else:
-                        dtype = None
-                    self._upsert_dataset(file_handle, ds_name, value, dtype=dtype)
+                if value is None:
+                    continue
+                if isinstance(value, str):
+                    dtype = h5py.string_dtype(encoding='utf-8')
+                elif ('num' in attr) or ('version' in attr):
+                    dtype = np.float32
+                else:
+                    dtype = None
 
+                # 始终 upsert（覆盖或重建），避免旧值残留
+                self._upsert_dataset(file_handle, ds_name, value, dtype=dtype)
 
     def write2local(self, mode="merge", prefix="MSI", output_fold=None, compression_opts=9):
         """
@@ -179,7 +178,7 @@ class MSIDataManager(ABC):
                                                 data=msroi,
                                                 compression=compression,
                                                 compression_opts=compression_opts)
-                
+
     @staticmethod
     def _upsert_dataset(group, name, data, dtype=None, compression=None, compression_opts=None):
         """

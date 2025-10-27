@@ -1,13 +1,14 @@
 from typing import List, Tuple, Union, Optional
 import numpy as np
 import matplotlib.pyplot as plt
+from pyimzml.ImzMLParser import ImzMLParser
 
 class MSBaseModule:
 
     def __init__(self,
-                    mz_list: Optional[np.ndarray],
-                    intensity: Optional[np.ndarray],
-                    coordinates: List[int]):
+                mz_list: Optional[np.ndarray],
+                intensity: Optional[np.ndarray],
+                coordinates: List[int]):
 
         assert len(coordinates) == 3, "Coordinates must be a list of three integers."
 
@@ -32,11 +33,42 @@ class MSBaseModule:
     def get_coordinates(self) -> List[int]:
         return self.coordinates
 
+    def __len__(self):
+        return len(self.mz_list)
+
     def __eq__(self, other):
         if not isinstance(other, MSBaseModule):
             return False
         return self.coordinates == other.coordinates
 
+class MSImzML(MSBaseModule):
+    """
+    Lazy spectrum wrapper for ImzML.
+    Holds parser + index; loads on-demand.
+    """
+    def __init__(self,
+                parser:ImzMLParser,
+                index: int,
+                coordinates):
+
+        super().__init__(mz_list=None, intensity=None, coordinates=coordinates)
+        self._parser = parser
+        self._index = int(index)
+
+    @property
+    def mz_list(self):
+        if self._mz_list is None:
+            mz, intensity = self._parser.getspectrum(self._index)
+            self._mz_list = mz
+            self._intensity = intensity
+        return self._mz_list
+
+    @property
+    def intensity(self):
+        if self._intensity is None:
+            # Ensure mz_list triggers lazy load and sets intensity
+            _ = self.mz_list
+        return self._intensity
 
 class MS:
 
@@ -57,7 +89,6 @@ class MS:
     def get_spectrum(self, x: int, y: int, z: int =0 ) -> MSBaseModule:
         return self._coordinate_index[z][x][y]
 
-
     def __getitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int], slice]) -> MSBaseModule:
         """
         Support multiple indexing methods:
@@ -72,11 +103,8 @@ class MS:
             elif len(key) == 2:
                 x, y = key
                 return self._coordinate_index[0][x][y]  # z defaults to 0
-            else:
-                raise IndexError("Coordinates must be 2 or 3 integers")
         else:
             raise TypeError("Index must be in tuple format, like [x, y, z] or [x, y]")
-
 
     def __setitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int]], spectrum: MSBaseModule):
         """
@@ -117,7 +145,7 @@ class MS:
     def __iter__(self):
         return iter(self._queue)
 
-    def plot_ms(self, x: int, y: int, z: int =0):
+    def plot_ms(self, x: int=0, y: int=0, z: int =0):
 
         spectrum = self.get_spectrum(x, y, z)
         plt.figure(figsize=(10, 6))

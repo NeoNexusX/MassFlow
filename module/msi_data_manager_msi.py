@@ -94,15 +94,15 @@ class MSIDataManagerMSI(MSIDataManager):
         """
         with h5py.File(file, 'r') as h5_file:
             for key, group in h5_file.items():
-                if key.startswith('meta_') and self._msi.metadata.get(key) is None:
-                    # Read raw dataset value
-                    dataset_value = group[()]
-                    # Decode bytes to string if necessary
-                    if isinstance(dataset_value, bytes):
-                        dataset_value = dataset_value.decode('utf-8')
-                    setattr(self._msi, key, dataset_value)
-
-        self._msi.update_metadata()
+                if key.startswith('meta_') and self._msi.meta.get(key) is None:
+                    attr = key.replace('meta_', '', 1)
+                    if self._msi.meta.get(attr) is None:
+                        # Read raw dataset value
+                        dataset_value = group[()]
+                        # Decode bytes to string if necessary
+                        if isinstance(dataset_value, bytes):
+                            dataset_value = dataset_value.decode('utf-8')
+                        setattr(self._msi.meta, attr, dataset_value)
 
     def __load_data_from_file(self, file):
         """
@@ -127,7 +127,7 @@ class MSIDataManagerMSI(MSIDataManager):
                     base_mask = np.where(msi_image > 0, 1, 0) if self._msi.meta.need_base_mask else None
 
                     self._msi.data[self.current_image_num, :, :] = msi_image
-                    self._msi.add_msi_slice(
+                    self._msi.add_msi_img(
                         MSIBaseModule(mz=mz,
                                       msroi=(self._msi.data[self.current_image_num] if self._msi.data is not None else msi_image),
                                       base_mask=base_mask

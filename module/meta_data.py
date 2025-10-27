@@ -11,7 +11,7 @@ class MetaDataBase:
     to the metadata dictionary via property setters.
     """
 
-    def __init__(self, name, version=1.0, mz_num=None, storage_mode='split'):
+    def __init__(self, name, version=None, mz_num=None, storage_mode='split'):
 
         self._meta = {}
         # Initialize all metadata fields via properties to trigger auto-sync
@@ -36,8 +36,9 @@ class MetaDataBase:
 
     @name.setter
     def name(self, name):
-        self._name = name
-        self._set('name', name)
+        if name is not None:
+            self._name = name
+            self._set('name', name)
 
     @property
     def version(self):
@@ -45,19 +46,20 @@ class MetaDataBase:
 
     @version.setter
     def version(self, version):
-        assert version is not None, "Version cannot be None"
-        assert version > 0, "Version must be positive"
-        self._version = version
-        self._set('version', version)
+        if version is not None:
+            assert version > 0, "Version must be positive"
+            self._version = version
+            self._set('version', version)
 
     @property
     def mz_num(self):
-        return self._mz_num if self._mz_num is not None else 0
+        return self._mz_num
 
     @mz_num.setter
     def mz_num(self, mz_num):
-        self._mz_num = int(mz_num)
-        self._set('mz_num', self._mz_num)
+        if mz_num is not None:
+            self._mz_num = int(mz_num)
+            self._set('mz_num', self._mz_num)
 
     @property
     def storage_mode(self):
@@ -65,8 +67,9 @@ class MetaDataBase:
 
     @storage_mode.setter
     def storage_mode(self, mode):
-        self._storage_mode = mode
-        self._set('storage_mode', mode)
+        if mode is not None:
+            self._storage_mode = mode
+            self._set('storage_mode', self._storage_mode)
 
     def __getitem__(self, key):
         return self._meta[key]
