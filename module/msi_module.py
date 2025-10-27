@@ -149,7 +149,7 @@ class MSI:
                 plt.colorbar(label='Intensity')
                 plt.title(f'MSI Image at m/z {msi.mz:.4f}')
                 if output_path:
-                    plt.savefig(output_path.format(msi.mz))
+                    plt.savefig(output_path.format(msi.mz), dpi=300)
                 else:
                     plt.show()
 

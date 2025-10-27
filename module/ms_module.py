@@ -12,7 +12,7 @@ class MSBaseModule:
 
         assert len(coordinates) == 3, "Coordinates must be a list of three integers."
 
-        # 延迟加载友好：存私有字段 + 属性访问
+        # 延迟加载
         self._mz_list = mz_list
         self._intensity = intensity
         self.coordinates = coordinates
@@ -21,7 +21,7 @@ class MSBaseModule:
         self.y = int(y)
         self.z = int(z)
 
-    # 延迟加载兼容的属性接口
+    # lazy load properties
     @property
     def mz_list(self) -> np.ndarray:
         return self._mz_list
@@ -40,6 +40,41 @@ class MSBaseModule:
         if not isinstance(other, MSBaseModule):
             return False
         return self.coordinates == other.coordinates
+
+    def plot(self,
+            save_path=None,
+            figsize=(20, 5),
+            dpi: int = 300,
+            color='steelblue',
+            plot_mode: str = "line"):
+
+        intensity = self.intensity
+        mz = self.mz_list
+
+        plt.figure(figsize=figsize)
+        mode = (plot_mode or "stem").lower()
+        if mode == "line":
+            # Connected line plot
+            plt.plot(mz, intensity,color=color,linewidth=0.8, alpha=0.8)
+        else:
+            # Default: stem plot
+            markerline, stemlines, baseline = plt.stem(mz, intensity)
+            plt.setp(stemlines, linewidth=0.7, color=color, alpha=0.7)
+            plt.setp(markerline, markersize=3, color=color, alpha=0.7)
+            plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.4)
+        
+        # Reduce whitespace by setting tight axis limits
+        plt.xlim(mz.min(), mz.max())
+        plt.ylim(0, intensity.max() * 1.05)  # 5% margin at top
+        plt.title(f"Mass Spectrum")
+        plt.xlabel("m/z")
+        plt.ylabel("Intensity")
+        plt.tight_layout()  # Minimize figure padding
+
+        if save_path:
+            plt.savefig(save_path,dpi=dpi)
+        else:
+            plt.show()
 
 class MSImzML(MSBaseModule):
     """
@@ -75,6 +110,8 @@ class MS:
     def __init__(self):
         self._queue = []
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
+        # TODO: dlq :Initialize metadata with default values
+        # self.meta = MSIMetaData(name, version)
 
     def add_spectrum(self, spectrum: MSBaseModule):
         self._queue.append(spectrum)
@@ -96,7 +133,10 @@ class MS:
         - module[x, y]        # z defaults to 0
         - module[(x, y, z)]   # Tuple format
         """
-        if isinstance(key, tuple):
+        if isinstance(key, int):
+        # Return the item from the queue by index
+            return self._queue[key]
+        elif isinstance(key, tuple):
             if len(key) == 3:
                 x, y, z = key
                 return self._coordinate_index[z][x][y]
@@ -145,12 +185,51 @@ class MS:
     def __iter__(self):
         return iter(self._queue)
 
-    def plot_ms(self, x: int=0, y: int=0, z: int =0):
+    def plot_ms(self,
+                x: int = 0,
+                y: int = 0,
+                z: int = 0,
+                save_path=None,
+                figsize=(20, 5),
+                dpi: int = 300,
+                color='steelblue',
+                plot_mode: str = "line"):
+        """Plot a mass spectrum at the given coordinates.
+
+        Parameters
+        - x, y, z: Coordinates of the spectrum to plot (z defaults to 0).
+        - save_path: If provided, saves the figure to this path; otherwise, shows it.
+        - figsize: Matplotlib figure size tuple.
+        - dpi: Figure DPI when saving.
+        - plot_mode: 'stem' for stem plot (default), 'line' to connect points with a line.
+        """
 
         spectrum = self.get_spectrum(x, y, z)
-        plt.figure(figsize=(10, 6))
-        plt.stem(spectrum.mz_list, spectrum.intensity, use_line_collection=True)
+        intensity = spectrum.intensity
+        mz = spectrum.mz_list
+
+        plt.figure(figsize=figsize)
+        mode = (plot_mode or "stem").lower()
+        if mode == "line":
+            # Connected line plot
+            plt.plot(mz, intensity,color=color,linewidth=0.8, alpha=0.8)
+        else:
+            # Default: stem plot
+            markerline, stemlines, baseline = plt.stem(mz, intensity)
+            plt.setp(stemlines, linewidth=0.7, color=color, alpha=0.7)
+            plt.setp(markerline, markersize=3, color=color, alpha=0.7)
+            plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.4)
+        
+        # Reduce whitespace by setting tight axis limits
+        plt.xlim(mz.min(), mz.max())
+        plt.ylim(0, intensity.max() * 1.05)  # 5% margin at top
+        
         plt.title(f"Mass Spectrum at Coordinates (x={x}, y={y}, z={z})")
         plt.xlabel("m/z")
         plt.ylabel("Intensity")
-        plt.show()
+        plt.tight_layout()  # Minimize figure padding
+
+        if save_path:
+            plt.savefig(save_path,dpi=dpi)
+        else:
+            plt.show()

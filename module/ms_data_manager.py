@@ -78,11 +78,4 @@ class MSDataManager(ABC):
             print("ms len :", len(spectrum))
             print(f"mz range:{min(spectrum.mz_list)} - {max(spectrum.mz_list)}")
             print("max intensity:", max(spectrum.intensity))
-            pointer4num += 1   
-
-    def _write_meta_data(self, output_path):
-        pass
-    
-    #TODO：DLQ
-    def write2local(self, mode="merge", prefix="MS", output_fold=None, compression_opts=9):
-        pass
+            pointer4num += 1

@@ -3,20 +3,24 @@ from module.ms_module import MS
 from module.msi_data_manager_msi import MSIDataManagerMSI  # 导入 .msi 文件的加载器
 from module.msi_data_manager_zys import MSIDataManagerZYS
 from module.ms_data_manager_imzml import MSDataManagerImzML
-
+from preprocess.ms_preprocess import MSIPreprocessor
 # Run examples when executing this file directly
 if __name__ == "__main__":
 
     # Replace with your data file path
-    FILE_PATH = "/Users/neo/Desktop/MassFlow/data/20250416_20um.imzML"
+    FILE_PATH = "data/20250421_20um.imzML"
     #example for read imzml data as ms ：
     ms = MS()
     ms_dm = MSDataManagerImzML(ms, filepath=FILE_PATH)
     ms_dm.load_full_data_from_file()
     ms_dm.inspect_data()
-    ms.plot_ms(0,0,1)
-
-
+    ms.plot_ms(0,1,0)
+    spectrum1 = ms[0] # get the first spectrum by queue index
+    spectrum2 = ms[10,20] # get the spectrum at coordinate (10,20,0)、
+    print(spectrum1.mz_list)
+    print(spectrum2.mz_list)
+    spectrum2 = MSIPreprocessor.noise_reduction(spectrum2, method='gaussian', window=10)
+    spectrum2.plot()
     # example usage for MSIDataManager:
     # msi = MSI(name='example1', version=1.0, mask=None, need_base_mask=True)
     # msi_dm = MSIDataManagerMSI(msi,filepath=FILE_PATH)
