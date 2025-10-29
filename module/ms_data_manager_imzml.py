@@ -4,12 +4,16 @@ MSI Data Manager for imzML format.
 Handles reading .imzML files and loading data into the MSI domain model.
 Supports filtering by m/z range and efficient ion image extraction.
 """
-import sys
 import os
+import warnings
 from pyimzml.ImzMLParser import ImzMLParser
+from logger import get_logger
 from .ms_data_manager import MSDataManager
 from .ms_module import MS
 from .ms_module import MSImzML
+
+logger = get_logger("ms_data_manager_imzml")
+
 
 class MSDataManagerImzML(MSDataManager):
     """
@@ -42,13 +46,21 @@ class MSDataManagerImzML(MSDataManager):
         - Add MSImzML placeholders into MS
         """
         if not self.filepath or not os.path.exists(self.filepath):
-            print(f"Error: File {self.filepath} does not exist.", file=sys.stderr)
-            return
+            logger.error(f"Error: File {self.filepath} does not exist.")
+            raise FileNotFoundError(f"Error: File {self.filepath} does not exist.")
         if not self.filepath.lower().endswith('.imzml'):
-            print(f"Error: {self.filepath} is not an .imzML file.", file=sys.stderr)
-            return
+            logger.error(f"Error: {self.filepath} is not an .imzML file.")
+            raise ValueError(f"Error: {self.filepath} is not an .imzML file.")
 
-        parser = ImzMLParser(self.filepath)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            parser = ImzMLParser(self.filepath)
+            if w:
+                for warning in w:
+                    if "pyimzml" in str(warning.filename):
+                        logger.warning(f"pyimzml warn: {warning.message}")
+                    else:
+                        warnings.warn(warning.message, warning.category)
 
         # Build (x,y,z)->index mapping
         coords = parser.coordinates  # list of tuples
@@ -57,6 +69,5 @@ class MSDataManagerImzML(MSDataManager):
             c1, c2 = self.target_locs if self.target_locs is not None else [0,0],[999,999]
             if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
                 spectrum = MSImzML(parser=parser, index=i, coordinates=[x-1, y-1, z-1])
-                print([x, y, z])
                 self._ms.add_spectrum(spectrum)
                 self.current_spectrum_num += 1

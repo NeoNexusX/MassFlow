@@ -10,7 +10,11 @@ import os
 from abc import ABC, abstractmethod
 import h5py
 import numpy as np
+from logger import get_logger
 from .msi_module import MSI
+
+logger = get_logger("msi_data_manager")
+
 
 class MSIDataManager(ABC):
     """
@@ -66,27 +70,27 @@ class MSIDataManager(ABC):
         queue length, and count of non-empty base masks.
         """
 
-        print("MSI meta data:")
+        logger.info("MSI meta data:")
         for attr, value in self._msi.meta.items():
             shape = getattr(value, 'shape', None)
             if shape is not None:
-                print(f"    meta_{attr}: {shape}")
+                logger.info(f"    meta_{attr}: {shape}")
             else:
-                print(f"    meta_{attr}: {value}")
+                logger.info(f"    meta_{attr}: {value}")
 
-        print("MSI  information:")
+        logger.info("MSI  information:")
         if self._msi.queue:
             mz_values = [module.mz for module in self._msi.queue]
             max_mz = max(mz_values)
             min_mz = min(mz_values)
             non_empty_count = sum(1 for module in self._msi.queue if module.base_mask is not None)
-            print(f"    MSI max mz: {max_mz}")
-            print(f"    MSI min mz: {min_mz}")
-            print(f"    MSI len : {len(self._msi)}")
-            print(f"    base_mask not empty is {non_empty_count}")
+            logger.info(f"    MSI max mz: {max_mz}\n"
+                        f"    MSI min mz: {min_mz}\n"
+                        f"    MSI len : {len(self._msi)}\n"
+                        f"    base_mask not empty is {non_empty_count}")
             # print(f"MSI queue mz values: {[mz.item() for mz in mz_values]}")
         else:
-            print("MSI queue is empty.")
+            logger.info("MSI queue is empty.")
 
     def _write_meta_data(self, output_path):
 
@@ -122,7 +126,7 @@ class MSIDataManager(ABC):
         """
 
         if len(self._msi) == 0:
-            print("No MSI images to write. Please rebuild or load the HDF5 file first.")
+            logger.info("No MSI images to write. Please rebuild or load the HDF5 file first.")
 
         self._msi.meta.storage_mode = mode
 
@@ -142,7 +146,8 @@ class MSIDataManager(ABC):
             elif mode == "merge":
                 file_name = f"{prefix}_{meta_name}_merge_{meta_version}.msi"
             else:
-                assert False, f"Error: {mode} is not a valid mode. Please use 'split' or 'merge'."
+                logger.error(f"Error: {mode} is not a valid mode. Please use 'split' or 'merge'.")
+                raise ValueError(f"Error: {mode} is not a valid mode. Please use 'split' or 'merge'.")
 
             # update file name
             output_path = os.path.join(output_fold, file_name)

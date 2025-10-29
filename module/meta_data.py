@@ -1,5 +1,6 @@
 # module/msi_meta_data.py
 
+
 class MetaDataBase:
     """
     Abstract base class for MSI data models.

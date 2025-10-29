@@ -6,7 +6,11 @@ Supports .h5/.msi files and batch import from directories, filters by m/z range,
 and generates merged or split outputs.
 """
 from abc import ABC, abstractmethod
+from logger import get_logger
 from .ms_module import MS
+
+logger = get_logger("ms_data_manager")
+
 
 class MSDataManager(ABC):
     """
@@ -32,9 +36,12 @@ class MSDataManager(ABC):
         # target_locs input verification
         if target_locs is not None:
             # target locs input
-            assert len(target_locs) >= 1, "target_locs must be non-empty"
-            if len(target_locs) ==2:
-                assert target_locs[0][0] <= target_locs[1][0] and target_locs[0][1] <= target_locs[1][1], "locs must x1<x2,y1<y2"
+            if len(target_locs) <= 1:
+                logger.error("target_locs must be non-empty")
+                raise ValueError("target_locs must be non-empty")
+            elif target_locs[0][0] > target_locs[1][0] or target_locs[0][1] > target_locs[1][1]:
+                logger.error("locs must x1<x2,y1<y2")
+                raise ValueError("locs must x1<x2,y1<y2")
 
         # update target_locs
         self.target_locs = target_locs
@@ -63,19 +70,17 @@ class MSDataManager(ABC):
         """
         Inspect the data structure of the MSI object.
 
-        Prints metadata shapes and queue information, including max/min m/z values,
+        Log metadata shapes and queue information, including max/min m/z values,
         queue length, and count of non-empty base masks.
         """
-        print("MS meta data:")
+        logger.info("MS meta data:")
         #TODO: implement inspect meta data - dlq
-        print(f"ms count is {self.current_spectrum_num}" )
-        print("MS  information:")
+        logger.info(f"MS count is {self.current_spectrum_num}" )
+        logger.info("MS  information:")
         
         pointer4num = 0
         for spectrum in self._ms:
             if pointer4num >= inpect_num:
                 break
-            print("ms len :", len(spectrum))
-            print(f"mz range:{min(spectrum.mz_list)} - {max(spectrum.mz_list)}")
-            print("max intensity:", max(spectrum.intensity))
+            logger.info(f"MS len: {len(spectrum)}\r\nMS range: {min(spectrum.mz_list)} - {max(spectrum.mz_list)}\r\nmax intensity: {max(spectrum.intensity)}")    
             pointer4num += 1
