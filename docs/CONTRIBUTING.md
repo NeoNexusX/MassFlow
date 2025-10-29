@@ -1,16 +1,32 @@
+<!--
+ * @Author: xiongqiurong 1513401658@qq.com
+ * @Date: 2025-10-29 19:02:08
+ * @LastEditors: xiongqiurong 1513401658@qq.com
+ * @LastEditTime: 2025-10-29 21:46:11
+ * @FilePath: \undefinedd:\86150\Documents\learngit\MassFlow\docs\CONTRIBUTING.md
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+-->
+<!--
+ * @Author: xiongqiurong 1513401658@qq.com
+ * @Date: 2025-10-29 19:02:08
+ * @LastEditors: xiongqiurong 1513401658@qq.com
+ * @LastEditTime: 2025-10-29 21:41:14
+ * @FilePath: \undefinedd:\86150\Documents\learngit\MassFlow\docs\CONTRIBUTING.md
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+-->
 # 贡献指南（Contributing Guidelines）
 
 欢迎为 MassFlow 做出贡献！本文档为多人协作提供统一的流程与质量规范，确保分工有序、代码稳定、发布可控。
 
 ## 快速开始
-- Fork 仓库或从 `main` 切出你的工作分支（推荐分支命名见下文）。
+- Fork 仓库或从 `dev` 切出你的工作分支（推荐分支命名见下文）。
 - 在本地安装推荐的 Cursor/Trae/VSCode 插件（见 README 与 `.vscode/extensions.json`）。Pycharm 可以略过
 - 遵循命名规范与代码风格（`NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`、`.pylintrc`）。
 - 完成任务后提交 PR，按照评审清单自检并请求评审。
 
 ## 分支策略
+- `dev`：主要开发分支，用于日常开发工作。
 - `main`：受保护分支，仅通过评审的 PR 合入；保持稳定可发布。
-- 工作分支（短生命周期，明确用途）：
   - 功能：`feature/<topic>`（例：`feature/imzml-import`）
 - 合并策略：优先使用 squash merge 保持提交历史简洁；必要时 rebase 清理提交记录。
 
@@ -22,7 +38,7 @@
    - 标题精炼（建议遵循 Conventional Commits）：例如 `feat(msi): add HDF5 group writer`
    - 描述完整：关键改动、影响范围、测试要点（`Closes #<id>`）
    - 请求评审：指定模块负责人或代码所有者
-5. 评审与合并：修复评论项 → CI 通过 → 满足评审清单 → 合并至 `main`。
+5. 评审与合并：修复评论项 → CI 通过 → 满足评审清单 → 合并至 `dev`。
 
 ## 提交信息规范（Commit Messages）
 - 推荐使用 Conventional Commits：
@@ -76,7 +92,7 @@
 ## 发布与版本管理
 - 语义化版本：`MAJOR.MINOR.PATCH`；对外接口与数据格式变更提升 `MAJOR`
 - 变更日志：维护 `CHANGELOG.md`，记录功能、修复、破坏性变更
-- Release 流程：合并到 `main` → 打 Tag → 产出 Release Notes → 同步文档
+- Release 流程：合并到 `dev` → 打 Tag → 产出 Release Notes → 同步文档
 
 ## 联系方式
 - 如有问题与支持需求，请在仓库提交 Issue；或在 PR 中 @负责人 进行讨论。
