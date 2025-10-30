@@ -119,8 +119,6 @@ def smooth_ns_signal_ma(
         logger.warning("mz_list must be provided and have the same length as intensity , using np list index as mz_list")
         mz_list = np.arange(len(intensity))
     
-    weights = np.ones(k)
-    weights = weights / np.sum(weights)
 
     from scipy.spatial import cKDTree
     tree = cKDTree(mz_list.reshape(-1, 1))
@@ -128,7 +126,10 @@ def smooth_ns_signal_ma(
     if len(intensity) < k:
         logger.warning("spectrum length must be greater than k")
         k = len(intensity)
-    
+
+    weights = np.ones(k)
+    weights = weights / np.sum(weights)
+
     dists, idxs = tree.query(mz_list.reshape(-1, 1), k=k, p=p)
 
     # Ensure idxs is (N, k)
