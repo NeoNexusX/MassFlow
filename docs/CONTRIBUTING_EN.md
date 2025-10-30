@@ -3,7 +3,7 @@
 Thank you for contributing to MassFlow! This document defines the shared workflow and quality standards for collaborating, so work stays organized, code remains stable, and releases are controlled.
 
 ## Quick Start
-- Fork the repository or branch off `main` for your work branch (recommended naming below).
+- Fork the repository or branch off `dev` for your work branch (recommended naming below).
 - Install the recommended Cursor/Trae/VSCode extensions locally (see README and `.vscode/extensions.json`). PyCharm users can skip this.
 - Follow naming conventions and code style (`NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`, `.pylintrc`).
 - When your task is done, open a PR, self-check with the review checklist, and request review.

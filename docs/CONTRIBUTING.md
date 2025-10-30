@@ -1,19 +1,3 @@
-<!--
- * @Author: xiongqiurong 1513401658@qq.com
- * @Date: 2025-10-29 19:02:08
- * @LastEditors: xiongqiurong 1513401658@qq.com
- * @LastEditTime: 2025-10-29 21:46:11
- * @FilePath: \undefinedd:\86150\Documents\learngit\MassFlow\docs\CONTRIBUTING.md
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
--->
-<!--
- * @Author: xiongqiurong 1513401658@qq.com
- * @Date: 2025-10-29 19:02:08
- * @LastEditors: xiongqiurong 1513401658@qq.com
- * @LastEditTime: 2025-10-29 21:41:14
- * @FilePath: \undefinedd:\86150\Documents\learngit\MassFlow\docs\CONTRIBUTING.md
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
--->
 # 贡献指南（Contributing Guidelines）
 
 欢迎为 MassFlow 做出贡献！本文档为多人协作提供统一的流程与质量规范，确保分工有序、代码稳定、发布可控。
