@@ -3,7 +3,7 @@
 Thank you for contributing to MassFlow! This document defines the shared workflow and quality standards for collaborating, so work stays organized, code remains stable, and releases are controlled.
 
 ## Quick Start
-- Fork the repository or branch off `dev` for your work branch (recommended naming below).
+- Fork the repository or branch off `main` for your work branch (recommended naming below).
 - Install the recommended Cursor/Trae/VSCode extensions locally (see README and `.vscode/extensions.json`). PyCharm users can skip this.
 - Follow naming conventions and code style (`NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`, `.pylintrc`).
 - When your task is done, open a PR, self-check with the review checklist, and request review.
@@ -77,7 +77,7 @@ Thank you for contributing to MassFlow! This document defines the shared workflo
 ## Release and Versioning
 - Semantic Versioning: `MAJOR.MINOR.PATCH`; bump `MAJOR` for public API or data format changes.
 - Changelog: maintain `CHANGELOG.md` with features, fixes, and breaking changes.
-- Release flow: merge to `dev` → tag → generate Release Notes → update docs.
+- Release flow: merge to `main` → tag → generate Release Notes → update docs.
 
 ## Contact
 - For questions or support, open an Issue in the repository; or @ module owners in PR discussions.
