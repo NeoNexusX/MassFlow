@@ -1,5 +1,20 @@
 # module/msi_meta_data.py
-
+meta_index = {
+    "IMS:1000042": "max_count_of_pixels_x", #图像宽度（像素数量）
+    "IMS:1000043": "max_count_of_pixels_y",#图像高度（像素数）
+    "IMS:1000044": "max_dimension_x",#图像宽度（物理尺寸，µm）
+    "IMS:1000045": "max_dimension_y",#图像高度（物理尺寸，µm）
+    "IMS:1000046": "pixel_size_x",#像素宽度（µm）
+    "IMS:1000047": "pixel_size_y",#像素高度（µm）
+    "IMS:1000053": "absolute_position_offset_x",#X轴偏移位置
+    "IMS:1000054": "absolute_position_offset_y",#Y轴偏移位置
+    "IMS:1000031": "processed",#是否处理过了
+    "MS:1000031": "instrument_model",#仪器型号
+    "MS:1000127": "centroid_spectrum",#质谱数据为质心模式
+    "MS:1000128": "profile_spectrum",#质谱数据为轮廓模式
+    "MS:1000579": "ms1_spectrum",#一级质谱
+    "MS:1000580": "msn_spectrum"#多级质谱
+}
 
 class MetaDataBase:
     """
@@ -20,12 +35,14 @@ class MetaDataBase:
         self._version = None
         self._mz_num = None
         self._storage_mode = None
+        self._meta_index = None
 
         #set actual values through properties
         self.name = name
         self.version = version
         self.mz_num = mz_num
         self.storage_mode = storage_mode
+        self.meta_index = meta_index
 
     def _set(self, key, value):
         self._meta[key] = value
@@ -95,3 +112,14 @@ class MetaDataBase:
 
     def to_dict(self):
         return dict(self._meta)
+
+    @property
+    def meta_index(self):
+        return self._meta_index
+
+    @meta_index.setter
+    def meta_index(self, meta_index):
+        if meta_index is not None:
+            if not isinstance(meta_index, dict):
+                raise TypeError("meta_index must be a dict")
+            self._meta_index = meta_index

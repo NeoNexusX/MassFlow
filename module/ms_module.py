@@ -2,6 +2,9 @@ from typing import List, Tuple, Union, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 from pyimzml.ImzMLParser import ImzMLParser
+from meta_data import MetaDataBase
+import os
+from pyimzml.metadata import ParamGroup
 
 class MSBaseModule:
 
@@ -110,8 +113,6 @@ class MS:
     def __init__(self):
         self._queue = []
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
-        # TODO: dlq :Initialize metadata with default values
-        # self.meta = MSIMetaData(name, version)
 
     def add_spectrum(self, spectrum: MSBaseModule):
         self._queue.append(spectrum)
@@ -233,3 +234,251 @@ class MS:
             plt.savefig(save_path,dpi=dpi)
         else:
             plt.show()
+
+class MetaDataImzMl(MetaDataBase):
+    def __init__(self,
+                 name="MSI",
+                 version=1.0,
+                 mz_num=None,
+                 storage_mode='split',
+                 parser: ImzMLParser = None,
+                 filepath: str = None
+                 ):
+        super().__init__(name, version, mz_num, storage_mode)
+
+        self._filepath = None
+        self._parser = None
+        self._spectrum_count_num = None
+        self._max_count_of_pixels_x = None
+        self._max_count_of_pixels_y = None
+        self._max_dimension_x = None
+        self._max_dimension_y = None
+        self._pixel_size_x = None
+        self._pixel_size_y = None
+        self._absolute_position_offset_x = None
+        self._absolute_position_offset_y = None
+        self._processed = None
+        self._instrument_model = None
+        self._centroid_spectrum = None
+        self._profile_spectrum = None
+        self._ms1_spectrum = None
+        self._msn_spectrum = None
+
+        # Set actual value through property
+        if parser is not None:
+            self.parser = parser
+        elif filepath is not None:
+            self.filepath = filepath
+        else:
+            raise ValueError("Either parser or filepath must be provided")
+
+        if self.parser is not None:
+            self.spectrum_count_num = len(self.parser.coordinates)
+            self.extract_metadata()  #使用pyimzml.ImzMLParser来获取 metadata
+
+    @property
+    def filepath(self):
+        return self._filepath
+
+    @filepath.setter
+    def filepath(self, filepath: str):
+        if not filepath or not os.path.exists(filepath):
+            raise FileNotFoundError(f"File not found: {filepath}")
+        self._filepath = filepath
+        if self.parser is None:
+            self.parser = ImzMLParser(filepath)
+
+    @property
+    def parser(self):
+        return self._parser
+
+    @parser.setter
+    def parser(self, parser: ImzMLParser):
+        if parser is not None and not isinstance(parser, ImzMLParser):
+            raise TypeError("parser must be an instance of pyimzML.ImzMLParser or None")
+        self._parser = parser
+
+    @property
+    def spectrum_count_num(self):
+        return self._spectrum_count_num
+
+    @spectrum_count_num.setter
+    def spectrum_count_num(self, spectrum_count_num: int):
+        self._spectrum_count_num = spectrum_count_num
+        self._set('spectrum_count_num', spectrum_count_num)
+
+    @property
+    def max_count_of_pixels_x(self):
+        return self._max_count_of_pixels_x
+
+    @max_count_of_pixels_x.setter
+    def max_count_of_pixels_x(self, max_count_of_pixels_x):
+        if max_count_of_pixels_x is not None:
+            self._max_count_of_pixels_x = max_count_of_pixels_x
+            self._set('max_count_of_pixels_x', max_count_of_pixels_x)
+
+    @property
+    def max_count_of_pixels_y(self):
+        return self._max_count_of_pixels_y
+
+    @max_count_of_pixels_y.setter
+    def max_count_of_pixels_y(self, max_count_of_pixels_y):
+        if max_count_of_pixels_y is not None:
+            self._max_count_of_pixels_y = max_count_of_pixels_y
+            self._set('max_count_of_pixels_y', max_count_of_pixels_y)
+
+    @property
+    def max_dimension_x(self):
+        return self._max_dimension_x
+
+    @max_dimension_x.setter
+    def max_dimension_x(self, max_dimension_x):
+        self._max_dimension_x = max_dimension_x
+        self._set('max_dimension_x', max_dimension_x)
+
+    @property
+    def max_dimension_y(self):
+        return self._max_dimension_y
+
+    @max_dimension_y.setter
+    def max_dimension_y(self, max_dimension_y):
+        self._max_dimension_y = max_dimension_y
+        self._set('max_dimension_y', max_dimension_y)
+
+    @property
+    def pixel_size_x(self):
+        return self._pixel_size_x
+
+    @pixel_size_x.setter
+    def pixel_size_x(self, pixel_size_x):
+        self._pixel_size_x = pixel_size_x
+        self._set('pixel_size_x', pixel_size_x)
+
+    @property
+    def pixel_size_y(self):
+        return self._pixel_size_y
+
+    @pixel_size_y.setter
+    def pixel_size_y(self, pixel_size_y):
+        self._pixel_size_y = pixel_size_y
+        self._set('pixel_size_y', pixel_size_y)
+
+    @property
+    def absolute_position_offset_x(self):
+        return self._absolute_position_offset_x
+
+    @absolute_position_offset_x.setter
+    def absolute_position_offset_x(self, absolute_position_offset_x):
+        self._absolute_position_offset_x = absolute_position_offset_x
+        self._set('absolute_position_offset_x', absolute_position_offset_x)
+
+    @property
+    def absolute_position_offset_y(self):
+        return self._absolute_position_offset_y
+
+    @absolute_position_offset_y.setter
+    def absolute_position_offset_y(self, absolute_position_offset_y):
+        self._absolute_position_offset_y = absolute_position_offset_y
+        self._set('absolute_position_offset_y', absolute_position_offset_y)
+
+    @property
+    def processed(self):
+        return self._processed
+    @processed.setter
+    def processed(self, processed):
+        self._processed = processed
+        self._set('processed', processed)
+
+    @property
+    def instrument_model(self):
+        return self._instrument_model
+
+    @instrument_model.setter
+    def instrument_model(self, instrument_model):
+        self._instrument_model = instrument_model
+        self._set('instrument_model', instrument_model)
+
+    @property
+    def centroid_spectrum(self):
+        return self._centroid_spectrum
+
+    @centroid_spectrum.setter
+    def centroid_spectrum(self, centroid_spectrum):
+        self._centroid_spectrum = centroid_spectrum
+        self._set('centroid_spectrum', centroid_spectrum)
+
+    @property
+    def profile_spectrum(self):
+        return self._profile_spectrum
+
+    @profile_spectrum.setter
+    def profile_spectrum(self, profile_spectrum):
+        self._profile_spectrum = profile_spectrum
+        self._set('profile_spectrum', profile_spectrum)
+
+    @property
+    def ms1_spectrum(self):
+        return self._ms1_spectrum
+
+    @ms1_spectrum.setter
+    def ms1_spectrum(self, ms1_spectrum):
+        self._ms1_spectrum = ms1_spectrum
+        self._set('ms1_spectrum', ms1_spectrum)
+
+    @property
+    def msn_spectrum(self):
+        return self._msn_spectrum
+
+    @msn_spectrum.setter
+    def msn_spectrum(self, msn_spectrum):
+        self._msn_spectrum = msn_spectrum
+        self._set('msn_spectrum', msn_spectrum)
+
+    #方法一，通过pyimzml来获取metadata
+    def extract_metadata(self):
+
+        print("Extracting metadata...")
+
+        if self._parser is None:
+            raise ValueError("Parser is not initialized. Please set parser or filepath first.")
+
+        for accession_id, prop_name in self._meta_index.items():
+            param_value = self.find_param_by_accession_id(accession_id)
+            if param_value is not None:
+                setattr(self, prop_name, param_value)
+
+
+    def find_param_by_accession_id(self, accession_id: str): #使用pyimzml.ImzMLParser来获取 metadata
+
+        search_areas = [
+            self.parser.metadata.file_description,  # 文件描述（如数据类型、创建时间）
+            self.parser.metadata.scan_settings,  # 扫描设置（如扫描模式、质荷比范围）
+            self.parser.metadata.instrument_configurations,  # 仪器配置（如仪器型号、离子源）
+            self.parser.metadata.samples,  # 样品信息（如样品名称、处理方式）
+            self.parser.metadata.softwares,  # 软件信息（如解析软件、版本）
+            self.parser.metadata.data_processings,  # 数据处理（如是否经过峰提取、归一化）
+            self.parser.metadata.referenceable_param_groups,  # 可引用参数组（复用的通用参数）
+        ]
+
+        for area in search_areas:
+            if area is None:
+                continue
+
+            result = self._search_in_area(area, accession_id)
+            if result is not None:
+                return result
+
+        return None
+
+    def _search_in_area(self, area, accession_id):
+        """在特定区域搜索参数"""
+        if isinstance(area, ParamGroup):
+            if accession_id in area:
+                return area[accession_id]
+
+        elif isinstance(area, dict):
+            for param_group in area.values():
+                if accession_id in param_group:
+                    return param_group[accession_id]
+
+        return None
