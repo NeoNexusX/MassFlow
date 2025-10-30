@@ -19,7 +19,7 @@ if __name__ == "__main__":
     ms_dm.inspect_data()
     spectrum1 = ms[0]
     spectrum2 = MSIPreprocessor.noise_reduction(spectrum1, method='gaussian', window=10)
-
+    spectrum2.plot()
     # watchout attribution should use {} to convert to string
     logger.info(f"spectrum1: {spectrum1}")
     logger.warning(f"spectrum1: {spectrum1}")
