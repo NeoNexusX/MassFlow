@@ -34,7 +34,7 @@ from typing import Union
 from logger import get_logger
 from module.ms_module import MS, MSBaseModule, MSImzML
 import numpy as np
-from .filter import smooth_signal_ma, smooth_signal_gaussian
+from .filter import smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_ma
 
 logger = get_logger("ms_preprocess")
 
@@ -193,6 +193,8 @@ class MSIPreprocessor():
             smoothed_intensity = smooth_signal_ma(data, coef=coef, window=window)
         elif method == "gaussian":
             smoothed_intensity = smooth_signal_gaussian(data, sd=sd, window=window)
+        elif method == "ma_ns":
+            smoothed_intensity = smooth_ns_signal_ma(data)
         else:
             logger.error(f"Unsupported smoothing method: {method}. Use 'ma' or 'gaussian'.")
             raise ValueError(f"Unsupported smoothing method: {method}. Use 'ma' or 'gaussian'.")

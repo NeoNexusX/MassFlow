@@ -4,7 +4,7 @@ from typing import Optional
 from logger import get_logger
 from module.ms_module import MSBaseModule
 
-logger = get_logger(filter)
+logger = get_logger(__name__)
 
 def smooth_signal_ma(x: MSBaseModule, coef: Optional[np.ndarray] = None, window: int = 5) -> np.ndarray:
     """
@@ -101,7 +101,7 @@ def smooth_signal_gaussian(x: MSBaseModule, sd: Optional[float] = None, window: 
 def smooth_ns_signal_ma(
     x: MSBaseModule, 
     k: int= 5, 
-    p: int= 2,
+    p: int= 1,
     metric: str= "mse",):
     """
     Apply moving-average (or arbitrary kernel) smoothing to an MSI spectrum with noise suppression.
@@ -114,15 +114,35 @@ def smooth_ns_signal_ma(
     if k < 1 or p < 1:
         logger.error("p and k must be a positive integer")
         raise ValueError("k must be a positive integer")
+    
     if mz_list is None or len(mz_list) != len(intensity):
         logger.warning("mz_list must be provided and have the same length as intensity , using np list index as mz_list")
         mz_list = np.arange(len(intensity))
-    weights = np.ones(k)
     
+    weights = np.ones(k)
+    weights = weights / np.sum(weights)
+
     from scipy.spatial import cKDTree
     tree = cKDTree(mz_list.reshape(-1, 1))
+
+    if len(intensity) < k:
+        logger.warning("spectrum length must be greater than k")
+        k = len(intensity)
     
     dists, idxs = tree.query(mz_list.reshape(-1, 1), k=k, p=p)
+
+    # Ensure idxs is (N, k)
+    if np.ndim(idxs) == 1:
+        idxs = idxs.reshape(-1, 1)
+
+    neigh_vals = intensity[idxs]  # shape: (N, k)
+
+    y = np.sum(neigh_vals * weights, axis=1)
+
+    return
+
+
+
 
 
 
