@@ -11,14 +11,18 @@ logger = get_logger("example")
 if __name__ == "__main__":
 
     # Replace with your data file path
-    FILE_PATH = "data/20250421_20um.imzML"
+    FILE_PATH = "data/example.imzML"
     #example for read imzml data as ms ：
     ms = MS()
     ms_dm = MSDataManagerImzML(ms, filepath=FILE_PATH)
     ms_dm.load_full_data_from_file()
     ms_dm.inspect_data()
     spectrum1 = ms[0]
+    spectrum1.plot()
+    spectrum2 = MSIPreprocessor.noise_reduction(spectrum1, method='ma', window=10)
+    spectrum2.plot()
     spectrum2 = MSIPreprocessor.noise_reduction(spectrum1, method='ma_ns', window=10)
+    spectrum2.plot()
 
     # example usage for MSIDataManager:
     # msi = MSI(name='example1', version=1.0, mask=None, need_base_mask=True)
