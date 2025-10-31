@@ -15,7 +15,7 @@ class MSBaseModule:
 
         assert len(coordinates) == 3, "Coordinates must be a list of three integers."
 
-        # 延迟加载
+        # Lazy loading
         self._mz_list = mz_list
         self._intensity = intensity
         self.coordinates = coordinates
@@ -236,6 +236,7 @@ class MS:
             plt.show()
 
 class MetaDataImzMl(MetaDataBase):
+    """ImzML metadata wrapper that loads and caches frequently used fields."""
     def __init__(self,
                  name="MSI",
                  version=1.0,
@@ -244,6 +245,7 @@ class MetaDataImzMl(MetaDataBase):
                  parser: ImzMLParser = None,
                  filepath: str = None
                  ):
+        """Initialize the metadata object with either a parser or a file path."""
         super().__init__(name, version, mz_num, storage_mode)
 
         self._filepath = None
@@ -274,14 +276,16 @@ class MetaDataImzMl(MetaDataBase):
 
         if self.parser is not None:
             self.spectrum_count_num = len(self.parser.coordinates)
-            self.extract_metadata()  #使用pyimzml.ImzMLParser来获取 metadata
+            self.extract_metadata()  # Use pyimzml.ImzMLParser to retrieve metadata
 
     @property
     def filepath(self):
+        """Return the associated imzML file path."""
         return self._filepath
 
     @filepath.setter
     def filepath(self, filepath: str):
+        """Set the imzML file path and initialize the parser if needed."""
         if not filepath or not os.path.exists(filepath):
             raise FileNotFoundError(f"File not found: {filepath}")
         self._filepath = filepath
@@ -290,152 +294,185 @@ class MetaDataImzMl(MetaDataBase):
 
     @property
     def parser(self):
+        """Return the bound pyimzML parser instance."""
         return self._parser
 
     @parser.setter
     def parser(self, parser: ImzMLParser):
+        """Set the pyimzML parser instance."""
         if parser is not None and not isinstance(parser, ImzMLParser):
             raise TypeError("parser must be an instance of pyimzML.ImzMLParser or None")
         self._parser = parser
 
     @property
     def spectrum_count_num(self):
+        """Return the number of spectra."""
         return self._spectrum_count_num
 
     @spectrum_count_num.setter
     def spectrum_count_num(self, spectrum_count_num: int):
+        """Persist the number of spectra and sync it to the base storage."""
         self._spectrum_count_num = spectrum_count_num
         self._set('spectrum_count_num', spectrum_count_num)
 
     @property
     def max_count_of_pixels_x(self):
+        """Return the pixel count along the X axis."""
         return self._max_count_of_pixels_x
 
     @max_count_of_pixels_x.setter
     def max_count_of_pixels_x(self, max_count_of_pixels_x):
+        """Set the pixel count along the X axis."""
         if max_count_of_pixels_x is not None:
             self._max_count_of_pixels_x = max_count_of_pixels_x
             self._set('max_count_of_pixels_x', max_count_of_pixels_x)
 
     @property
     def max_count_of_pixels_y(self):
+        """Return the pixel count along the Y axis."""
         return self._max_count_of_pixels_y
 
     @max_count_of_pixels_y.setter
     def max_count_of_pixels_y(self, max_count_of_pixels_y):
+        """Set the pixel count along the Y axis."""
         if max_count_of_pixels_y is not None:
             self._max_count_of_pixels_y = max_count_of_pixels_y
             self._set('max_count_of_pixels_y', max_count_of_pixels_y)
 
     @property
     def max_dimension_x(self):
+        """Return the physical dimension along the X axis."""
         return self._max_dimension_x
 
     @max_dimension_x.setter
     def max_dimension_x(self, max_dimension_x):
+        """Set the physical dimension along the X axis."""
         self._max_dimension_x = max_dimension_x
         self._set('max_dimension_x', max_dimension_x)
 
     @property
     def max_dimension_y(self):
+        """Return the physical dimension along the Y axis."""
         return self._max_dimension_y
 
     @max_dimension_y.setter
     def max_dimension_y(self, max_dimension_y):
+        """Set the physical dimension along the Y axis."""
         self._max_dimension_y = max_dimension_y
         self._set('max_dimension_y', max_dimension_y)
 
     @property
     def pixel_size_x(self):
+        """Return the pixel size along the X axis."""
         return self._pixel_size_x
 
     @pixel_size_x.setter
     def pixel_size_x(self, pixel_size_x):
+        """Set the pixel size along the X axis."""
         self._pixel_size_x = pixel_size_x
         self._set('pixel_size_x', pixel_size_x)
 
     @property
     def pixel_size_y(self):
+        """Return the pixel size along the Y axis."""
         return self._pixel_size_y
 
     @pixel_size_y.setter
     def pixel_size_y(self, pixel_size_y):
+        """Set the pixel size along the Y axis."""
         self._pixel_size_y = pixel_size_y
         self._set('pixel_size_y', pixel_size_y)
 
     @property
     def absolute_position_offset_x(self):
+        """Return the absolute position offset on the X axis."""
         return self._absolute_position_offset_x
 
     @absolute_position_offset_x.setter
     def absolute_position_offset_x(self, absolute_position_offset_x):
+        """Set the absolute position offset on the X axis."""
         self._absolute_position_offset_x = absolute_position_offset_x
         self._set('absolute_position_offset_x', absolute_position_offset_x)
 
     @property
     def absolute_position_offset_y(self):
+        """Return the absolute position offset on the Y axis."""
         return self._absolute_position_offset_y
 
     @absolute_position_offset_y.setter
     def absolute_position_offset_y(self, absolute_position_offset_y):
+        """Set the absolute position offset on the Y axis."""
         self._absolute_position_offset_y = absolute_position_offset_y
         self._set('absolute_position_offset_y', absolute_position_offset_y)
 
     @property
     def processed(self):
+        """Return whether the data has been processed."""
         return self._processed
     @processed.setter
     def processed(self, processed):
+        """Set whether the data has been processed."""
         self._processed = processed
         self._set('processed', processed)
 
     @property
     def instrument_model(self):
+        """Return the mass spectrometer model."""
         return self._instrument_model
 
     @instrument_model.setter
     def instrument_model(self, instrument_model):
+        """Set the mass spectrometer model."""
         self._instrument_model = instrument_model
         self._set('instrument_model', instrument_model)
 
     @property
     def centroid_spectrum(self):
+        """Return whether centroid spectra are present."""
         return self._centroid_spectrum
 
     @centroid_spectrum.setter
     def centroid_spectrum(self, centroid_spectrum):
+        """Set whether centroid spectra are present."""
         self._centroid_spectrum = centroid_spectrum
         self._set('centroid_spectrum', centroid_spectrum)
 
     @property
     def profile_spectrum(self):
+        """Return whether profile spectra are present."""
         return self._profile_spectrum
 
     @profile_spectrum.setter
     def profile_spectrum(self, profile_spectrum):
+        """Set whether profile spectra are present."""
         self._profile_spectrum = profile_spectrum
         self._set('profile_spectrum', profile_spectrum)
 
     @property
     def ms1_spectrum(self):
+        """Return whether MS1 spectra are present."""
         return self._ms1_spectrum
 
     @ms1_spectrum.setter
     def ms1_spectrum(self, ms1_spectrum):
+        """Set whether MS1 spectra are present."""
         self._ms1_spectrum = ms1_spectrum
         self._set('ms1_spectrum', ms1_spectrum)
 
     @property
     def msn_spectrum(self):
+        """Return whether MSn spectra are present."""
         return self._msn_spectrum
 
     @msn_spectrum.setter
     def msn_spectrum(self, msn_spectrum):
+        """Set whether MSn spectra are present."""
         self._msn_spectrum = msn_spectrum
         self._set('msn_spectrum', msn_spectrum)
 
-    #方法一，通过pyimzml来获取metadata
+    # Approach 1: load metadata through pyimzML
     def extract_metadata(self):
+        """Iterate _meta_index and populate matching attributes from the parser."""
 
         print("Extracting metadata...")
 
@@ -448,16 +485,17 @@ class MetaDataImzMl(MetaDataBase):
                 setattr(self, prop_name, param_value)
 
 
-    def find_param_by_accession_id(self, accession_id: str): #使用pyimzml.ImzMLParser来获取 metadata
+    def find_param_by_accession_id(self, accession_id: str): # Use pyimzML.ImzMLParser to fetch metadata
+        """Search the predefined metadata areas for the given accession identifier."""
 
         search_areas = [
-            self.parser.metadata.file_description,  # 文件描述（如数据类型、创建时间）
-            self.parser.metadata.scan_settings,  # 扫描设置（如扫描模式、质荷比范围）
-            self.parser.metadata.instrument_configurations,  # 仪器配置（如仪器型号、离子源）
-            self.parser.metadata.samples,  # 样品信息（如样品名称、处理方式）
-            self.parser.metadata.softwares,  # 软件信息（如解析软件、版本）
-            self.parser.metadata.data_processings,  # 数据处理（如是否经过峰提取、归一化）
-            self.parser.metadata.referenceable_param_groups,  # 可引用参数组（复用的通用参数）
+            self.parser.metadata.file_description,  # File description (data type, creation time, etc.)
+            self.parser.metadata.scan_settings,  # Scan settings (scan mode, m/z range, etc.)
+            self.parser.metadata.instrument_configurations,  # Instrument configuration (model, ion source, etc.)
+            self.parser.metadata.samples,  # Sample information (sample name, preparation, etc.)
+            self.parser.metadata.softwares,  # Software information (parser, version, etc.)
+            self.parser.metadata.data_processings,  # Data processing (peak picking, normalization, etc.)
+            self.parser.metadata.referenceable_param_groups,  # Referenceable parameter groups (shared metadata)
         ]
 
         for area in search_areas:
@@ -471,7 +509,7 @@ class MetaDataImzMl(MetaDataBase):
         return None
 
     def _search_in_area(self, area, accession_id):
-        """在特定区域搜索参数"""
+        """Search a single parameter area for the given accession identifier."""
         if isinstance(area, ParamGroup):
             if accession_id in area:
                 return area[accession_id]

@@ -1,19 +1,19 @@
 # module/msi_meta_data.py
 meta_index = {
-    "IMS:1000042": "max_count_of_pixels_x", #图像宽度（像素数量）
-    "IMS:1000043": "max_count_of_pixels_y",#图像高度（像素数）
-    "IMS:1000044": "max_dimension_x",#图像宽度（物理尺寸，µm）
-    "IMS:1000045": "max_dimension_y",#图像高度（物理尺寸，µm）
-    "IMS:1000046": "pixel_size_x",#像素宽度（µm）
-    "IMS:1000047": "pixel_size_y",#像素高度（µm）
-    "IMS:1000053": "absolute_position_offset_x",#X轴偏移位置
-    "IMS:1000054": "absolute_position_offset_y",#Y轴偏移位置
-    "IMS:1000031": "processed",#是否处理过了
-    "MS:1000031": "instrument_model",#仪器型号
-    "MS:1000127": "centroid_spectrum",#质谱数据为质心模式
-    "MS:1000128": "profile_spectrum",#质谱数据为轮廓模式
-    "MS:1000579": "ms1_spectrum",#一级质谱
-    "MS:1000580": "msn_spectrum"#多级质谱
+    "IMS:1000042": "max_count_of_pixels_x", # Image width (pixel count)
+    "IMS:1000043": "max_count_of_pixels_y",# Image height (pixel count)
+    "IMS:1000044": "max_dimension_x",# Image width (physical size, µm)
+    "IMS:1000045": "max_dimension_y",# Image height (physical size, µm)
+    "IMS:1000046": "pixel_size_x",# Pixel width (µm)
+    "IMS:1000047": "pixel_size_y",# Pixel height (µm)
+    "IMS:1000053": "absolute_position_offset_x",# X-axis position offset
+    "IMS:1000054": "absolute_position_offset_y",# Y-axis position offset
+    "IMS:1000031": "processed",# Whether the data is processed
+    "MS:1000031": "instrument_model",# Instrument model
+    "MS:1000127": "centroid_spectrum",# Mass spectrum in centroid mode
+    "MS:1000128": "profile_spectrum",# Mass spectrum in profile mode
+    "MS:1000579": "ms1_spectrum",# MS1 spectrum
+    "MS:1000580": "msn_spectrum"# MSn spectrum
 }
 
 class MetaDataBase:
