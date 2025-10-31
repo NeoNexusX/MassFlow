@@ -23,7 +23,7 @@ Thank you for contributing to MassFlow! This document defines the shared workflo
    - Concise title (Conventional Commits recommended), e.g., `feat(msi): add HDF5 group writer`.
    - Complete description: key changes, impact scope, testing points (`Closes #<id>`).
    - Request reviewers: tag module owners or code owners.
-5. Review and merge: address comments → CI green → meets checklist → merge into `dev`.
+5. Review and merge: address comments → CI green → meets checklist → merge into `main`.
 
 ## Commit Message Guidelines
 - Conventional Commits are recommended:
@@ -77,7 +77,7 @@ Thank you for contributing to MassFlow! This document defines the shared workflo
 ## Release and Versioning
 - Semantic Versioning: `MAJOR.MINOR.PATCH`; bump `MAJOR` for public API or data format changes.
 - Changelog: maintain `CHANGELOG.md` with features, fixes, and breaking changes.
-- Release flow: merge to `main` → tag → generate Release Notes → update docs.
+- Release flow: PR merged to dev → dev merged to main → create Tag → generate Release Notes → update docs.
 
 ## Contact
 - For questions or support, open an Issue in the repository; or @ module owners in PR discussions.
