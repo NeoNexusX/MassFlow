@@ -1,35 +1,38 @@
 from typing import Optional
+import numpy as np
+from scipy import stats
 from logger import get_logger
 from module.ms_module import MSBaseModule
-import numpy as np
 
 logger = get_logger(__name__)
 
 
 def smooth_signal_ma(
-    x: MSBaseModule, coef: Optional[np.ndarray] = None, window: int = 5):
+    x: MSBaseModule,
+    coef: Optional[np.ndarray] = None,
+    window: int = 5,
+):
     """
-    Apply moving-average (or arbitrary kernel) smoothing to an MSI spectrum.
+    Apply moving-average (or arbitrary kernel) smoothing to a 1D spectrum.
 
     Parameters:
-        x (MSBaseModule): Input MSI spectrum object containing `intensity`.
-        coef (Optional[np.ndarray]): Convolution kernel coefficients. If None, a
-            uniform window is used. When provided, the full length of `coef` is
-            used as the window size.
-        window (int): Window size for uniform moving average when `coef` is None.
-            Must be a positive integer. If even, it is adjusted to the next odd
-            integer to preserve center alignment.
+        x (MSBaseModule): Spectrum with 1D `intensity` array and aligned `mz_list`.
+        coef (Optional[np.ndarray]): 1D convolution kernel. If None, uses a
+            uniform kernel with length `window`.
+        window (int): Window size used when `coef` is None. Must be > 0. If even,
+            it will be adjusted to the next odd number for center alignment.
 
     Returns:
         np.ndarray: Smoothed intensity array with the same length as the input.
 
     Raises:
-        ValueError: If `window` is not a positive integer when `coef` is None.
-        TypeError: If `x` is not an `MSBaseModule` instance or `intensity` is not 1D.
+    ValueError: If `window` <= 0 when `coef` is None.
+    TypeError: If `intensity` is not a 1D numpy array.
     """
     # Basic validation
     intensity = x.intensity
     if not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
+        logger.error("x.intensity must be a 1D numpy array ")
         raise TypeError("x.intensity must be a 1D numpy array")
 
     # If weights not specified, use uniform weights (moving average)
@@ -55,12 +58,15 @@ def smooth_signal_ma(
     return y
 
 def smooth_signal_gaussian(
-    x: MSBaseModule, sd: Optional[float] = None, window: int = 5):
+    x: MSBaseModule,
+    sd: Optional[float] = None,
+    window: int = 5,
+):
     """
-    Apply Gaussian smoothing to an MSI spectrum using a discrete Gaussian kernel.
+    Apply Gaussian smoothing to a 1D spectrum using a discrete Gaussian kernel.
 
     Parameters:
-        x (MSBaseModule): Input MSI spectrum object containing `intensity`.
+    x (MSBaseModule): Spectrum with 1D `intensity` array and aligned `mz_list`.
         sd (Optional[float]): Standard deviation of the Gaussian. If None, it is
             set to `window / 4.0` to give a reasonable spread.
         window (int): Kernel window size (number of samples). Should be a
@@ -72,7 +78,7 @@ def smooth_signal_gaussian(
 
     Raises:
         ValueError: If `window` is not a positive integer.
-        TypeError: If `x` is not an `MSBaseModule` instance or `intensity` is not 1D.
+    TypeError: If `intensity` is not 1D.
     """
     intensity = x.intensity
     if not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
@@ -101,29 +107,31 @@ def smooth_signal_gaussian(
 
     return smooth_signal_ma(x, coef=coef)
 
+
 def smooth_ns_signal_pre(
     x: MSBaseModule,
     k: int = 5,
     p: int = 1,
 ):
     """
-    Apply moving-average smoothing with neighborhood search and noise suppression.
+    Prepare neighborhood search (kNN on m/z) for NS-based smoothing.
 
     Parameters:
         x (MSBaseModule): Input MSI spectrum object. Must provide 1D `intensity`
             and optional `mz_list` aligned to the same length.
         k (int): Number of nearest neighbors used for smoothing. Must be >= 1.
         p (int): Minkowski metric parameter for KD-tree query. Must be >= 1.
-        weights (Optional[np.ndarray]): Weight array with shape (k,), where k is the number of neighbors.
-            If None, a uniform weight is used.
+            (Weights are applied in subsequent functions.)
 
     Returns:
-        np.ndarray: Smoothed intensity array with shape (N,), where N is the
-            length of `intensity`.
+        Tuple[np.ndarray, np.ndarray, np.ndarray]:
+            - neigh_intensity: shape (N, k) neighbor intensities
+            - dists: shape (N, k) neighbor distances (Minkowski p)
+            - idxs: shape (N, k) neighbor indices
 
     Raises:
         ValueError: If `k` or `p` is not a positive integer.
-        TypeError: If `x.intensity` is not a 1D numpy array.
+    TypeError: If `x.intensity` is not a 1D numpy array.
     """
 
     intensity = x.intensity
@@ -131,8 +139,8 @@ def smooth_ns_signal_pre(
 
     # Basic validation
     if not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
-        logger.error("x.intensity must be a 1D numpy array ")
-        raise TypeError("x.intensity must be a 1D numpy array ")
+        logger.error("x.intensity must be a 1D numpy array")
+        raise TypeError("x.intensity must be a 1D numpy array")
 
     if k < 1 or p < 1:
         logger.error("k and p must be positive integers")
@@ -140,7 +148,7 @@ def smooth_ns_signal_pre(
 
     if mz_list is None or len(mz_list) != len(intensity):
         logger.warning(
-            "mz_list must be provided and have the same length as intensity , using np list index as mz_list"
+            "mz_list must be provided and match intensity length; using np.arange as fallback mz_list"
         )
         mz_list = np.arange(len(intensity))
 
@@ -175,8 +183,7 @@ def smooth_ns_signal_pre(
 
     return  neigh_intensity, dists, idxs
 
-
-def smooth_ns_signal_calaulate(
+def smooth_ns_signal_calculate(
     neigh_intensity: np.ndarray,
     weights: np.ndarray,
     axis: int = 1):
@@ -193,7 +200,6 @@ def smooth_ns_signal_calaulate(
         np.ndarray: Smoothed intensity array with shape (N,), where N is the number of data points.
     """
     return np.sum(neigh_intensity * weights, axis=axis)
-
 
 def smooth_ns_signal_ma(
     x: MSBaseModule,
@@ -220,12 +226,11 @@ def smooth_ns_signal_ma(
     neigh_intensity, _, _ = smooth_ns_signal_pre(x, k=k, p=p)
     weights = np.ones(k, dtype=float)
     weights = weights / np.sum(weights)
-    smoothed_intensity = smooth_ns_signal_calaulate(neigh_intensity, weights, axis=1)
+    smoothed_intensity = smooth_ns_signal_calculate(neigh_intensity, weights, axis=1)
 
     return smoothed_intensity
 
-
-def smooth_ns_signal_gauss(
+def smooth_ns_signal_gaussian(
     x: MSBaseModule,
     k: int = 5,
     p: int = 1,
@@ -235,5 +240,79 @@ def smooth_ns_signal_gauss(
     Apply Gaussian smoothing with neighborhood search and noise suppression.
     """
 
-    neigh_intensity, weights = smooth_ns_signal_pre(x, k=k, p=p)
-    
+    neigh_intensity, dists, _ = smooth_ns_signal_pre(x, k=k, p=p)
+
+    if len(dists.shape)<2:
+        dists = dists.reshape(-1,1)
+    dists_max = np.max(dists, axis=1)
+
+    sd = np.median(dists_max) / 2.0 if sd is None else sd
+
+    # dist_ = np.exp(-dists**2 / (2 * sd**2))
+    exponent = -0.5 * (dists / sd) ** 2
+    exponent = np.clip(exponent, -88.0, 0.0)  # float64 下约为 exp(-700) ~ 5e-305
+    weights = np.exp(exponent)
+
+    # calculate row-wise normalized weights avoid divide by zero
+    row_sums = weights.sum(axis=1, keepdims=True)
+    row_sums = np.where(row_sums == 0.0, 1.0, row_sums)
+    weights = weights / row_sums
+
+    smoothed_intensity = smooth_ns_signal_calculate(neigh_intensity, weights, axis=1)
+
+    return smoothed_intensity
+
+def smooth_ns_signal_bi(
+    x: MSBaseModule,
+    k: int = 5,
+    p: int = 2,
+    sd_dist: float = None,
+    sd_intensity: float = None
+):
+    """
+    Apply Bilateral Gaussian smoothing with neighborhood search and noise suppression.
+    """
+    intensity = x.intensity
+    neigh_intensity, dists, _ = smooth_ns_signal_pre(x, k=k, p=p)
+
+    if len(dists.shape)<2:
+        dists = dists.reshape(-1,1)
+    dists_max = np.max(dists, axis=1)
+
+    sd_dist = np.median(dists_max) / 2.0 if sd_dist is None else sd_dist
+
+    # dist_ = np.exp(-dists**2 / (2 * sd**2))
+    exponent = -0.5 * (dists / sd_dist) ** 2
+    lower = np.log(np.finfo(exponent.dtype if hasattr(exponent, "dtype") else np.float64).tiny)
+    exponent = np.clip(exponent, lower, 0.0)
+    s_weights = np.exp(exponent)
+
+    # calculate row-wise normalized weights avoid divide by zero
+    srow_sums = s_weights.sum(axis=1, keepdims=True)
+    srow_sums = np.where(srow_sums == 0.0, 1.0, srow_sums)
+    s_weights = s_weights / srow_sums
+
+    # Intensity weights (based on neighbor intensity differences)
+    sd_intensity = stats.median_abs_deviation(intensity, nan_policy="omit", scale="normal") if sd_intensity is None else sd_intensity
+
+    diff = neigh_intensity - intensity.reshape(-1, 1)  # shape (N, k)
+    iexponent = -0.5 * (diff / sd_intensity) ** 2
+    ilower = np.log(np.finfo(iexponent.dtype if hasattr(iexponent, "dtype") else np.float64).tiny)
+    iexponent = np.clip(iexponent, ilower, 0.0)
+    a_weights = np.exp(iexponent)
+
+    # Multiply weights and normalize row-wise to avoid division by zero
+    combined = s_weights * a_weights
+    row_sums = combined.sum(axis=1, keepdims=True)
+    row_sums = np.where(row_sums == 0.0, 1.0, row_sums)
+    weights = combined / row_sums
+
+    smoothed_intensity = smooth_ns_signal_calculate(neigh_intensity, weights, axis=1)
+
+    return smoothed_intensity
+
+
+def smooth_preprocess(data:MSBaseModule):
+    """ A general preprocess pipeline for MS data smoothing
+    """
+    pass

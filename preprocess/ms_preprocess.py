@@ -31,10 +31,11 @@ algorithms.
 """
 
 from typing import Union
-from logger import get_logger
-from module.ms_module import MS, MSBaseModule, MSImzML
 import numpy as np
-from .filter import smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_ma
+from module.ms_module import MSBaseModule, MSImzML
+from logger import get_logger
+from .filter import (smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_ma,
+                     smooth_ns_signal_gaussian, smooth_ns_signal_bi)
 
 logger = get_logger("ms_preprocess")
 
@@ -163,29 +164,31 @@ class MSIPreprocessor():
     def noise_reduction(
         data: Union[MSBaseModule, MSImzML],
         method: str = "ma",
-        window: int = 2,
-        sd: float = 2,
-        coef: np.ndarray = None
+        window: int = 5,
+        sd: float = None,
+        sd_intensity: float = None,
+        coef: np.ndarray = None,
+        p: int = 2,
     ) -> Union[MSBaseModule, MSImzML]:
         """
         Perform noise reduction on MSI data.
         
-        Reduces noise in mass spectra while preserving important spectral features
-        using various denoising algorithms.
+        Reduce noise in spectra while preserving important features using
+        several algorithms.
         
         Args:
-            data: MSBaseModule or MS object containing spectral data
-            method (str): Denoising method ('ma' for moving average, 'gaussian')
-            window (int): Window size for denoising (must be a positive integer)
-            sd (float): Standard deviation for Gaussian filter (used when method='gaussian')
-            coef (np.ndarray, optional): Custom convolution kernel coefficients for 'ma' method
+            data (MSBaseModule): Input spectrum (1D mz_list + intensity).
+            method (str): One of {'ma','gaussian','ma_ns','gaussian_ns','bi_ns'}.
+            window (int): Window size for 'ma'/'gaussian'. Must be positive.
+            sd (float): Gaussian sigma. If None, defaults to window/4 in 'gaussian'.
+            coef (np.ndarray, optional): Custom kernel for 'ma'. If provided, overrides window.
             
         Returns:
-            Union[MSBaseModule, MS]: Processed MSI object with noise-reduced data
+            MSBaseModule: New spectrum with the same coordinates and mz_list, but smoothed intensity.
             
         Raises:
-            TypeError: If data is not MSBaseModule or MS
-            ValueError: If method is not supported
+            TypeError: If data is not MSBaseModule or its intensity is invalid.
+            ValueError: If method is not supported.
         """
         # Dispatch based on input type without nested helper function
         # Apply smoothing based on method by passing MSBaseModule
@@ -194,10 +197,15 @@ class MSIPreprocessor():
         elif method == "gaussian":
             smoothed_intensity = smooth_signal_gaussian(data, sd=sd, window=window)
         elif method == "ma_ns":
-            smoothed_intensity = smooth_ns_signal_ma(data)
+            smoothed_intensity = smooth_ns_signal_ma(data, p=p, k=window)
+        elif method == "gaussian_ns":
+            smoothed_intensity = smooth_ns_signal_gaussian(data, sd=sd,p=p,k=window)
+        elif method == "bi_ns":
+            smoothed_intensity = smooth_ns_signal_bi(data, sd_dist=sd, sd_intensity=sd_intensity, p=p,k=window)
         else:
-            logger.error(f"Unsupported smoothing method: {method}. Use 'ma' or 'gaussian'.")
-            raise ValueError(f"Unsupported smoothing method: {method}. Use 'ma' or 'gaussian'.")
+            supported = "ma, gaussian, ma_ns, gaussian_ns, bi_ns"
+            logger.error(f"Unsupported smoothing method: {method}. Use one of: {supported}.")
+            raise ValueError(f"Unsupported smoothing method: {method}. Use one of: {supported}.")
 
         return MSBaseModule(
             mz_list=data.mz_list,
