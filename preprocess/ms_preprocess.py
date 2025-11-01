@@ -164,7 +164,10 @@ class MSIPreprocessor():
         method: str = "ma",
         window: int = 2,
         sd: float = 2,
-        coef: np.ndarray = None
+        coef: np.ndarray = None,
+        polyorder: int = 2,
+        wavelet: str = 'db4',
+        threshold_mode: str = 'soft'
     ) -> Union[MSBaseModule, MS]:
         """
         Perform noise reduction on MSI data.
@@ -174,10 +177,13 @@ class MSIPreprocessor():
         
         Args:
             data: MSBaseModule or MS object containing spectral data
-            method (str): Denoising method ('ma' for moving average, 'gaussian')
+            method (str): Denoising method ('ma', 'gaussian', 'savgol', 'wavelet')
             window (int): Window size for denoising (must be a positive integer)
             sd (float): Standard deviation for Gaussian filter (used when method='gaussian')
             coef (np.ndarray, optional): Custom convolution kernel coefficients for 'ma' method
+            polyorder (int): Polynomial order for Savitzky-Golay filter (must be less than window)
+            wavelet (str): Wavelet type for wavelet denoising ('db4', 'db8', 'haar', 'coif2', etc.)
+            threshold_mode (str): Thresholding mode for wavelet denoising ('soft' or 'hard')
             
         Returns:
             Union[MSBaseModule, MS]: Processed MSI object with noise-reduced data
@@ -229,10 +235,10 @@ class MSIPreprocessor():
             Args:
                 x : np.ndarray
                     Input signal
-                sigma : float
+                sd : float
                     Standard deviation for Gaussian kernel
-                truncate : float
-                    Truncate range (in units of sigma)
+                window : int
+                    Window size
                     
             Returns:
                 np.ndarray
@@ -244,56 +250,137 @@ class MSIPreprocessor():
                 sd = window / 4.0
 
             half_window = window // 2
-            # 生成高斯权重
+            # Generate Gaussian weights
             positions = np.arange(-half_window, half_window + 1)
             coef = norm.pdf(positions, scale=sd)
 
             return smooth_signal_ma(x, coef=coef)
-
-        def _apply_smoothing_single(spectrum: MSBaseModule, method: str, window: int, sd: float, coef) -> MSBaseModule:
+        
+        def smooth_signal_savgol(x: np.ndarray, window: int = 5, polyorder: int = 2) -> np.ndarray:
             """
-            Apply smoothing to a single spectrum.
+            Savitzky-Golay filter for signal smoothing.
+            
+            The Savitzky-Golay filter fits successive sub-sets of adjacent data points 
+            with a low-degree polynomial by the method of linear least squares.
             
             Args:
-                spectrum: MSBaseModule object
-                method: Smoothing method
-                window: Window size
-                sd: Standard deviation for Gaussian
-                coef: Custom coefficients
-                
+                x : np.ndarray
+                    Input signal
+                window : int
+                    Window size (must be odd and greater than polyorder)
+                polyorder : int
+                    Polynomial order (must be less than window)
+                    
             Returns:
-                MSBaseModule: Smoothed spectrum
+                np.ndarray
+                    Smoothed signal
             """
-            mz_array = spectrum.mz_list
-            intensity_array = spectrum.intensity
+            from scipy.signal import savgol_filter
+            # Ensure window is odd
+            if window % 2 == 0:
+                window += 1
+            
+            # Ensure polyorder is less than window
+            if polyorder >= window:
+                polyorder = window - 1
+                
+            # Minimum window size check
+            if window < 3:
+                window = 3
+                
+            # Apply Savitzky-Golay filter
+            return savgol_filter(x, window, polyorder)
+        
+        def smooth_signal_wavelet(x: np.ndarray, wavelet: str = 'db4', threshold_mode: str = 'soft') -> np.ndarray:
+            """
+            Wavelet denoising for signal smoothing.
+            """
+            import pywt
+            # Ensure writable, contiguous array
+            original_length = len(x)
+            x = np.array(x, dtype=np.float64, copy=True)
+            x = np.ascontiguousarray(x)
 
+            # Perform wavelet decomposition
+            coeffs = pywt.wavedec(x, wavelet, mode='symmetric')
+            
+            # Estimate noise standard deviation using the finest detail coefficients
+            sigma = np.median(np.abs(coeffs[-1])) / 0.6745
+            
+            # Calculate threshold using Donoho-Johnstone threshold
+            threshold = sigma * np.sqrt(2 * np.log(len(x)))
+            
+            # Apply thresholding to all detail coefficients
+            coeffs_thresh = list(coeffs)
+            coeffs_thresh[1:] = [pywt.threshold(detail, threshold, mode=threshold_mode) 
+                                for detail in coeffs[1:]]
+            
+            # Reconstruct the signal
+            reconstructed = pywt.waverec(coeffs_thresh, wavelet, mode='symmetric')
+
+            # Match output length exactly to input
+            if len(reconstructed) != original_length:
+                if len(reconstructed) > original_length:
+                    reconstructed = reconstructed[:original_length]
+                else:
+                    pad_length = original_length - len(reconstructed)
+                    reconstructed = np.pad(reconstructed, (0, pad_length), mode='edge')
+
+            return reconstructed
+        
+        def _apply_smoothing_single(spectrum: MSBaseModule, method: str, window: int, sd: float, coef, polyorder: int, wavelet: str, threshold_mode: str) -> MSBaseModule:
+            """
+            Apply smoothing to a single spectrum.
+            """
+            # Force writable copies to avoid read-only buffer errors
+            mz_array = np.array(spectrum.mz_list, dtype=np.float64, copy=True)
+            mz_array = np.ascontiguousarray(mz_array)
+            intensity_array = np.array(spectrum.intensity, dtype=np.float64, copy=True)
+            intensity_array = np.ascontiguousarray(intensity_array)
+            
             # Apply smoothing based on method
             if method == "ma":
                 smoothed_intensity = smooth_signal_ma(intensity_array, coef=coef, window=window)
             elif method == "gaussian":
                 smoothed_intensity = smooth_signal_gaussian(intensity_array, sd=sd, window=window)
+            elif method == "savgol":
+                smoothed_intensity = smooth_signal_savgol(intensity_array, window=window, polyorder=polyorder)
+            elif method == "wavelet":
+                smoothed_intensity = smooth_signal_wavelet(intensity_array, wavelet=wavelet, threshold_mode=threshold_mode)
             else:
-                logger.error(f"Unsupported smoothing method: {method}. Use 'ma' or 'gaussian'.")
-                raise ValueError(f"Unsupported smoothing method: {method}. Use 'ma' or 'gaussian'.")
-
-            # Create new spectrum with smoothed data
+                raise ValueError(f"Unsupported smoothing method: {method}. Use 'ma', 'gaussian', 'savgol', or 'wavelet'.")
+            
+            # Ensure smoothed intensity has the same length as mz_array
+            if len(smoothed_intensity) != len(mz_array):
+                print(f"Warning: {method} produced length mismatch - original: {len(mz_array)}, processed: {len(smoothed_intensity)}")
+                min_length = min(len(mz_array), len(smoothed_intensity))
+                if len(smoothed_intensity) > len(mz_array):
+                    print(f"  -> Truncated processed data to original length: {len(mz_array)}")
+                    smoothed_intensity = smoothed_intensity[:len(mz_array)]
+                else:
+                    print(f"  -> Truncated both m/z and intensity to minimum length: {min_length}")
+                    mz_array = mz_array[:min_length]
+                    smoothed_intensity = smoothed_intensity[:min_length]
+            
+            # Create new spectrum with smoothed data (contiguous)
+            smoothed_intensity = np.ascontiguousarray(smoothed_intensity)
             smoothed_spectrum = MSBaseModule(
                 mz_list=mz_array,
                 intensity=smoothed_intensity,
                 coordinates=spectrum.coordinates
             )
-
             return smoothed_spectrum
 
         # Dispatch based on input type
         if isinstance(data, MSBaseModule):
-            return _apply_smoothing_single(data, method, window, sd, coef)
+            return _apply_smoothing_single(data, method, window, sd, coef, polyorder, wavelet, threshold_mode)
         elif isinstance(data, MS):
             # Build a new MS with smoothed spectra
             new_ms = MS()
             for s in data:
-                smoothed_s = _apply_smoothing_single(s, method, window, sd, coef)
-                x, y, z = smoothed_s.x, smoothed_s.y, smoothed_s.z
+                smoothed_s = _apply_smoothing_single(s, method, window, sd, coef, polyorder, wavelet, threshold_mode)
+                coords = smoothed_s.get_coordinates()
+                x, y, z = coords[0], coords[1], coords[2] if len(coords) > 2 else 0
                 new_ms[x, y, z] = smoothed_s
             return new_ms
         else:
