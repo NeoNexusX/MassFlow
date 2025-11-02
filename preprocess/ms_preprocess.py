@@ -164,11 +164,14 @@ class MSIPreprocessor():
     def noise_reduction(
         data: Union[MSBaseModule, MSImzML],
         method: str = "ma",
-        window: int = 5,
-        sd: float = None,
+        window: int = 2,
+        sd: float = 2,
         sd_intensity: float = None,
-        coef: np.ndarray = None,
         p: int = 2,
+        coef: np.ndarray = None,
+        polyorder: int = 2,
+        wavelet: str = 'db4',
+        threshold_mode: str = 'soft'
     ) -> Union[MSBaseModule, MSImzML]:
         """
         Perform noise reduction on MSI data.
@@ -177,19 +180,93 @@ class MSIPreprocessor():
         several algorithms.
         
         Args:
-            data (MSBaseModule): Input spectrum (1D mz_list + intensity).
-            method (str): One of {'ma','gaussian','ma_ns','gaussian_ns','bi_ns'}.
-            window (int): Window size for 'ma'/'gaussian'. Must be positive.
-            sd (float): Gaussian sigma. If None, defaults to window/4 in 'gaussian'.
-            coef (np.ndarray, optional): Custom kernel for 'ma'. If provided, overrides window.
+            data: MSBaseModule or MS object containing spectral data
+            method (str): Denoising method ('ma', 'gaussian', 'savgol', 'wavelet')
+            window (int): Window size for denoising (must be a positive integer)
+            sd (float): Standard deviation for Gaussian filter (used when method='gaussian')
+            coef (np.ndarray, optional): Custom convolution kernel coefficients for 'ma' method
+            polyorder (int): Polynomial order for Savitzky-Golay filter (must be less than window)
+            wavelet (str): Wavelet type for wavelet denoising ('db4', 'db8', 'haar', 'coif2', etc.)
+            threshold_mode (str): Thresholding mode for wavelet denoising ('soft' or 'hard')
+
             
         Returns:
             MSBaseModule: New spectrum with the same coordinates and mz_list, but smoothed intensity.
             
         Raises:
-            TypeError: If data is not MSBaseModule or its intensity is invalid.
-            ValueError: If method is not supported.
-        """
+            TypeError: If data is not MSBaseModule or MS
+            ValueError: If method is not supported
+        def smooth_signal_savgol(x: np.ndarray, window: int = 5, polyorder: int = 2) -> np.ndarray:
+            """
+            Savitzky-Golay filter for signal smoothing.
+            
+            The Savitzky-Golay filter fits successive sub-sets of adjacent data points 
+            with a low-degree polynomial by the method of linear least squares.
+            
+            Args:
+                x : np.ndarray
+                    Input signal
+                window : int
+                    Window size (must be odd and greater than polyorder)
+                polyorder : int
+                    Polynomial order (must be less than window)
+                    
+            Returns:
+                np.ndarray
+                    Smoothed signal
+            """
+            from scipy.signal import savgol_filter
+            # Ensure window is odd
+            if window % 2 == 0:
+                window += 1
+            
+            # Ensure polyorder is less than window
+            if polyorder >= window:
+                polyorder = window - 1
+                
+            # Minimum window size check
+            if window < 3:
+                window = 3
+                
+            # Apply Savitzky-Golay filter
+            return savgol_filter(x, window, polyorder)
+        
+        def smooth_signal_wavelet(x: np.ndarray, wavelet: str = 'db4', threshold_mode: str = 'soft') -> np.ndarray:
+            """
+            Wavelet denoising for signal smoothing.
+            """
+            import pywt
+            # Ensure writable, contiguous array
+            original_length = len(x)
+            x = np.array(x, dtype=np.float64, copy=True)
+            x = np.ascontiguousarray(x)
+
+            # Perform wavelet decomposition
+            coeffs = pywt.wavedec(x, wavelet, mode='symmetric')
+            
+            # Estimate noise standard deviation using the finest detail coefficients
+            sigma = np.median(np.abs(coeffs[-1])) / 0.6745
+            
+            # Calculate threshold using Donoho-Johnstone threshold
+            threshold = sigma * np.sqrt(2 * np.log(len(x)))
+            
+            # Apply thresholding to all detail coefficients
+            coeffs_thresh = list(coeffs)
+            coeffs_thresh[1:] = [pywt.threshold(detail, threshold, mode=threshold_mode) 
+                                for detail in coeffs[1:]]
+            
+            # Reconstruct the signal
+            reconstructed = pywt.waverec(coeffs_thresh, wavelet, mode='symmetric')
+
+            # Match output length exactly to input
+            if len(reconstructed) != original_length:
+                if len(reconstructed) > original_length:
+                    reconstructed = reconstructed[:original_length]
+                else:
+                    pad_length = original_length - len(reconstructed)
+                    reconstructed = np.pad(reconstructed, (0, pad_length), mode='edge')
+
+            return reconstructed
         # Dispatch based on input type without nested helper function
         # Apply smoothing based on method by passing MSBaseModule
         if method == "ma":
