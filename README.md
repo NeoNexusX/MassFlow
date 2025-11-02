@@ -51,66 +51,45 @@ code --install-extension ms-python.python \
 
 ## Quick Start
 
-### Example 1: Load Complete MSI Data
+Run the example:
 
-```python
-from module.msi_data_manager import MSIDataManager
-from module.msi_module import MSI
-
-# Create MSI instance
-msi = MSI(name='example1', version=1.0, mask=None, need_base_mask=True)
-
-# Initialize data manager
-msi_dm = MSIDataManager(msi, filepath="./data/your_data.mat")
-
-# Load all data
-msi_dm.load_full_data_from_file()
-
-# Inspect data
-msi_dm.inspect_data()
+```bash
+python example.py
 ```
 
-### Example 2: Load Specific m/z Range
+Or minimal usage (read imzML and denoise one spectrum):
 
-```python
-# Load only m/z values between 101 and 102
-msi2 = MSI(name='example2', version=1.0, mask=None, need_base_mask=True)
-msi_dm2 = MSIDataManager(msi2, target_mz_range=[101, 102], filepath="./data/your_data.mat")
-msi_dm2.load_full_data_from_file()
-
-# Plot images in the loaded range
-msi2.plot_msi()
-```
 
 ## Project Structure
 
 ```
 MassFlow/
-├── module/                           # Source code package (Python modules for the current project)
-│   ├── __init__.py                   # Package initialization (exports main classes/interfaces)
-│   ├── msi_module.py                 # Core MSI domain models (MSI class, slices, etc.)
-│   ├── msi_data_manager.py           # Generic data manager (.h5 / .msi files, etc.)
-│   ├── msi_data_manager_msi.py       # .msi/.h5 specific implementation (if exists)
-│   ├── msi_data_manager_zys.py       # MATLAB .mat specific manager
-│   └── msi_preprocess.py             # Preprocessing utilities and workflows
-├── example.py                         # Usage examples / quick start script
-├── data/                              # Sample data (can be added to .gitignore)
-├── docs/                              # Documentation (contribution guidelines, naming conventions, etc.)
-│   ├── CONTRIBUTING.md
-│   ├── CONTRIBUTING_EN.md
-│   ├── NAMING_CONVENTIONS.md
-│   └── NAMING_CONVENTIONS_EN.md
-├── tests/                             # Unit tests
-│   └── test_imports.py
-├── .github/                           # GitHub configuration (Issue templates, CI, etc.)
-│   └── ISSUE_TEMPLATE/
-├── .vscode/                           # VSCode workspace suggestions (extensions.json, etc.)
-├── README.md                          # English documentation
-├── README_CN.md                       # Chinese documentation (current file)
-├── requirements.txt                   # Dependencies list
-├── .pylintrc                          # pylint configuration
-├── LICENSE                            # License (GNU GPL v3)
-└── setup.cfg / pyproject.toml         # Optional packaging/build configuration
+├── example.py
+├── logger.py
+├── module/
+│   ├── __init__.py
+│   ├── ms_data_manager.py
+│   ├── ms_module.py
+│   ├── msi_data_manager.py
+│   ├── msi_data_manager_msi.py
+│   ├── msi_data_manager_zys.py
+│   └── msi_module.py
+├── preprocess/
+│   ├── filter.py
+│   └── ms_preprocess.py
+├── data/
+│   ├── example.imzML
+│   └── example.ibd
+├── docs/
+│   ├── CONTRIBUTING.md / EN.md
+│   ├── NAMING_CONVENTIONS.md / EN.md
+│   ├── Collaboration_Guide.md
+│   └── 协作指北.md
+├── logs/
+│   └── *.log
+├── requirements.txt
+├── LICENSE
+└── README*.md
 ```
 
 ## Core Components

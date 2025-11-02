@@ -31,9 +31,11 @@ algorithms.
 """
 
 from typing import Union
-from logger import get_logger
 import numpy as np
-from module.ms_module import MS, MSBaseModule
+from module.ms_module import MSBaseModule, MSImzML
+from logger import get_logger
+from .filter import (smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_ma,
+                     smooth_ns_signal_gaussian, smooth_ns_signal_bi)
 
 logger = get_logger("ms_preprocess")
 
@@ -160,20 +162,22 @@ class MSIPreprocessor():
 
     @staticmethod
     def noise_reduction(
-        data: Union[MSBaseModule, MS],
+        data: Union[MSBaseModule, MSImzML],
         method: str = "ma",
         window: int = 2,
         sd: float = 2,
+        sd_intensity: float = None,
+        p: int = 2,
         coef: np.ndarray = None,
         polyorder: int = 2,
         wavelet: str = 'db4',
         threshold_mode: str = 'soft'
-    ) -> Union[MSBaseModule, MS]:
+    ) -> Union[MSBaseModule, MSImzML]:
         """
         Perform noise reduction on MSI data.
         
-        Reduces noise in mass spectra while preserving important spectral features
-        using various denoising algorithms.
+        Reduce noise in spectra while preserving important features using
+        several algorithms.
         
         Args:
             data: MSBaseModule or MS object containing spectral data
@@ -184,78 +188,14 @@ class MSIPreprocessor():
             polyorder (int): Polynomial order for Savitzky-Golay filter (must be less than window)
             wavelet (str): Wavelet type for wavelet denoising ('db4', 'db8', 'haar', 'coif2', etc.)
             threshold_mode (str): Thresholding mode for wavelet denoising ('soft' or 'hard')
+
             
         Returns:
-            Union[MSBaseModule, MS]: Processed MSI object with noise-reduced data
+            MSBaseModule: New spectrum with the same coordinates and mz_list, but smoothed intensity.
             
         Raises:
             TypeError: If data is not MSBaseModule or MS
             ValueError: If method is not supported
-        """
-
-        def smooth_signal_ma(x: np.ndarray, coef=None, window: int = 5) -> np.ndarray:
-            """
-            Moving average smoothing (or arbitrary convolution kernel smoothing).
-            
-            Args:
-                x : np.ndarray
-                    Input signal
-                coef : np.ndarray, optional
-                    Convolution kernel coefficients (if None, use uniform window)
-                window : int
-                    Window size (must be a positive integer)
-                    
-            Returns:
-                np.ndarray
-                    Smoothed signal
-            """
-            # If weights not specified, use uniform weights (moving average)
-            if coef is None:
-                # Ensure window length is odd
-                window = window + 1 - window % 2
-                coef = np.ones(window)
-
-            # Normalize kernel weights
-            coef = coef / np.sum(coef)
-            window = len(coef)
-            half_window = window // 2
-
-            # Boundary padding: extend using edge values
-            xpad = np.pad(x, (half_window, half_window), mode='edge')
-
-            # Convolution filtering
-            y = np.convolve(xpad, coef, mode='valid')
-
-            return y
-
-        def smooth_signal_gaussian(x: np.ndarray, sd=None, window=5) -> np.ndarray:
-            """
-            Gaussian smoothing using NumPy implementation.
-            
-            Args:
-                x : np.ndarray
-                    Input signal
-                sd : float
-                    Standard deviation for Gaussian kernel
-                window : int
-                    Window size
-                    
-            Returns:
-                np.ndarray
-                    Smoothed signal
-            """
-            from scipy.stats import norm
-            # Generate Gaussian kernel
-            if sd is None:
-                sd = window / 4.0
-
-            half_window = window // 2
-            # Generate Gaussian weights
-            positions = np.arange(-half_window, half_window + 1)
-            coef = norm.pdf(positions, scale=sd)
-
-            return smooth_signal_ma(x, coef=coef)
-        
         def smooth_signal_savgol(x: np.ndarray, window: int = 5, polyorder: int = 2) -> np.ndarray:
             """
             Savitzky-Golay filter for signal smoothing.
@@ -327,66 +267,28 @@ class MSIPreprocessor():
                     reconstructed = np.pad(reconstructed, (0, pad_length), mode='edge')
 
             return reconstructed
-        
-        def _apply_smoothing_single(spectrum: MSBaseModule, method: str, window: int, sd: float, coef, polyorder: int, wavelet: str, threshold_mode: str) -> MSBaseModule:
-            """
-            Apply smoothing to a single spectrum.
-            """
-            # Force writable copies to avoid read-only buffer errors
-            mz_array = np.array(spectrum.mz_list, dtype=np.float64, copy=True)
-            mz_array = np.ascontiguousarray(mz_array)
-            intensity_array = np.array(spectrum.intensity, dtype=np.float64, copy=True)
-            intensity_array = np.ascontiguousarray(intensity_array)
-            
-            # Apply smoothing based on method
-            if method == "ma":
-                smoothed_intensity = smooth_signal_ma(intensity_array, coef=coef, window=window)
-            elif method == "gaussian":
-                smoothed_intensity = smooth_signal_gaussian(intensity_array, sd=sd, window=window)
-            elif method == "savgol":
-                smoothed_intensity = smooth_signal_savgol(intensity_array, window=window, polyorder=polyorder)
-            elif method == "wavelet":
-                smoothed_intensity = smooth_signal_wavelet(intensity_array, wavelet=wavelet, threshold_mode=threshold_mode)
-            else:
-                raise ValueError(f"Unsupported smoothing method: {method}. Use 'ma', 'gaussian', 'savgol', or 'wavelet'.")
-            
-            # Ensure smoothed intensity has the same length as mz_array
-            if len(smoothed_intensity) != len(mz_array):
-                print(f"Warning: {method} produced length mismatch - original: {len(mz_array)}, processed: {len(smoothed_intensity)}")
-                min_length = min(len(mz_array), len(smoothed_intensity))
-                if len(smoothed_intensity) > len(mz_array):
-                    print(f"  -> Truncated processed data to original length: {len(mz_array)}")
-                    smoothed_intensity = smoothed_intensity[:len(mz_array)]
-                else:
-                    print(f"  -> Truncated both m/z and intensity to minimum length: {min_length}")
-                    mz_array = mz_array[:min_length]
-                    smoothed_intensity = smoothed_intensity[:min_length]
-            
-            # Create new spectrum with smoothed data (contiguous)
-            smoothed_intensity = np.ascontiguousarray(smoothed_intensity)
-            smoothed_spectrum = MSBaseModule(
-                mz_list=mz_array,
-                intensity=smoothed_intensity,
-                coordinates=spectrum.coordinates
-            )
-            return smoothed_spectrum
-
-        # Dispatch based on input type
-        if isinstance(data, MSBaseModule):
-            return _apply_smoothing_single(data, method, window, sd, coef, polyorder, wavelet, threshold_mode)
-        elif isinstance(data, MS):
-            # Build a new MS with smoothed spectra
-            new_ms = MS()
-            for s in data:
-                smoothed_s = _apply_smoothing_single(s, method, window, sd, coef, polyorder, wavelet, threshold_mode)
-                coords = smoothed_s.get_coordinates()
-                x, y, z = coords[0], coords[1], coords[2] if len(coords) > 2 else 0
-                new_ms[x, y, z] = smoothed_s
-            return new_ms
+        # Dispatch based on input type without nested helper function
+        # Apply smoothing based on method by passing MSBaseModule
+        if method == "ma":
+            smoothed_intensity = smooth_signal_ma(data, coef=coef, window=window)
+        elif method == "gaussian":
+            smoothed_intensity = smooth_signal_gaussian(data, sd=sd, window=window)
+        elif method == "ma_ns":
+            smoothed_intensity = smooth_ns_signal_ma(data, p=p, k=window)
+        elif method == "gaussian_ns":
+            smoothed_intensity = smooth_ns_signal_gaussian(data, sd=sd,p=p,k=window)
+        elif method == "bi_ns":
+            smoothed_intensity = smooth_ns_signal_bi(data, sd_dist=sd, sd_intensity=sd_intensity, p=p,k=window)
         else:
-            raise TypeError("data must be MSBaseModule or MS")
+            supported = "ma, gaussian, ma_ns, gaussian_ns, bi_ns"
+            logger.error(f"Unsupported smoothing method: {method}. Use one of: {supported}.")
+            raise ValueError(f"Unsupported smoothing method: {method}. Use one of: {supported}.")
 
-
+        return MSBaseModule(
+            mz_list=data.mz_list,
+            intensity=smoothed_intensity,
+            coordinates=data.coordinates,
+        )
 
     @staticmethod
     def preprocess_pipeline(data:MSBaseModule) -> MSBaseModule:
@@ -404,4 +306,16 @@ class MSIPreprocessor():
             
         Raises:
             ValueError: If invalid preprocessing step is specified
+        """
+
+    @staticmethod
+    def estnoise(data:MSBaseModule) -> float:
+        """
+        Estimate noise level in the MSI data.
+        
+        Args:
+            data (MSBaseModule): Input MSI data
+            
+        Returns:
+            float: Estimated noise level
         """
