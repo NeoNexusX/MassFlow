@@ -2,6 +2,7 @@ from typing import List, Tuple, Union, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 from pyimzml.ImzMLParser import ImzMLParser
+from logger import get_logger
 from meta_data import MetaDataBase
 import os
 from pyimzml.metadata import ParamGroup
@@ -474,10 +475,10 @@ class MetaDataImzMl(MetaDataBase):
     def extract_metadata(self):
         """Iterate _meta_index and populate matching attributes from the parser."""
 
-        print("Extracting metadata...")
+        logger = get_logger("Extracting metadata...")
 
         if self._parser is None:
-            raise ValueError("Parser is not initialized. Please set parser or filepath first.")
+            logger.error("Parser is not initialized. Please set parser or filepath first.")
 
         for accession_id, prop_name in self._meta_index.items():
             param_value = self.find_param_by_accession_id(accession_id)
