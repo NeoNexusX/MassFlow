@@ -35,7 +35,8 @@ import numpy as np
 from module.ms_module import MSBaseModule, MSImzML
 from logger import get_logger
 from .filter import (smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_ma,
-                     smooth_ns_signal_gaussian, smooth_ns_signal_bi)
+                     smooth_ns_signal_gaussian, smooth_ns_signal_bi,smooth_signal_savgol,
+                     smooth_signal_wavelet,smooth_preprocess)
 
 logger = get_logger("ms_preprocess")
 
@@ -196,85 +197,20 @@ class MSIPreprocessor():
         Raises:
             TypeError: If data is not MSBaseModule or MS
             ValueError: If method is not supported
-        def smooth_signal_savgol(x: np.ndarray, window: int = 5, polyorder: int = 2) -> np.ndarray:
-            """
-            Savitzky-Golay filter for signal smoothing.
-            
-            The Savitzky-Golay filter fits successive sub-sets of adjacent data points 
-            with a low-degree polynomial by the method of linear least squares.
-            
-            Args:
-                x : np.ndarray
-                    Input signal
-                window : int
-                    Window size (must be odd and greater than polyorder)
-                polyorder : int
-                    Polynomial order (must be less than window)
-                    
-            Returns:
-                np.ndarray
-                    Smoothed signal
-            """
-            from scipy.signal import savgol_filter
-            # Ensure window is odd
-            if window % 2 == 0:
-                window += 1
-            
-            # Ensure polyorder is less than window
-            if polyorder >= window:
-                polyorder = window - 1
-                
-            # Minimum window size check
-            if window < 3:
-                window = 3
-                
-            # Apply Savitzky-Golay filter
-            return savgol_filter(x, window, polyorder)
-        
-        def smooth_signal_wavelet(x: np.ndarray, wavelet: str = 'db4', threshold_mode: str = 'soft') -> np.ndarray:
-            """
-            Wavelet denoising for signal smoothing.
-            """
-            import pywt
-            # Ensure writable, contiguous array
-            original_length = len(x)
-            x = np.array(x, dtype=np.float64, copy=True)
-            x = np.ascontiguousarray(x)
-
-            # Perform wavelet decomposition
-            coeffs = pywt.wavedec(x, wavelet, mode='symmetric')
-            
-            # Estimate noise standard deviation using the finest detail coefficients
-            sigma = np.median(np.abs(coeffs[-1])) / 0.6745
-            
-            # Calculate threshold using Donoho-Johnstone threshold
-            threshold = sigma * np.sqrt(2 * np.log(len(x)))
-            
-            # Apply thresholding to all detail coefficients
-            coeffs_thresh = list(coeffs)
-            coeffs_thresh[1:] = [pywt.threshold(detail, threshold, mode=threshold_mode) 
-                                for detail in coeffs[1:]]
-            
-            # Reconstruct the signal
-            reconstructed = pywt.waverec(coeffs_thresh, wavelet, mode='symmetric')
-
-            # Match output length exactly to input
-            if len(reconstructed) != original_length:
-                if len(reconstructed) > original_length:
-                    reconstructed = reconstructed[:original_length]
-                else:
-                    pad_length = original_length - len(reconstructed)
-                    reconstructed = np.pad(reconstructed, (0, pad_length), mode='edge')
-
-            return reconstructed
+        """
         # Dispatch based on input type without nested helper function
         # Apply smoothing based on method by passing MSBaseModule
+        data = smooth_preprocess(data)  # Preprocess to ensure no negative intensities
         if method == "ma":
             smoothed_intensity = smooth_signal_ma(data, coef=coef, window=window)
         elif method == "gaussian":
             smoothed_intensity = smooth_signal_gaussian(data, sd=sd, window=window)
         elif method == "ma_ns":
             smoothed_intensity = smooth_ns_signal_ma(data, p=p, k=window)
+        elif method == "savgol":
+            smoothed_intensity = smooth_signal_savgol(data, window=window, polyorder=polyorder)
+        elif method == "wavelet":
+            smoothed_intensity = smooth_signal_wavelet(data, wavelet=wavelet, threshold_mode=threshold_mode)
         elif method == "gaussian_ns":
             smoothed_intensity = smooth_ns_signal_gaussian(data, sd=sd,p=p,k=window)
         elif method == "bi_ns":

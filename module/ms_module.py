@@ -37,6 +37,10 @@ class MSBaseModule:
         """
         return self._mz_list
 
+    @mz_list.setter
+    def mz_list(self, value):
+        self._mz_list = value
+
     @property
     def intensity(self) -> np.ndarray:
         """
@@ -46,6 +50,10 @@ class MSBaseModule:
             np.ndarray: An array of intensity values.
         """
         return self._intensity
+
+    @intensity.setter
+    def intensity(self, value):
+        self._intensity = value
 
     def get_coordinates(self) -> List[int]:
         """
@@ -148,12 +156,20 @@ class MSImzML(MSBaseModule):
             self._intensity = intensity
         return self._mz_list
 
+    @mz_list.setter
+    def mz_list(self, value):
+        self._mz_list = value
+
     @property
     def intensity(self):
         if self._intensity is None:
             # Ensure mz_list triggers lazy load and sets intensity
             _ = self.mz_list
         return self._intensity
+
+    @intensity.setter
+    def intensity(self, value):
+        self._intensity = value
 
 class MS:
 

@@ -20,5 +20,5 @@ if __name__ == "__main__":
     spectrum1 = ms[0]
     print(min(spectrum1.intensity))
     spectrum1.plot()
-    spectrum2 = MSIPreprocessor.noise_reduction(spectrum1, method='bi_ns', window=20,p=2)
+    spectrum2 = MSIPreprocessor.noise_reduction(spectrum1, method='wavelet')
     spectrum2.plot()

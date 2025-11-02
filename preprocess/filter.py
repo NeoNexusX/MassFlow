@@ -107,6 +107,82 @@ def smooth_signal_gaussian(
 
     return smooth_signal_ma(x, coef=coef)
 
+def smooth_signal_savgol(
+        x: MSBaseModule, window: int = 5, polyorder: int = 2):
+    """
+    Savitzky-Golay filter for signal smoothing.
+    
+    The Savitzky-Golay filter fits successive sub-sets of adjacent data points 
+    with a low-degree polynomial by the method of linear least squares.
+    
+    Args:
+        x : np.ndarray
+            Input signal
+        window : int
+            Window size (must be odd and greater than polyorder)
+        polyorder : int
+            Polynomial order (must be less than window)
+            
+    Returns:
+        np.ndarray
+            Smoothed signal
+    """
+    from scipy.signal import savgol_filter
+
+    # Minimum window size check
+    if window < 3:
+        window = 3
+
+    # Ensure window is odd
+    if window % 2 == 0:
+        window += 1
+
+    # Ensure polyorder is less than window
+    if polyorder >= window:
+        polyorder = window - 1
+
+    # Apply Savitzky-Golay filter
+    return savgol_filter(x.intensity, window, polyorder)
+
+def smooth_signal_wavelet(
+        x: MSBaseModule, wavelet: str = 'db4', threshold_mode: str = 'soft'):
+
+    """
+    Wavelet denoising for signal smoothing.
+    """
+
+    import pywt
+
+    # Ensure writable, contiguous array
+    intensity = x.intensity.copy()
+    original_length = len(intensity)
+
+    # Perform wavelet decomposition
+    coeffs = pywt.wavedec(intensity, wavelet, mode='symmetric')
+
+    # Estimate noise standard deviation using the finest detail coefficients
+    sigma = np.median(np.abs(coeffs[-1])) / 0.6745
+
+    # Calculate threshold using Donoho-Johnstone threshold
+    threshold = sigma * np.sqrt(2 * np.log(len(intensity)))
+
+    # Apply thresholding to all detail coefficients
+    coeffs_thresh = list(coeffs)
+    coeffs_thresh[1:] = [pywt.threshold(detail, threshold, mode=threshold_mode)
+                        for detail in coeffs[1:]]
+
+    # Reconstruct the signal
+    reconstructed = pywt.waverec(coeffs_thresh, wavelet, mode='symmetric')
+
+    # Match output length exactly to input
+    if len(reconstructed) != original_length:
+        if len(reconstructed) > original_length:
+            reconstructed = reconstructed[:original_length]
+        else:
+            pad_length = original_length - len(reconstructed)
+            reconstructed = np.pad(reconstructed, (0, pad_length), mode='edge')
+
+    return reconstructed
 
 def smooth_ns_signal_pre(
     x: MSBaseModule,
@@ -311,8 +387,12 @@ def smooth_ns_signal_bi(
 
     return smoothed_intensity
 
-
 def smooth_preprocess(data:MSBaseModule):
     """ A general preprocess pipeline for MS data smoothing
     """
-    pass
+    intensity = data.intensity.copy()
+    data.intensity = None # clear intensity to avoid confusion
+    intensity[intensity < 0] = 0
+
+    data.intensity = intensity
+    return data
