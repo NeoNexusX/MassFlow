@@ -1,3 +1,7 @@
+"""
+Author: MassFlow Development Team Bionet/NeoNexus
+License: See LICENSE file in project root
+"""
 import numpy as np
 from matplotlib import pyplot as plt
 from .meta_data import MetaDataBase
@@ -12,7 +16,6 @@ class MSIBaseModule:
         self.mz = mz
         self.msroi = msroi
         self.base_mask = base_mask
-
 
 class MSIMetaData(MetaDataBase):
     """

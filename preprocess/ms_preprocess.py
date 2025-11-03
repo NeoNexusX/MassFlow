@@ -28,8 +28,10 @@ Methods:
 
 This module is intended for developers extending the MSI framework with custom preprocessing
 algorithms.
-"""
 
+Author: MassFlow Development Team Bionet/NeoNexus lyk
+License: See LICENSE file in project root
+"""
 from typing import Union
 import numpy as np
 from module.ms_module import MSBaseModule, MSImzML

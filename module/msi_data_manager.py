@@ -4,8 +4,10 @@ MSI Data Management Module
 Provides functions for reading/writing MSI data, memory statistics, and visualization.
 Supports .h5/.msi files and batch import from directories, filters by m/z range,
 and generates merged or split outputs.
-"""
 
+Author: MassFlow Development Team Bionet/NeoNexus
+License: See LICENSE file in project root
+"""
 import os
 from abc import ABC, abstractmethod
 import h5py
@@ -178,7 +180,7 @@ class MSIDataManager(ABC):
                 MSIDataManager._upsert_dataset(group, 'mz', data=mz_data)
 
             if 'msroi' not in group and msroi is not None:
-                MSIDataManager._upsert_dataset(group, 
+                MSIDataManager._upsert_dataset(group,
                                                'msroi',
                                                 data=msroi,
                                                 compression=compression,

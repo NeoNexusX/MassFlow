@@ -1,3 +1,7 @@
+"""
+Author: MassFlow Development Team Bionet/NeoNexus lyk
+License: See LICENSE file in project root
+"""
 from typing import Optional
 import numpy as np
 from scipy import stats

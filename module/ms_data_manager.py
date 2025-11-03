@@ -4,6 +4,9 @@ MS Data Management Module
 Provides functions for reading/writing MS data, memory statistics, and visualization.
 Supports .h5/.msi files and batch import from directories, filters by m/z range,
 and generates merged or split outputs.
+
+Author: MassFlow Development Team Bionet/NeoNexus
+License: See LICENSE file in project root
 """
 from abc import ABC, abstractmethod
 from logger import get_logger
@@ -77,7 +80,7 @@ class MSDataManager(ABC):
         #TODO: implement inspect meta data - dlq
         logger.info(f"MS count is {self.current_spectrum_num}" )
         logger.info("MS  information:")
-        
+
         pointer4num = 0
         for spectrum in self._ms:
             if pointer4num >= inpect_num:

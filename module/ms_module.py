@@ -1,23 +1,68 @@
+"""
+Mass Spectrometry Module for MassFlow Framework
+
+This module provides core classes and functionality for handling mass spectrometry (MS) data,
+particularly for Mass Spectrometry Imaging (MSI) applications. It includes support for
+lazy loading, efficient data management, and visualization capabilities.
+
+Classes:
+    MSBaseModule: Base class for mass spectrum data with coordinates
+    MSImzML: Specialized class for handling ImzML format with lazy loading
+    MS: Collection class for managing multiple mass spectra
+
+Author: MassFlow Development Team Bionet/NeoNexus
+License: See LICENSE file in project root
+"""
+
 from typing import List, Tuple, Union, Optional
-from logger import get_logger
 import numpy as np
 import matplotlib.pyplot as plt
 from pyimzml.ImzMLParser import ImzMLParser
 from logger import get_logger
-from meta_data import MetaDataBase
-import os
-from pyimzml.metadata import ParamGroup
 logger = get_logger("ms_module")
 
-logger = get_logger("MSBaseModule")
-
 class MSBaseModule:
+    """
+    Base class for mass spectrum data with spatial coordinates.
+    
+    This class represents a single mass spectrum with associated m/z values, intensities,
+    and 3D spatial coordinates. It supports lazy loading for memory efficiency and provides
+    basic operations for mass spectrometry data manipulation and visualization.
+    
+    Attributes:
+        coordinates (List[int]): 3D coordinates [x, y, z] of the spectrum
+        x (int): X coordinate
+        y (int): Y coordinate  
+        z (int): Z coordinate
+        sorted_by_mz_fun (bool): Flag indicating if data is sorted by m/z values
+        
+    Properties:
+        mz_list (np.ndarray): Array of m/z values
+        intensity (np.ndarray): Array of intensity values corresponding to m/z values
+        
+    Note:
+        - Coordinates must be a list of exactly three or two integers
+        - m/z and intensity arrays must have the same length
+        - Lazy loading is supported through None initialization of mz_list and intensity
+    """
 
     def __init__(self,
                 mz_list: Optional[np.ndarray],
                 intensity: Optional[np.ndarray],
                 coordinates: List[int],
                 sorted_by_mz_fun: bool = False):
+        """
+        Initialize a mass spectrum with m/z values, intensities, and coordinates.
+        
+        Args:
+            mz_list (Optional[np.ndarray]): Array of m/z values. Can be None for lazy loading.
+            intensity (Optional[np.ndarray]): Array of intensity values. Can be None for lazy loading.
+            coordinates (List[int]): List of three integers [x, y, z] representing spatial coordinates.
+            sorted_by_mz_fun (bool, optional): Whether the data is already sorted by m/z. Defaults to False.
+            
+        Raises:
+            AssertionError: If coordinates is not a list of exactly three integers.
+        """
 
         assert len(coordinates) == 3, "Coordinates must be a list of three integers."
 
@@ -70,19 +115,61 @@ class MSBaseModule:
         return self.coordinates
 
     def __len__(self):
+        """
+        Return the number of m/z peaks in the spectrum.
+        
+        Returns:
+            int: Number of peaks (length of mz_list array)
+            
+        Example:
+            >>> spectrum = MSBaseModule(mz_array, intensity_array, [0, 0, 0])
+            >>> print(len(spectrum))  # Output: number of peaks
+        """
         return len(self.mz_list)
 
     def __eq__(self, other):
+        """
+        Check equality based on coordinates.
+        
+        Two MSBaseModule instances are considered equal if they have the same coordinates.
+        
+        Args:
+            other: Object to compare with
+            
+        Returns:
+            bool: True if coordinates are equal, False otherwise
+        """
         if not isinstance(other, MSBaseModule):
             return False
         return self.coordinates == other.coordinates
 
     def __getitem__(self, index):
+        """
+        Get m/z and intensity values at specified index.
+        
+        Args:
+            index (int): Index of the peak to retrieve
+            
+        Returns:
+            Tuple[float, float]: Tuple of (m/z, intensity) values at the given index
+            
+        Raises:
+            IndexError: If index is out of range
+        """
         return self.mz_list[index], self.intensity[index]
 
     def sort_by_mz(self):
         """
-        Sort the mz_list and intensity arrays by mz values.
+        Sort the mz_list and intensity arrays by m/z values in ascending order.
+        
+        This method sorts both arrays simultaneously to maintain correspondence
+        between m/z values and their intensities. The operation is performed
+        in-place and updates the sorted_by_mz_fun flag.
+        
+        Note:
+            - Only sorts if data is not already sorted (sorted_by_mz_fun is False)
+            - Logs a warning if mz_list or intensity is None
+            - After sorting, sorted_by_mz_fun flag is set to True
         """
         if self.sorted_by_mz_fun is False and self.mz_list is not None and self.intensity is not None:
             sorted_indices = np.argsort(self.mz_list)
@@ -125,7 +212,7 @@ class MSBaseModule:
         # Reduce whitespace by setting tight axis limits
         plt.xlim(mz.min(), mz.max())
         plt.ylim(0, intensity.max() * 1.05)  # 5% margin at top
-        plt.title(f"Mass Spectrum")
+        plt.title("Mass Spectrum")
         plt.xlabel("m/z")
         plt.ylabel("Intensity")
         plt.tight_layout()  # Minimize figure padding
@@ -137,13 +224,49 @@ class MSBaseModule:
 
 class MSImzML(MSBaseModule):
     """
-    Lazy spectrum wrapper for ImzML.
-    Holds parser + index; loads on-demand.
+    Specialized mass spectrum class for ImzML format with lazy loading capabilities.
+    
+    This class extends MSBaseModule to provide efficient handling of ImzML (Imaging Mass 
+    Spectrometry Markup Language) format data. It implements lazy loading to minimize 
+    memory usage by loading spectrum data only when accessed.
+    
+    The class holds a reference to an ImzMLParser and an index, loading the actual
+    m/z and intensity data on-demand when the properties are first accessed.
+    
+    Attributes:
+        _parser (ImzMLParser): Parser instance for reading ImzML data
+        _index (int): Index of the spectrum within the ImzML file
+        
+    Inherited Attributes:
+        coordinates (List[int]): 3D coordinates [x, y, z] of the spectrum
+        x, y, z (int): Individual coordinate components
+        sorted_by_mz_fun (bool): Flag indicating if data is sorted by m/z values
+        
+    Properties:
+        mz_list (np.ndarray): Lazily loaded array of m/z values
+        intensity (np.ndarray): Lazily loaded array of intensity values
+        
+    Note:
+        - Data loading is deferred until first property access
+        - Both mz_list and intensity are loaded together for efficiency
+        - Inherits all visualization and manipulation methods from MSBaseModule
     """
     def __init__(self,
                 parser:ImzMLParser,
                 index: int,
                 coordinates):
+        """
+        Initialize MSImzML with parser, index, and coordinates for lazy loading.
+        
+        Args:
+            parser (ImzMLParser): ImzML parser instance for reading spectrum data
+            index (int): Index of the spectrum within the ImzML file
+            coordinates (List[int]): 3D coordinates [x, y, z] of the spectrum location
+            
+        Note:
+            The actual m/z and intensity data are not loaded during initialization.
+            They will be loaded on first access to the mz_list or intensity properties.
+        """
 
         super().__init__(mz_list=None, intensity=None, coordinates=coordinates)
         self._parser = parser
@@ -151,6 +274,17 @@ class MSImzML(MSBaseModule):
 
     @classmethod
     def creator(cls, parser:ImzMLParser, index: int, coordinates: List[int]):
+        """
+        Class method factory for creating MSImzML instances.
+        
+        Args:
+            parser (ImzMLParser): ImzML parser instance
+            index (int): Spectrum index in the ImzML file
+            coordinates (List[int]): 3D coordinates [x, y, z]
+            
+        Returns:
+            MSImzML: New MSImzML instance
+        """
         return cls(parser, index, coordinates)
 
     @property
@@ -177,12 +311,63 @@ class MSImzML(MSBaseModule):
         self._intensity = value
 
 class MS:
+    """
+    Collection class for managing multiple mass spectra with coordinate-based indexing.
+    
+    This class serves as a container and manager for multiple MSBaseModule instances,
+    providing efficient storage, retrieval, and manipulation of mass spectrometry data
+    organized by 3D spatial coordinates. It supports both sequential and coordinate-based
+    access patterns.
+    
+    The class maintains two internal data structures:
+    - A queue (_queue) for sequential access and iteration
+    - A nested dictionary (_coordinate_index) for fast coordinate-based lookup
+    
+    Attributes:
+        _queue (List[MSBaseModule]): Sequential list of all spectra
+        _coordinate_index (Dict): Nested dictionary mapping coordinates to spectra
+                                 Structure: {z: {x: {y: MSBaseModule}}}
+    
+    Indexing Methods:
+        - ms[index]: Access by sequential index
+        - ms[x, y]: Access by coordinates (z defaults to 0)
+        - ms[x, y, z]: Access by full 3D coordinates
+        - ms[x, y, z] = spectrum: Direct assignment
+        
+    Note:
+        - Coordinates are automatically managed and indexed
+        - Supports both 2D (x, y) and 3D (x, y, z) coordinate systems
+        - Efficient lookup performance through coordinate indexing
+        - Thread-safe for read operations
+    """
 
     def __init__(self):
+        """
+        Initialize an empty MS collection.
+        
+        Creates empty internal data structures for storing and indexing mass spectra.
+        No parameters are required for initialization.
+        """
         self._queue = []
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
 
     def add_spectrum(self, spectrum: MSBaseModule):
+        """
+        Add a mass spectrum to the collection with coordinate indexing.
+        
+        This method adds a spectrum to both the sequential queue and the coordinate
+        index for efficient access. The spectrum's coordinates are used to create
+        a nested dictionary structure for fast coordinate-based lookup.
+        
+        Args:
+            spectrum (MSBaseModule): Mass spectrum to add to the collection
+            
+        Note:
+            - Automatically extracts coordinates from the spectrum
+            - Creates nested dictionary structure if coordinates don't exist
+            - Spectrum is added to both queue and coordinate index
+
+        """
         self._queue.append(spectrum)
         x, y, z = spectrum.x, spectrum.y, spectrum.z
 
@@ -193,14 +378,42 @@ class MS:
         self._coordinate_index[z][x][y] = spectrum
 
     def get_spectrum(self, x: int, y: int, z: int =0 ) -> MSBaseModule:
+        """
+        Retrieve a mass spectrum by its 3D coordinates.
+        
+        Args:
+            x (int): X coordinate
+            y (int): Y coordinate  
+            z (int, optional): Z coordinate. Defaults to 0.
+            
+        Returns:
+            MSBaseModule: Mass spectrum at the specified coordinates
+            
+        Raises:
+            KeyError: If no spectrum exists at the specified coordinates
+        """
         return self._coordinate_index[z][x][y]
 
     def __getitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int], slice]) -> MSBaseModule:
         """
-        Support multiple indexing methods:
-        - module[x, y, z]     # Complete coordinates
-        - module[x, y]        # z defaults to 0
-        - module[(x, y, z)]   # Tuple format
+        Retrieve mass spectrum using flexible indexing methods.
+        
+        Supports multiple indexing patterns for convenient access to mass spectra:
+        - Sequential indexing: ms[index]
+        - 2D coordinates: ms[x, y] (z defaults to 0)  
+        - 3D coordinates: ms[x, y, z]
+        
+        Args:
+            key (Union[int, Tuple[int, int], Tuple[int, int, int]]): 
+                Index or coordinates for spectrum retrieval
+                
+        Returns:
+            MSBaseModule: Mass spectrum at the specified location
+            
+        Raises:
+            TypeError: If key format is not supported
+            KeyError: If coordinates don't exist in the collection
+            IndexError: If sequential index is out of range
         """
         if isinstance(key, int):
         # Return the item from the queue by index
@@ -217,9 +430,26 @@ class MS:
 
     def __setitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int]], spectrum: MSBaseModule):
         """
-        Support direct assignment:
-        - module[x, y, z] = spectrum
-        - module[x, y] = spectrum  # z defaults to 0
+        Assign mass spectrum to specific coordinates with automatic indexing.
+        
+        Allows direct assignment of spectra to coordinate positions. The method
+        automatically updates the spectrum's coordinates and adds it to both
+        the coordinate index and sequential queue if not already present.
+        
+        Args:
+            key (Union[Tuple[int, int], Tuple[int, int, int]]): 
+                Target coordinates for spectrum placement
+            spectrum (MSBaseModule): Mass spectrum to assign
+                
+        Raises:
+            TypeError: If key is not a tuple
+            IndexError: If tuple length is not 2 or 3
+            
+        Note:
+            - Automatically updates spectrum.coordinates to match key
+            - Creates coordinate index structure if needed
+            - Adds to queue only if spectrum not already present
+            - For 2D coordinates, z defaults to 0
         """
         if isinstance(key, tuple):
             if len(key) == 3:
@@ -249,9 +479,23 @@ class MS:
             raise TypeError("Index must be in tuple format, like [x, y, z] or [x, y]")
 
     def __len__(self):
+        """
+        Return the number of spectra in the collection.
+        
+        Returns:
+            int: Total number of mass spectra in the collection
+        """
         return len(self._queue)
 
     def __iter__(self):
+        """
+        Return an iterator over all spectra in the collection.
+        
+        Allows iteration through all mass spectra in the order they were added.
+        
+        Returns:
+            Iterator[MSBaseModule]: Iterator over mass spectra
+        """
         return iter(self._queue)
 
     def plot_ms(self,
@@ -302,289 +546,3 @@ class MS:
             plt.savefig(save_path,dpi=dpi)
         else:
             plt.show()
-
-class MetaDataImzMl(MetaDataBase):
-    """ImzML metadata wrapper that loads and caches frequently used fields."""
-    def __init__(self,
-                 name="MSI",
-                 version=1.0,
-                 mz_num=None,
-                 storage_mode='split',
-                 parser: ImzMLParser = None,
-                 filepath: str = None
-                 ):
-        """Initialize the metadata object with either a parser or a file path."""
-        super().__init__(name, version, mz_num, storage_mode)
-
-        self._filepath = None
-        self._parser = None
-        self._spectrum_count_num = None
-        self._max_count_of_pixels_x = None
-        self._max_count_of_pixels_y = None
-        self._max_dimension_x = None
-        self._max_dimension_y = None
-        self._pixel_size_x = None
-        self._pixel_size_y = None
-        self._absolute_position_offset_x = None
-        self._absolute_position_offset_y = None
-        self._processed = None
-        self._instrument_model = None
-        self._centroid_spectrum = None
-        self._profile_spectrum = None
-        self._ms1_spectrum = None
-        self._msn_spectrum = None
-
-        # Set actual value through property
-        if parser is not None:
-            self.parser = parser
-        elif filepath is not None:
-            self.filepath = filepath
-        else:
-            raise ValueError("Either parser or filepath must be provided")
-
-        if self.parser is not None:
-            self.spectrum_count_num = len(self.parser.coordinates)
-            self.extract_metadata()  # Use pyimzml.ImzMLParser to retrieve metadata
-
-    @property
-    def filepath(self):
-        """Return the associated imzML file path."""
-        return self._filepath
-
-    @filepath.setter
-    def filepath(self, filepath: str):
-        """Set the imzML file path and initialize the parser if needed."""
-        if not filepath or not os.path.exists(filepath):
-            raise FileNotFoundError(f"File not found: {filepath}")
-        self._filepath = filepath
-        if self.parser is None:
-            self.parser = ImzMLParser(filepath)
-
-    @property
-    def parser(self):
-        """Return the bound pyimzML parser instance."""
-        return self._parser
-
-    @parser.setter
-    def parser(self, parser: ImzMLParser):
-        """Set the pyimzML parser instance."""
-        if parser is not None and not isinstance(parser, ImzMLParser):
-            raise TypeError("parser must be an instance of pyimzML.ImzMLParser or None")
-        self._parser = parser
-
-    @property
-    def spectrum_count_num(self):
-        """Return the number of spectra."""
-        return self._spectrum_count_num
-
-    @spectrum_count_num.setter
-    def spectrum_count_num(self, spectrum_count_num: int):
-        """Persist the number of spectra and sync it to the base storage."""
-        self._spectrum_count_num = spectrum_count_num
-        self._set('spectrum_count_num', spectrum_count_num)
-
-    @property
-    def max_count_of_pixels_x(self):
-        """Return the pixel count along the X axis."""
-        return self._max_count_of_pixels_x
-
-    @max_count_of_pixels_x.setter
-    def max_count_of_pixels_x(self, max_count_of_pixels_x):
-        """Set the pixel count along the X axis."""
-        if max_count_of_pixels_x is not None:
-            self._max_count_of_pixels_x = max_count_of_pixels_x
-            self._set('max_count_of_pixels_x', max_count_of_pixels_x)
-
-    @property
-    def max_count_of_pixels_y(self):
-        """Return the pixel count along the Y axis."""
-        return self._max_count_of_pixels_y
-
-    @max_count_of_pixels_y.setter
-    def max_count_of_pixels_y(self, max_count_of_pixels_y):
-        """Set the pixel count along the Y axis."""
-        if max_count_of_pixels_y is not None:
-            self._max_count_of_pixels_y = max_count_of_pixels_y
-            self._set('max_count_of_pixels_y', max_count_of_pixels_y)
-
-    @property
-    def max_dimension_x(self):
-        """Return the physical dimension along the X axis."""
-        return self._max_dimension_x
-
-    @max_dimension_x.setter
-    def max_dimension_x(self, max_dimension_x):
-        """Set the physical dimension along the X axis."""
-        self._max_dimension_x = max_dimension_x
-        self._set('max_dimension_x', max_dimension_x)
-
-    @property
-    def max_dimension_y(self):
-        """Return the physical dimension along the Y axis."""
-        return self._max_dimension_y
-
-    @max_dimension_y.setter
-    def max_dimension_y(self, max_dimension_y):
-        """Set the physical dimension along the Y axis."""
-        self._max_dimension_y = max_dimension_y
-        self._set('max_dimension_y', max_dimension_y)
-
-    @property
-    def pixel_size_x(self):
-        """Return the pixel size along the X axis."""
-        return self._pixel_size_x
-
-    @pixel_size_x.setter
-    def pixel_size_x(self, pixel_size_x):
-        """Set the pixel size along the X axis."""
-        self._pixel_size_x = pixel_size_x
-        self._set('pixel_size_x', pixel_size_x)
-
-    @property
-    def pixel_size_y(self):
-        """Return the pixel size along the Y axis."""
-        return self._pixel_size_y
-
-    @pixel_size_y.setter
-    def pixel_size_y(self, pixel_size_y):
-        """Set the pixel size along the Y axis."""
-        self._pixel_size_y = pixel_size_y
-        self._set('pixel_size_y', pixel_size_y)
-
-    @property
-    def absolute_position_offset_x(self):
-        """Return the absolute position offset on the X axis."""
-        return self._absolute_position_offset_x
-
-    @absolute_position_offset_x.setter
-    def absolute_position_offset_x(self, absolute_position_offset_x):
-        """Set the absolute position offset on the X axis."""
-        self._absolute_position_offset_x = absolute_position_offset_x
-        self._set('absolute_position_offset_x', absolute_position_offset_x)
-
-    @property
-    def absolute_position_offset_y(self):
-        """Return the absolute position offset on the Y axis."""
-        return self._absolute_position_offset_y
-
-    @absolute_position_offset_y.setter
-    def absolute_position_offset_y(self, absolute_position_offset_y):
-        """Set the absolute position offset on the Y axis."""
-        self._absolute_position_offset_y = absolute_position_offset_y
-        self._set('absolute_position_offset_y', absolute_position_offset_y)
-
-    @property
-    def processed(self):
-        """Return whether the data has been processed."""
-        return self._processed
-    @processed.setter
-    def processed(self, processed):
-        """Set whether the data has been processed."""
-        self._processed = processed
-        self._set('processed', processed)
-
-    @property
-    def instrument_model(self):
-        """Return the mass spectrometer model."""
-        return self._instrument_model
-
-    @instrument_model.setter
-    def instrument_model(self, instrument_model):
-        """Set the mass spectrometer model."""
-        self._instrument_model = instrument_model
-        self._set('instrument_model', instrument_model)
-
-    @property
-    def centroid_spectrum(self):
-        """Return whether centroid spectra are present."""
-        return self._centroid_spectrum
-
-    @centroid_spectrum.setter
-    def centroid_spectrum(self, centroid_spectrum):
-        """Set whether centroid spectra are present."""
-        self._centroid_spectrum = centroid_spectrum
-        self._set('centroid_spectrum', centroid_spectrum)
-
-    @property
-    def profile_spectrum(self):
-        """Return whether profile spectra are present."""
-        return self._profile_spectrum
-
-    @profile_spectrum.setter
-    def profile_spectrum(self, profile_spectrum):
-        """Set whether profile spectra are present."""
-        self._profile_spectrum = profile_spectrum
-        self._set('profile_spectrum', profile_spectrum)
-
-    @property
-    def ms1_spectrum(self):
-        """Return whether MS1 spectra are present."""
-        return self._ms1_spectrum
-
-    @ms1_spectrum.setter
-    def ms1_spectrum(self, ms1_spectrum):
-        """Set whether MS1 spectra are present."""
-        self._ms1_spectrum = ms1_spectrum
-        self._set('ms1_spectrum', ms1_spectrum)
-
-    @property
-    def msn_spectrum(self):
-        """Return whether MSn spectra are present."""
-        return self._msn_spectrum
-
-    @msn_spectrum.setter
-    def msn_spectrum(self, msn_spectrum):
-        """Set whether MSn spectra are present."""
-        self._msn_spectrum = msn_spectrum
-        self._set('msn_spectrum', msn_spectrum)
-
-    # Approach 1: load metadata through pyimzML
-    def extract_metadata(self):
-        """Iterate _meta_index and populate matching attributes from the parser."""
-
-        logger.info("Extracting metadata...")
-
-        if self._parser is None:
-            logger.error("Parser is not initialized. Please set parser or filepath first.")
-
-        for accession_id, prop_name in self._meta_index.items():
-            param_value = self.find_param_by_accession_id(accession_id)
-            if param_value is not None:
-                setattr(self, prop_name, param_value)
-
-
-    def find_param_by_accession_id(self, accession_id: str): # Use pyimzML.ImzMLParser to fetch metadata
-        """Search the predefined metadata areas for the given accession identifier."""
-
-        search_areas = [
-            self.parser.metadata.file_description,  # File description (data type, creation time, etc.)
-            self.parser.metadata.scan_settings,  # Scan settings (scan mode, m/z range, etc.)
-            self.parser.metadata.instrument_configurations,  # Instrument configuration (model, ion source, etc.)
-            self.parser.metadata.samples,  # Sample information (sample name, preparation, etc.)
-            self.parser.metadata.softwares,  # Software information (parser, version, etc.)
-            self.parser.metadata.data_processings,  # Data processing (peak picking, normalization, etc.)
-            self.parser.metadata.referenceable_param_groups,  # Referenceable parameter groups (shared metadata)
-        ]
-
-        for area in search_areas:
-            if area is None:
-                continue
-
-            result = self._search_in_area(area, accession_id)
-            if result is not None:
-                return result
-
-        return None
-
-    def _search_in_area(self, area, accession_id):
-        """Search a single parameter area for the given accession identifier."""
-        if isinstance(area, ParamGroup):
-            if accession_id in area:
-                return area[accession_id]
-
-        elif isinstance(area, dict):
-            for param_group in area.values():
-                if accession_id in param_group:
-                    return param_group[accession_id]
-
-        return None

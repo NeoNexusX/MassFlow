@@ -4,6 +4,9 @@ MSI Data Manager for ZYS Format
 This module provides specialized functionality for handling MSI data in ZYS format,
 extending the base MSIDataManager with specific methods for reading and processing
 .mat files containing MSI data with threshold-based filtering and normalization.
+
+Author: MassFlow Development Team Bionet/NeoNexus
+License: See LICENSE file in project root
 """
 from typing import Optional
 import h5py

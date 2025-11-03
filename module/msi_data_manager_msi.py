@@ -1,14 +1,17 @@
+"""
+Author: MassFlow Development Team Bionet/NeoNexus
+License: See LICENSE file in project root
+"""
 import glob
 import sys
 import os
 from pympler import tracker
 import h5py
 import numpy as np
+from logger import get_logger
 from .msi_module import MSI, MSIBaseModule
 from .msi_data_manager import MSIDataManager
-from logger import get_logger
 logger = get_logger("msi_data_manager_msi")
-
 
 class MSIDataManagerMSI(MSIDataManager):
     """
