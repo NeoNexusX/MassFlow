@@ -6,6 +6,7 @@ from logger import get_logger
 from meta_data import MetaDataBase
 import os
 from pyimzml.metadata import ParamGroup
+logger = get_logger("ms_module")
 
 class MSBaseModule:
 
@@ -475,7 +476,7 @@ class MetaDataImzMl(MetaDataBase):
     def extract_metadata(self):
         """Iterate _meta_index and populate matching attributes from the parser."""
 
-        logger = get_logger("Extracting metadata...")
+        logger.info("Extracting metadata...")
 
         if self._parser is None:
             logger.error("Parser is not initialized. Please set parser or filepath first.")
