@@ -1,4 +1,5 @@
 from typing import List, Tuple, Union, Optional
+from logger import get_logger
 import numpy as np
 import matplotlib.pyplot as plt
 from pyimzml.ImzMLParser import ImzMLParser
@@ -8,12 +9,15 @@ import os
 from pyimzml.metadata import ParamGroup
 logger = get_logger("ms_module")
 
+logger = get_logger("MSBaseModule")
+
 class MSBaseModule:
 
     def __init__(self,
                 mz_list: Optional[np.ndarray],
                 intensity: Optional[np.ndarray],
-                coordinates: List[int]):
+                coordinates: List[int],
+                sorted_by_mz_fun: bool = False):
 
         assert len(coordinates) == 3, "Coordinates must be a list of three integers."
 
@@ -25,17 +29,44 @@ class MSBaseModule:
         self.x = int(x)
         self.y = int(y)
         self.z = int(z)
+        self.sorted_by_mz_fun = sorted_by_mz_fun
 
     # lazy load properties
     @property
     def mz_list(self) -> np.ndarray:
+        """
+        Get the mz values of the MSI data.
+
+        Returns:
+            np.ndarray: An array of mz values.
+        """
         return self._mz_list
+
+    @mz_list.setter
+    def mz_list(self, value):
+        self._mz_list = value
 
     @property
     def intensity(self) -> np.ndarray:
+        """
+        Get the intensity values of the MSI data.
+
+        Returns:
+            np.ndarray: An array of intensity values.
+        """
         return self._intensity
 
+    @intensity.setter
+    def intensity(self, value):
+        self._intensity = value
+
     def get_coordinates(self) -> List[int]:
+        """
+        Get the coordinates of the MSI data.
+
+        Returns:
+            List[int]: A list of three integers representing the coordinates (x, y, z).
+        """
         return self.coordinates
 
     def __len__(self):
@@ -46,13 +77,36 @@ class MSBaseModule:
             return False
         return self.coordinates == other.coordinates
 
+    def __getitem__(self, index):
+        return self.mz_list[index], self.intensity[index]
+
+    def sort_by_mz(self):
+        """
+        Sort the mz_list and intensity arrays by mz values.
+        """
+        if self.sorted_by_mz_fun is False and self.mz_list is not None and self.intensity is not None:
+            sorted_indices = np.argsort(self.mz_list)
+            self._mz_list = self.mz_list[sorted_indices]
+            self._intensity = self.intensity[sorted_indices]
+        elif self.mz_list is None or self.intensity is None:
+            logger.warning("mz_list or intensity is None, can not sort by mz.")
+
     def plot(self,
             save_path=None,
             figsize=(20, 5),
             dpi: int = 300,
             color='steelblue',
             plot_mode: str = "line"):
+        """
+        Plot the mass spectrum.
 
+        Args:
+            save_path (str, optional): Path to save the plot. If None, display the plot.
+            figsize (tuple, optional): Figure size (width, height) in inches. Defaults to (20, 5).
+            dpi (int, optional): Dots per inch for image quality. Defaults to 300.
+            color (str, optional): Color of the plot lines. Defaults to 'steelblue'.
+            plot_mode (str, optional): Plot mode. "line" for connected line plot, "stem" for default stem plot. Defaults to "line".
+        """
         intensity = self.intensity
         mz = self.mz_list
 
@@ -95,6 +149,10 @@ class MSImzML(MSBaseModule):
         self._parser = parser
         self._index = int(index)
 
+    @classmethod
+    def creator(cls, parser:ImzMLParser, index: int, coordinates: List[int]):
+        return cls(parser, index, coordinates)
+
     @property
     def mz_list(self):
         if self._mz_list is None:
@@ -103,12 +161,20 @@ class MSImzML(MSBaseModule):
             self._intensity = intensity
         return self._mz_list
 
+    @mz_list.setter
+    def mz_list(self, value):
+        self._mz_list = value
+
     @property
     def intensity(self):
         if self._intensity is None:
             # Ensure mz_list triggers lazy load and sets intensity
             _ = self.mz_list
         return self._intensity
+
+    @intensity.setter
+    def intensity(self, value):
+        self._intensity = value
 
 class MS:
 
@@ -222,11 +288,11 @@ class MS:
             plt.setp(stemlines, linewidth=0.7, color=color, alpha=0.7)
             plt.setp(markerline, markersize=3, color=color, alpha=0.7)
             plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.4)
-        
+
         # Reduce whitespace by setting tight axis limits
         plt.xlim(mz.min(), mz.max())
         plt.ylim(0, intensity.max() * 1.05)  # 5% margin at top
-        
+
         plt.title(f"Mass Spectrum at Coordinates (x={x}, y={y}, z={z})")
         plt.xlabel("m/z")
         plt.ylabel("Intensity")
