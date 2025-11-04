@@ -10,9 +10,16 @@ import { defineConfig } from 'vitepress'
  * Exceptions: None.
  */
 export default defineConfig({
+  /**
+   * Base path for GitHub Pages deployment
+   *
+   * Parameters: None.
+   * Returns: Static configuration object field.
+   * Exceptions: None.
+   */
+  base: '/MassFlow/',
   title: 'MassFlow',
   description: 'MassFlow',
-  base: '/MassFlow/',
   /**
    * URL and path behavior
    *
