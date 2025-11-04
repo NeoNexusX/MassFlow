@@ -1,6 +1,8 @@
 {
   "devDependencies": {
-    "vitepress": "^2.0.0-alpha.12",
+    "mermaid": "^11.12.1",
+    "vitepress": "1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17",
     "vue": "^3.5.22"
   },
   "scripts": {
@@ -9,6 +11,7 @@
     "docs:preview": "vitepress preview docs"
   },
   "dependencies": {
-    "@catppuccin/vitepress": "^0.1.2"
+    "@catppuccin/vitepress": "^0.1.2",
+    "markdown-it-mathjax3-pro": "^1.0.0"
   }
 }

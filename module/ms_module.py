@@ -222,7 +222,7 @@ class MSBaseModule:
         else:
             plt.show()
 
-class MSImzML(MSBaseModule):
+class MSImzMLBase(MSBaseModule):
     """
     Specialized mass spectrum class for ImzML format with lazy loading capabilities.
     

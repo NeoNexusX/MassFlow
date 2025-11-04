@@ -1,5 +1,6 @@
-import { defineConfig } from 'vitepress'
-
+import { defineConfig, type HeadConfig } from 'vitepress'
+import MarkdownItMathJaX3PRO from 'markdown-it-mathjax3-pro'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 /**
  * Site Config with i18n locales
  *
@@ -9,7 +10,8 @@ import { defineConfig } from 'vitepress'
  *
  * Exceptions: None.
  */
-export default defineConfig({
+export default withMermaid(
+  defineConfig({
   /**
    * Base path for GitHub Pages deployment
    *
@@ -20,16 +22,6 @@ export default defineConfig({
   base: '/MassFlow/',
   title: 'MassFlow',
   description: 'MassFlow',
-  /**
-   * URL and path behavior
-   *
-   * - cleanUrls: removes trailing `.html` in dev/production for cleaner links.
-   * - rewrites: maps English content from `/en/...` to root (`/...`) so English is truly the root locale.
-   *
-   * Parameters: None.
-   * Returns: Static configuration object.
-   * Exceptions: None.
-   */
   cleanUrls: true,
   rewrites: {
     /** Map English content folder to root paths */
@@ -47,12 +39,54 @@ export default defineConfig({
       lang: 'zh-CN'
     }
   },
+  mermaid: {
+      // refer https://mermaid.js.org/config/setup/modules/mermaidAPI.html#mermaidapi-configuration-defaults for options
+  },
+    // optionally set additional config for plugin itself with MermaidPluginConfig
+  mermaidPlugin: {
+      class: "mermaid my-class", // set additional css classes for parent container 
+  },
   markdown: {
+    /**
+     * Enable built-in Mermaid support for fenced code blocks.
+     * 
+     * Parameters: None.
+     * Returns: Static configuration property enabling Mermaid rendering.
+     * Exceptions: None. If Mermaid library is missing, VitePress will log an error during dev/build.
+     */
+    config: (md) => {
+      md.use(MarkdownItMathJaX3PRO, {
+        // add new inlineMathSeparator && displayMathSeparator
+        tex: {
+          inlineMath: [['$', '$'], ['§', '§']],
+          displayMath: [['$$', '$$'], ['§§', '§§']],
+        },
+        //enable chtml mode 
+        chtml: {
+          fontURL: 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2'
+        }
+      })
+
+    },
     theme: {
       light: 'catppuccin-latte',
       dark: 'catppuccin-macchiato'
     }
   },
+
+  transformPageData(pageData) {
+    const head = (pageData.frontmatter.head ??= []);
+    const inject_content = pageData.frontmatter.inject_content;
+    if (inject_content && Array.isArray(inject_content)) {
+      inject_content.forEach(item => {
+        const { type, contribution, content } = item;
+        const headEntry = [type, contribution || {}, content || ''].filter(Boolean);
+        head.push(headEntry as HeadConfig);
+      });
+      delete pageData.frontmatter.inject_content;
+    }
+  },
+  
   themeConfig: {
     // Single theme config (compatible with current typings)
     nav: [
@@ -77,7 +111,8 @@ export default defineConfig({
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'Contribution', link: '/contribution' },
           { text: 'Collaboration Guide', link: '/collaboration_guide' },
-          { text: 'Naming Conventions', link: '/naming-conventions' }
+          { text: 'Naming Conventions', link: '/naming-conventions' },
+          { text: 'Data Structures', link: '/ms-data-structures' }
         ]
       },
     ],
@@ -93,3 +128,5 @@ export default defineConfig({
     }
   }
 })
+)
+

@@ -34,7 +34,7 @@ License: See LICENSE file in project root
 """
 from typing import Union
 import numpy as np
-from module.ms_module import MSBaseModule, MSImzML
+from module.ms_module import MSBaseModule, MSImzMLBase
 from logger import get_logger
 from .filter import (smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_ma,
                      smooth_ns_signal_gaussian, smooth_ns_signal_bi,smooth_signal_savgol,
@@ -165,7 +165,7 @@ class MSIPreprocessor():
 
     @staticmethod
     def noise_reduction(
-        data: Union[MSBaseModule, MSImzML],
+        data: Union[MSBaseModule, MSImzMLBase],
         method: str = "ma",
         window: int = 2,
         sd: float = 2,
@@ -175,7 +175,7 @@ class MSIPreprocessor():
         polyorder: int = 2,
         wavelet: str = 'db4',
         threshold_mode: str = 'soft'
-    ) -> Union[MSBaseModule, MSImzML]:
+    ) -> Union[MSBaseModule, MSImzMLBase]:
         """
         Perform noise reduction on MSI data.
         
