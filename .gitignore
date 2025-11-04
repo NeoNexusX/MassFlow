@@ -211,3 +211,8 @@ __marimo__/
 .vscode/
 data/
 .DS_Store
+node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+docs/docs/.vitepress/cache/
+docs/docs/.vitepress/dist/

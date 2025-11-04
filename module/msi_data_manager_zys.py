@@ -4,6 +4,9 @@ MSI Data Manager for ZYS Format
 This module provides specialized functionality for handling MSI data in ZYS format,
 extending the base MSIDataManager with specific methods for reading and processing
 .mat files containing MSI data with threshold-based filtering and normalization.
+
+Author: MassFlow Development Team Bionet/NeoNexus
+License: See LICENSE file in project root
 """
 from typing import Optional
 import h5py
@@ -25,7 +28,7 @@ class MSIDataManagerZYS(MSIDataManager):
         h5_data_zys (Optional[h5py.File]): Handle to the opened HDF5/MAT file
     """
 
-    def __init__(self, msi, target_mz_range=None,threshold=0.3,filepath: str = None):
+    def __init__(self, msi, target_mz_range=None,threshold=0.0,filepath: str = None):
         """
         Initialize MSIDataManagerZYS instance.
         
@@ -139,15 +142,15 @@ class MSIDataManagerZYS(MSIDataManager):
         # If valid channels exist, allocate the final matrix and add to the queue
         if len(selected_channels) > 0:
             # Set mask first, then allocate the final matrix based on selection count
-            self._msi.meta_mask = _mask
-            self._msi.meta_mz_num = len(selected_channels)
+            self._msi.meta.mask = _mask
+            self._msi.meta.mz_num = len(selected_channels)
             self._msi.allocate_data_from_meta(dtype=np.float32)
 
             # Fill valid pixels into the managed data matrix and bind slices
             for i, (mz, channel_data) in enumerate(selected_channels):
                 self._msi.data[i, coords[:, 0], coords[:, 1]] = channel_data
-                base_mask = np.where(self._msi.data[i] > 0, 1, 0) if self._msi.meta_need_base_mask else None
-                self._msi.add_msi_slice(
+                base_mask = np.where(self._msi.data[i] > 0, 1, 0) if self._msi.meta.need_base_mask else None
+                self._msi.add_msi_img(
                     MSIBaseModule(
                         mz=mz,
                         msroi=self._msi.data[i],
@@ -156,9 +159,9 @@ class MSIDataManagerZYS(MSIDataManager):
                 )
 
             # If msroi shape differs from _mask, fix mask orientation by transposing
-            mask_to_set = _mask.T if self._msi.get_queue()[0].msroi.shape != _mask.shape else _mask
-            self._msi.meta_mask = mask_to_set
+            mask_to_set = _mask.T if self._msi.queue[0].msroi.shape != _mask.shape else _mask
+            self._msi.meta.mask = mask_to_set
         else:
             # No valid channels; clear m/z count in metadata and keep queue empty
-            self._msi.meta_mask = _mask
-            self._msi.meta_mz_num = 0
+            self._msi.meta.mask = _mask
+            self._msi.meta.mz_num = 0

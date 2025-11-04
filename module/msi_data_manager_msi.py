@@ -1,11 +1,17 @@
+"""
+Author: MassFlow Development Team Bionet/NeoNexus
+License: See LICENSE file in project root
+"""
 import glob
 import sys
 import os
 from pympler import tracker
 import h5py
 import numpy as np
+from logger import get_logger
 from .msi_module import MSI, MSIBaseModule
 from .msi_data_manager import MSIDataManager
+logger = get_logger("msi_data_manager_msi")
 
 class MSIDataManagerMSI(MSIDataManager):
     """
@@ -49,7 +55,11 @@ class MSIDataManagerMSI(MSIDataManager):
 
         # Read metadata
         self.__load_data_helper(fn_name='meta')
-        assert self.get_msi().meta.mz_num > 0, "meta.mz_num must be greater than 0"
+        logger.info(f"MSI meta data: {self.get_msi().meta}")
+
+        if self.get_msi().meta.mz_num <1 :
+            logger.error("meta.mz_num must be greater than 0")
+            raise ValueError("meta.mz_num must be greater than 0")
 
         # Initialize data storage matrix via MSI API
         self.get_msi().allocate_data_from_meta(dtype=np.float32)
@@ -68,14 +78,14 @@ class MSIDataManagerMSI(MSIDataManager):
             for msi_file in msi_files:
                 fn(msi_file)
         else:
-            assert False, f"Error: {self.filepath} is not a valid .h5 file or .msi file or directory."
+            logger.error(f"Error: {self.filepath} is not a valid .h5 file or .msi file or directory.")
+            raise ValueError(f"Error: {self.filepath} is not a valid .h5 file or .msi file or directory.")
 
         if fn_name != 'meta':
             # Check if current_num exceeds meta.mz_num after loading data
-            assert self.current_image_num <= self._msi.meta.mz_num, (
-                f"current_num {self.current_image_num} != meta.mz_num "
-                f"{self._msi.meta.mz_num}"
-            )
+            if self.current_image_num < self._msi.meta.mz_num:
+                logger.info(f"current_num {self.current_image_num} < meta.mz_num {self._msi.meta.mz_num}, "
+                               f"some m/z images may be missing.")
             #update meta.mz_num if current_num is smaller
             if self.target_mz_range is not None and self.current_image_num <= self._msi.meta.mz_num:
                 self._msi.meta.mz_num = self.current_image_num
@@ -94,15 +104,15 @@ class MSIDataManagerMSI(MSIDataManager):
         """
         with h5py.File(file, 'r') as h5_file:
             for key, group in h5_file.items():
-                if key.startswith('meta_') and self._msi.metadata.get(key) is None:
-                    # Read raw dataset value
-                    dataset_value = group[()]
-                    # Decode bytes to string if necessary
-                    if isinstance(dataset_value, bytes):
-                        dataset_value = dataset_value.decode('utf-8')
-                    setattr(self._msi, key, dataset_value)
-
-        self._msi.update_metadata()
+                if key.startswith('meta_') and self._msi.meta.get(key) is None:
+                    attr = key.replace('meta_', '', 1)
+                    if self._msi.meta.get(attr) is None:
+                        # Read raw dataset value
+                        dataset_value = group[()]
+                        # Decode bytes to string if necessary
+                        if isinstance(dataset_value, bytes):
+                            dataset_value = dataset_value.decode('utf-8')
+                        setattr(self._msi.meta, attr, dataset_value)
 
     def __load_data_from_file(self, file):
         """
@@ -127,15 +137,15 @@ class MSIDataManagerMSI(MSIDataManager):
                     base_mask = np.where(msi_image > 0, 1, 0) if self._msi.meta.need_base_mask else None
 
                     self._msi.data[self.current_image_num, :, :] = msi_image
-                    self._msi.add_msi_slice(
+                    self._msi.add_msi_img(
                         MSIBaseModule(mz=mz,
                                       msroi=(self._msi.data[self.current_image_num] if self._msi.data is not None else msi_image),
                                       base_mask=base_mask
                                       )
                     )
-                    print(f'loading {key}')
+                    logger.info(f'loading {key}')
                     self.current_image_num += 1
-            print(f"finish loading {file}")
+            logger.info(f"finish loading {file}")
 
     def _inspect_hdf5_structure(self, group, indent=0, max_depth=2):
 
@@ -150,13 +160,13 @@ class MSIDataManagerMSI(MSIDataManager):
 
             # If it is a subgroup, recurse
             if isinstance(item, h5py.Group):
-                print(f"{prefix}Group: {key}")
+                logger.info(f"{prefix}Group: {key}")
                 self._inspect_hdf5_structure(item, indent + 1, max_depth)
 
             # If it is a dataset, print name and shape (skip reference type)
             elif isinstance(item, h5py.Dataset):
                 # Skip reference-type datasets (dtype.kind == 'O')
-                print(f"{prefix}Dataset: {key}  Shape: {item.shape}  type: {item.dtype}")
+                logger.info(f"{prefix}Dataset: {key}  Shape: {item.shape}  type: {item.dtype}")
 
     def calculate_memory_usage(self):
         """
@@ -166,32 +176,32 @@ class MSIDataManagerMSI(MSIDataManager):
         then summarizes the total usage and outputs in KB/MB units.
         """
 
-        print("=== memory usage ===")
+        logger.info("=== memory usage ===")
 
         # Data matrix section
         data_matrix_size = 0
         data = self._msi.data
         if data is not None:
             data_matrix_size = data.nbytes
-            print("\n--- Data Matrix part ---")
-            print(f"Data matrix: {data_matrix_size} bytes ({data_matrix_size / (1024 * 1024):.2f} MB)")
+            logger.info("\n--- Data Matrix part ---")
+            logger.info(f"Data matrix: {data_matrix_size} bytes ({data_matrix_size / (1024 * 1024):.2f} MB)")
 
         # Queue section
-        print("\n--- Queue part ---")
+        logger.info("\n--- Queue part ---")
         queue_total_size = 0
 
         for module in self._msi.get_queue():
             # Calculate the actual memory usage of each module
             queue_total_size += sys.getsizeof(module)
 
-        print(f"Queue size: {queue_total_size} bytes ({queue_total_size / (1024 * 1024):.2f} MB)")
+        logger.info(f"Queue size: {queue_total_size} bytes ({queue_total_size / (1024 * 1024):.2f} MB)")
 
         # Total
         total_size = queue_total_size + data_matrix_size
-        print("\n================ Sum ================")
-        print(f"sum usage: ({total_size / 1024:.2f} KB, {total_size / (1024 * 1024):.2f} MB)")
+        logger.info("\n================ Sum ================")
+        logger.info(f"sum usage: ({total_size / 1024:.2f} KB, {total_size / (1024 * 1024):.2f} MB)")
 
-        print("================ tracker ==================")
+        logger.info("================ tracker ==================")
         self.me_tr.print_diff(self.me_tr.summaries['start'], self.me_tr.summaries['after_load_data'])
 
     def memory_tracker_init(self):

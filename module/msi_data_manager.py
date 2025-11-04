@@ -4,14 +4,19 @@ MSI Data Management Module
 Provides functions for reading/writing MSI data, memory statistics, and visualization.
 Supports .h5/.msi files and batch import from directories, filters by m/z range,
 and generates merged or split outputs.
-"""
 
+Author: MassFlow Development Team Bionet/NeoNexus
+License: See LICENSE file in project root
+"""
 import os
 from abc import ABC, abstractmethod
-from typing import Self
 import h5py
 import numpy as np
+from logger import get_logger
 from .msi_module import MSI
+
+logger = get_logger("msi_data_manager")
+
 
 class MSIDataManager(ABC):
     """
@@ -67,27 +72,27 @@ class MSIDataManager(ABC):
         queue length, and count of non-empty base masks.
         """
 
-        print("MSI meta data:")
+        logger.info("MSI meta data:")
         for attr, value in self._msi.meta.items():
             shape = getattr(value, 'shape', None)
             if shape is not None:
-                print(f"    meta_{attr}: {shape}")
+                logger.info(f"    meta_{attr}: {shape}")
             else:
-                print(f"    meta_{attr}: {value}")
+                logger.info(f"    meta_{attr}: {value}")
 
-        print("MSI  information:")
-        if self._msi.get_queue():
-            mz_values = [module.mz for module in self._msi.get_queue()]
+        logger.info("MSI  information:")
+        if self._msi.queue:
+            mz_values = [module.mz for module in self._msi.queue]
             max_mz = max(mz_values)
             min_mz = min(mz_values)
-            non_empty_count = sum(1 for module in self._msi.get_queue() if module.base_mask is not None)
-            print(f"    MSI max mz: {max_mz}")
-            print(f"    MSI min mz: {min_mz}")
-            print(f"    MSI len : {len(self._msi.get_queue())}")
-            print(f"    base_mask not empty is {non_empty_count}")
+            non_empty_count = sum(1 for module in self._msi.queue if module.base_mask is not None)
+            logger.info(f"    MSI max mz: {max_mz}\n"
+                        f"    MSI min mz: {min_mz}\n"
+                        f"    MSI len : {len(self._msi)}\n"
+                        f"    base_mask not empty is {non_empty_count}")
             # print(f"MSI queue mz values: {[mz.item() for mz in mz_values]}")
         else:
-            print("MSI queue is empty.")
+            logger.info("MSI queue is empty.")
 
     def _write_meta_data(self, output_path):
 
@@ -95,17 +100,17 @@ class MSIDataManager(ABC):
 
             for attr, value in self._msi.meta.items():
                 ds_name = f"meta_{attr}"
-                if file_handle.get(ds_name) is None:
-                    if value is None:
-                        continue
-                    if isinstance(value, str):
-                        dtype = h5py.string_dtype(encoding='utf-8')
-                    elif ('num' in attr) or ('version' in attr):
-                        dtype = np.float32
-                    else:
-                        dtype = None
-                    self._upsert_dataset(file_handle, ds_name, value, dtype=dtype)
+                if value is None:
+                    continue
+                if isinstance(value, str):
+                    dtype = h5py.string_dtype(encoding='utf-8')
+                elif ('num' in attr) or ('version' in attr):
+                    dtype = np.float32
+                else:
+                    dtype = None
 
+                # 始终 upsert（覆盖或重建），避免旧值残留
+                self._upsert_dataset(file_handle, ds_name, value, dtype=dtype)
 
     def write2local(self, mode="merge", prefix="MSI", output_fold=None, compression_opts=9):
         """
@@ -123,7 +128,7 @@ class MSIDataManager(ABC):
         """
 
         if len(self._msi) == 0:
-            print("No MSI images to write. Please rebuild or load the HDF5 file first.")
+            logger.info("No MSI images to write. Please rebuild or load the HDF5 file first.")
 
         self._msi.meta.storage_mode = mode
 
@@ -143,7 +148,8 @@ class MSIDataManager(ABC):
             elif mode == "merge":
                 file_name = f"{prefix}_{meta_name}_merge_{meta_version}.msi"
             else:
-                assert False, f"Error: {mode} is not a valid mode. Please use 'split' or 'merge'."
+                logger.error(f"Error: {mode} is not a valid mode. Please use 'split' or 'merge'.")
+                raise ValueError(f"Error: {mode} is not a valid mode. Please use 'split' or 'merge'.")
 
             # update file name
             output_path = os.path.join(output_fold, file_name)
@@ -174,12 +180,12 @@ class MSIDataManager(ABC):
                 MSIDataManager._upsert_dataset(group, 'mz', data=mz_data)
 
             if 'msroi' not in group and msroi is not None:
-                MSIDataManager._upsert_dataset(group, 
+                MSIDataManager._upsert_dataset(group,
                                                'msroi',
                                                 data=msroi,
                                                 compression=compression,
                                                 compression_opts=compression_opts)
-                
+
     @staticmethod
     def _upsert_dataset(group, name, data, dtype=None, compression=None, compression_opts=None):
         """

@@ -1,7 +1,10 @@
+"""
+Author: MassFlow Development Team Bionet/NeoNexus
+License: See LICENSE file in project root
+"""
 import numpy as np
 from matplotlib import pyplot as plt
 from .meta_data import MetaDataBase
-
 
 
 class MSIBaseModule:
@@ -13,7 +16,6 @@ class MSIBaseModule:
         self.mz = mz
         self.msroi = msroi
         self.base_mask = base_mask
-
 
 class MSIMetaData(MetaDataBase):
     """
@@ -44,8 +46,9 @@ class MSIMetaData(MetaDataBase):
 
     @mask.setter
     def mask(self, mask):
-        self._mask = mask
-        self._set('mask', mask)
+        if mask is not None:
+            self._mask = mask
+            self._set('mask', mask)
 
     @property
     def need_base_mask(self):
@@ -53,8 +56,9 @@ class MSIMetaData(MetaDataBase):
 
     @need_base_mask.setter
     def need_base_mask(self, need_base_mask: bool):
-        self._need_base_mask = need_base_mask
-        self._set('need_base_mask', need_base_mask)
+        if need_base_mask is not None:
+            self._need_base_mask = need_base_mask
+            self._set('need_base_mask', need_base_mask)
 
 class MSI:
     """
@@ -75,7 +79,7 @@ class MSI:
 
         # Call parent class __init__ to initialize all metadata
         self.meta = MSIMetaData(name, version, mz_num, storage_mode, mask, need_base_mask)
-
+        # msi.meta[name]
         # Initialize MSI-specific private fields
         self._queue = []
         self._data = None
@@ -148,7 +152,7 @@ class MSI:
                 plt.colorbar(label='Intensity')
                 plt.title(f'MSI Image at m/z {msi.mz:.4f}')
                 if output_path:
-                    plt.savefig(output_path.format(msi.mz))
+                    plt.savefig(output_path.format(msi.mz), dpi=300)
                 else:
                     plt.show()
 
