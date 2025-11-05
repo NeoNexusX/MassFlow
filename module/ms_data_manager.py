@@ -51,7 +51,8 @@ class MSDataManager(ABC):
         self.filepath = filepath
         self.current_spectrum_num = 0
 
-    def get_ms(self) -> MS:
+    @property
+    def ms(self) -> MS:
         """
         Get the MS object.
 
@@ -59,6 +60,16 @@ class MSDataManager(ABC):
             MS: The MS object.
         """
         return self._ms
+
+    @ms.setter
+    def ms(self, ms: MS):
+        """
+        Set the MS object.
+
+        Args:
+            ms (MS): Mass-spectrometry domain model instance.
+        """
+        self._ms = ms
 
     @abstractmethod
     def load_full_data_from_file(self):
@@ -69,21 +80,35 @@ class MSDataManager(ABC):
             filepath (str): Path to the input file.
         """
 
-    def inspect_data(self,inpect_num=10):
+    def inspect_data(self,inpect_num=3):
         """
         Inspect the data structure of the MSI object.
 
         Log metadata shapes and queue information, including max/min m/z values,
         queue length, and count of non-empty base masks.
         """
-        logger.info("MS meta data:")
-        #TODO: implement inspect meta data - dlq
-        logger.info(f"MS count is {self.current_spectrum_num}" )
-        logger.info("MS  information:")
+        meta_info = "MS meta data:\r\n"
+        meta_info+=(f"  target_mz_range: {self.target_mz_range}\r\n")
+        meta_info+=(f"  target_locs: {self.target_locs}\r\n")
+        meta_info+=(f"  filepath: {self.filepath}\r\n")
+        meta_info+=(f"  current_spectrum_num: {self.current_spectrum_num}\r\n")
+        for attr, value in self.ms.meta.items():
+            shape = getattr(value, 'shape', None)
+            if shape is not None and len(shape) > 0:
+                meta_info+=(f"  meta_{attr}: {shape}\r\n")
+            else:
+                meta_info+=(f"  meta_{attr}: {value}\r\n")
+        logger.info(meta_info)
 
+        base_info = "MS  information:\r\n"
         pointer4num = 0
         for spectrum in self._ms:
             if pointer4num >= inpect_num:
                 break
-            logger.info(f"MS len: {len(spectrum)}\r\nMS range: {min(spectrum.mz_list)} - {max(spectrum.mz_list)}\r\nmax intensity: {max(spectrum.intensity)}")    
+            base_info+=(f"  MS len: {len(spectrum)}\r\n"
+                        f"  MS range: {min(spectrum.mz_list)} - {max(spectrum.mz_list)}\r\n"
+                        f"  MS coord: {spectrum.coordinates}\r\n"
+                        f"  max and min mz_list: {max(spectrum.mz_list)} - {min(spectrum.mz_list)}\r\n"
+                        f"  max intensity: {max(spectrum.intensity)}\r\n\r\n")
             pointer4num += 1
+        logger.info(base_info)

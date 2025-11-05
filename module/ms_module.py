@@ -14,11 +14,13 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 
+from math import log
 from typing import List, Tuple, Union, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 from pyimzml.ImzMLParser import ImzMLParser
 from logger import get_logger
+
 logger = get_logger("ms_module")
 
 class MSBaseModule:
@@ -348,8 +350,10 @@ class MS:
         Creates empty internal data structures for storing and indexing mass spectra.
         No parameters are required for initialization.
         """
+        self.meta = None
         self._queue = []
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
+
 
     def add_spectrum(self, spectrum: MSBaseModule):
         """
@@ -392,6 +396,14 @@ class MS:
         Raises:
             KeyError: If no spectrum exists at the specified coordinates
         """
+        # Check if the coordinates exist in the index
+        if z not in self._coordinate_index or x not in self._coordinate_index[z] or y not in self._coordinate_index[z][x]:
+            logger.error(f"No spectrum found at coordinates ({x}, {y}, {z})\r\n"
+                            f"min_pixel_x: {self.meta.min_pixel_x}\r\n"
+                            f"max_pixel_x: {self.meta.pixel_size_x}\r\n"
+                            f"min_pixel_y: {self.meta.min_pixel_y}\r\n"
+                            f"max_pixel_y: {self.meta.pixel_size_y}\r\n")
+            raise KeyError(f"No spectrum found at coordinates ({x}, {y}, {z})")
         return self._coordinate_index[z][x][y]
 
     def __getitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int], slice]) -> MSBaseModule:
