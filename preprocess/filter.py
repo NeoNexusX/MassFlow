@@ -6,13 +6,13 @@ from typing import Optional
 import numpy as np
 from scipy import stats
 from logger import get_logger
-from module.ms_module import MSBaseModule
+from module.ms_module import SpectrumBaseModule
 
 logger = get_logger(__name__)
 
 
 def smooth_signal_ma(
-    x: MSBaseModule,
+    x: SpectrumBaseModule,
     coef: Optional[np.ndarray] = None,
     window: int = 5,
 ):
@@ -62,7 +62,7 @@ def smooth_signal_ma(
     return y
 
 def smooth_signal_gaussian(
-    x: MSBaseModule,
+    x: SpectrumBaseModule,
     sd: Optional[float] = None,
     window: int = 5,
 ):
@@ -112,7 +112,7 @@ def smooth_signal_gaussian(
     return smooth_signal_ma(x, coef=coef)
 
 def smooth_signal_savgol(
-        x: MSBaseModule, window: int = 5, polyorder: int = 2):
+        x: SpectrumBaseModule, window: int = 5, polyorder: int = 2):
     """
     Savitzky-Golay filter for signal smoothing.
     
@@ -149,7 +149,7 @@ def smooth_signal_savgol(
     return savgol_filter(x.intensity, window, polyorder)
 
 def smooth_signal_wavelet(
-        x: MSBaseModule, wavelet: str = 'db4', threshold_mode: str = 'soft'):
+        x: SpectrumBaseModule, wavelet: str = 'db4', threshold_mode: str = 'soft'):
 
     """
     Wavelet denoising for signal smoothing.
@@ -189,7 +189,7 @@ def smooth_signal_wavelet(
     return reconstructed
 
 def smooth_ns_signal_pre(
-    x: MSBaseModule,
+    x: SpectrumBaseModule,
     k: int = 5,
     p: int = 1,
 ):
@@ -282,7 +282,7 @@ def smooth_ns_signal_calculate(
     return np.sum(neigh_intensity * weights, axis=axis)
 
 def smooth_ns_signal_ma(
-    x: MSBaseModule,
+    x: SpectrumBaseModule,
     k: int = 5,
     p: int = 1,
 ):
@@ -311,7 +311,7 @@ def smooth_ns_signal_ma(
     return smoothed_intensity
 
 def smooth_ns_signal_gaussian(
-    x: MSBaseModule,
+    x: SpectrumBaseModule,
     k: int = 5,
     p: int = 1,
     sd: float = None,
@@ -343,7 +343,7 @@ def smooth_ns_signal_gaussian(
     return smoothed_intensity
 
 def smooth_ns_signal_bi(
-    x: MSBaseModule,
+    x: SpectrumBaseModule,
     k: int = 5,
     p: int = 2,
     sd_dist: float = None,
@@ -391,7 +391,7 @@ def smooth_ns_signal_bi(
 
     return smoothed_intensity
 
-def smooth_preprocess(data:MSBaseModule):
+def smooth_preprocess(data:SpectrumBaseModule):
     """ A general preprocess pipeline for MS data smoothing
     """
     intensity = data.intensity.copy()

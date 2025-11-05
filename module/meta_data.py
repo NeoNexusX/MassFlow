@@ -536,7 +536,7 @@ class ImzMlMetaData(MetaDataFileBase):
     @min_pixel_x.setter
     def min_pixel_x(self, min_pixel_x):
         """Set the minimum pixel X coordinate."""
-        if min_pixel_x is not None and min_pixel_x >= 0 and min_pixel_x <= self.pixel_size_x:
+        if min_pixel_x is not None and min_pixel_x >= 0 and min_pixel_x <= self.max_count_of_pixels_x:
             self._min_pixel_x = min_pixel_x
             self._set('min_pixel_x', min_pixel_x)
 
@@ -548,6 +548,6 @@ class ImzMlMetaData(MetaDataFileBase):
     @min_pixel_y.setter
     def min_pixel_y(self, min_pixel_y):
         """Set the minimum pixel Y coordinate."""
-        if min_pixel_y is not None and min_pixel_y >= 0 and min_pixel_y <= self.pixel_size_y:
+        if min_pixel_y is not None and min_pixel_y >= 0 and min_pixel_y <= self.max_count_of_pixels_y:
             self._min_pixel_y = min_pixel_y
             self._set('min_pixel_y', min_pixel_y)

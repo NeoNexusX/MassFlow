@@ -23,7 +23,7 @@ from logger import get_logger
 
 logger = get_logger("ms_module")
 
-class MSBaseModule:
+class SpectrumBaseModule:
     """
     Base class for mass spectrum data with spatial coordinates.
     
@@ -141,7 +141,7 @@ class MSBaseModule:
         Returns:
             bool: True if coordinates are equal, False otherwise
         """
-        if not isinstance(other, MSBaseModule):
+        if not isinstance(other, SpectrumBaseModule):
             return False
         return self.coordinates == other.coordinates
 
@@ -224,7 +224,7 @@ class MSBaseModule:
         else:
             plt.show()
 
-class MSImzMLBase(MSBaseModule):
+class SpectrumImzML(SpectrumBaseModule):
     """
     Specialized mass spectrum class for ImzML format with lazy loading capabilities.
     
@@ -355,7 +355,7 @@ class MS:
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
 
 
-    def add_spectrum(self, spectrum: MSBaseModule):
+    def add_spectrum(self, spectrum: SpectrumBaseModule):
         """
         Add a mass spectrum to the collection with coordinate indexing.
         
@@ -381,7 +381,7 @@ class MS:
             self._coordinate_index[z][x] = {}
         self._coordinate_index[z][x][y] = spectrum
 
-    def get_spectrum(self, x: int, y: int, z: int =0 ) -> MSBaseModule:
+    def get_spectrum(self, x: int, y: int, z: int =0 ) -> SpectrumBaseModule:
         """
         Retrieve a mass spectrum by its 3D coordinates.
         
@@ -406,7 +406,7 @@ class MS:
             raise KeyError(f"No spectrum found at coordinates ({x}, {y}, {z})")
         return self._coordinate_index[z][x][y]
 
-    def __getitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int], slice]) -> MSBaseModule:
+    def __getitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int], slice]) -> SpectrumBaseModule:
         """
         Retrieve mass spectrum using flexible indexing methods.
         
@@ -440,7 +440,7 @@ class MS:
         else:
             raise TypeError("Index must be in tuple format, like [x, y, z] or [x, y]")
 
-    def __setitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int]], spectrum: MSBaseModule):
+    def __setitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int]], spectrum: SpectrumBaseModule):
         """
         Assign mass spectrum to specific coordinates with automatic indexing.
         

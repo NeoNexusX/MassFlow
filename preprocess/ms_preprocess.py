@@ -34,7 +34,7 @@ License: See LICENSE file in project root
 """
 from typing import Union
 import numpy as np
-from module.ms_module import MSBaseModule, MSImzMLBase
+from module.ms_module import SpectrumBaseModule, SpectrumImzML
 from logger import get_logger
 from .filter import (smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_ma,
                      smooth_ns_signal_gaussian, smooth_ns_signal_bi,smooth_signal_savgol,
@@ -73,7 +73,7 @@ class MSIPreprocessor():
 
 
     @staticmethod
-    def peak_pick(data:MSBaseModule,method: str) -> MSBaseModule:
+    def peak_pick(data:SpectrumBaseModule,method: str) -> SpectrumBaseModule:
         """
         Perform peak picking on MSI data.
         
@@ -92,7 +92,7 @@ class MSIPreprocessor():
 
 
     @staticmethod
-    def peak_pick_spectrum(data:MSBaseModule,method: str) -> MSBaseModule:
+    def peak_pick_spectrum(data:SpectrumBaseModule,method: str) -> SpectrumBaseModule:
         """
         Perform peak picking on MSI data.
 
@@ -110,7 +110,7 @@ class MSIPreprocessor():
         """
 
     @staticmethod
-    def tic_normalization(data:MSBaseModule,method: str = 'total_ion_current') -> MSBaseModule:
+    def tic_normalization(data:SpectrumBaseModule,method: str = 'total_ion_current') -> SpectrumBaseModule:
         """
         Perform Total Ion Current (TIC) normalization.
         
@@ -128,7 +128,7 @@ class MSIPreprocessor():
         """
 
     @staticmethod
-    def peak_alignment(data:MSBaseModule) -> MSBaseModule:
+    def peak_alignment(data:SpectrumBaseModule) -> SpectrumBaseModule:
         """
         Perform peak alignment across spectra.
         
@@ -146,7 +146,7 @@ class MSIPreprocessor():
         """
 
     @staticmethod
-    def baseline_correction(data:MSBaseModule) -> MSBaseModule:
+    def baseline_correction(data:SpectrumBaseModule) -> SpectrumBaseModule:
         """
         Perform baseline correction on MSI data.
         
@@ -165,7 +165,7 @@ class MSIPreprocessor():
 
     @staticmethod
     def noise_reduction(
-        data: Union[MSBaseModule, MSImzMLBase],
+        data: Union[SpectrumBaseModule, SpectrumImzML],
         method: str = "ma",
         window: int = 2,
         sd: float = 2,
@@ -175,7 +175,7 @@ class MSIPreprocessor():
         polyorder: int = 2,
         wavelet: str = 'db4',
         threshold_mode: str = 'soft'
-    ) -> Union[MSBaseModule, MSImzMLBase]:
+    ) -> Union[SpectrumBaseModule, SpectrumImzML]:
         """
         Perform noise reduction on MSI data.
         
@@ -222,14 +222,14 @@ class MSIPreprocessor():
             logger.error(f"Unsupported smoothing method: {method}. Use one of: {supported}.")
             raise ValueError(f"Unsupported smoothing method: {method}. Use one of: {supported}.")
 
-        return MSBaseModule(
+        return SpectrumBaseModule(
             mz_list=data.mz_list,
             intensity=smoothed_intensity,
             coordinates=data.coordinates,
         )
 
     @staticmethod
-    def preprocess_pipeline(data:MSBaseModule) -> MSBaseModule:
+    def preprocess_pipeline(data:SpectrumBaseModule) -> SpectrumBaseModule:
         """
         Execute a complete preprocessing pipeline.
         
@@ -247,7 +247,7 @@ class MSIPreprocessor():
         """
 
     @staticmethod
-    def estnoise(data:MSBaseModule) -> float:
+    def estnoise(data:SpectrumBaseModule) -> float:
         """
         Estimate noise level in the MSI data.
         
