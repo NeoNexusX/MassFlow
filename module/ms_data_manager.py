@@ -114,7 +114,7 @@ class MSDataManager(ABC):
             pointer4num += 1
         logger.info(base_info)
 
-    def create_ms_mask(self):
+    def create_ms_meta_mask(self):
         """
         Create a binary occupancy mask for all available spectra coordinates.
 
@@ -153,3 +153,51 @@ class MSDataManager(ABC):
 
         # Cache mask in metadata and return
         self.ms.meta.mask = mask
+
+    @abstractmethod
+    def pre_load_meta(self,*args, **kwargs):
+        """
+        Pre-load metadata before loading full data.
+
+        This method should be called before `load_full_data_from_file` to ensure
+        that the necessary metadata is available for data loading.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        pass
+
+    @abstractmethod
+    def loading_meta(self,*args, **kwargs):
+        """
+        Pre-load metadata before loading full data.
+
+        This method should be called before `load_full_data_from_file` to ensure
+        that the necessary metadata is available for data loading.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        pass
+
+    def loaded_meta(self,*args, **kwargs):
+        """
+        Pre-load metadata before loading full data.
+
+        This method should be called before `load_full_data_from_file` to ensure
+        that the necessary metadata is available for data loading.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        logger.info("creating ms mask.")
+        self.create_ms_meta_mask()

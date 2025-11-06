@@ -44,8 +44,7 @@ class MetaDataFileBase:
                 max_count_of_pixels_y: int = None,
                 pixel_size_x: float = None,
                 pixel_size_y: float = None,
-                mask = None
-                ):
+                mask = None):
 
         self._meta = {}
         # Initialize all metadata fields via properties to trigger auto-sync
@@ -245,12 +244,12 @@ class MetaDataFileBase:
         return self._meta_index
 
     @meta_index.setter
-    def meta_index(self, meta_index):
-        if meta_index is not None:
-            if not isinstance(meta_index, dict):
+    def meta_index(self, meta_index_data):
+        if meta_index_data is not None:
+            if not isinstance(meta_index_data, dict):
                 logger.error("meta_index must be a dict")
                 raise TypeError("meta_index must be a dict")
-            self._meta_index = meta_index
+            self._meta_index = meta_index_data
 
 class MSIMetaData(MetaDataFileBase):
     """
@@ -380,7 +379,8 @@ class ImzMlMetaData(MetaDataFileBase):
                  spectrum_count_num = None,
                  min_pixel_x = None,
                  min_pixel_y = None,
-                 mask = None):
+                 mask = None,
+                 coordinates_zero_based: bool = True):
 
         """Initialize the metadata object with either a parser or a file path."""
         super().__init__(name, version, storage_mode)
@@ -415,6 +415,7 @@ class ImzMlMetaData(MetaDataFileBase):
         self.spectrum_count_num = spectrum_count_num
         self.min_pixel_x = min_pixel_x
         self.min_pixel_y = min_pixel_y
+        self.coordinates_zero_based = coordinates_zero_based
 
 
     @property
@@ -537,3 +538,36 @@ class ImzMlMetaData(MetaDataFileBase):
         if min_pixel_y is not None and min_pixel_y >= 0 and min_pixel_y <= self.max_count_of_pixels_y:
             self._min_pixel_y = min_pixel_y
             self._set('min_pixel_y', min_pixel_y)
+
+    @property
+    def coordinates_zero_based(self) -> bool:
+        """
+        Flag indicating whether coordinates are zero-based.
+
+        Args:
+            None
+
+        Returns:
+            bool: True if coordinates are zero-based; False otherwise.
+
+        Raises:
+            None
+        """
+        return self._coordinates_zero_based
+
+    @coordinates_zero_based.setter
+    def coordinates_zero_based(self, value: bool):
+        """
+        Set the zero-based coordinate flag and persist in metadata.
+
+        Args:
+            value (bool): True for zero-based; False for one-based.
+
+        Returns:
+            None
+
+        Raises:
+            None
+        """
+        self._coordinates_zero_based = value
+        self._set('coordinates_zero_based', self._coordinates_zero_based)

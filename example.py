@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
     FILE_PATH = "data/example.imzML"
     ms = MS()
-    ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
+    ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH,coordinates_zero_based=False)
     ms_md.load_full_data_from_file()
     ms_md.inspect_data()
     ms.plot_ms_mask()
