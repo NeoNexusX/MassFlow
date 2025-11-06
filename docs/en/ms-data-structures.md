@@ -88,14 +88,27 @@ Represents a single mass spectrum bound to spatial coordinates. Key characterist
 - Example
 
 ```python
->>>specturm = ms[0] or ms.get_spectrum(0, 0, 0)
->>>mz_list = specturm.ms_list
->>>print(mz_list)
+>>> specturm = ms[0] or ms.get_spectrum(0, 0, 0)
+>>> mz_list = specturm.ms_list
+>>> print(mz_list)
 output:
 [16441.998    938.1308  2318.6423 ...  1174.1575  1333.138   1488.291 ]
 ```
 
+- Example2
 
+```python
+>>> FILE_PATH = "data/example.imzML"
+>>> ms = MS()
+>>> ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
+>>> ms_md.load_full_data_from_file()
+>>> ms_md.inspect_data()
+>>> spectrum = ms[0]
+>>> spectrum.plot()
+output:
+```
+
+![image-20251106110148417](https://s2.loli.net/2025/11/06/9u8I7wkNsvlT4jS.png)
 
 ### *SpectrumImzML* Class
 
@@ -104,6 +117,8 @@ class module.ms_module.SpectrumImzML(parser, index, coordinates)
 ```
 
 Specialized mass spectrum class for ImzML format with lazy loading capabilities. This class extends `SpectrumBaseModule` to provide efficient handling of ImzML (Imaging Mass Spectrometry Markup Language) format data by implementing lazy loading to minimize memory usage.
+
+Note: use [MSDataManagerImzML](#msdatamanagerimzml-class) to automatically create and manage [SpectrumImzML](#spectrumimzml-class).
 
 - Parameters
   - `parser` (*ImzMLParser*) — ImzML parser instance for reading spectrum data from the file.
@@ -116,8 +131,6 @@ Specialized mass spectrum class for ImzML format with lazy loading capabilities.
 - Properties
   - `mz_list: np.ndarray` — Lazily loaded array of m/z values; triggers data loading on first access.
   - `intensity: np.ndarray` — Lazily loaded array of intensity values; ensures data is loaded when accessed.
-- Methods
-  - `creator(parser, index, coordinates)` — Class method factory for creating `SpectrumImzML` instances.
 - Lazy loading behavior
   - On first `mz_list` access, calls `parser.getspectrum(index)` to load both m/z and intensity data together.
   - `intensity` access triggers `mz_list` loading if intensity is not yet available, ensuring data consistency.
@@ -174,7 +187,7 @@ Collection class for managing multiple mass spectra with coordinate-based indexi
 ```python
 >>> # Create MS collection
 >>> ms = MS()
->>> # Add spectra
+>>> # Add spectra (user should not load by yourself, use data managers first)
 >>> ms.add_spectrum(spectrum1)
 >>> # Access by index
 >>> spec = ms[0]
@@ -190,6 +203,18 @@ output:
 [1, 0, 0]
 [2, 0, 0]
 ```
+
+- Example2
+
+Since the coordinates may be non-contiguous, it is recommended to check the available coordinate range using a mask.
+
+```python
+>>> ms_md.load_full_data_from_file()
+>>> ms_md.inspect_data()
+>>> ms.plot_ms_mask()
+```
+
+<img src="https://s2.loli.net/2025/11/06/nOG2oBmLd715qup.png" alt="image-20251106120024072" style="zoom: 50%;" />
 
 ## Data Managers
 
@@ -294,6 +319,45 @@ Concrete data manager for `.imzML` files. This class extends `MSDataManager` to 
 >>> # Access spectrum (triggers lazy load)
 >>> spectrum = ms[10, 20, 0]
 >>> print(spectrum.mz_list[:5])
+
+inspect_data output:
+>>> INFO:     25-11-06 10:55 101 ms_data_manager - MS meta data:
+                                                   target_mz_range: None
+                                                   target_locs: None
+                                                   filepath: data/example.imzML
+                                                   current_spectrum_num: 17176
+                                                   meta_name: MSI
+                                                   meta_version: 1.0
+                                                   meta_storage_mode: split
+                                                   meta_centroid_spectrum: None
+                                                   meta_profile_spectrum: True
+                                                   meta_max_count_of_pixels_x: 227
+                                                   meta_max_count_of_pixels_y: 93
+                                                   meta_pixel_size_x: 100.0
+                                                   meta_pixel_size_y: 100.0
+                                                   meta_absolute_position_offset_x: 0.0
+                                                   meta_absolute_position_offset_y: 0.0
+                                                   meta_min_pixel_x: 1
+                                                   meta_min_pixel_y: 1
+                                               
+>>> INFO:     25-11-06 10:55 114 ms_data_manager - MS  information:
+                                                   MS len: 74749
+                                                   MS range: 400.0 - 1000.0
+                                                   MS coord: [0, 38, 0]
+                                                   max and min mz_list: 1000.0 - 400.0
+                                                   max intensity: 16.307722091674805
+
+                                                   MS len: 74749
+                                                   MS range: 400.0 - 1000.0
+                                                   MS coord: [0, 39, 0]
+                                                   max and min mz_list: 1000.0 - 400.0
+                                                   max intensity: 17.022132873535156
+
+                                                   MS len: 74749
+                                                   MS range: 400.0 - 1000.0
+                                                   MS coord: [0, 40, 0]
+                                                   max and min mz_list: 1000.0 - 400.0
+                                                   max intensity: 16.470420837402344
 output:
 [100.05    150.12    200.34    250.67    300.89]
 ```
@@ -325,9 +389,9 @@ ms = MS()
 # 2. Configure manager with a bounding box and file path
 manager = MSDataManagerImzML(
     ms=ms,
-    ms_meta=None,                 # or pass a prebuilt MetaDataImzMl
+    ms_meta=None,                 # optionally pass a prebuilt MetaDataImzMl
     target_locs=[(0, 0), (100, 100)],  # optional spatial filter
-    filepath="/path/to/data.imzML"
+    filepath="/path/to/data.imzML" 
 )
 
 # 3. Populate MS with lazily-loaded spectra

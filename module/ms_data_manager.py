@@ -9,6 +9,7 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 from abc import ABC, abstractmethod
+import numpy as np
 from logger import get_logger
 from .ms_module import MS
 
@@ -112,3 +113,43 @@ class MSDataManager(ABC):
                         f"  max intensity: {max(spectrum.intensity)}\r\n\r\n")
             pointer4num += 1
         logger.info(base_info)
+
+    def create_ms_mask(self):
+        """
+        Create a binary occupancy mask for all available spectra coordinates.
+
+        Parameters
+        - None
+
+        Returns
+        - np.ndarray: A 2D array of shape `(height, width)` where `1` marks a pixel
+          with an available spectrum and `0` otherwise.
+
+        Raises
+        - ValueError: If required metadata (`max_count_of_pixels_x/y`) is missing.
+        """
+        if self.ms.meta is None:
+            logger.error("MS meta data is None. Please load meta data first.")
+            raise ValueError("MS meta data is None. Please load meta data first.")
+
+        if self.ms.meta.max_count_of_pixels_x is None or self.ms.meta.max_count_of_pixels_y is None:
+            logger.error("Image dimensions missing in meta data.")
+            raise ValueError("Image dimensions missing in meta data.")
+
+        width = int(self.ms.meta.max_count_of_pixels_x)
+        height = int(self.ms.meta.max_count_of_pixels_y)
+
+        # Prepare an empty occupancy mask
+        mask = np.zeros((height, width), dtype=np.int8)
+
+        # Fill the occupancy mask across all z-planes
+        for z_dict in self.ms.coordinate_index.values():
+            for x, y_dict in z_dict.items():
+                for y in y_dict.keys():
+                    ix = int(x)
+                    iy = int(y)
+                    if 0 <= ix < width and 0 <= iy < height:
+                        mask[iy, ix] = 1
+
+        # Cache mask in metadata and return
+        self.ms.meta.mask = mask

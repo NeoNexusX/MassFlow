@@ -13,8 +13,6 @@ Classes:
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
-
-from math import log
 from typing import List, Tuple, Union, Optional
 import numpy as np
 import matplotlib.pyplot as plt
@@ -210,7 +208,7 @@ class SpectrumBaseModule:
             plt.setp(stemlines, linewidth=0.7, color=color, alpha=0.7)
             plt.setp(markerline, markersize=3, color=color, alpha=0.7)
             plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.4)
-        
+
         # Reduce whitespace by setting tight axis limits
         plt.xlim(mz.min(), mz.max())
         plt.ylim(0, intensity.max() * 1.05)  # 5% margin at top
@@ -354,6 +352,16 @@ class MS:
         self._queue = []
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
 
+    @property
+    def coordinate_index(self):
+        """
+        Get the nested dictionary of coordinate indices.
+        
+        Returns:
+            Dict: Nested dictionary mapping coordinates to spectra
+                Structure: {z: {x: {y: MSBaseModule}}}
+        """
+        return self._coordinate_index
 
     def add_spectrum(self, spectrum: SpectrumBaseModule):
         """
@@ -406,7 +414,7 @@ class MS:
             raise KeyError(f"No spectrum found at coordinates ({x}, {y}, {z})")
         return self._coordinate_index[z][x][y]
 
-    def __getitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int], slice]) -> SpectrumBaseModule:
+    def __getitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int], slice]) -> Union[SpectrumBaseModule, List[SpectrumBaseModule]]:
         """
         Retrieve mass spectrum using flexible indexing methods.
         
@@ -414,13 +422,15 @@ class MS:
         - Sequential indexing: ms[index]
         - 2D coordinates: ms[x, y] (z defaults to 0)  
         - 3D coordinates: ms[x, y, z]
+        - Slice: ms[a:b:c] returns a list of spectra from the internal queue
         
         Args:
-            key (Union[int, Tuple[int, int], Tuple[int, int, int]]): 
-                Index or coordinates for spectrum retrieval
+            key (Union[int, Tuple[int, int], Tuple[int, int, int], slice]): 
+                Index, coordinates, or slice for spectrum retrieval
                 
         Returns:
-            MSBaseModule: Mass spectrum at the specified location
+            Union[MSBaseModule, List[MSBaseModule]]: Single spectrum for index/coordinates, 
+            or a list of spectra for slice access
             
         Raises:
             TypeError: If key format is not supported
@@ -437,7 +447,11 @@ class MS:
             elif len(key) == 2:
                 x, y = key
                 return self._coordinate_index[0][x][y]  # z defaults to 0
+        elif isinstance(key, slice):
+            # Support slice access on the internal sequential queue
+            return self._queue[key]
         else:
+            logger.error("Index must be in tuple format, like [x, y, z] or [x, y]")
             raise TypeError("Index must be in tuple format, like [x, y, z] or [x, y]")
 
     def __setitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int]], spectrum: SpectrumBaseModule):
@@ -510,7 +524,7 @@ class MS:
         """
         return iter(self._queue)
 
-    def plot_ms(self,
+    def plot_spectrum(self,
                 x: int = 0,
                 y: int = 0,
                 z: int = 0,
@@ -558,3 +572,54 @@ class MS:
             plt.savefig(save_path,dpi=dpi)
         else:
             plt.show()
+
+    def plot_ms_mask(
+            self,
+            save_path: Optional[str] = None,
+            figsize: Tuple[int, int] = (8, 8),
+            dpi: int = 300,
+            origin: str = 'upper',
+            cmap: str = 'Greys'):
+        """
+        Plot the occupancy mask stored in metadata.
+
+        Parameters
+        - save_path (Optional[str]): If provided, save the figure to this path; otherwise, display it.
+        - figsize (Tuple[int, int]): Matplotlib figure size (width, height). Defaults to (8, 8).
+        - dpi (int): Dots-per-inch when saving. Defaults to 300.
+        - origin (str): Image origin for imshow, 'upper' or 'lower'. Defaults to 'upper'.
+        - cmap (str): Colormap used to render the mask. Defaults to 'Greys'.
+
+        Returns
+        - None: This function produces a plot or saves an image.
+
+        Raises
+        - ValueError: If metadata or mask is missing, or mask dimensions are invalid.
+
+        Notes
+        - This method directly visualizes `self.meta.mask` without recomputing.
+        - Ensure `self.meta.mask` matches `(max_count_of_pixels_y, max_count_of_pixels_x)`.
+        """
+        # Validate metadata and mask
+        if self.meta is None:
+            logger.error("MS meta data is required to plot mask.")
+            raise ValueError("MS meta data is required to plot mask.")
+
+        mask = getattr(self.meta, 'mask', None)
+        if mask is None:
+            logger.error("Meta mask is None. Create mask before plotting.")
+            raise ValueError("Meta mask is None. Create mask before plotting.")
+
+        # Plot the mask
+        plt.figure(figsize=figsize)
+        plt.imshow(mask, cmap=cmap, origin=origin)
+        plt.title("MS Occupancy Mask")
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=dpi)
+        else:
+            plt.show()
+

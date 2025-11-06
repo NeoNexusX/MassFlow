@@ -76,19 +76,22 @@ class MSDataManagerImzML(MSDataManager):
             if not self.filepath.lower().endswith('.imzml'):
                 logger.error(f"Error: {self.filepath} is not an .imzML file.")
                 raise ValueError(f"Error: {self.filepath} is not an .imzML file.")
-
+            # meta data load part
             self.extract_metadata()
 
+            # spectrum data load part
             # Build (x,y,z)->index mapping
             coords = self.parser.coordinates  # list of tuples
             for i, c in enumerate(coords):
                 x, y, z = c
-                #update min   pixel x,y
-                self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, x)
-                self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, y)
-
                 c1, c2 = self.target_locs if self.target_locs is not None else [0,0],[999,999]
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
+                    #update min   pixel x,y
+                    self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, x-1)
+                    self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, y-1)
+                    self.ms.meta.max_count_of_pixels_x = max(self.ms.meta.max_count_of_pixels_x, x-1)
+                    self.ms.meta.max_count_of_pixels_y = max(self.ms.meta.max_count_of_pixels_y, y-1)
+                    logger.info(f"Loading spectrum {i} at ({x}, {y}, {z})")
                     spectrum = SpectrumImzML(parser=self.parser, index=i, coordinates=[x-1, y-1, z-1])
                     self._ms.add_spectrum(spectrum)
                     self.current_spectrum_num += 1
@@ -96,6 +99,8 @@ class MSDataManagerImzML(MSDataManager):
             combined_message = "\r\n".join([ f"{wm.message}"for wm in w])
             if len(combined_message) > 0:
                 logger.warning(f"{combined_message}")
+            logger.info("creating ms mask.")
+            self.create_ms_mask()
 
     def extract_metadata(self):
         """Iterate _meta_index and populate matching attributes from the parser."""

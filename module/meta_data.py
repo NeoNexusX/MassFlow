@@ -4,9 +4,9 @@ Author: MassFlow Development Team Bionet/dre,NeoNeuxs
 License: See LICENSE file in project root
 """
 import os
+import numpy as np
 from pyimzml.ImzMLParser import ImzMLParser
 from logger import get_logger
-
 logger = get_logger("meta_data")
 
 meta_index = {
@@ -44,6 +44,7 @@ class MetaDataFileBase:
                 max_count_of_pixels_y: int = None,
                 pixel_size_x: float = None,
                 pixel_size_y: float = None,
+                mask = None
                 ):
 
         self._meta = {}
@@ -52,14 +53,15 @@ class MetaDataFileBase:
         self._version = None
         self._storage_mode = None
         self._meta_index = None
-        self._max_count_of_pixels_x = None
-        self._max_count_of_pixels_y = None
+        self._max_count_of_pixels_x = 0
+        self._max_count_of_pixels_y = 0
         self._pixel_size_x = None
         self._pixel_size_y = None
         self._processed = None
         self._centroid_spectrum = None
         self._profile_spectrum = None
         self._peakpick = None
+        self._mask = None
 
         #set actual values through properties
         self.name = name
@@ -70,10 +72,22 @@ class MetaDataFileBase:
         self.max_count_of_pixels_y = max_count_of_pixels_y
         self.pixel_size_x = pixel_size_x
         self.pixel_size_y = pixel_size_y
+        self.mask = mask
 
     def _set(self, key, value):
         self._meta[key] = value
 
+    @property
+    def mask(self):
+        """Return the mask of the data model."""
+        return self._mask
+
+    @mask.setter
+    def mask(self, mask: np.ndarray):
+        """Set the mask of the data model."""
+        if mask is not None and mask.shape == (self.max_count_of_pixels_y, self.max_count_of_pixels_x):
+            self._mask = mask
+            self._set('mask', mask)
     #Metadata properties with auto-sync
     @property
     def name(self):
@@ -238,7 +252,6 @@ class MetaDataFileBase:
                 raise TypeError("meta_index must be a dict")
             self._meta_index = meta_index
 
-
 class MSIMetaData(MetaDataFileBase):
     """
     Metadata class for MSI image-matrix data.
@@ -286,43 +299,16 @@ class MSIMetaData(MetaDataFileBase):
                          max_count_of_pixels_x=max_count_of_pixels_x,
                          max_count_of_pixels_y=max_count_of_pixels_y,
                          pixel_size_x=pixel_size_x,
-                         pixel_size_y=pixel_size_y)
+                         pixel_size_y=pixel_size_y,
+                         mask=mask)
 
-        self._mask = None
         self._need_base_mask = None
         self._mz_num = None
 
 
         # Set actual values through properties to sync into `_meta`
-        self.mask = mask
         self.need_base_mask = need_base_mask
         self.mz_num = mz_num
-
-
-    @property
-    def mask(self):
-        """
-        Get spatial mask.
-
-        Returns:
-            Any: The stored mask object.
-        """
-        return self._mask
-
-    @mask.setter
-    def mask(self, mask):
-        """
-        Set spatial 2D mask.
-
-        Parameters:
-            mask (Any): The mask to store.
-
-        Returns:
-            None
-        """
-        if mask is not None:
-            self._mask = mask
-            self._set('mask', mask)
 
     @property
     def need_base_mask(self):
@@ -374,13 +360,12 @@ class MSIMetaData(MetaDataFileBase):
             self._mz_num = int(mz_num)
             self._set('mz_num', self._mz_num)
 
-
 class ImzMlMetaData(MetaDataFileBase):
 
     """ImzML metadata wrapper that loads and caches frequently used fields."""
 
     def __init__(self,
-                 name="MSI",
+                 name="ImzML",
                  version=1.0,
                  storage_mode='split',
                  parser: ImzMLParser = None,
@@ -394,7 +379,8 @@ class ImzMlMetaData(MetaDataFileBase):
                  instrument_model = None,
                  spectrum_count_num = None,
                  min_pixel_x = None,
-                 min_pixel_y = None):
+                 min_pixel_y = None,
+                 mask = None):
 
         """Initialize the metadata object with either a parser or a file path."""
         super().__init__(name, version, storage_mode)
