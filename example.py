@@ -30,6 +30,9 @@ if __name__ == "__main__":
     ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH,coordinates_zero_based=False)
     ms_md.load_full_data_from_file()
     ms_md.inspect_data()
+    ms.set_coordinates_zero_based(True)
     ms.plot_ms_mask()
+    ms_md.inspect_data()
+    logger.info(f"{ms.meta.min_pixel_x} {ms.meta.min_pixel_y}")
     spectrum = ms[0]
     spectrum.plot()

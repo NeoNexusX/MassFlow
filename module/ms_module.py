@@ -226,6 +226,7 @@ class PixelCoordinates:
             None
         """
         return f"({self.x}, {self.y}, {self.z})"
+    
     def __len__(self) -> int:
         """
         Return the number of dimensions (always 3 for PixelCoordinates).
@@ -726,7 +727,7 @@ class MS:
             raise IndexError("Coordinates must be 2 or 3 integers")
 
         # Update spectrum coordinates using PixelCoordinates, respecting meta zero-based setting
-        spectrum.coordinates = PixelCoordinates(x, y, z, getattr(self.meta, 'coordinates_zero_based', False))
+        spectrum.coordinates = PixelCoordinates(x, y, z,self.meta.coordinates_zero_based)
 
         # Add to index
         if z not in self._coordinate_index:
@@ -878,23 +879,24 @@ class MS:
             logger.error("MS meta data is required to synchronize coordinates.")
             raise ValueError("MS meta data is required to synchronize coordinates.")
 
-        prev_flag = self.meta.zero_based
+        prev_flag = self.meta.coordinates_zero_based
         new_flag = zero_based
-
-        # Update metadata flag
-        self.meta.coordinates_zero_based = new_flag
 
         # If flag changed, update all coordinates and rebuild index
         if prev_flag != new_flag:
-            for spectrum in self._queue:
-                spectrum.coordinates.zero_based = new_flag
-
+            # Update metadata flag
+            self.meta.coordinates_zero_based = new_flag
+            self.meta.update_meta()
             # Rebuild coordinate index (clear in-place to avoid stale external references)
             self._coordinate_index.clear()
+            # update min/max pixel values in metadata
+
             for spectrum in self._queue:
+                spectrum.coordinates.zero_based = new_flag
                 x, y, z = spectrum.x, spectrum.y, spectrum.z
                 if z not in self._coordinate_index:
                     self._coordinate_index[z] = {}
                 if x not in self._coordinate_index[z]:
                     self._coordinate_index[z][x] = {}
                 self._coordinate_index[z][x][y] = spectrum
+

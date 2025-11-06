@@ -85,9 +85,9 @@ class MSDataManagerImzML(MSDataManager):
                 x, y, z = c
                 c1, c2 = self.target_locs if self.target_locs is not None else [0,0],[999,999]
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
+                    self.loading_meta(x=x, y=y)
                     spectrum = SpectrumImzML(parser=self.parser, index=i, coordinates=PixelCoordinates(x, y, z, self.ms.meta.coordinates_zero_based))
                     self._ms.add_spectrum(spectrum)
-                    self.loading_meta(x=spectrum.coordinates.x, y=spectrum.coordinates.y)
                     self.current_spectrum_num += 1
 
             combined_message = "\r\n".join([ f"{wm.message}"for wm in w])
@@ -156,6 +156,4 @@ class MSDataManagerImzML(MSDataManager):
         #update min   pixel x,y
         self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs['x'])
         self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs['y'])
-        self.ms.meta.max_count_of_pixels_x = max(self.ms.meta.max_count_of_pixels_x, kwargs['x'])
-        self.ms.meta.max_count_of_pixels_y = max(self.ms.meta.max_count_of_pixels_y, kwargs['y'])
 
