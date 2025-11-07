@@ -21,6 +21,18 @@ from logger import get_logger
 
 logger = get_logger("ms_module")
 
+def calculate_snr(arr: np.ndarray) -> float:
+    """
+    MAD-based SNR estimate for a 1D intensity array.
+    """
+    if arr is None or len(arr) == 0:
+        return 0.0
+    signal_level = np.percentile(arr, 95)
+    median_intensity = np.median(arr)
+    mad = np.median(np.abs(arr - median_intensity))
+    noise_std = mad / 0.6745 if mad > 0 else 1e-6
+    return float(signal_level / noise_std) if noise_std > 0 else float('inf')
+
 class PixelCoordinates:
     """
     Initialize pixel coordinates with optional zero-based adjustment.
@@ -411,51 +423,157 @@ class SpectrumBaseModule:
 
         elif self.mz_list is None or self.intensity is None:
             logger.warning("mz_list or intensity is None, can not sort by mz.")
+      
 
     def plot(self,
             save_path=None,
             figsize=(20, 5),
             dpi: int = 300,
             color='steelblue',
-            plot_mode: str = "line"):
-        """
-        Plot the mass spectrum.
-
-        Args:
-            save_path (str, optional): Path to save the plot. If None, display the plot.
-            figsize (tuple, optional): Figure size (width, height) in inches. Defaults to (20, 5).
-            dpi (int, optional): Dots per inch for image quality. Defaults to 300.
-            color (str, optional): Color of the plot lines. Defaults to 'steelblue'.
-            plot_mode (str, optional): Plot mode. "line" for connected line plot, "stem" for default stem plot. Defaults to "line".
-        """
+            plot_mode: str = "line",
+            mz_range: Optional[Tuple[float, float]] = None,
+            intensity_range: Optional[Tuple[float, float]] = None,
+            original: Optional['MSBaseModule'] = None,
+            metrics_box: bool = True,
+            title_suffix: Optional[str] = None):
         intensity = self.intensity
         mz = self.mz_list
 
-        plt.figure(figsize=figsize)
-        mode = (plot_mode or "stem").lower()
+        # When original is not provided, keep single-figure logic (original implementation)
+        if original is None:
+            plt.figure(figsize=figsize)
+            mode = (plot_mode or "stem").lower()
+            if mode == "line":
+                plt.plot(mz, intensity, color=color, linewidth=0.8, alpha=0.8)
+            else:
+                markerline, stemlines, baseline = plt.stem(mz, intensity)
+                plt.setp(stemlines, linewidth=0.7, color=color, alpha=0.7)
+                plt.setp(markerline, markersize=3, color=color, alpha=0.7)
+                plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.4)
+
+            # Axis range control
+            x_min, x_max = (mz.min(), mz.max()) if mz_range is None else (mz_range[0], mz_range[1])
+            y_min, y_max = (0.0, float(intensity.max()) * 1.05) if intensity_range is None else (intensity_range[0], intensity_range[1])
+            plt.xlim(x_min, x_max)
+            plt.ylim(y_min, y_max)
+            title = "Mass Spectrum" if not title_suffix else f"Mass Spectrum - {title_suffix}"
+            plt.title(title)
+            plt.xlabel("m/z")
+            plt.ylabel("Intensity")
+            plt.tight_layout()
+
+            if save_path:
+                plt.savefig(save_path, dpi=dpi)
+            else:
+                plt.show()
+            return
+
+        # With original provided: draw two subplots and overlay metrics text
+        fig, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
+
+        # Prepare data (align by the shortest length)
+        mz_orig = np.array(original.mz_list)
+        inten_orig = np.array(original.intensity)
+        mz_den = np.array(self.mz_list)
+        inten_den = np.array(self.intensity)
+
+        # Crop by m/z and intensity ranges
+        def crop_range(mz_arr, inten_arr, xr, yr):
+            mask = np.ones_like(mz_arr, dtype=bool)
+            if xr is not None:
+                mask &= (mz_arr >= xr[0]) & (mz_arr <= xr[1])
+            mz_c = mz_arr[mask]
+            inten_c = inten_arr[mask]
+            if yr is not None:
+                inten_c = np.clip(inten_c, yr[0], yr[1])
+            return mz_c, inten_c
+
+        mz_orig_c, inten_orig_c = crop_range(mz_orig, inten_orig, mz_range, intensity_range)
+        mz_den_c, inten_den_c = crop_range(mz_den, inten_den, mz_range, intensity_range)
+
+        min_len = min(len(mz_orig_c), len(inten_orig_c), len(mz_den_c), len(inten_den_c))
+        mz_orig_c = mz_orig_c[:min_len]
+        inten_orig_c = inten_orig_c[:min_len]
+        mz_den_c = mz_den_c[:min_len]
+        inten_den_c = inten_den_c[:min_len]
+
+        # Draw original spectrum (top) and denoised (bottom)
+        top_color = '#4C78A8'
+        bottom_color = '#F58518'
+        mode = (plot_mode or "line").lower()
         if mode == "line":
-            # Connected line plot
-            plt.plot(mz, intensity,color=color,linewidth=0.8, alpha=0.8)
+            ax_top.plot(mz_orig_c, inten_orig_c, color=top_color, linewidth=1)
+            ax_bottom.plot(mz_den_c, inten_den_c, color=bottom_color, linewidth=1)
         else:
-            # Default: stem plot
-            markerline, stemlines, baseline = plt.stem(mz, intensity)
-            plt.setp(stemlines, linewidth=0.7, color=color, alpha=0.7)
-            plt.setp(markerline, markersize=3, color=color, alpha=0.7)
-            plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.4)
+            m1, s1, b1 = ax_top.stem(mz_orig_c, inten_orig_c)
+            plt.setp(s1, linewidth=0.7, color=top_color, alpha=0.7)
+            plt.setp(m1, markersize=3, color=top_color, alpha=0.7)
+            plt.setp(b1, linewidth=0.5, color='gray', alpha=0.4)
 
-        # Reduce whitespace by setting tight axis limits
-        plt.xlim(mz.min(), mz.max())
-        plt.ylim(0, intensity.max() * 1.05)  # 5% margin at top
-        plt.title("Mass Spectrum")
-        plt.xlabel("m/z")
-        plt.ylabel("Intensity")
-        plt.tight_layout()  # Minimize figure padding
+            m2, s2, b2 = ax_bottom.stem(mz_den_c, inten_den_c)
+            plt.setp(s2, linewidth=0.7, color=bottom_color, alpha=0.7)
+            plt.setp(m2, markersize=3, color=bottom_color, alpha=0.7)
+            plt.setp(b2, linewidth=0.5, color='gray', alpha=0.4)
 
+        # Axis range settings
+        x_min = float(mz_range[0]) if mz_range is not None else float(min(mz_orig.min(), mz_den.min()))
+        x_max = float(mz_range[1]) if mz_range is not None else float(max(mz_orig.max(), mz_den.max()))
+        y_top = float(intensity_range[1]) if intensity_range is not None else float(max(inten_orig_c.max(), 1.0)) * 1.05
+        y_bot = float(intensity_range[1]) if intensity_range is not None else float(max(inten_den_c.max(), 1.0)) * 1.05
+
+        ax_top.set_xlim(x_min, x_max)
+        ax_bottom.set_xlim(x_min, x_max)
+        ax_top.set_ylim(0.0 if intensity_range is None else float(intensity_range[0]), y_top)
+        ax_bottom.set_ylim(0.0 if intensity_range is None else float(intensity_range[0]), y_bot)
+
+        # Titles and grid
+        ax_top.set_title('Original Spectrum', fontweight='bold')
+        den_title = 'Denoised Spectrum' if not title_suffix else f'Denoised Spectrum ({title_suffix})'
+        ax_bottom.set_title(den_title, fontweight='bold')
+        ax_bottom.set_xlabel('m/z')
+        ax_top.set_ylabel('Intensity')
+        ax_bottom.set_ylabel('Intensity')
+        ax_top.grid(True, alpha=0.3)
+        ax_bottom.grid(True, alpha=0.3)
+
+        # Overlay metrics text (consistent with test_imzml_visualization)
+        if metrics_box and min_len > 1:
+            # Correlation
+            corr = float(np.corrcoef(inten_orig_c, inten_den_c)[0, 1]) if min_len > 1 else 0.0
+            # TIC ratio
+            tic_ratio = float(inten_den_c.sum() / inten_orig_c.sum()) if inten_orig_c.sum() > 0 else 1.0
+
+            # SNR (MAD-based estimate)
+            def calculate_snr(arr: np.ndarray) -> float:
+                if arr is None or len(arr) == 0:
+                    return 0.0
+                signal_level = np.percentile(arr, 95)
+                median_intensity = np.median(arr)
+                mad = np.median(np.abs(arr - median_intensity))
+                noise_std = mad / 0.6745 if mad > 0 else 1e-6
+                return float(signal_level / noise_std) if noise_std > 0 else float('inf')
+
+            snr_orig = calculate_snr(inten_orig_c)
+            snr_den = calculate_snr(inten_den_c)
+            snr_improvement = snr_den / snr_orig if snr_orig > 0 else 1.0
+
+            metrics_text = (f"Correlation: {corr:.4f}\n"
+                            f"TIC ratio: {tic_ratio:.3f}\n"
+                            f"SNR orig: {snr_orig:.1f}\n"
+                            f"SNR den: {snr_den:.1f}\n"
+                            f"SNR improvement: {snr_improvement:.2f}x")
+
+            ax_top.text(0.02, 0.98, metrics_text,
+                        transform=ax_top.transAxes, verticalalignment='top',
+                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+                        fontsize=9)
+
+        plt.tight_layout()
         if save_path:
-            plt.savefig(save_path,dpi=dpi)
+            plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
         else:
             plt.show()
-
+ 
     @property
     def x(self) -> int:
         """
