@@ -33,6 +33,71 @@ def calculate_snr(arr: np.ndarray) -> float:
     noise_std = mad / 0.6745 if mad > 0 else 1e-6
     return float(signal_level / noise_std) if noise_std > 0 else float('inf')
 
+def add_metrics_box(ax, inten_orig: np.ndarray, inten_den: np.ndarray,
+                    box_loc: Tuple[float, float] = (0.02, 0.98),
+                    fontsize: int = 9) -> None:
+    """
+    Overlay metrics text box on the given axes based on original and processed intensity arrays.
+    Automatically aligns to the shortest length when arrays differ.
+
+    Metrics:
+    - Correlation coefficient
+    - TIC ratio (Total Ion Current ratio)
+    - SNR orig / SNR den (MAD-based SNR estimate)
+    - SNR improvement multiplier
+    """
+    if inten_orig is None or inten_den is None:
+        return
+    min_len = min(len(inten_orig), len(inten_den))
+    if min_len <= 1:
+        return
+
+    o = np.asarray(inten_orig[:min_len], dtype=float)
+    d = np.asarray(inten_den[:min_len], dtype=float)
+
+    corr = float(np.corrcoef(o, d)[0, 1]) if min_len > 1 else 0.0
+    tic_ratio = float(d.sum() / o.sum()) if o.sum() > 0 else 1.0
+
+    snr_orig = calculate_snr(o)
+    snr_den = calculate_snr(d)
+    snr_improvement = snr_den / snr_orig if snr_orig > 0 else 1.0
+
+    metrics_text = (f"Correlation: {corr:.4f}\n"
+                    f"TIC ratio: {tic_ratio:.3f}\n"
+                    f"SNR orig: {snr_orig:.1f}\n"
+                    f"SNR den: {snr_den:.1f}\n"
+                    f"SNR improvement: {snr_improvement:.2f}x")
+
+    ax.text(box_loc[0], box_loc[1], metrics_text,
+            transform=ax.transAxes, verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+            fontsize=fontsize)
+
+def crop_range(mz_arr: np.ndarray,
+               inten_arr: np.ndarray,
+               xr: Optional[Tuple[float, float]],
+               yr: Optional[Tuple[float, float]]) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Crop spectral data by given m/z and intensity ranges, keeping m/z and intensity aligned.
+
+    Args:
+        mz_arr (np.ndarray): Input m/z array.
+        inten_arr (np.ndarray): Input intensity array aligned with mz_arr.
+        xr (Optional[Tuple[float, float]]): Optional (min_mz, max_mz) range for m/z filtering.
+        yr (Optional[Tuple[float, float]]): Optional (min_intensity, max_intensity) range for intensity clipping.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: Cropped m/z and intensity arrays (mz_c, inten_c).
+    """
+    mask = np.ones_like(mz_arr, dtype=bool)
+    if xr is not None:
+        mask &= (mz_arr >= xr[0]) & (mz_arr <= xr[1])
+    mz_c = mz_arr[mask]
+    inten_c = inten_arr[mask]
+    if yr is not None:
+        inten_c = np.clip(inten_c, yr[0], yr[1])
+    return mz_c, inten_c
+
 class PixelCoordinates:
     """
     Initialize pixel coordinates with optional zero-based adjustment.
@@ -452,8 +517,8 @@ class SpectrumBaseModule:
                 plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.4)
 
             # Axis range control
-            x_min, x_max = (mz.min(), mz.max()) if mz_range is None else (mz_range[0], mz_range[1])
-            y_min, y_max = (0.0, float(intensity.max()) * 1.05) if intensity_range is None else (intensity_range[0], intensity_range[1])
+            x_min, x_max = (float(min(mz)), float(max(mz))) if mz_range is None else (mz_range[0], mz_range[1])
+            y_min, y_max = (0.0, float(max(intensity)) * 1.05) if intensity_range is None else (intensity_range[0], intensity_range[1])
             plt.xlim(x_min, x_max)
             plt.ylim(y_min, y_max)
             title = "Mass Spectrum" if not title_suffix else f"Mass Spectrum - {title_suffix}"
@@ -469,24 +534,13 @@ class SpectrumBaseModule:
             return
 
         # With original provided: draw two subplots and overlay metrics text
-        fig, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
+        _, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
 
         # Prepare data (align by the shortest length)
-        mz_orig = np.array(original.mz_list)
-        inten_orig = np.array(original.intensity)
-        mz_den = np.array(self.mz_list)
-        inten_den = np.array(self.intensity)
-
-        # Crop by m/z and intensity ranges
-        def crop_range(mz_arr, inten_arr, xr, yr):
-            mask = np.ones_like(mz_arr, dtype=bool)
-            if xr is not None:
-                mask &= (mz_arr >= xr[0]) & (mz_arr <= xr[1])
-            mz_c = mz_arr[mask]
-            inten_c = inten_arr[mask]
-            if yr is not None:
-                inten_c = np.clip(inten_c, yr[0], yr[1])
-            return mz_c, inten_c
+        mz_orig = original.mz_list
+        inten_orig = original.intensity
+        mz_den = self.mz_list
+        inten_den = self.intensity
 
         mz_orig_c, inten_orig_c = crop_range(mz_orig, inten_orig, mz_range, intensity_range)
         mz_den_c, inten_den_c = crop_range(mz_den, inten_den, mz_range, intensity_range)
@@ -516,8 +570,8 @@ class SpectrumBaseModule:
             plt.setp(b2, linewidth=0.5, color='gray', alpha=0.4)
 
         # Axis range settings
-        x_min = float(mz_range[0]) if mz_range is not None else float(min(mz_orig.min(), mz_den.min()))
-        x_max = float(mz_range[1]) if mz_range is not None else float(max(mz_orig.max(), mz_den.max()))
+        x_min = float(mz_range[0]) if mz_range is not None else float(min(mz_orig_c.min(), mz_den_c.min()))
+        x_max = float(mz_range[1]) if mz_range is not None else float(max(mz_orig_c.max(), mz_den_c.max()))
         y_top = float(intensity_range[1]) if intensity_range is not None else float(max(inten_orig_c.max(), 1.0)) * 1.05
         y_bot = float(intensity_range[1]) if intensity_range is not None else float(max(inten_den_c.max(), 1.0)) * 1.05
 
@@ -536,37 +590,9 @@ class SpectrumBaseModule:
         ax_top.grid(True, alpha=0.3)
         ax_bottom.grid(True, alpha=0.3)
 
-        # Overlay metrics text (consistent with test_imzml_visualization)
+        # Overlay metrics text
         if metrics_box and min_len > 1:
-            # Correlation
-            corr = float(np.corrcoef(inten_orig_c, inten_den_c)[0, 1]) if min_len > 1 else 0.0
-            # TIC ratio
-            tic_ratio = float(inten_den_c.sum() / inten_orig_c.sum()) if inten_orig_c.sum() > 0 else 1.0
-
-            # SNR (MAD-based estimate)
-            def calculate_snr(arr: np.ndarray) -> float:
-                if arr is None or len(arr) == 0:
-                    return 0.0
-                signal_level = np.percentile(arr, 95)
-                median_intensity = np.median(arr)
-                mad = np.median(np.abs(arr - median_intensity))
-                noise_std = mad / 0.6745 if mad > 0 else 1e-6
-                return float(signal_level / noise_std) if noise_std > 0 else float('inf')
-
-            snr_orig = calculate_snr(inten_orig_c)
-            snr_den = calculate_snr(inten_den_c)
-            snr_improvement = snr_den / snr_orig if snr_orig > 0 else 1.0
-
-            metrics_text = (f"Correlation: {corr:.4f}\n"
-                            f"TIC ratio: {tic_ratio:.3f}\n"
-                            f"SNR orig: {snr_orig:.1f}\n"
-                            f"SNR den: {snr_den:.1f}\n"
-                            f"SNR improvement: {snr_improvement:.2f}x")
-
-            ax_top.text(0.02, 0.98, metrics_text,
-                        transform=ax_top.transAxes, verticalalignment='top',
-                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
-                        fontsize=9)
+            add_metrics_box(ax_top, inten_orig_c, inten_den_c)
 
         plt.tight_layout()
         if save_path:
