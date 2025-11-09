@@ -1,3 +1,4 @@
+from numpy import kaiser
 from module.msi_module import MSI
 from module.ms_module import MS
 from module.msi_data_manager_msi import MSIDataManager  # 导入 .msi 文件的加载器
@@ -27,12 +28,25 @@ if __name__ == "__main__":
 
     FILE_PATH = "data/example.imzML"
     ms = MS()
-    ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH,coordinates_zero_based=False)
+    ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
     ms_md.load_full_data_from_file()
-    ms_md.inspect_data()
-    ms.set_coordinates_zero_based(True)
-    ms.plot_ms_mask()
-    ms_md.inspect_data()
-    logger.info(f"{ms.meta.min_pixel_x} {ms.meta.min_pixel_y}")
-    spectrum = ms[0]
-    spectrum.plot()
+    sp = ms[0]
+
+    denoised = MSIPreprocessor.noise_reduction(
+        data=sp,
+        method="savgol",
+        window=10,
+        #window default = 5
+        polyorder=3
+        #polyorder default = 2
+    )
+
+    # Plotting
+    denoised.plot(
+        figsize=(12, 8),
+        dpi=300,
+        mz_range=(500.0, 510.0),
+        intensity_range=(0.0, 1.5),
+        original=sp,
+        title_suffix='savgol'
+    )

@@ -90,13 +90,13 @@ def smooth_signal_gaussian(
     if not isinstance(window, int) or window <= 0:
         raise ValueError("window must be a positive integer")
 
-    # Generate Gaussian kernel
-    if sd is None:
-        sd = window / 4.0
-
     # Ensure window length is odd for symmetric kernel
     window = window + 1 - window % 2
     half_window = window // 2
+
+    # Generate Gaussian kernel
+    if sd is None:
+        sd = window / 4.0
 
     # Create Gaussian weights centered at zero
     positions = np.arange(-half_window, half_window + 1, dtype=float)
