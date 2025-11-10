@@ -39,8 +39,10 @@ from logger import get_logger
 from .filter import (smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_ma,
                      smooth_ns_signal_gaussian, smooth_ns_signal_bi,smooth_signal_savgol,
                      smooth_signal_wavelet,smooth_preprocess)
+from .baseline_correction import asls_baseline, snip_baseline
 from .est_noise_helper import _findbins,estimation_fun
 from scipy.interpolate import InterpolatedUnivariateSpline
+
 logger = get_logger("ms_preprocess")
 
 class MSIPreprocessor():
@@ -117,29 +119,76 @@ class MSIPreprocessor():
         """
 
     @staticmethod
-    def baseline_correction(data:SpectrumBaseModule) -> SpectrumBaseModule:
+    def baseline_correction(
+        data: Union[np.ndarray, SpectrumBaseModule],
+        method: str = "asls",
+        lam: float = 1e7,
+        p: float = 0.01,
+        niter: int = 15,
+        baseline_scale: float = 0.8,
+        m: int = 5,
+        decreasing: bool = True,
+        epsilon: float = 1e-3
+    ) -> tuple[Union[np.ndarray, SpectrumBaseModule], np.ndarray]:
         """
-        Perform baseline correction on MSI data.
-        
-        Abstract method for removing baseline drift and background signals
-        from mass spectra to improve peak detection and quantification.
-        
+        Remove baseline drift and background signals from mass spectra.
+
+        Supports:
+        - ASLS (asymmetric least squares): robust baseline estimation with peak preservation.
+        - SNIP (statistics-sensitive non-linear iterative peak-clipping): progressive clipping with adaptive early-stop.
+
         Args:
-            fill this
-            
+            data: intensity array (np.ndarray) or SpectrumBaseModule
+            method: 'asls' (default) or 'snip'
+            lam: ASLS smoothness parameter (1e4-1e8, higher = smoother baseline)
+            p: ASLS asymmetry parameter (0.001-0.1, lower = more peak preservation)
+            niter: ASLS iterations (5-20)
+            baseline_scale: scale factor (0-1) applied to the estimated baseline
+            m: SNIP max half-window; None -> auto(min(50, n//10))
+            decreasing: SNIP iteration order; True: p=m..1 (coarse->fine), False: p=1..m
+            epsilon: SNIP adaptive early-stop threshold on relative change
+
         Returns:
-            processed_data (MSI): Processed MSI object with baseline_correction
-            
-        Raises:
-            NotImplementedError: If not implemented by subclass
+            A tuple containing:
+            - np.ndarray or SpectrumBaseModule with baseline-corrected intensity.
+            - np.ndarray: The estimated baseline.
         """
+
+        def apply_single(intensity: np.ndarray):
+            xi = np.array(intensity, dtype=np.float64, copy=True)
+            xi = np.ascontiguousarray(xi)
+            # Estimate baseline via module-level functions
+            if method == "asls":
+                baseline = asls_baseline(xi, lam=lam, p=p, niter=niter)
+            elif method == "snip":
+                baseline = snip_baseline(xi, m=m, decreasing=decreasing, epsilon=epsilon)
+            else:
+                raise ValueError("Unsupported baseline method: use 'asls' or 'snip'")
+            scale = float(np.clip(baseline_scale, 0.0, 1.0))
+            scaled_baseline = scale * baseline
+            corrected = xi - scaled_baseline
+            corrected = np.maximum(corrected, 0.0)
+            return corrected, scaled_baseline
+
+        if isinstance(data, np.ndarray):
+            return apply_single(data)
+        elif isinstance(data, SpectrumBaseModule):
+            corrected_intensity, baseline = apply_single(np.array(data.intensity, dtype=np.float64))
+            corrected_spectrum = SpectrumBaseModule(
+                mz_list=np.array(data.mz_list, dtype=np.float64, copy=True) if data.mz_list is not None else None,
+                intensity=np.ascontiguousarray(corrected_intensity),
+                coordinates=data.coordinates
+            )
+            return corrected_spectrum, baseline
+        else:
+            raise TypeError("data must be np.ndarray or SpectrumBaseModule")
 
     @staticmethod
     def noise_reduction(
         data: Union[SpectrumBaseModule, SpectrumImzML],
         method: str = "ma",
-        window: int = 2,
-        sd: float = 2,
+        window: int = 5,
+        sd: float = None,
         sd_intensity: float = None,
         p: int = 2,
         coef: np.ndarray = None,

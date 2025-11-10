@@ -1,3 +1,4 @@
+from numpy import kaiser
 from module.msi_module import MSI
 from module.ms_module import MS
 from module.msi_data_manager_msi import MSIDataManager  # 导入 .msi 文件的加载器
@@ -12,11 +13,25 @@ if __name__ == "__main__":
     from module.ms_module import MS
     FILE_PATH = "data/example.imzML"
     ms = MS()
-    # Create MS collection and manager
-    # Auto-created from parser
-    with MSDataManagerImzML(ms=ms,target_locs=[(1, 1), (50, 50)],filepath=FILE_PATH) as manager:
+    ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
+    ms_md.load_full_data_from_file()
+    sp = ms[0]
 
-        # Load data with lazy-loading placeholders
-        manager.load_full_data_from_file()
-        spectrum = ms[0]
-        spectrum.plot()
+    denoised = MSIPreprocessor.noise_reduction(
+        data=sp,
+        method="savgol",
+        window=10,
+        #window default = 5
+        polyorder=3
+        #polyorder default = 2
+    )
+
+    # Plotting
+    denoised.plot(
+        figsize=(12, 8),
+        dpi=300,
+        mz_range=(500.0, 510.0),
+        intensity_range=(0.0, 1.5),
+        original=sp,
+        title_suffix='savgol'
+    )
