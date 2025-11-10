@@ -83,9 +83,11 @@ class MSDataManagerImzML(MSDataManager):
             coords = self.parser.coordinates  # list of tuples
             for i, c in enumerate(coords):
                 x, y, z = c
-                c1, c2 = self.target_locs if self.target_locs is not None else [0,0],[999,999]
+                c1, c2 = self.target_locs if self.target_locs is not None else ([0,0],[999,999])
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
-                    spectrum = SpectrumImzML(parser=self.parser, index=i, coordinates=PixelCoordinates(x, y, z, self.ms.meta.coordinates_zero_based))
+                    spectrum = SpectrumImzML(parser=self.parser,
+                                             index=i,
+                                             coordinates=PixelCoordinates(x, y, z, self.ms.meta.coordinates_zero_based))
                     self._ms.add_spectrum(spectrum)
                     self.loading_meta(x=spectrum.coordinates.x, y=spectrum.coordinates.y)
                     self.current_spectrum_num += 1
