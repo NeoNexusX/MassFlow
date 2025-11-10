@@ -251,6 +251,11 @@ class MetaDataFileBase:
                 raise TypeError("meta_index must be a dict")
             self._meta_index = meta_index_data
 
+    def update_meta(self):
+        """Update the meta index with new entries."""
+        for meta_key in self._meta:
+            self._meta[meta_key] = getattr(self, meta_key, None)
+
 class MSIMetaData(MetaDataFileBase):
     """
     Metadata class for MSI image-matrix data.
@@ -380,10 +385,16 @@ class ImzMlMetaData(MetaDataFileBase):
                  min_pixel_x = None,
                  min_pixel_y = None,
                  mask = None,
+                 pixel_size_x=None,
+                 pixel_size_y=None,
+                 max_count_of_pixels_x=None,
+                 max_count_of_pixels_y=None,
                  coordinates_zero_based: bool = True):
 
         """Initialize the metadata object with either a parser or a file path."""
-        super().__init__(name, version, storage_mode)
+        super().__init__(name=name, version=version, storage_mode=storage_mode, 
+                         mask=mask,pixel_size_x=pixel_size_x,pixel_size_y=pixel_size_y,
+                         max_count_of_pixels_x=max_count_of_pixels_x,max_count_of_pixels_y=max_count_of_pixels_y)
 
         self._filepath = None
         self._parser = None
@@ -518,7 +529,7 @@ class ImzMlMetaData(MetaDataFileBase):
     @property
     def min_pixel_x(self):
         """Return the minimum pixel X coordinate."""
-        return self._min_pixel_x
+        return self._min_pixel_x-1 if self.coordinates_zero_based else self._min_pixel_x
 
     @min_pixel_x.setter
     def min_pixel_x(self, min_pixel_x):
@@ -530,7 +541,7 @@ class ImzMlMetaData(MetaDataFileBase):
     @property
     def min_pixel_y(self):
         """Return the minimum pixel Y coordinate."""
-        return self._min_pixel_y
+        return self._min_pixel_y-1 if self.coordinates_zero_based else self._min_pixel_y
 
     @min_pixel_y.setter
     def min_pixel_y(self, min_pixel_y):
@@ -543,15 +554,6 @@ class ImzMlMetaData(MetaDataFileBase):
     def coordinates_zero_based(self) -> bool:
         """
         Flag indicating whether coordinates are zero-based.
-
-        Args:
-            None
-
-        Returns:
-            bool: True if coordinates are zero-based; False otherwise.
-
-        Raises:
-            None
         """
         return self._coordinates_zero_based
 
@@ -559,15 +561,6 @@ class ImzMlMetaData(MetaDataFileBase):
     def coordinates_zero_based(self, value: bool):
         """
         Set the zero-based coordinate flag and persist in metadata.
-
-        Args:
-            value (bool): True for zero-based; False for one-based.
-
-        Returns:
-            None
-
-        Raises:
-            None
         """
         self._coordinates_zero_based = value
         self._set('coordinates_zero_based', self._coordinates_zero_based)

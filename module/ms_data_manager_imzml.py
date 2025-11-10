@@ -158,8 +158,6 @@ class MSDataManagerImzML(MSDataManager):
         #update min   pixel x,y
         self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs['x'])
         self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs['y'])
-        self.ms.meta.max_count_of_pixels_x = max(self.ms.meta.max_count_of_pixels_x, kwargs['x'])
-        self.ms.meta.max_count_of_pixels_y = max(self.ms.meta.max_count_of_pixels_y, kwargs['y'])
 
     def close(self):
         """
