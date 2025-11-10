@@ -14,7 +14,7 @@ from typing import Callable, Tuple
 import sys
 import numpy as np
 
-from preprocess.est_noise import _findbins
+from preprocess.est_noise_helper import _findbins
 
 
 def generate_signal(n: int) -> np.ndarray:

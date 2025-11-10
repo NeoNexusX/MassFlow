@@ -159,11 +159,9 @@ def _findbins(data: np.ndarray,
               niter: int = 10,
               overlap: float = 0.5,
               limits_only: bool = False):
-    """
-    """
     if data.ndim != 1:
         logger.error("Input data must be a 1D array")
-        raise ValueError("Input data must be a 1D array")
+        raise ValueError(f"Input data must be a 1D array, got shape {data.shape}")
     if nbins < 1:
         logger.warning(f"nbins={nbins} is not >= 1, clipped to 1")
         nbins = 1
@@ -250,6 +248,7 @@ def _findbins(data: np.ndarray,
     else:
         bins = [data[int(li):int(ui) + 1] for li, ui in zip(lower, upper)]
         return bins, meta
+
 
 def estimation_fun(method: str = 'sd'):
     """Return a callable for noise estimation from a vector.

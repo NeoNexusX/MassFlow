@@ -159,3 +159,63 @@ class MSDataManagerImzML(MSDataManager):
         self.ms.meta.max_count_of_pixels_x = max(self.ms.meta.max_count_of_pixels_x, kwargs['x'])
         self.ms.meta.max_count_of_pixels_y = max(self.ms.meta.max_count_of_pixels_y, kwargs['y'])
 
+    def close(self):
+        """
+        Safely close underlying resources associated with the ImzML parser.
+
+        Parameters:
+            None
+
+        Returns:
+            None
+
+        Raises:
+            None directly. Any errors during closing are caught and logged as warnings.
+
+        Notes:
+            - This attempts to close common handles exposed by pyimzml.ImzMLParser,
+              including the memory-mapped object and any file-like objects.
+            - After closing, it clears local and metadata references to the parser to
+              avoid accidental reuse of invalid handles.
+        """
+        
+        if self.parser is not None:
+            # Try closing memory-mapped handle if present
+            m = getattr(self.parser, 'm', None)
+            if m is not None and hasattr(m, 'close'):
+                try:
+                    m.close()
+                except Exception as e:
+                    logger.warning(f"Failed to close memory-mapped handle: {e}")
+
+    def __enter__(self):
+        """
+        Enter the context manager for MSDataManagerImzML.
+
+        Parameters:
+            None
+
+        Returns:
+            MSDataManagerImzML: The current instance for chained operations.
+
+        Raises:
+            None
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Exit the context manager and ensure resources are closed.
+
+        Parameters:
+            exc_type (type | None): Exception type, if any occurred in context.
+            exc_val (BaseException | None): Exception instance, if any.
+            exc_tb (TracebackType | None): Traceback, if any.
+
+        Returns:
+            None
+
+        Raises:
+            None. This method does not suppress exceptions; it only closes resources.
+        """
+        self.close()

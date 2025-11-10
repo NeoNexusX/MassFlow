@@ -425,7 +425,7 @@ class SpectrumBaseModule:
             figsize (tuple, optional): Figure size (width, height) in inches. Defaults to (20, 5).
             dpi (int, optional): Dots per inch for image quality. Defaults to 300.
             color (str, optional): Color of the plot lines. Defaults to 'steelblue'.
-            plot_mode (str, optional): Plot mode. "line" for connected line plot, "stem" for default stem plot. Defaults to "line".
+            plot_mode (str, optional): Plot mode. "line" for connected line plot, "stem" for default stem plot.
         """
         intensity = self.intensity
         mz = self.mz_list

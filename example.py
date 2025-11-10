@@ -5,6 +5,7 @@ from module.msi_data_manager_zys import MSIDataManagerZYS
 from module.ms_data_manager_imzml import MSDataManagerImzML
 from preprocess.ms_preprocess import MSIPreprocessor
 from logger import get_logger
+import matplotlib.pyplot as plt
 logger = get_logger("example")
 
 # Run examples when executing this file directly
@@ -30,6 +31,7 @@ if __name__ == "__main__":
     ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH,coordinates_zero_based=False)
     ms_md.load_full_data_from_file()
     ms_md.inspect_data()
-    ms.plot_ms_mask()
-    spectrum = ms[0]
-    spectrum.plot()
+    print(ms[0].intensity)
+    noise_estimation = MSIPreprocessor.estnoise(ms[0],nbins=10)
+    print(noise_estimation)
+    ms_md.close()
