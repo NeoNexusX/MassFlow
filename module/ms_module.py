@@ -1,3 +1,4 @@
+from module.msi_module import MSIBaseModule
 """
 Mass Spectrometry Module for MassFlow Framework
 
@@ -20,83 +21,6 @@ from pyimzml.ImzMLParser import ImzMLParser
 from logger import get_logger
 
 logger = get_logger("ms_module")
-
-def calculate_snr(arr: np.ndarray) -> float:
-    """
-    MAD-based SNR estimate for a 1D intensity array.
-    """
-    if arr is None or len(arr) == 0:
-        return 0.0
-    signal_level = np.percentile(arr, 95)
-    median_intensity = np.median(arr)
-    mad = np.median(np.abs(arr - median_intensity))
-    noise_std = mad / 0.6745 if mad > 0 else 1e-6
-    return float(signal_level / noise_std) if noise_std > 0 else float('inf')
-
-def add_metrics_box(ax, inten_orig: np.ndarray, inten_den: np.ndarray,
-                    box_loc: Tuple[float, float] = (0.02, 0.98),
-                    fontsize: int = 9) -> None:
-    """
-    Overlay metrics text box on the given axes based on original and processed intensity arrays.
-    Automatically aligns to the shortest length when arrays differ.
-
-    Metrics:
-    - Correlation coefficient
-    - TIC ratio (Total Ion Current ratio)
-    - SNR orig / SNR den (MAD-based SNR estimate)
-    - SNR improvement multiplier
-    """
-    if inten_orig is None or inten_den is None:
-        return
-    min_len = min(len(inten_orig), len(inten_den))
-    if min_len <= 1:
-        return
-
-    o = np.asarray(inten_orig[:min_len], dtype=float)
-    d = np.asarray(inten_den[:min_len], dtype=float)
-
-    corr = float(np.corrcoef(o, d)[0, 1]) if min_len > 1 else 0.0
-    tic_ratio = float(d.sum() / o.sum()) if o.sum() > 0 else 1.0
-
-    snr_orig = calculate_snr(o)
-    snr_den = calculate_snr(d)
-    snr_improvement = snr_den / snr_orig if snr_orig > 0 else 1.0
-
-    metrics_text = (f"Correlation: {corr:.4f}\n"
-                    f"TIC ratio: {tic_ratio:.3f}\n"
-                    f"SNR orig: {snr_orig:.1f}\n"
-                    f"SNR den: {snr_den:.1f}\n"
-                    f"SNR improvement: {snr_improvement:.2f}x")
-
-    ax.text(box_loc[0], box_loc[1], metrics_text,
-            transform=ax.transAxes, verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
-            fontsize=fontsize)
-
-def crop_range(mz_arr: np.ndarray,
-               inten_arr: np.ndarray,
-               xr: Optional[Tuple[float, float]],
-               yr: Optional[Tuple[float, float]]) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Crop spectral data by given m/z and intensity ranges, keeping m/z and intensity aligned.
-
-    Args:
-        mz_arr (np.ndarray): Input m/z array.
-        inten_arr (np.ndarray): Input intensity array aligned with mz_arr.
-        xr (Optional[Tuple[float, float]]): Optional (min_mz, max_mz) range for m/z filtering.
-        yr (Optional[Tuple[float, float]]): Optional (min_intensity, max_intensity) range for intensity clipping.
-
-    Returns:
-        Tuple[np.ndarray, np.ndarray]: Cropped m/z and intensity arrays (mz_c, inten_c).
-    """
-    mask = np.ones_like(mz_arr, dtype=bool)
-    if xr is not None:
-        mask &= (mz_arr >= xr[0]) & (mz_arr <= xr[1])
-    mz_c = mz_arr[mask]
-    inten_c = inten_arr[mask]
-    if yr is not None:
-        inten_c = np.clip(inten_c, yr[0], yr[1])
-    return mz_c, inten_c
 
 class PixelCoordinates:
     """
@@ -488,8 +412,85 @@ class SpectrumBaseModule:
 
         elif self.mz_list is None or self.intensity is None:
             logger.warning("mz_list or intensity is None, can not sort by mz.")
-      
+            
+    def calculate_snr(self, arr: np.ndarray) -> float:
+        """
+        MAD-based SNR estimate for a 1D intensity array.
+        """
+        if arr is None or len(arr) == 0:
+            return 0.0
+        signal_level = np.percentile(arr, 95)
+        median_intensity = np.median(arr)
+        mad = np.median(np.abs(arr - median_intensity))
+        noise_std = mad / 0.6745 if mad > 0 else 1e-6
+        return float(signal_level / noise_std) if noise_std > 0 else float('inf')
 
+    def add_metrics_box(self, ax, inten_orig: np.ndarray, inten_den: np.ndarray,
+                        box_loc: Tuple[float, float] = (0.02, 0.98),
+                        fontsize: int = 9) -> None:
+        """
+        Overlay metrics text box on the given axes based on original and processed intensity arrays.
+        Automatically aligns to the shortest length when arrays differ.
+
+        Metrics:
+        - Correlation coefficient
+        - TIC ratio (Total Ion Current ratio)
+        - SNR orig / SNR den (MAD-based SNR estimate)
+        - SNR improvement multiplier
+        """
+        if inten_orig is None or inten_den is None:
+            return
+        min_len = min(len(inten_orig), len(inten_den))
+        if min_len <= 1:
+            return
+
+        o = np.asarray(inten_orig[:min_len], dtype=float)
+        d = np.asarray(inten_den[:min_len], dtype=float)
+
+        corr = float(np.corrcoef(o, d)[0, 1]) if min_len > 1 else 0.0
+        tic_ratio = float(d.sum() / o.sum()) if o.sum() > 0 else 1.0
+
+        snr_orig = self.calculate_snr(o)
+        snr_den = self.calculate_snr(d)
+        snr_improvement = snr_den / snr_orig if snr_orig > 0 else 1.0
+
+        metrics_text = (f"Correlation: {corr:.4f}\n"
+                        f"TIC ratio: {tic_ratio:.3f}\n"
+                        f"SNR orig: {snr_orig:.1f}\n"
+                        f"SNR den: {snr_den:.1f}\n"
+                        f"SNR improvement: {snr_improvement:.2f}x")
+
+        ax.text(box_loc[0], box_loc[1], metrics_text,
+                transform=ax.transAxes, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+                fontsize=fontsize)
+
+    def crop_range(self,
+                   mz_arr: np.ndarray,
+                   inten_arr: np.ndarray,
+                   xr: Optional[Tuple[float, float]],
+                   yr: Optional[Tuple[float, float]]) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Crop spectral data by given m/z and intensity ranges, keeping m/z and intensity aligned.
+
+        Args:
+            mz_arr (np.ndarray): Input m/z array.
+            inten_arr (np.ndarray): Input intensity array aligned with mz_arr.
+            xr (Optional[Tuple[float, float]]): Optional (min_mz, max_mz) range for m/z filtering.
+            yr (Optional[Tuple[float, float]]): Optional (min_intensity, max_intensity) range for intensity clipping.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Cropped m/z and intensity arrays (mz_c, inten_c).
+        """
+        mask = np.ones_like(mz_arr, dtype=bool)
+        if xr is not None:
+            mask &= (mz_arr >= xr[0]) & (mz_arr <= xr[1])
+        mz_c = mz_arr[mask]
+        inten_c = inten_arr[mask]
+        if yr is not None:
+            inten_c = np.clip(inten_c, yr[0], yr[1])
+        return mz_c, inten_c
+    
     def plot(self,
             save_path=None,
             figsize=(20, 5),
@@ -498,9 +499,10 @@ class SpectrumBaseModule:
             plot_mode: str = "line",
             mz_range: Optional[Tuple[float, float]] = None,
             intensity_range: Optional[Tuple[float, float]] = None,
-            original: Optional['MSBaseModule'] = None,
+            original: Optional['MSIBaseModule'] = None,
             metrics_box: bool = True,
-            title_suffix: Optional[str] = None):
+            title_suffix: Optional[str] = None,
+            overlay: bool = False):
         intensity = self.intensity
         mz = self.mz_list
 
@@ -533,17 +535,14 @@ class SpectrumBaseModule:
                 plt.show()
             return
 
-        # With original provided: draw two subplots and overlay metrics text
-        _, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
-
-        # Prepare data (align by the shortest length)
+        # With original provided: choose overlay or stacked subplots
         mz_orig = original.mz_list
         inten_orig = original.intensity
         mz_den = self.mz_list
         inten_den = self.intensity
 
-        mz_orig_c, inten_orig_c = crop_range(mz_orig, inten_orig, mz_range, intensity_range)
-        mz_den_c, inten_den_c = crop_range(mz_den, inten_den, mz_range, intensity_range)
+        mz_orig_c, inten_orig_c = self.crop_range(mz_orig, inten_orig, mz_range, intensity_range)
+        mz_den_c, inten_den_c = self.crop_range(mz_den, inten_den, mz_range, intensity_range)
 
         min_len = min(len(mz_orig_c), len(inten_orig_c), len(mz_den_c), len(inten_den_c))
         mz_orig_c = mz_orig_c[:min_len]
@@ -551,54 +550,101 @@ class SpectrumBaseModule:
         mz_den_c = mz_den_c[:min_len]
         inten_den_c = inten_den_c[:min_len]
 
-        # Draw original spectrum (top) and denoised (bottom)
         top_color = '#4C78A8'
         bottom_color = '#F58518'
         mode = (plot_mode or "line").lower()
-        if mode == "line":
-            ax_top.plot(mz_orig_c, inten_orig_c, color=top_color, linewidth=1)
-            ax_bottom.plot(mz_den_c, inten_den_c, color=bottom_color, linewidth=1)
+
+        if overlay:
+            # Single axes overlay: plot original and denoised on the same axis
+            _, ax = plt.subplots(1, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 6))
+
+            if mode == "line":
+                ax.plot(mz_orig_c, inten_orig_c, color=top_color, linewidth=1, label='Original')
+                ax.plot(mz_den_c, inten_den_c, color=bottom_color, linewidth=1, label='Denoised' if not title_suffix else f'Denoised ({title_suffix})')
+            else:
+                m1, s1, b1 = ax.stem(mz_orig_c, inten_orig_c, label='Original')
+                plt.setp(s1, linewidth=0.7, color=top_color, alpha=0.7)
+                plt.setp(m1, markersize=3, color=top_color, alpha=0.7)
+                plt.setp(b1, linewidth=0.5, color='gray', alpha=0.4)
+
+                m2, s2, b2 = ax.stem(mz_den_c, inten_den_c, label='Denoised' if not title_suffix else f'Denoised ({title_suffix})')
+                plt.setp(s2, linewidth=0.7, color=bottom_color, alpha=0.7)
+                plt.setp(m2, markersize=3, color=bottom_color, alpha=0.7)
+                plt.setp(b2, linewidth=0.5, color='gray', alpha=0.4)
+
+            # Axis range settings (combined)
+            x_min = float(mz_range[0]) if mz_range is not None else float(min(mz_orig_c.min(), mz_den_c.min()))
+            x_max = float(mz_range[1]) if mz_range is not None else float(max(mz_orig_c.max(), mz_den_c.max()))
+            y_max_comb = float(intensity_range[1]) if intensity_range is not None else float(max(inten_orig_c.max(), inten_den_c.max(), 1.0)) * 1.05
+            y_min_comb = 0.0 if intensity_range is None else float(intensity_range[0])
+
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_min_comb, y_max_comb)
+
+            # Titles, labels, legend, grid
+            ax.set_title('Original & Denoised (Overlay)' if not title_suffix else f'Original & Denoised (Overlay) - {title_suffix}', fontweight='bold')
+            ax.set_xlabel('m/z')
+            ax.set_ylabel('Intensity')
+            ax.grid(True, alpha=0.3)
+            ax.legend()
+
+            # Overlay metrics box on the same axes
+            if metrics_box and min_len > 1:
+                self.add_metrics_box(ax, inten_orig_c, inten_den_c)
+
+            plt.tight_layout()
+            if save_path:
+                plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
+            else:
+                plt.show()
         else:
-            m1, s1, b1 = ax_top.stem(mz_orig_c, inten_orig_c)
-            plt.setp(s1, linewidth=0.7, color=top_color, alpha=0.7)
-            plt.setp(m1, markersize=3, color=top_color, alpha=0.7)
-            plt.setp(b1, linewidth=0.5, color='gray', alpha=0.4)
+            # Stacked subplots (existing behavior)
+            _, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
 
-            m2, s2, b2 = ax_bottom.stem(mz_den_c, inten_den_c)
-            plt.setp(s2, linewidth=0.7, color=bottom_color, alpha=0.7)
-            plt.setp(m2, markersize=3, color=bottom_color, alpha=0.7)
-            plt.setp(b2, linewidth=0.5, color='gray', alpha=0.4)
+            if mode == "line":
+                ax_top.plot(mz_orig_c, inten_orig_c, color=top_color, linewidth=1)
+                ax_bottom.plot(mz_den_c, inten_den_c, color=bottom_color, linewidth=1)
+            else:
+                m1, s1, b1 = ax_top.stem(mz_orig_c, inten_orig_c)
+                plt.setp(s1, linewidth=0.7, color=top_color, alpha=0.7)
+                plt.setp(m1, markersize=3, color=top_color, alpha=0.7)
+                plt.setp(b1, linewidth=0.5, color='gray', alpha=0.4)
 
-        # Axis range settings
-        x_min = float(mz_range[0]) if mz_range is not None else float(min(mz_orig_c.min(), mz_den_c.min()))
-        x_max = float(mz_range[1]) if mz_range is not None else float(max(mz_orig_c.max(), mz_den_c.max()))
-        y_top = float(intensity_range[1]) if intensity_range is not None else float(max(inten_orig_c.max(), 1.0)) * 1.05
-        y_bot = float(intensity_range[1]) if intensity_range is not None else float(max(inten_den_c.max(), 1.0)) * 1.05
+                m2, s2, b2 = ax_bottom.stem(mz_den_c, inten_den_c)
+                plt.setp(s2, linewidth=0.7, color=bottom_color, alpha=0.7)
+                plt.setp(m2, markersize=3, color=bottom_color, alpha=0.7)
+                plt.setp(b2, linewidth=0.5, color='gray', alpha=0.4)
 
-        ax_top.set_xlim(x_min, x_max)
-        ax_bottom.set_xlim(x_min, x_max)
-        ax_top.set_ylim(0.0 if intensity_range is None else float(intensity_range[0]), y_top)
-        ax_bottom.set_ylim(0.0 if intensity_range is None else float(intensity_range[0]), y_bot)
+            # Axis range settings
+            x_min = float(mz_range[0]) if mz_range is not None else float(min(mz_orig_c.min(), mz_den_c.min()))
+            x_max = float(mz_range[1]) if mz_range is not None else float(max(mz_orig_c.max(), mz_den_c.max()))
+            y_top = float(intensity_range[1]) if intensity_range is not None else float(max(inten_orig_c.max(), 1.0)) * 1.05
+            y_bot = float(intensity_range[1]) if intensity_range is not None else float(max(inten_den_c.max(), 1.0)) * 1.05
 
-        # Titles and grid
-        ax_top.set_title('Original Spectrum', fontweight='bold')
-        den_title = 'Denoised Spectrum' if not title_suffix else f'Denoised Spectrum ({title_suffix})'
-        ax_bottom.set_title(den_title, fontweight='bold')
-        ax_bottom.set_xlabel('m/z')
-        ax_top.set_ylabel('Intensity')
-        ax_bottom.set_ylabel('Intensity')
-        ax_top.grid(True, alpha=0.3)
-        ax_bottom.grid(True, alpha=0.3)
+            ax_top.set_xlim(x_min, x_max)
+            ax_bottom.set_xlim(x_min, x_max)
+            ax_top.set_ylim(0.0 if intensity_range is None else float(intensity_range[0]), y_top)
+            ax_bottom.set_ylim(0.0 if intensity_range is None else float(intensity_range[0]), y_bot)
 
-        # Overlay metrics text
-        if metrics_box and min_len > 1:
-            add_metrics_box(ax_top, inten_orig_c, inten_den_c)
+            # Titles and grid
+            ax_top.set_title('Original Spectrum', fontweight='bold')
+            den_title = 'Denoised Spectrum' if not title_suffix else f'Denoised Spectrum ({title_suffix})'
+            ax_bottom.set_title(den_title, fontweight='bold')
+            ax_bottom.set_xlabel('m/z')
+            ax_top.set_ylabel('Intensity')
+            ax_bottom.set_ylabel('Intensity')
+            ax_top.grid(True, alpha=0.3)
+            ax_bottom.grid(True, alpha=0.3)
 
-        plt.tight_layout()
-        if save_path:
-            plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
-        else:
-            plt.show()
+            # Overlay metrics text
+            if metrics_box and min_len > 1:
+                self.add_metrics_box(ax_top, inten_orig_c, inten_den_c)
+
+            plt.tight_layout()
+            if save_path:
+                plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
+            else:
+                plt.show()
  
     @property
     def x(self) -> int:
