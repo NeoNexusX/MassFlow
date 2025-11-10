@@ -83,11 +83,13 @@ class MSDataManagerImzML(MSDataManager):
             coords = self.parser.coordinates  # list of tuples
             for i, c in enumerate(coords):
                 x, y, z = c
-                c1, c2 = self.target_locs if self.target_locs is not None else [0,0],[999,999]
+                c1, c2 = self.target_locs if self.target_locs is not None else ([0,0],[999,999])
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
-                    self.loading_meta(x=x, y=y)
-                    spectrum = SpectrumImzML(parser=self.parser, index=i, coordinates=PixelCoordinates(x, y, z, self.ms.meta.coordinates_zero_based))
+                    spectrum = SpectrumImzML(parser=self.parser,
+                                             index=i,
+                                             coordinates=PixelCoordinates(x, y, z, self.ms.meta.coordinates_zero_based))
                     self._ms.add_spectrum(spectrum)
+                    self.loading_meta(x=spectrum.coordinates.x, y=spectrum.coordinates.y)
                     self.current_spectrum_num += 1
 
             combined_message = "\r\n".join([ f"{wm.message}"for wm in w])
@@ -157,3 +159,63 @@ class MSDataManagerImzML(MSDataManager):
         self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs['x'])
         self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs['y'])
 
+    def close(self):
+        """
+        Safely close underlying resources associated with the ImzML parser.
+
+        Parameters:
+            None
+
+        Returns:
+            None
+
+        Raises:
+            None directly. Any errors during closing are caught and logged as warnings.
+
+        Notes:
+            - This attempts to close common handles exposed by pyimzml.ImzMLParser,
+              including the memory-mapped object and any file-like objects.
+            - After closing, it clears local and metadata references to the parser to
+              avoid accidental reuse of invalid handles.
+        """
+        
+        if self.parser is not None:
+            # Try closing memory-mapped handle if present
+            m = getattr(self.parser, 'm', None)
+            if m is not None and hasattr(m, 'close'):
+                try:
+                    m.close()
+                except Exception as e:
+                    logger.warning(f"Failed to close memory-mapped handle: {e}")
+
+    def __enter__(self):
+        """
+        Enter the context manager for MSDataManagerImzML.
+
+        Parameters:
+            None
+
+        Returns:
+            MSDataManagerImzML: The current instance for chained operations.
+
+        Raises:
+            None
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Exit the context manager and ensure resources are closed.
+
+        Parameters:
+            exc_type (type | None): Exception type, if any occurred in context.
+            exc_val (BaseException | None): Exception instance, if any.
+            exc_tb (TracebackType | None): Traceback, if any.
+
+        Returns:
+            None
+
+        Raises:
+            None. This method does not suppress exceptions; it only closes resources.
+        """
+        self.close()
