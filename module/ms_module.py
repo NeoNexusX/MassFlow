@@ -426,7 +426,7 @@ class SpectrumBaseModule:
             figsize (tuple, optional): Figure size (width, height) in inches. Defaults to (20, 5).
             dpi (int, optional): Dots per inch for image quality. Defaults to 300.
             color (str, optional): Color of the plot lines. Defaults to 'steelblue'.
-            plot_mode (str, optional): Plot mode. "line" for connected line plot, "stem" for default stem plot. Defaults to "line".
+            plot_mode (str, optional): Plot mode. "line" for connected line plot, "stem" for default stem plot.
         """
         intensity = self.intensity
         mz = self.mz_list
@@ -686,22 +686,26 @@ class MS:
             KeyError: If coordinates don't exist in the collection
             IndexError: If sequential index is out of range
         """
-        if isinstance(key, int):
-        # Return the item from the queue by index
-            return self._queue[key]
-        elif isinstance(key, tuple):
-            if len(key) == 3:
-                x, y, z = key
-                return self._coordinate_index[z][x][y]
-            elif len(key) == 2:
-                x, y = key
-                return self._coordinate_index[0][x][y]  # z defaults to 0
-        elif isinstance(key, slice):
-            # Support slice access on the internal sequential queue
-            return self._queue[key]
-        else:
-            logger.error("Index must be in tuple format, like [x, y, z] or [x, y]")
-            raise TypeError("Index must be in tuple format, like [x, y, z] or [x, y]")
+        try:
+            if isinstance(key, int):
+            # Return the item from the queue by index
+                return self._queue[key]
+            elif isinstance(key, tuple):
+                if len(key) == 3:
+                    x, y, z = key
+                    return self._coordinate_index[z][x][y]
+                elif len(key) == 2:
+                    x, y = key
+                    return self._coordinate_index[0][x][y]  # z defaults to 0
+            elif isinstance(key, slice):
+                # Support slice access on the internal sequential queue
+                return self._queue[key]
+            else:
+                logger.error("Index must be in tuple format, like [x, y, z] or [x, y]")
+                raise TypeError("Index must be in tuple format, like [x, y, z] or [x, y]")
+        except (KeyError, IndexError) as e:
+            logger.error(f"Error accessing spectrum with key {key}: {e},please use mask to see all unique coordinates")
+            raise e
 
     def __setitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int]], spectrum: SpectrumBaseModule):
         """

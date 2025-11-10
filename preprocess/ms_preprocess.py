@@ -39,7 +39,8 @@ from logger import get_logger
 from .filter import (smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_ma,
                      smooth_ns_signal_gaussian, smooth_ns_signal_bi,smooth_signal_savgol,
                      smooth_signal_wavelet,smooth_preprocess)
-
+from .est_noise_helper import _findbins,estimation_fun
+from scipy.interpolate import InterpolatedUnivariateSpline
 logger = get_logger("ms_preprocess")
 
 class MSIPreprocessor():
@@ -71,43 +72,13 @@ class MSIPreprocessor():
             ValueError: If neither msi_object nor (mz, msroi) are provided
         """
 
-
     @staticmethod
     def peak_pick(data:SpectrumBaseModule,method: str) -> SpectrumBaseModule:
-        """
-        Perform peak picking on MSI data.
-        
-        Abstract method that must be implemented by concrete classes to identify
-        significant peaks in the mass spectra.
-        
-        Args:
-            Fill this
-            
-        Returns:
-            processed_data (MSI): Processed MSI object with peak-picked data
-            
-        Raises:
-            NotImplementedError: If not implemented by subclass
-        """
-
+        pass
 
     @staticmethod
     def peak_pick_spectrum(data:SpectrumBaseModule,method: str) -> SpectrumBaseModule:
-        """
-        Perform peak picking on MSI data.
-
-        Abstract method that must be implemented by concrete classes to identify
-        significant peaks in the mass spectra.
-
-        Args:
-            Fill this
-
-        Returns:
-            processed_data (MSI): Processed MSI object with peak-picked data
-
-        Raises:
-            NotImplementedError: If not implemented by subclass
-        """
+        pass
 
     @staticmethod
     def tic_normalization(data:SpectrumBaseModule,method: str = 'total_ion_current') -> SpectrumBaseModule:
@@ -247,7 +218,11 @@ class MSIPreprocessor():
         """
 
     @staticmethod
-    def estnoise(data:SpectrumBaseModule) -> float:
+    def estnoise(x: SpectrumBaseModule,
+                nbins: int = 1,
+                overlap: float = 0.5,
+                k: int = 10,
+                method: str = "sd"):
         """
         Estimate noise level in the MSI data.
         
@@ -255,5 +230,48 @@ class MSIPreprocessor():
             data (MSBaseModule): Input MSI data
             
         Returns:
-            float: Estimated noise level
+            np.ndarray: A 1D array of length equal to `x.intensity.size` representing the
+                estimated noise baseline. When `nbins <= 1`, the array is constant with the
+                global noise estimate value.
+
+        Raises:
+            TypeError: If `x.intensity` is not a 1D numpy array.
+            ValueError: If `nbins < 1` or `k <= 0`.
         """
+        if x.intensity is None or x.intensity.ndim != 1:
+            logger.error("x.intensity must be a 1D numpy array")
+            raise TypeError("x.intensity must be a 1D numpy array")
+        if nbins < 1:
+            logger.error("nbins must be >= 1")
+            raise ValueError("nbins must be >= 1")
+        if k <= 0:
+            logger.error("k must be a positive integer")
+            raise ValueError("k must be a positive integer")
+
+        # Smooth signal (neighborhood-search Gaussian) and compute absolute residuals
+        smoothed = smooth_ns_signal_gaussian(x, k=k)
+        residuals = np.abs(smoothed - x.intensity)
+
+        #noise_estimation part
+        noise_estimation = estimation_fun(method)(residuals)
+
+        #find bins
+        if nbins > 1:
+            bins, meta = _findbins(residuals, nbins=nbins, overlap=overlap)
+            lower = meta["lower"].astype(int)
+            upper = meta["upper"].astype(int)
+
+            #core location
+            midpoints = (lower + upper) // 2
+
+            #noise_estimation for all bins
+            noise_estimations = []
+            for bin_data in bins:
+                noise_estimations.append(estimation_fun(method)(bin_data))
+
+            #spline for noise line
+            rank_spline = int(max(1, min(3, len(midpoints) - 1)))
+            spline_fn = InterpolatedUnivariateSpline(midpoints, noise_estimations, k=rank_spline)
+            noise_estimation = spline_fn(np.arange(len(residuals), dtype=float))
+
+        return noise_estimation

@@ -92,19 +92,26 @@ Represents a single mass spectrum bound to spatial coordinates. Key characterist
 >>> mz_list = specturm.ms_list
 >>> print(mz_list)
 output:
-[16441.998    938.1308  2318.6423 ...  1174.1575  1333.138   1488.291 ]
+[16441.998  938.1308  2318.6423 ...  1174.1575  1333.138   1488.291 ]
 ```
 
 - Example2
 
 ```python
->>> FILE_PATH = "data/example.imzML"
->>> ms = MS()
->>> ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
->>> ms_md.load_full_data_from_file()
->>> ms_md.inspect_data()
->>> spectrum = ms[0]
->>> spectrum.plot()
+if __name__ == "__main__":
+    from module.ms_data_manager_imzml import MSDataManagerImzML
+    from module.ms_module import MS
+    FILE_PATH = "data/example.imzML"
+    ms = MS()
+    # Create MS collection and manager
+    # Auto-created from parser
+    with MSDataManagerImzML(ms=ms,target_locs=[(1, 1), (50, 50)],filepath=FILE_PATH) as manager:
+
+        # Load data with lazy-loading placeholders
+        manager.load_full_data_from_file()
+        spectrum = ms[0]
+        spectrum.plot()
+
 output:
 ```
 
@@ -247,16 +254,22 @@ Abstract base class that defines common configuration and the contract for loadi
 - Example
 
 ```python
->>> # Cannot instantiate abstract class directly
->>> # Use concrete implementations like MSDataManagerImzML
->>> from module.ms_data_manager_imzml import MSDataManagerImzML
->>> manager = MSDataManagerImzML(
-...     ms=MS(),
-...     target_locs=[(0, 0), (100, 100)],
-...     filepath="data.imzML"
-... )
->>> manager.load_full_data_from_file()
->>> print(manager.current_spectrum_num)
+# Cannot instantiate abstract class directly
+# Use concrete implementations like MSDataManagerImzML
+if __name__ == "__main__":
+    from module.ms_data_manager_imzml import MSDataManagerImzML
+    from module.ms_module import MS
+    FILE_PATH = "data/example.imzML"
+    ms = MS()
+    # Create MS collection and manager
+    # Auto-created from parser
+    with MSDataManagerImzML(ms=ms,target_locs=[(1, 1), (50, 50)],filepath=FILE_PATH) as manager:
+
+        # Load data with lazy-loading placeholders
+        manager.load_full_data_from_file()
+
+        print(manager.current_spectrum_num)
+
 output:
 10000
 ```
@@ -298,68 +311,84 @@ Concrete data manager for `.imzML` files. This class extends `MSDataManager` to 
 - Example
 
 ```python
->>> from module.ms_module import MS
->>> from module.ms_data_manager_imzml import MSDataManagerImzML
->>> 
->>> # Create MS collection and manager
->>> ms = MS()
->>> manager = MSDataManagerImzML(
-...     ms=ms,
-...     ms_meta=None,  # Auto-created from parser
-...     target_locs=[(1, 1), (50, 50)],  # Load only this region
-...     filepath="/path/to/data.imzML"
-... )
->>> 
->>> # Load data with lazy-loading placeholders
->>> manager.load_full_data_from_file()
->>> 
->>> # Inspect loaded data
->>> manager.inspect_data(inpect_num=5)
->>> 
->>> # Access spectrum (triggers lazy load)
->>> spectrum = ms[10, 20, 0]
->>> print(spectrum.mz_list[:5])
+from module.ms_module import MS
+from module.ms_data_manager_imzml import MSDataManagerImzML
+
+# Run examples when executing this file directly
+if __name__ == "__main__":
+
+    FILE_PATH = "data/example.imzML"
+    ms = MS()
+    # Create MS collection and manager
+    # Auto-created from parser
+    with MSDataManagerImzML(ms=ms,target_locs=[(1, 1), (50, 50)],filepath=FILE_PATH) as manager:
+
+        # Load data with lazy-loading placeholders
+        manager.load_full_data_from_file()
+
+        # Inspect loaded data
+        manager.inspect_data(inpect_num=5)
+
+        # Access spectrum (triggers lazy load)
+        spectrum = ms[40, 13]
+        print(spectrum.mz_list[:5])
 
 inspect_data output:
->>> INFO:     25-11-06 10:55 101 ms_data_manager - MS meta data:
-                                                   target_mz_range: None
-                                                   target_locs: None
-                                                   filepath: data/example.imzML
-                                                   current_spectrum_num: 17176
-                                                   meta_name: MSI
-                                                   meta_version: 1.0
-                                                   meta_storage_mode: split
-                                                   meta_centroid_spectrum: None
-                                                   meta_profile_spectrum: True
-                                                   meta_max_count_of_pixels_x: 227
-                                                   meta_max_count_of_pixels_y: 93
-                                                   meta_pixel_size_x: 100.0
-                                                   meta_pixel_size_y: 100.0
-                                                   meta_absolute_position_offset_x: 0.0
-                                                   meta_absolute_position_offset_y: 0.0
-                                                   meta_min_pixel_x: 1
-                                                   meta_min_pixel_y: 1
+INFO:     25-11-10 19:34 202 ms_data_manager - creating ms mask.
+INFO:     25-11-10 19:34 102 ms_data_manager - MS meta data:
+                                                 target_mz_range: None
+                                                 target_locs: [(1, 1), (50, 50)]
+                                                 filepath: data/example.imzML
+                                                 current_spectrum_num: 1910
+                                                 meta_name: ImzML
+                                                 meta_version: 1.0
+                                                 meta_storage_mode: split
+                                                 meta_centroid_spectrum: None
+                                                 meta_profile_spectrum: True
+                                                 meta_coordinates_zero_based: True
+                                                 meta_max_count_of_pixels_x: 227
+                                                 meta_max_count_of_pixels_y: 93
+                                                 meta_pixel_size_x: 100.0
+                                                 meta_pixel_size_y: 100.0
+                                                 meta_absolute_position_offset_x: 0.0
+                                                 meta_absolute_position_offset_y: 0.0
+                                                 meta_min_pixel_x: 0
+                                                 meta_min_pixel_y: 2
+                                                 meta_mask: (93, 227)
                                                
->>> INFO:     25-11-06 10:55 114 ms_data_manager - MS  information:
-                                                   MS len: 74749
-                                                   MS range: 400.0 - 1000.0
-                                                   MS coord: [0, 38, 0]
-                                                   max and min mz_list: 1000.0 - 400.0
-                                                   max intensity: 16.307722091674805
-
-                                                   MS len: 74749
-                                                   MS range: 400.0 - 1000.0
-                                                   MS coord: [0, 39, 0]
-                                                   max and min mz_list: 1000.0 - 400.0
-                                                   max intensity: 17.022132873535156
-
-                                                   MS len: 74749
-                                                   MS range: 400.0 - 1000.0
-                                                   MS coord: [0, 40, 0]
-                                                   max and min mz_list: 1000.0 - 400.0
-                                                   max intensity: 16.470420837402344
-output:
-[100.05    150.12    200.34    250.67    300.89]
+INFO:     25-11-10 19:34 115 ms_data_manager - MS  information:
+                                                 MS len: 74749
+                                                 MS range: 400.0 - 1000.0
+                                                 MS coord: (0, 38, 0)
+                                                 max and min mz_list: 1000.0 - 400.0
+                                                 max intensity: 16.307722091674805
+                                               
+                                                 MS len: 74749
+                                                 MS range: 400.0 - 1000.0
+                                                 MS coord: (0, 39, 0)
+                                                 max and min mz_list: 1000.0 - 400.0
+                                                 max intensity: 17.022132873535156
+                                               
+                                                 MS len: 74749
+                                                 MS range: 400.0 - 1000.0
+                                                 MS coord: (0, 40, 0)
+                                                 max and min mz_list: 1000.0 - 400.0
+                                                 max intensity: 16.470420837402344
+                                               
+                                                 MS len: 74749
+                                                 MS range: 400.0 - 1000.0
+                                                 MS coord: (0, 41, 0)
+                                                 max and min mz_list: 1000.0 - 400.0
+                                                 max intensity: 19.481334686279297
+                                               
+                                                 MS len: 74749
+                                                 MS range: 400.0 - 1000.0
+                                                 MS coord: (0, 42, 0)
+                                                 max and min mz_list: 1000.0 - 400.0
+                                                 max intensity: 18.155176162719727
+                                               
+                                               
+[400.         400.00802697 400.01605394 400.02408091 400.03210788]
 ```
 
 ## Metadata Dependencies

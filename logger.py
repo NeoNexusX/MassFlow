@@ -183,7 +183,7 @@ class LoggerManager:
 # 创建日志管理器单例实例
 logger_manager = LoggerManager()
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "debug")
 
 # 初始化日志管理器
 logger_manager.init_app(log_level=LOG_LEVEL, log_dir=os.getenv("LOG_DIR", "logs"))
