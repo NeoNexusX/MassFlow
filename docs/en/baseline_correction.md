@@ -26,12 +26,14 @@ This document describes the baseline correction module in MassFlow, focusing on 
 
 ```mermaid
 graph LR
-  A[MSIPreprocessor.baseline_correction(data, method, ...)] --> ASLS[asls_baseline(y, lam, p, niter)]
-  A --> SNIP[snip_baseline(y, m, decreasing, epsilon)]
-  ASLS --> B[estimated baseline]
-  SNIP --> B
-  B --> C[scaled_baseline = baseline_scale * baseline]
-  C --> D[corrected = y - scaled_baseline; clip to non-negative]
+  A[Baseline Correction] --> B{Method Selection}
+  B --> C[ASLS Method]
+  B --> D[SNIP Method]
+  C --> E[Estimate Baseline]
+  D --> E
+  E --> F[Scale Baseline]
+  F --> G[Subtract & Clip]
+  G --> H[Corrected Data]
 ```
 
 ## Core API
@@ -39,7 +41,7 @@ graph LR
 ### MSIPreprocessor.baseline_correction
 
 ```python
-preprocess.baseline_correction.MSIPreprocessor.baseline_correction(
+preprocess.MSIPreprocessor.baseline_correction(
   data: np.ndarray | SpectrumBaseModule,
   method: str = "asls",
   lam: float = 1e7,
@@ -117,13 +119,6 @@ lam = 5e7
 p = 0.008
 niter = 25
 baseline_scale = 0.9
-
-# --- Files & Output ---
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(PROJECT_ROOT, "data")
-FILE_PATH = os.path.join(DATA_DIR, "gaussian_denoised_intensity.npy")
-DENOISED_MZ_FILE = os.path.join(DATA_DIR, "gaussian_denoised_mz.npy")
-OUTPUT_FILENAME = "asls_baseline_correction_visualization_400-500.png"
 
 # --- Data Loading (NPY) ---
 intensity_data = np.load(FILE_PATH)
@@ -255,21 +250,6 @@ plt.close()
 - Smooth background removal with peak preservation: ASLS (suitable for quantitative analysis and shape stability).
 - Fast, robust baseline suppression: SNIP (handles mixed sharp/broad peaks efficiently).
 - Preventing over-subtraction: lower `baseline_scale` or increase `epsilon` (SNIP).
-
-## Common Problems and Troubleshooting
-
-- Invalid input type
-  - Error: `TypeError: data must be np.ndarray or SpectrumBaseModule`
-  - Solution: Ensure the input is either `np.ndarray` or `SpectrumBaseModule`.
-- Empty arrays or mismatched lengths
-  - Situation: zero length or mismatched `mz_list` and `intensity` lengths.
-  - Solution: Clean and ensure consistent 1D lengths.
-- Missing sparse dependency (ASLS)
-  - Situation: `scipy.sparse` is missing; falls back to a dense implementation.
-  - Impact: Slower computation; installing `scipy` is recommended.
-- Over-subtraction
-  - Symptoms: corrected peaks are too low, significant TIC loss.
-  - Solution: lower `lam` (ASLS), reduce `m` or increase `epsilon` (SNIP), raise `baseline_scale`.
 
 ## Practical Suggestions
 
