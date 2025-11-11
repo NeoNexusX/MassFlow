@@ -7,25 +7,28 @@ from logger import get_logger
 logger = get_logger("example")
 
 if __name__ == "__main__":
-    FILE_PATH = "data/example.imzML"
+    FILE_PATH = "data/example2.imzML"
     ms = MS()
     ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
     ms_md.load_full_data_from_file()
-    sp = ms[0]
+    ms_md.inspect_data()
+    sp = ms[100]
 
-    denoised = MSIPreprocessor.noise_reduction(
+    corrected_sp, baseline = MSIPreprocessor.baseline_correction(
         data=sp,
-        method="savgol",
-        window=5,
-        polyorder=2
+        method="asls",
+        lam=5e7,
+        p=0.008,
+        niter=25,
+        baseline_scale=0.9
     )
 
     # Plotting
     plot_spectrum(
-        base=sp,
-        target=denoised,
-        mz_range=(500.0, 505.0),
-        intensity_range=(0, 1.2),
-        title_suffix='savgol',
-        overlay=False,
+    base=sp,
+    target=corrected_sp,
+    mz_range=(40, 100),
+    intensity_range=(-1, 100),
+    metrics_box=True,
+    title_suffix="ASLS"
     )

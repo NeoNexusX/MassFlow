@@ -432,34 +432,37 @@ class SpectrumBaseModule:
         """
         pass
         """
-        if self.mz_list is not None and len(xr) == 2:
+        if self.mz_list is not None:
+            if xr is not None and len(xr) == 2:
+                mz_c = None
+                inten_c = None
+                # without sort and dont want to sort
+                if not self.sort_by_mz and not sort_by_mz:
+                    mask_xr = np.ones_like(self.mz_list, dtype=bool)
 
-            mz_c = None
-            inten_c = None
-            # without sort and dont want to sort
-            if not self.sort_by_mz and not sort_by_mz:
-                mask_xr = np.ones_like(self.mz_list, dtype=bool)
+                    if xr is not None and self.mz_list is not None:
+                        mask_xr &= (self.mz_list >= xr[0]) & (self.mz_list <= xr[1])
+                    else:
+                        logger.error("xr or mz_list is None, can not crop by mz.")
+                        raise ValueError("xr or mz_list is None, can not crop by mz.")
 
-                if xr is not None and self.mz_list is not None:
-                    mask_xr &= (self.mz_list >= xr[0]) & (self.mz_list <= xr[1])
-                else:
-                    logger.error("xr or mz_list is None, can not crop by mz.")
-                    raise ValueError("xr or mz_list is None, can not crop by mz.")
+                    mz_c = self.mz_list[mask_xr]
+                    inten_c = self.intensity[mask_xr]
 
-                mz_c = self.mz_list[mask_xr]
-                inten_c = self.intensity[mask_xr]
+                # with sort and want to sort  or want sort but no sort
+                elif sort_by_mz:
+                    if not self.sort_by_mz:
+                        self.sorted_by_mz = True
+                        self.sort_by_mz()
+                    start_index = np.searchsorted(self.mz_list, xr[0], side="left")
+                    end_index = np.searchsorted(self.mz_list, xr[1], side="right")
 
-            # with sort and want to sort  or want sort but no sort
-            elif sort_by_mz:
-                if not self.sort_by_mz:
-                    self.sorted_by_mz = True
-                    self.sort_by_mz()
-                start_index = np.searchsorted(self.mz_list, xr[0], side="left")
-                end_index = np.searchsorted(self.mz_list, xr[1], side="right")
-
-                # build the data
-                mz_c = self.mz_list[start_index:end_index]
-                inten_c = self.intensity[start_index:end_index]
+                    # build the data
+                    mz_c = self.mz_list[start_index:end_index]
+                    inten_c = self.intensity[start_index:end_index]
+            else:
+                logger.info("xr is empty, can not crop by mz. use full mz range")
+                return self
         else:
             logger.error(
                 "mz_list is None, can not crop by mz. xr must be a tuple of two float numbers."

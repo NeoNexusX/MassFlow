@@ -246,7 +246,7 @@ def plot_two_individual(target: Optional['SpectrumBaseModule'] = None,
 
     # Titles and grid
     ax_top.set_title('Original Spectrum', fontweight='bold')
-    den_title = 'Denoised Spectrum' if not title_suffix else f'Denoised Spectrum ({title_suffix})'
+    den_title = 'Preprocessed Spectrum' if not title_suffix else f'Preprocessed Spectrum ({title_suffix})'
     ax_bottom.set_title(den_title, fontweight='bold')
     ax_bottom.set_xlabel('m/z')
     ax_top.set_ylabel('Intensity')
