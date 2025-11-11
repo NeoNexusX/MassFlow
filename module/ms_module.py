@@ -1,4 +1,3 @@
-from module.msi_module import MSIBaseModule
 """
 Mass Spectrometry Module for MassFlow Framework
 
@@ -14,6 +13,7 @@ Classes:
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
+
 from typing import List, Tuple, Union, Optional
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,6 +21,7 @@ from pyimzml.ImzMLParser import ImzMLParser
 from logger import get_logger
 
 logger = get_logger("ms_module")
+
 
 class PixelCoordinates:
     """
@@ -39,6 +40,7 @@ class PixelCoordinates:
     Raises:
         TypeError: If any of x, y, or z cannot be converted to int.
     """
+
     def __init__(self, x: int, y: int, z: int, zero_based: bool = False):
         """
         Initialize pixel coordinates with optional zero-based adjustment.
@@ -68,6 +70,7 @@ class PixelCoordinates:
         self.y = y
         self.z = z
         self.zero_based = zero_based
+
     @property
     def x(self) -> int:
         """
@@ -79,7 +82,7 @@ class PixelCoordinates:
         Raises:
             None
         """
-        return self._x-1 if self.zero_based else self._x
+        return self._x - 1 if self.zero_based else self._x
 
     @x.setter
     def x(self, value: int):
@@ -96,11 +99,11 @@ class PixelCoordinates:
         Raises:
             None
         """
-        return self._y-1 if self.zero_based else self._y
+        return self._y - 1 if self.zero_based else self._y
 
     @y.setter
     def y(self, value: int):
-        self._y = value 
+        self._y = value
 
     @property
     def z(self) -> int:
@@ -113,7 +116,7 @@ class PixelCoordinates:
         Raises:
             None
         """
-        return self._z-1 if self.zero_based else self._z
+        return self._z - 1 if self.zero_based else self._z
 
     @z.setter
     def z(self, value: int):
@@ -171,7 +174,7 @@ class PixelCoordinates:
         """
         return hash((self.x, self.y, self.z))
 
-    def lefter(self, other: 'PixelCoordinates') -> bool:
+    def lefter(self, other: "PixelCoordinates") -> bool:
         """
         Determine if this pixel is to the left of another pixel.
 
@@ -186,7 +189,7 @@ class PixelCoordinates:
         """
         return self.x < other.x
 
-    def righter(self, other: 'PixelCoordinates') -> bool:
+    def righter(self, other: "PixelCoordinates") -> bool:
         """
         Determine if this pixel is to the right of another pixel.
 
@@ -201,7 +204,7 @@ class PixelCoordinates:
         """
         return self.x > other.x
 
-    def upper(self, other: 'PixelCoordinates') -> bool:
+    def upper(self, other: "PixelCoordinates") -> bool:
         """
         Determine if this pixel is above another pixel.
 
@@ -227,7 +230,7 @@ class PixelCoordinates:
             None
         """
         return f"({self.x}, {self.y}, {self.z})"
-    
+
     def __len__(self) -> int:
         """
         Return the number of dimensions (always 3 for PixelCoordinates).
@@ -242,47 +245,49 @@ class PixelCoordinates:
             return 0
         return 3
 
+
 class SpectrumBaseModule:
     """
     Base class for mass spectrum data with spatial coordinates.
-    
+
     This class represents a single mass spectrum with associated m/z values, intensities,
     and 3D spatial coordinates. It supports lazy loading for memory efficiency and provides
     basic operations for mass spectrometry data manipulation and visualization.
-    
+
     Attributes:
         coordinates (List[int]): 3D coordinates [x, y, z] of the spectrum
         x (int): X coordinate
-        y (int): Y coordinate  
+        y (int): Y coordinate
         z (int): Z coordinate
         sorted_by_mz_fun (bool): Flag indicating if data is sorted by m/z values
-        
+
     Properties:
         mz_list (np.ndarray): Array of m/z values
         intensity (np.ndarray): Array of intensity values corresponding to m/z values
-        
+
     Note:
         - Coordinates must be a list of exactly three or two integers
         - m/z and intensity arrays must have the same length
         - Lazy loading is supported through None initialization of mz_list and intensity
     """
 
-    def __init__(self,
-                mz_list: Optional[np.ndarray],
-                intensity: Optional[np.ndarray],
-                coordinates: Union[PixelCoordinates, List[int], Tuple[int, int, int]],
-                sorted_by_mz_fun: bool = False,
-                ):
+    def __init__(
+        self,
+        mz_list: Optional[np.ndarray],
+        intensity: Optional[np.ndarray],
+        coordinates: Union[PixelCoordinates, List[int], Tuple[int, int, int]],
+        sorted_by_mz_fun: bool = False,
+    ):
         """
         Initialize a mass spectrum with m/z values, intensities, and coordinates.
-        
+
         Args:
             mz_list (Optional[np.ndarray]): Array of m/z values. Can be None for lazy loading.
             intensity (Optional[np.ndarray]): Array of intensity values. Can be None for lazy loading.
             coordinates (Union[PixelCoordinates, List[int], Tuple[int,int,int]]): Spatial coordinates;
                 if a list/tuple is provided, it will be converted to a PixelCoordinates object.
             sorted_by_mz_fun (bool, optional): Whether the data is already sorted by m/z. Defaults to False.
-            
+
         Raises:
             AssertionError: If coordinates is not a list of exactly three integers.
         """
@@ -300,7 +305,9 @@ class SpectrumBaseModule:
             x, y, z = coordinates
             self.coordinates = PixelCoordinates(int(x), int(y), int(z))
         else:
-            raise TypeError("coordinates must be PixelCoordinates or a list/tuple of three ints.")
+            raise TypeError(
+                "coordinates must be PixelCoordinates or a list/tuple of three ints."
+            )
 
         if sorted_by_mz_fun:
             self.sorted_by_mz = sorted_by_mz_fun
@@ -350,10 +357,10 @@ class SpectrumBaseModule:
     def __len__(self):
         """
         Return the number of m/z peaks in the spectrum.
-        
+
         Returns:
             int: Number of peaks (length of mz_list array)
-            
+
         Example:
             >>> spectrum = MSBaseModule(mz_array, intensity_array, [0, 0, 0])
             >>> print(len(spectrum))  # Output: number of peaks
@@ -363,12 +370,12 @@ class SpectrumBaseModule:
     def __eq__(self, other):
         """
         Check equality based on coordinates.
-        
+
         Two MSBaseModule instances are considered equal if they have the same coordinates.
-        
+
         Args:
             other: Object to compare with
-            
+
         Returns:
             bool: True if coordinates are equal, False otherwise
         """
@@ -379,13 +386,13 @@ class SpectrumBaseModule:
     def __getitem__(self, index):
         """
         Get m/z and intensity values at specified index.
-        
+
         Args:
             index (int): Index of the peak to retrieve
-            
+
         Returns:
             Tuple[float, float]: Tuple of (m/z, intensity) values at the given index
-            
+
         Raises:
             IndexError: If index is out of range
         """
@@ -394,17 +401,21 @@ class SpectrumBaseModule:
     def sort_by_mz(self):
         """
         Sort the mz_list and intensity arrays by m/z values in ascending order.
-        
+
         This method sorts both arrays simultaneously to maintain correspondence
         between m/z values and their intensities. The operation is performed
         in-place and updates the sorted_by_mz_fun flag.
-        
+
         Note:
             - Only sorts if data is not already sorted (sorted_by_mz_fun is False)
             - Logs a warning if mz_list or intensity is None
             - After sorting, sorted_by_mz_fun flag is set to True
         """
-        if self.sorted_by_mz and self.mz_list is not None and self.intensity is not None:
+        if (
+            self.sorted_by_mz
+            and self.mz_list is not None
+            and self.intensity is not None
+        ):
 
             sorted_indices = np.argsort(self.mz_list)
             self._mz_list = self.mz_list[sorted_indices]
@@ -412,240 +423,58 @@ class SpectrumBaseModule:
 
         elif self.mz_list is None or self.intensity is None:
             logger.warning("mz_list or intensity is None, can not sort by mz.")
-            
-    def calculate_snr(self, arr: np.ndarray) -> float:
+
+    def crop_range(
+        self,
+        xr: Optional[Union[Tuple[float, float], List[float]]] = None,
+        sort_by_mz: bool = True,
+    ):
         """
-        MAD-based SNR estimate for a 1D intensity array.
+        pass
         """
-        if arr is None or len(arr) == 0:
-            return 0.0
-        signal_level = np.percentile(arr, 95)
-        median_intensity = np.median(arr)
-        mad = np.median(np.abs(arr - median_intensity))
-        noise_std = mad / 0.6745 if mad > 0 else 1e-6
-        return float(signal_level / noise_std) if noise_std > 0 else float('inf')
+        if self.mz_list is not None and len(xr) == 2:
 
-    def add_metrics_box(self, ax, inten_orig: np.ndarray, inten_den: np.ndarray,
-                        box_loc: Tuple[float, float] = (0.02, 0.98),
-                        fontsize: int = 9) -> None:
-        """
-        Overlay metrics text box on the given axes based on original and processed intensity arrays.
-        Automatically aligns to the shortest length when arrays differ.
+            mz_c = None
+            inten_c = None
+            # without sort and dont want to sort
+            if not self.sort_by_mz and not sort_by_mz:
+                mask_xr = np.ones_like(self.mz_list, dtype=bool)
 
-        Metrics:
-        - Correlation coefficient
-        - TIC ratio (Total Ion Current ratio)
-        - SNR orig / SNR den (MAD-based SNR estimate)
-        - SNR improvement multiplier
-        """
-        if inten_orig is None or inten_den is None:
-            return
-        min_len = min(len(inten_orig), len(inten_den))
-        if min_len <= 1:
-            return
+                if xr is not None and self.mz_list is not None:
+                    mask_xr &= (self.mz_list >= xr[0]) & (self.mz_list <= xr[1])
+                else:
+                    logger.error("xr or mz_list is None, can not crop by mz.")
+                    raise ValueError("xr or mz_list is None, can not crop by mz.")
 
-        o = np.asarray(inten_orig[:min_len], dtype=float)
-        d = np.asarray(inten_den[:min_len], dtype=float)
+                mz_c = self.mz_list[mask_xr]
+                inten_c = self.intensity[mask_xr]
 
-        corr = float(np.corrcoef(o, d)[0, 1]) if min_len > 1 else 0.0
-        tic_ratio = float(d.sum() / o.sum()) if o.sum() > 0 else 1.0
+            # with sort and want to sort  or want sort but no sort
+            elif sort_by_mz:
+                if not self.sort_by_mz:
+                    self.sorted_by_mz = True
+                    self.sort_by_mz()
+                start_index = np.searchsorted(self.mz_list, xr[0], side="left")
+                end_index = np.searchsorted(self.mz_list, xr[1], side="right")
 
-        snr_orig = self.calculate_snr(o)
-        snr_den = self.calculate_snr(d)
-        snr_improvement = snr_den / snr_orig if snr_orig > 0 else 1.0
-
-        metrics_text = (f"Correlation: {corr:.4f}\n"
-                        f"TIC ratio: {tic_ratio:.3f}\n"
-                        f"SNR orig: {snr_orig:.1f}\n"
-                        f"SNR den: {snr_den:.1f}\n"
-                        f"SNR improvement: {snr_improvement:.2f}x")
-
-        ax.text(box_loc[0], box_loc[1], metrics_text,
-                transform=ax.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
-                fontsize=fontsize)
-
-    def crop_range(self,
-                   mz_arr: np.ndarray,
-                   inten_arr: np.ndarray,
-                   xr: Optional[Tuple[float, float]],
-                   yr: Optional[Tuple[float, float]]) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Crop spectral data by given m/z and intensity ranges, keeping m/z and intensity aligned.
-
-        Args:
-            mz_arr (np.ndarray): Input m/z array.
-            inten_arr (np.ndarray): Input intensity array aligned with mz_arr.
-            xr (Optional[Tuple[float, float]]): Optional (min_mz, max_mz) range for m/z filtering.
-            yr (Optional[Tuple[float, float]]): Optional (min_intensity, max_intensity) range for intensity clipping.
-
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: Cropped m/z and intensity arrays (mz_c, inten_c).
-        """
-        mask = np.ones_like(mz_arr, dtype=bool)
-        if xr is not None:
-            mask &= (mz_arr >= xr[0]) & (mz_arr <= xr[1])
-        mz_c = mz_arr[mask]
-        inten_c = inten_arr[mask]
-        if yr is not None:
-            inten_c = np.clip(inten_c, yr[0], yr[1])
-        return mz_c, inten_c
-    
-    def plot(self,
-            save_path=None,
-            figsize=(20, 5),
-            dpi: int = 300,
-            color='steelblue',
-            plot_mode: str = "line",
-            mz_range: Optional[Tuple[float, float]] = None,
-            intensity_range: Optional[Tuple[float, float]] = None,
-            original: Optional['MSIBaseModule'] = None,
-            metrics_box: bool = True,
-            title_suffix: Optional[str] = None,
-            overlay: bool = False):
-        intensity = self.intensity
-        mz = self.mz_list
-
-        # When original is not provided, keep single-figure logic (original implementation)
-        if original is None:
-            plt.figure(figsize=figsize)
-            mode = (plot_mode or "stem").lower()
-            if mode == "line":
-                plt.plot(mz, intensity, color=color, linewidth=0.8, alpha=0.8)
-            else:
-                markerline, stemlines, baseline = plt.stem(mz, intensity)
-                plt.setp(stemlines, linewidth=0.7, color=color, alpha=0.7)
-                plt.setp(markerline, markersize=3, color=color, alpha=0.7)
-                plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.4)
-
-            # Axis range control
-            x_min, x_max = (float(min(mz)), float(max(mz))) if mz_range is None else (mz_range[0], mz_range[1])
-            y_min, y_max = (0.0, float(max(intensity)) * 1.05) if intensity_range is None else (intensity_range[0], intensity_range[1])
-            plt.xlim(x_min, x_max)
-            plt.ylim(y_min, y_max)
-            title = "Mass Spectrum" if not title_suffix else f"Mass Spectrum - {title_suffix}"
-            plt.title(title)
-            plt.xlabel("m/z")
-            plt.ylabel("Intensity")
-            plt.tight_layout()
-
-            if save_path:
-                plt.savefig(save_path, dpi=dpi)
-            else:
-                plt.show()
-            return
-
-        # With original provided: choose overlay or stacked subplots
-        mz_orig = original.mz_list
-        inten_orig = original.intensity
-        mz_den = self.mz_list
-        inten_den = self.intensity
-
-        mz_orig_c, inten_orig_c = self.crop_range(mz_orig, inten_orig, mz_range, intensity_range)
-        mz_den_c, inten_den_c = self.crop_range(mz_den, inten_den, mz_range, intensity_range)
-
-        min_len = min(len(mz_orig_c), len(inten_orig_c), len(mz_den_c), len(inten_den_c))
-        mz_orig_c = mz_orig_c[:min_len]
-        inten_orig_c = inten_orig_c[:min_len]
-        mz_den_c = mz_den_c[:min_len]
-        inten_den_c = inten_den_c[:min_len]
-
-        top_color = '#4C78A8'
-        bottom_color = '#F58518'
-        mode = (plot_mode or "line").lower()
-
-        if overlay:
-            # Single axes overlay: plot original and denoised on the same axis
-            _, ax = plt.subplots(1, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 6))
-
-            if mode == "line":
-                ax.plot(mz_orig_c, inten_orig_c, color=top_color, linewidth=1, label='Original')
-                ax.plot(mz_den_c, inten_den_c, color=bottom_color, linewidth=1, label='Denoised' if not title_suffix else f'Denoised ({title_suffix})')
-            else:
-                m1, s1, b1 = ax.stem(mz_orig_c, inten_orig_c, label='Original')
-                plt.setp(s1, linewidth=0.7, color=top_color, alpha=0.7)
-                plt.setp(m1, markersize=3, color=top_color, alpha=0.7)
-                plt.setp(b1, linewidth=0.5, color='gray', alpha=0.4)
-
-                m2, s2, b2 = ax.stem(mz_den_c, inten_den_c, label='Denoised' if not title_suffix else f'Denoised ({title_suffix})')
-                plt.setp(s2, linewidth=0.7, color=bottom_color, alpha=0.7)
-                plt.setp(m2, markersize=3, color=bottom_color, alpha=0.7)
-                plt.setp(b2, linewidth=0.5, color='gray', alpha=0.4)
-
-            # Axis range settings (combined)
-            x_min = float(mz_range[0]) if mz_range is not None else float(min(mz_orig_c.min(), mz_den_c.min()))
-            x_max = float(mz_range[1]) if mz_range is not None else float(max(mz_orig_c.max(), mz_den_c.max()))
-            y_max_comb = float(intensity_range[1]) if intensity_range is not None else float(max(inten_orig_c.max(), inten_den_c.max(), 1.0)) * 1.05
-            y_min_comb = 0.0 if intensity_range is None else float(intensity_range[0])
-
-            ax.set_xlim(x_min, x_max)
-            ax.set_ylim(y_min_comb, y_max_comb)
-
-            # Titles, labels, legend, grid
-            ax.set_title('Original & Denoised (Overlay)' if not title_suffix else f'Original & Denoised (Overlay) - {title_suffix}', fontweight='bold')
-            ax.set_xlabel('m/z')
-            ax.set_ylabel('Intensity')
-            ax.grid(True, alpha=0.3)
-            ax.legend()
-
-            # Overlay metrics box on the same axes
-            if metrics_box and min_len > 1:
-                self.add_metrics_box(ax, inten_orig_c, inten_den_c)
-
-            plt.tight_layout()
-            if save_path:
-                plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
-            else:
-                plt.show()
+                # build the data
+                mz_c = self.mz_list[start_index:end_index]
+                inten_c = self.intensity[start_index:end_index]
         else:
-            # Stacked subplots (existing behavior)
-            _, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
+            logger.error(
+                "mz_list is None, can not crop by mz. xr must be a tuple of two float numbers."
+            )
+            raise ValueError(
+                "mz_list is None, can not crop by mz. xr must be a tuple of two float numbers."
+            )
 
-            if mode == "line":
-                ax_top.plot(mz_orig_c, inten_orig_c, color=top_color, linewidth=1)
-                ax_bottom.plot(mz_den_c, inten_den_c, color=bottom_color, linewidth=1)
-            else:
-                m1, s1, b1 = ax_top.stem(mz_orig_c, inten_orig_c)
-                plt.setp(s1, linewidth=0.7, color=top_color, alpha=0.7)
-                plt.setp(m1, markersize=3, color=top_color, alpha=0.7)
-                plt.setp(b1, linewidth=0.5, color='gray', alpha=0.4)
+        # ---build a new object ：same class、copy attributes ---
+        new_obj = self.__class__.__new__(self.__class__)
+        new_obj.__dict__.update(self.__dict__)  # 复制所有属性
+        new_obj.mz_list = mz_c
+        new_obj.intensity = inten_c
+        return new_obj
 
-                m2, s2, b2 = ax_bottom.stem(mz_den_c, inten_den_c)
-                plt.setp(s2, linewidth=0.7, color=bottom_color, alpha=0.7)
-                plt.setp(m2, markersize=3, color=bottom_color, alpha=0.7)
-                plt.setp(b2, linewidth=0.5, color='gray', alpha=0.4)
-
-            # Axis range settings
-            x_min = float(mz_range[0]) if mz_range is not None else float(min(mz_orig_c.min(), mz_den_c.min()))
-            x_max = float(mz_range[1]) if mz_range is not None else float(max(mz_orig_c.max(), mz_den_c.max()))
-            y_top = float(intensity_range[1]) if intensity_range is not None else float(max(inten_orig_c.max(), 1.0)) * 1.05
-            y_bot = float(intensity_range[1]) if intensity_range is not None else float(max(inten_den_c.max(), 1.0)) * 1.05
-
-            ax_top.set_xlim(x_min, x_max)
-            ax_bottom.set_xlim(x_min, x_max)
-            ax_top.set_ylim(0.0 if intensity_range is None else float(intensity_range[0]), y_top)
-            ax_bottom.set_ylim(0.0 if intensity_range is None else float(intensity_range[0]), y_bot)
-
-            # Titles and grid
-            ax_top.set_title('Original Spectrum', fontweight='bold')
-            den_title = 'Denoised Spectrum' if not title_suffix else f'Denoised Spectrum ({title_suffix})'
-            ax_bottom.set_title(den_title, fontweight='bold')
-            ax_bottom.set_xlabel('m/z')
-            ax_top.set_ylabel('Intensity')
-            ax_bottom.set_ylabel('Intensity')
-            ax_top.grid(True, alpha=0.3)
-            ax_bottom.grid(True, alpha=0.3)
-
-            # Overlay metrics text
-            if metrics_box and min_len > 1:
-                self.add_metrics_box(ax_top, inten_orig_c, inten_den_c)
-
-            plt.tight_layout()
-            if save_path:
-                plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
-            else:
-                plt.show()
- 
     @property
     def x(self) -> int:
         """
@@ -685,39 +514,38 @@ class SpectrumBaseModule:
         """
         return self.coordinates.z
 
+
 class SpectrumImzML(SpectrumBaseModule):
     """
     Specialized mass spectrum class for ImzML format with lazy loading capabilities.
-    
-    This class extends MSBaseModule to provide efficient handling of ImzML (Imaging Mass 
-    Spectrometry Markup Language) format data. It implements lazy loading to minimize 
+
+    This class extends MSBaseModule to provide efficient handling of ImzML (Imaging Mass
+    Spectrometry Markup Language) format data. It implements lazy loading to minimize
     memory usage by loading spectrum data only when accessed.
-    
+
     The class holds a reference to an ImzMLParser and an index, loading the actual
     m/z and intensity data on-demand when the properties are first accessed.
-    
+
     Attributes:
         _parser (ImzMLParser): Parser instance for reading ImzML data
         _index (int): Index of the spectrum within the ImzML file
-        
+
     Inherited Attributes:
         coordinates (List[int]): 3D coordinates [x, y, z] of the spectrum
         x, y, z (int): Individual coordinate components
         sorted_by_mz_fun (bool): Flag indicating if data is sorted by m/z values
-        
+
     Properties:
         mz_list (np.ndarray): Lazily loaded array of m/z values
         intensity (np.ndarray): Lazily loaded array of intensity values
-        
+
     Note:
         - Data loading is deferred until first property access
         - Both mz_list and intensity are loaded together for efficiency
         - Inherits all visualization and manipulation methods from MSBaseModule
     """
-    def __init__(self,
-                parser:ImzMLParser,
-                index: int,
-                coordinates):
+
+    def __init__(self, parser: ImzMLParser, index: int, coordinates):
 
         super().__init__(mz_list=None, intensity=None, coordinates=coordinates)
         self._parser = parser
@@ -746,30 +574,31 @@ class SpectrumImzML(SpectrumBaseModule):
     def intensity(self, value):
         self._intensity = value
 
+
 class MS:
     """
     Collection class for managing multiple mass spectra with coordinate-based indexing.
-    
+
     This class serves as a container and manager for multiple MSBaseModule instances,
     providing efficient storage, retrieval, and manipulation of mass spectrometry data
     organized by 3D spatial coordinates. It supports both sequential and coordinate-based
     access patterns.
-    
+
     The class maintains two internal data structures:
     - A queue (_queue) for sequential access and iteration
     - A nested dictionary (_coordinate_index) for fast coordinate-based lookup
-    
+
     Attributes:
         _queue (List[MSBaseModule]): Sequential list of all spectra
         _coordinate_index (Dict): Nested dictionary mapping coordinates to spectra
                                  Structure: {z: {x: {y: MSBaseModule}}}
-    
+
     Indexing Methods:
         - ms[index]: Access by sequential index
         - ms[x, y]: Access by coordinates (z defaults to 0)
         - ms[x, y, z]: Access by full 3D coordinates
         - ms[x, y, z] = spectrum: Direct assignment
-        
+
     Note:
         - Coordinates are automatically managed and indexed
         - Supports both 2D (x, y) and 3D (x, y, z) coordinate systems
@@ -780,7 +609,7 @@ class MS:
     def __init__(self):
         """
         Initialize an empty MS collection.
-        
+
         Creates empty internal data structures for storing and indexing mass spectra.
         No parameters are required for initialization.
         """
@@ -792,7 +621,7 @@ class MS:
     def coordinate_index(self):
         """
         Get the nested dictionary of coordinate indices.
-        
+
         Returns:
             Dict: Nested dictionary mapping coordinates to spectra
                 Structure: {z: {x: {y: MSBaseModule}}}
@@ -802,14 +631,14 @@ class MS:
     def add_spectrum(self, spectrum: SpectrumBaseModule):
         """
         Add a mass spectrum to the collection with coordinate indexing.
-        
+
         This method adds a spectrum to both the sequential queue and the coordinate
         index for efficient access. The spectrum's coordinates are used to create
         a nested dictionary structure for fast coordinate-based lookup.
-        
+
         Args:
             spectrum (MSBaseModule): Mass spectrum to add to the collection
-            
+
         Note:
             - Automatically extracts coordinates from the spectrum
             - Creates nested dictionary structure if coordinates don't exist
@@ -826,51 +655,57 @@ class MS:
             self._coordinate_index[z][x] = {}
         self._coordinate_index[z][x][y] = spectrum
 
-    def get_spectrum(self, x: int, y: int, z: int =0 ) -> SpectrumBaseModule:
+    def get_spectrum(self, x: int, y: int, z: int = 0) -> SpectrumBaseModule:
         """
         Retrieve a mass spectrum by its 3D coordinates.
-        
+
         Args:
             x (int): X coordinate
-            y (int): Y coordinate  
+            y (int): Y coordinate
             z (int, optional): Z coordinate. Defaults to 0.
-            
+
         Returns:
             MSBaseModule: Mass spectrum at the specified coordinates
-            
+
         Raises:
             KeyError: If no spectrum exists at the specified coordinates
         """
         # Check if the coordinates exist in the index
-        if z not in self._coordinate_index or x not in self._coordinate_index[z] or y not in self._coordinate_index[z][x]:
-            logger.error(f"No spectrum found at coordinates ({x}, {y}, {z})\r\n"
-                            f"min_pixel_x: {self.meta.min_pixel_x}\r\n"
-                            f"max_pixel_x: {self.meta.pixel_size_x}\r\n"
-                            f"min_pixel_y: {self.meta.min_pixel_y}\r\n"
-                            f"max_pixel_y: {self.meta.pixel_size_y}\r\n")
+        if (
+            z not in self._coordinate_index
+            or x not in self._coordinate_index[z]
+            or y not in self._coordinate_index[z][x]
+        ):
+            logger.error(
+                f"No spectrum found at coordinates ({x}, {y}, {z})\r\n"
+                f"min_pixel_x: {self.meta.min_pixel_x}\r\n"
+                f"max_pixel_x: {self.meta.pixel_size_x}\r\n"
+                f"min_pixel_y: {self.meta.min_pixel_y}\r\n"
+                f"max_pixel_y: {self.meta.pixel_size_y}\r\n"
+            )
             raise KeyError(f"No spectrum found at coordinates ({x}, {y}, {z})")
         return self._coordinate_index[z][x][y]
 
-    def __getitem__(self,
-                    key: Union[Tuple[int, int, int],
-                    Tuple[int, int], slice]) -> Union[SpectrumBaseModule, List[SpectrumBaseModule]]:
+    def __getitem__(
+        self, key: Union[Tuple[int, int, int], Tuple[int, int], slice]
+    ) -> Union[SpectrumBaseModule, List[SpectrumBaseModule]]:
         """
         Retrieve mass spectrum using flexible indexing methods.
-        
+
         Supports multiple indexing patterns for convenient access to mass spectra:
         - Sequential indexing: ms[index]
-        - 2D coordinates: ms[x, y] (z defaults to 0)  
+        - 2D coordinates: ms[x, y] (z defaults to 0)
         - 3D coordinates: ms[x, y, z]
         - Slice: ms[a:b:c] returns a list of spectra from the internal queue
-        
+
         Args:
-            key (Union[int, Tuple[int, int], Tuple[int, int, int], slice]): 
+            key (Union[int, Tuple[int, int], Tuple[int, int, int], slice]):
                 Index, coordinates, or slice for spectrum retrieval
-                
+
         Returns:
-            Union[MSBaseModule, List[MSBaseModule]]: Single spectrum for index/coordinates, 
+            Union[MSBaseModule, List[MSBaseModule]]: Single spectrum for index/coordinates,
             or a list of spectra for slice access
-            
+
         Raises:
             TypeError: If key format is not supported
             KeyError: If coordinates don't exist in the collection
@@ -878,7 +713,7 @@ class MS:
         """
         try:
             if isinstance(key, int):
-            # Return the item from the queue by index
+                # Return the item from the queue by index
                 return self._queue[key]
             elif isinstance(key, tuple):
                 if len(key) == 3:
@@ -892,12 +727,20 @@ class MS:
                 return self._queue[key]
             else:
                 logger.error("Index must be in tuple format, like [x, y, z] or [x, y]")
-                raise TypeError("Index must be in tuple format, like [x, y, z] or [x, y]")
+                raise TypeError(
+                    "Index must be in tuple format, like [x, y, z] or [x, y]"
+                )
         except (KeyError, IndexError) as e:
-            logger.error(f"Error accessing spectrum with key {key}: {e},please use mask to see all unique coordinates")
+            logger.error(
+                f"Error accessing spectrum with key {key}: {e},please use mask to see all unique coordinates"
+            )
             raise e
 
-    def __setitem__(self, key: Union[Tuple[int, int, int], Tuple[int, int]], spectrum: SpectrumBaseModule):
+    def __setitem__(
+        self,
+        key: Union[Tuple[int, int, int], Tuple[int, int]],
+        spectrum: SpectrumBaseModule,
+    ):
         """
         Assign mass spectrum to specific coordinates with automatic indexing.
 
@@ -921,7 +764,9 @@ class MS:
             raise IndexError("Coordinates must be 2 or 3 integers")
 
         # Update spectrum coordinates using PixelCoordinates, respecting meta zero-based setting
-        spectrum.coordinates = PixelCoordinates(x, y, z,self.meta.coordinates_zero_based)
+        spectrum.coordinates = PixelCoordinates(
+            x, y, z, self.meta.coordinates_zero_based
+        )
 
         # Add to index
         if z not in self._coordinate_index:
@@ -938,7 +783,7 @@ class MS:
     def __len__(self):
         """
         Return the number of spectra in the collection.
-        
+
         Returns:
             int: Total number of mass spectra in the collection
         """
@@ -947,70 +792,22 @@ class MS:
     def __iter__(self):
         """
         Return an iterator over all spectra in the collection.
-        
+
         Allows iteration through all mass spectra in the order they were added.
-        
+
         Returns:
             Iterator[MSBaseModule]: Iterator over mass spectra
         """
         return iter(self._queue)
 
-    def plot_spectrum(self,
-                x: int = 0,
-                y: int = 0,
-                z: int = 0,
-                save_path=None,
-                figsize=(20, 5),
-                dpi: int = 300,
-                color='steelblue',
-                plot_mode: str = "line"):
-        """Plot a mass spectrum at the given coordinates.
-
-        Parameters
-        - x, y, z: Coordinates of the spectrum to plot (z defaults to 0).
-        - save_path: If provided, saves the figure to this path; otherwise, shows it.
-        - figsize: Matplotlib figure size tuple.
-        - dpi: Figure DPI when saving.
-        - plot_mode: 'stem' for stem plot (default), 'line' to connect points with a line.
-        """
-
-        spectrum = self.get_spectrum(x, y, z)
-        intensity = spectrum.intensity
-        mz = spectrum.mz_list
-
-        plt.figure(figsize=figsize)
-        mode = (plot_mode or "stem").lower()
-        if mode == "line":
-            # Connected line plot
-            plt.plot(mz, intensity,color=color,linewidth=0.8, alpha=0.8)
-        else:
-            # Default: stem plot
-            markerline, stemlines, baseline = plt.stem(mz, intensity)
-            plt.setp(stemlines, linewidth=0.7, color=color, alpha=0.7)
-            plt.setp(markerline, markersize=3, color=color, alpha=0.7)
-            plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.4)
-
-        # Reduce whitespace by setting tight axis limits
-        plt.xlim(mz.min(), mz.max())
-        plt.ylim(0, intensity.max() * 1.05)  # 5% margin at top
-
-        plt.title(f"Mass Spectrum at Coordinates (x={x}, y={y}, z={z})")
-        plt.xlabel("m/z")
-        plt.ylabel("Intensity")
-        plt.tight_layout()  # Minimize figure padding
-
-        if save_path:
-            plt.savefig(save_path,dpi=dpi)
-        else:
-            plt.show()
-
     def plot_ms_mask(
-            self,
-            save_path: Optional[str] = None,
-            figsize: Tuple[int, int] = (8, 8),
-            dpi: int = 300,
-            origin: str = 'upper',
-            cmap: str = 'Greys'):
+        self,
+        save_path: Optional[str] = None,
+        figsize: Tuple[int, int] = (8, 8),
+        dpi: int = 300,
+        origin: str = "upper",
+        cmap: str = "Greys",
+    ):
         """
         Plot the occupancy mask stored in metadata.
 
@@ -1036,7 +833,7 @@ class MS:
             logger.error("MS meta data is required to plot mask.")
             raise ValueError("MS meta data is required to plot mask.")
 
-        mask = getattr(self.meta, 'mask', None)
+        mask = getattr(self.meta, "mask", None)
         if mask is None:
             logger.error("Meta mask is None. Create mask before plotting.")
             raise ValueError("Meta mask is None. Create mask before plotting.")
@@ -1093,4 +890,3 @@ class MS:
                 if x not in self._coordinate_index[z]:
                     self._coordinate_index[z][x] = {}
                 self._coordinate_index[z][x][y] = spectrum
-

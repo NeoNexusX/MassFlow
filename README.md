@@ -51,10 +51,18 @@ code --install-extension ms-python.python \
 
 ## Quick Start
 
-Run the example:
+Open `example.ipynb` in Jupyter (recommended), or run the snippet below to verify data loading:
 
-```bash
-python example.py
+```python
+from module.ms_module import MS
+from module.ms_data_manager_imzml import MSDataManagerImzML
+
+FILE_PATH = "data/your_file.imzML"
+ms = MS()
+with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PATH) as manager:
+    manager.load_full_data_from_file()
+    manager.inspect_data()
+    ms.plot_ms_mask()
 ```
 
 Or minimal usage (read imzML and denoise one spectrum):

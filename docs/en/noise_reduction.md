@@ -18,7 +18,7 @@ This document introduces the noise suppression and filtering module in MassFlow,
 
 ```mermaid
 graph LR
-  A["MSIPreprocessor.noisereduction(data, method,...)"] --> P[smooth_preprocess]
+  A["MSIPreprocessor.noise_reduction(data, method, ...)"] --> P[smooth_preprocess]
   A --> MA[smooth_signal_ma]
   A --> G[smooth_signal_gaussian]
   A --> SG[smooth_signal_savgol]
@@ -82,11 +82,12 @@ import matplotlib.pyplot as plt
 from module.ms_module import MS, SpectrumBaseModule
 from module.ms_data_manager_imzml import MSDataManagerImzML
 from preprocess.ms_preprocess import MSIPreprocessor
+from tools.plot import plot_spectrum
 
 # Dataloading part only show once for blow examples
 # Load data
 # Data path
-FILE_PATH = "data\\neg-gz4.imzML"
+FILE_PATH = 'data/neg-gz4.imzML'
 ms = MS()
 ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
 ms_md.load_full_data_from_file()
@@ -96,20 +97,20 @@ sp = ms[0]
 denoised_spectrum = MSIPreprocessor.noise_reduction(
     data=sp,
     method="ma",
-    window_size = 7  # Window size for moving average
+    window=7  # Window size for moving average
 )
 
-# Plotting
-denoised_spectrum.plot(
+# Plotting (overlay original and denoised)
+plot_spectrum(
+    base=sp,
+    target=denoised_spectrum,
     figsize=(12, 8),
     dpi=300,
-    color='steelblue',
     plot_mode='line',
     mz_range=(500.0, 510.0),
     intensity_range=(0.0, 1.5),
-    original=sp,
     metrics_box=True,
-    title_suffix='MA'
+    title_suffix='MA',
 )
 ```
 
@@ -143,14 +144,16 @@ Example:
         # sd=None
     )
 
-    # Plotting
-    denoised.plot(
+    # Plotting (overlay)
+    plot_spectrum(
+        base=sp,
+        target=denoised,
         figsize=(12, 8),
         dpi=300,
+        plot_mode='line',
         mz_range=(500.0, 510.0),
         intensity_range=(0.0, 1.5),
-        original=sp,
-        title_suffix='Gaussian'
+        title_suffix='Gaussian',
     )
 ```
 
@@ -186,14 +189,16 @@ Example:
         #polyorder default = 2
     )
 
-    # Plotting
-    denoised.plot(
+    # Plotting (overlay)
+    plot_spectrum(
+        base=sp,
+        target=denoised,
         figsize=(12, 8),
         dpi=300,
+        plot_mode='line',
         mz_range=(500.0, 510.0),
         intensity_range=(0.0, 1.5),
-        original=sp,
-        title_suffix='Gaussian'
+        title_suffix='Savgol',
     )
 ```
 
@@ -226,14 +231,16 @@ preprocess.filter.smooth_signal_wavelet(
         method="wavelet",
     )
 
-    # Plotting
-    denoised.plot(
+    # Plotting (overlay)
+    plot_spectrum(
+        base=sp,
+        target=denoised,
         figsize=(12, 8),
         dpi=300,
+        plot_mode='line',
         mz_range=(500.0, 510.0),
         intensity_range=(0.0, 1.5),
-        original=sp,
-        title_suffix='wavelet'
+        title_suffix='wavelet',
     )
 ```
 
@@ -262,14 +269,17 @@ preprocess.filter.smooth_ns_signal_ma(
         window=10,#(window = k)
         #window default = 5
     )
-    # Plotting
-    denoised.plot(
+    # Plotting (overlay)
+    plot_spectrum(
+        base=sp,
+        target=denoised,
         figsize=(12, 8),
         dpi=300,
+        plot_mode='line',
         mz_range=(500.0, 510.0),
         intensity_range=(0.0, 1.5),
-        original=sp,
-        title_suffix='Gaussian'
+        title_suffix='ma_ns',
+        overlay=True
     )
 ```
 
@@ -304,14 +314,16 @@ Example:
         #window default = 5
     )
 
-    # Plotting
-    denoised.plot(
+    # Plotting (overlay)
+    plot_spectrum(
+        base=sp,
+        target=denoised,
         figsize=(12, 8),
         dpi=300,
+        plot_mode='line',
         mz_range=(500.0, 510.0),
         intensity_range=(0.0, 1.5),
-        original=sp,
-        title_suffix='Gaussian'
+        title_suffix='gaussian_ns',
     )
 ```
 
@@ -346,14 +358,16 @@ Example:
         window=10,#(window = k)
     )
 
-    # Plotting
-    denoised.plot(
+    # Plotting (overlay)
+    plot_spectrum(
+        base=sp,
+        target=denoised,
         figsize=(12, 8),
         dpi=300,
+        plot_mode='line',
         mz_range=(500.0, 510.0),
         intensity_range=(0.0, 1.5),
-        original=sp,
-        title_suffix='bi_ns'
+        title_suffix='bi_ns',
     )
 ```
 

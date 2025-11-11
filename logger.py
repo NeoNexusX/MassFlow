@@ -4,7 +4,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 from colorama import init, Fore, Back, Style
 
-init(autoreset=True)  # 自动重置颜色
+init(autoreset=True,strip=False)  # 自动重置颜色
 
 # 日志级别映射
 LOG_LEVELS = {

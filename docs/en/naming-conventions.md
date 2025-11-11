@@ -1,6 +1,6 @@
 # MassFlow Naming Conventions
 
-This guide summarizes the existing naming style across the codebase (`module/msi_module.py`, `module/msi_data_manager.py`, `module/msi_data_manager_zys.py`, `example.py`, and `README*`) and standardizes it for Python code, HDF5 dataset names, and identifiers in examples/docs.
+This guide summarizes the existing naming style across the codebase (`module/ms_module.py`, `module/ms_data_manager_imzml.py`, `module/msi_data_manager_msi.py`, `module/msi_data_manager_zys.py`, `example.ipynb`, and `README*`) and standardizes it for Python code, HDF5 dataset names, and identifiers in examples/docs.
 
 ## General Rules
 - Prefer clear, readable, and semantically meaningful names; avoid ambiguity and excessive abbreviations.
@@ -10,12 +10,12 @@ This guide summarizes the existing naming style across the codebase (`module/msi
 
 ## Files and Directories
 - Directory names are lowercase words; use underscores if needed: `module/`.
-- Python files use `snake_case`: `msi_module.py`, `msi_data_manager.py`, `msi_data_manager_zys.py`.
-- Example file: `example.py`; avoid placing business logic in examples.
+- Python files use `snake_case`: `ms_module.py`, `ms_data_manager_imzml.py`, `msi_data_manager_msi.py`, `msi_data_manager_zys.py`.
+- Example file: `example.ipynb`; avoid placing business logic in examples.
 
 ## Modules and Packages
 - Maintain public exports in `module/__init__.py` when appropriate.
-- Prefer concise relative imports: `from .msi_module import MSI, MSIBaseModule`.
+- Prefer concise relative imports: `from .ms_module import MS, SpectrumBaseModule`.
 
 ## Class Naming (PascalCase)
 - Domain model classes: `MSI`.

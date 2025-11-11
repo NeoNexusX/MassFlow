@@ -149,7 +149,9 @@ def smooth_signal_savgol(
     return savgol_filter(x.intensity, window, polyorder)
 
 def smooth_signal_wavelet(
-        x: SpectrumBaseModule, wavelet: str = 'db4', threshold_mode: str = 'soft'):
+        x: SpectrumBaseModule, 
+        wavelet: str = 'db4', 
+        threshold_mode: str = 'soft'):
 
     """
     Wavelet denoising for signal smoothing.

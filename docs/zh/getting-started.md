@@ -43,13 +43,22 @@ pip install -r requirements.txt
 ```
 
 ## 运行示例
-执行示例脚本验证环境：
+推荐在 Jupyter 打开 `example.ipynb`，或直接运行以下代码片段验证数据读取与可视化：
 
-```bash
-python example.py
+```python
+# 快速片段：读取 .imzML 并绘制占用掩码
+from module.ms_module import MS
+from module.ms_data_manager_imzml import MSDataManagerImzML
+
+FILE_PATH = "data/your_file.imzML"
+ms = MS()
+with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PATH) as manager:
+    manager.load_full_data_from_file()
+    manager.inspect_data()
+    ms.plot_ms_mask()
 ```
 
-该脚本演示 MSI/MS 数据读取与基础预处理。日志保存在 `logs/`。
+上述代码演示 MSI/MS 数据读取与基础可视化。日志输出到 `logs/`。
 
 ## 常用命令
 - 构建静态站点：`npm run docs:build`
@@ -61,6 +70,9 @@ python example.py
 - Apple Silicon（M1/M2/M3）建议使用 Python 3.11+ 与原生轮子；先升级 pip：`python -m pip install --upgrade pip`。
 
 ## 下一步
-- 贡献指南：`docs/CONTRIBUTING.md` / `docs/CONTRIBUTING_EN.md`
-- 命名规范：`docs/NAMING_CONVENTIONS.md` / `docs/NAMING_CONVENTIONS_EN.md`
-- 协作指引：`docs/协作指北.md` / `docs/Collaboration_Guide.md`
+- 贡献说明：`/zh/contribution`
+- 命名规范：`/zh/naming-conventions`
+- 数据结构：`/zh/ms-data-structures`
+- 噪声抑制：`/zh/noise_reduction`
+- 基线校正：`/zh/baseline_correction`
+- 协作指南：`/zh/collaboration_guide`

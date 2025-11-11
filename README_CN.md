@@ -23,10 +23,18 @@ pip install -r requirements.txt
 
 ## 快速开始
 
-推荐直接运行示例：
+推荐在 Jupyter 打开 `example.ipynb`，或直接运行以下代码片段验证数据读取：
 
-```bash
-python example.py
+```python
+from module.ms_module import MS
+from module.ms_data_manager_imzml import MSDataManagerImzML
+
+FILE_PATH = "data/your_file.imzML"
+ms = MS()
+with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PATH) as manager:
+    manager.load_full_data_from_file()
+    manager.inspect_data()
+    ms.plot_ms_mask()
 ```
 
 ## 项目结构

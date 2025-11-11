@@ -52,12 +52,10 @@ preprocess.ms_preprocess.MSIPreprocessor.baseline_correction(
 ### asls_baseline
 ```python
 preprocess.baseline_correction.asls_baseline(
-  data: SpectrumBaseModule | SpectrumImzML,
-  method: str = "asls",
+  y: np.ndarray,
   lam: float = 1e7,
   p: float = 0.01,
-  niter: int = 15,
-  baseline_scale: float = 0.8
+  niter: int = 15
 ) -> np.ndarray
 ```
 - Description: Baseline estimation via asymmetric least squares (ALS); controls smoothness with lambda and asymmetry with p.
@@ -65,12 +63,10 @@ preprocess.baseline_correction.asls_baseline(
 ### snip_baseline
 ```python
 preprocess.baseline_correction.snip_baseline(
-  data: SpectrumBaseModule | SpectrumImzML,
-  method: str = "snip",
+  y: np.ndarray,
   m: int | None = None,
   decreasing: bool = True,
-  epsilon: float = 1e-3,
-  baseline_scale: float = 0.8
+  epsilon: float = 1e-3
 ) -> np.ndarray
 ```
 - Description: Statistics-sensitive non-linear iterative peak clipping (SNIP); fixed-iteration clipping without adaptive early stop.
@@ -82,6 +78,7 @@ ASLS:
 import numpy as np
 from module.ms_module import SpectrumBaseModule
 from preprocess.ms_preprocess import MSIPreprocessor
+from tools.plot import plot_spectrum
 
 sp = SpectrumBaseModule(mz_list=mz_data, intensity=intensity_original, coordinates=[0, 0, 0])
 
@@ -94,14 +91,15 @@ corrected_sp, baseline = MSIPreprocessor.baseline_correction(
     baseline_scale=0.9
 )
 # Overlay original and corrected on the same axis
-corrected_sp.plot(
+plot_spectrum(
+    base=sp,
+    target=corrected_sp,
     save_path="asls_baseline_correction_visualization_400-500.png",
     figsize=(16, 5),
     dpi=300,
     plot_mode="line",
     mz_range=(400, 450),
     intensity_range=(0.0, 2.0),
-    original=sp,
     metrics_box=True,
     title_suffix="ASLS",
     overlay=True
@@ -125,14 +123,15 @@ corrected_sp, baseline = MSIPreprocessor.baseline_correction(
     baseline_scale=1.0
 )
 
-corrected_sp.plot(
+plot_spectrum(
+    base=sp,
+    target=corrected_sp,
     save_path="snip_baseline_correction_visualization_400-500.png",
     figsize=(16, 5),
     dpi=300,
     plot_mode="line",
     mz_range=(400, 450),
     intensity_range=(0.0, 2.0),
-    original=sp,
     metrics_box=True,
     title_suffix="SNIP",
     overlay=True

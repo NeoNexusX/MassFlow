@@ -88,11 +88,14 @@ Represents a single mass spectrum bound to spatial coordinates. Key characterist
 - Example
 
 ```python
->>> specturm = ms[0] or ms.get_spectrum(0, 0, 0)
->>> mz_list = specturm.ms_list
+>>> from tools.plot import plot_spectrum
+>>> spectrum = ms[0] or ms.get_spectrum(0, 0, 0)
+>>> mz_list = spectrum.mz_list
 >>> print(mz_list)
 output:
 [16441.998  938.1308  2318.6423 ...  1174.1575  1333.138   1488.291 ]
+>>> # Plot the spectrum using the standalone plotting utility
+>>> plot_spectrum(base=spectrum, plot_mode='line')
 ```
 
 - Example2
@@ -101,6 +104,7 @@ output:
 if __name__ == "__main__":
     from module.ms_data_manager_imzml import MSDataManagerImzML
     from module.ms_module import MS
+    from tools.plot import plot_spectrum
     FILE_PATH = "data/example.imzML"
     ms = MS()
     # Create MS collection and manager
@@ -110,7 +114,7 @@ if __name__ == "__main__":
         # Load data with lazy-loading placeholders
         manager.load_full_data_from_file()
         spectrum = ms[0]
-        spectrum.plot()
+        plot_spectrum(spectrum)
 
 output:
 ```

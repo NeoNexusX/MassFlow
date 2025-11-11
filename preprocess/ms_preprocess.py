@@ -32,7 +32,7 @@ algorithms.
 Author: MassFlow Development Team Bionet/NeoNexus lyk
 License: See LICENSE file in project root
 """
-from typing import Union
+from typing import Union,Optional
 import numpy as np
 from module.ms_module import SpectrumBaseModule, SpectrumImzML
 from logger import get_logger
@@ -267,11 +267,12 @@ class MSIPreprocessor():
         """
 
     @staticmethod
-    def estnoise(x: SpectrumBaseModule,
+    def est_noise(x: Optional[SpectrumBaseModule] = None,
                 nbins: int = 1,
                 overlap: float = 0.5,
                 k: int = 10,
-                method: str = "sd"):
+                method: str = "sd",
+                denoise_method: str = "wavelet") -> Union[np.ndarray,float]:
         """
         Estimate noise level in the MSI data.
         
@@ -298,8 +299,9 @@ class MSIPreprocessor():
             raise ValueError("k must be a positive integer")
 
         # Smooth signal (neighborhood-search Gaussian) and compute absolute residuals
-        smoothed = smooth_ns_signal_gaussian(x, k=k)
-        residuals = np.abs(smoothed - x.intensity)
+        smoothed = MSIPreprocessor.noise_reduction(x, window=k, method=denoise_method)
+
+        residuals = np.abs(smoothed.intensity - x.intensity)
 
         #noise_estimation part
         noise_estimation = estimation_fun(method)(residuals)
@@ -324,3 +326,9 @@ class MSIPreprocessor():
             noise_estimation = spline_fn(np.arange(len(residuals), dtype=float))
 
         return noise_estimation
+
+    @staticmethod
+    def calculate_snr(spectrum: SpectrumBaseModule, method="mad") -> float:
+        signal_level = np.percentile(spectrum.intensity, 95)
+        noise = MSIPreprocessor.est_noise(spectrum, method=method)
+        return signal_level / noise
