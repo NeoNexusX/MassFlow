@@ -18,7 +18,7 @@ This document introduces the noise suppression and filtering module in MassFlow,
 
 ```mermaid
 graph LR
-  A["MSIPreprocessor.noise_reduction(data, method, ...)"] --> P[smooth_preprocess]
+  A["MSIPreprocessor.noise_reduction"] --> P[smooth_preprocess]
   A --> MA[smooth_signal_ma]
   A --> G[smooth_signal_gaussian]
   A --> SG[smooth_signal_savgol]
@@ -104,9 +104,6 @@ denoised_spectrum = MSIPreprocessor.noise_reduction(
 plot_spectrum(
     base=sp,
     target=denoised_spectrum,
-    figsize=(12, 8),
-    dpi=300,
-    plot_mode='line',
     mz_range=(500.0, 510.0),
     intensity_range=(0.0, 1.5),
     metrics_box=True,
@@ -204,7 +201,7 @@ Example:
 
 ![image-20251109124408310](https://s2.loli.net/2025/11/09/NQ7wOruaiIGoPFl.png)
 
-​        *window*=3, polyorder*=1
+​        window=3, polyorder=1
 
 ![image-20251109124533727](https://s2.loli.net/2025/11/09/7W9oH1NvtjPiRTB.png)
 

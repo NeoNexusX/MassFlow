@@ -95,7 +95,7 @@ Represents a single mass spectrum bound to spatial coordinates. Key characterist
 output:
 [16441.998  938.1308  2318.6423 ...  1174.1575  1333.138   1488.291 ]
 >>> # Plot the spectrum using the standalone plotting utility
->>> plot_spectrum(base=spectrum, plot_mode='line')
+>>> plot_spectrum(base=spectrum)
 ```
 
 - Example2
@@ -409,35 +409,6 @@ While not part of the three focus modules, `MetaDataImzMl` (in `module/meta_data
 3. Call `load_full_data_from_file()` to populate `MS` with `SpectrumImzML` placeholders for spectra within the target region.
 4. When accessing `mz_list` or `intensity` on a `SpectrumImzML` spectrum, lazy loading fetches the data from the ImzML file via the parser.
 5. Metadata remains available through `meta` for consumers that need image dimensions, pixel sizes, instrument model, etc.
-
-## Usage Example
-
-```python
-from module.ms_module import MS
-from module.ms_data_manager_imzml import MSDataManagerImzML
-
-# 1. Prepare domain model
-ms = MS()
-
-# 2. Configure manager with a bounding box and file path
-manager = MSDataManagerImzML(
-    ms=ms,
-    ms_meta=None,                 # optionally pass a prebuilt MetaDataImzMl
-    target_locs=[(0, 0), (100, 100)],  # optional spatial filter
-    filepath="/path/to/data.imzML" 
-)
-
-# 3. Populate MS with lazily-loaded spectra
-manager.load_full_data_from_file()
-
-# 4. Inspect dataset structure
-manager.inspect_data(inpect_num=5)
-
-# 5. Access spectra by coordinates; data loads on demand
-spectrum = ms[10, 20, 0]
-print(spectrum.mz_list[:5])  # triggers lazy load
-print(spectrum.intensity[:5])
-```
 
 ## Extensibility Notes
 

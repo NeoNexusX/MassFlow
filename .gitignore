@@ -217,3 +217,5 @@ docs/.vitepress/cache/
 docs/docs/.vitepress/cache/
 docs/docs/.vitepress/dist/
 logs/
+
+*.pdf
