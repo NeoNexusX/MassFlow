@@ -34,7 +34,7 @@ License: See LICENSE file in project root
 """
 from typing import Union,Optional
 import numpy as np
-from module.ms_module import SpectrumBaseModule, SpectrumImzML
+from module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
 from logger import get_logger
 from .filter import (smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_ma,
                      smooth_ns_signal_gaussian, smooth_ns_signal_bi,smooth_signal_savgol,
@@ -42,6 +42,7 @@ from .filter import (smooth_signal_ma, smooth_signal_gaussian, smooth_ns_signal_
 from .baseline_correction import asls_baseline, snip_baseline
 from .est_noise_helper import _findbins,estimation_fun
 from scipy.interpolate import InterpolatedUnivariateSpline
+from .peak_alignment import peak_matching, get_reference_mz_axis, get_reference_mz_axis2
 
 logger = get_logger("ms_preprocess")
 
@@ -101,22 +102,99 @@ class MSIPreprocessor():
         """
 
     @staticmethod
-    def peak_alignment(data:SpectrumBaseModule) -> SpectrumBaseModule:
+    def peak_alignment(
+            # reference_mz_axis：'mean' 或 'histogram'
+            ref_method: str = 'mean',
+            # Computes reference axis parameters (mean spectrum + local extrema) using the mean method.
+            agg: str = 'mean',
+            round_digits: int = 6,
+            half_window: int = 3,
+            findlimits: bool = False,
+            snr_threshold: Optional[float] = None,
+            min_height: Optional[float] = None,
+            min_distance_da: Optional[float] = None,
+            min_distance_factor: float = 1.0,
+            noise_method: str = 'mad',
+            # Histogram/Loess reference_axis_parameters
+            mz_res: Optional[float] = None,
+            px_perc: float = 0.01,
+            N_sample: Optional[int] = None,
+            smoothing_window: int = 10,
+            # parameters for paek alignment(intended for use in 'peak_matching')
+            n_sample: int = 2000,
+            gap_to_tol_factor: float = 0.5,
+            combiner: str = 'max',
+            unique: bool = False,
+            match_method: str = 'diff',
+            # 输入与通用参数
+            ms_data: MS = None,
+            reference_mz_axis: Optional[np.ndarray] = None,
+            tolerance: Optional[float] = None,
+            units: str = 'ppm',
+    ) -> MS:
         """
-        Perform peak alignment across spectra.
-        
-        Abstract method for aligning peaks across different spectra to correct
-        for mass calibration drift and improve data consistency.
-        
-        Args:
-            fill this
-            
+        Unified peak alignment API: selects reference axis generation method based on ref_method,
+        then aligns spectra using diff or dp method.
+
+        Parameters:
+        - ref_method: 'mean' for mean spectrum + local extrema; 'histogram' for histogram + Loess.
+        - mean parameters: agg, round_digits, half_window, findlimits, snr_threshold, min_height, min_distance_da, min_distance_factor, noise_method.
+        - Histogram/Loess reference_axis_parameters: mz_res, px_perc, N_sample, smoothing_window.
+        - peak alignment parameters: n_sample, gap_to_tol_factor, combiner('max'/'sum'/'mean'), unique, match_method('diff'/'dp').
+        - common parameters: ms_data, reference_mz_axis（若提供则跳过参考轴生成）, tolerance, units('ppm'/'da').
+
         Returns:
-            processed_data (MSI): Processed MSI object with peak_aligned data
-            
-        Raises:
-            NotImplementedError: If not implemented by subclass
+        - MS: MS object with aligned spectra, all m/z unified to reference axis.
         """
+        # Parameter validation and method selection
+        if ms_data is None:
+            raise ValueError("ms_data cannot be empty")
+        ref_method = (ref_method or 'mean').lower().strip()
+        if ref_method not in ('mean', 'histogram'):
+            raise ValueError("`ref_method` must be either 'mean' or 'histogram'")
+        match_method = (match_method or 'diff').lower().strip()
+        if match_method not in ('diff', 'dp'):
+            raise ValueError("`match_method` must be either 'diff' or 'dp'")
+
+        # Reference axis generation: if not provided, generate it based on the specified method.
+        if reference_mz_axis is None:
+            if ref_method == 'mean':
+                reference_mz_axis = get_reference_mz_axis(
+                    ms_data=ms_data,
+                    agg=agg,
+                    round_digits=round_digits,
+                    half_window=half_window,
+                    findlimits=findlimits,
+                    snr_threshold=snr_threshold,
+                    noise_method=noise_method,
+                    min_height=min_height,
+                    n_sample=n_sample,
+                    min_distance_da=min_distance_da,
+                    min_distance_factor=min_distance_factor,
+                )
+            else:  # 'histogram'
+                reference_mz_axis = get_reference_mz_axis2(
+                    ms_data=ms_data,
+                    mz_res=mz_res,
+                    px_perc=px_perc,
+                    N_sample=N_sample,
+                    smoothing_window=smoothing_window,
+                )
+
+        # Peak alignment: map spectra to reference axis and aggregate using combiner
+        ms_aligned = peak_matching(
+            ms_data=ms_data,
+            reference_mz_axis=reference_mz_axis,
+            tolerance=tolerance,
+            units=units,
+            n_sample=n_sample,
+            gap_to_tol_factor=gap_to_tol_factor,
+            combiner=combiner,
+            unique=unique,
+            method=match_method,
+        )
+
+        return ms_aligned
 
     @staticmethod
     def baseline_correction(
