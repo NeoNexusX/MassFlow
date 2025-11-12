@@ -39,11 +39,10 @@ import inspect
 from module.ms_module import SpectrumBaseModule, SpectrumImzML
 from logger import get_logger
 from .filter_helper import (
-    smooth_function,
+    smoother,
 )
 from .baseline_correction_helper import asls_baseline, snip_baseline
-from .est_noise_helper import _findbins, estimation_fun
-from scipy.interpolate import InterpolatedUnivariateSpline
+from .est_noise_helper import estimator
 
 logger = get_logger("ms_preprocess")
 
@@ -219,31 +218,20 @@ class MSIPreprocessor():
             TypeError: If data is not MSBaseModule or MS
             ValueError: If method is not supported
         """
-        func = smooth_function(method)
         intensity = data.intensity
         index = data.mz_list
 
-        # Handle optional arguments
-        params = inspect.signature(func).parameters
-        argmap = {
-            "coef": coef,
-            "window": window,
-            "sd": sd,
-            "polyorder": polyorder,
-            "wavelet": wavelet,
-            "threshold_mode": threshold_mode,
-            "p": p,
-            "sd_intensity": sd_intensity,
-        }
-        if "index" in params:
-            argmap["index"] = index
-        if "k" in params and "window" in argmap:
-            argmap["k"] = argmap.pop("window")
-        if "sd_dist" in params and "sd" in argmap:
-            argmap["sd_dist"] = argmap.pop("sd")
-
-        filtered_kwargs = {k: v for k, v in argmap.items() if k in params}
-        smoothed_intensity = func(intensity, **filtered_kwargs)
+        smoothed_intensity = smoother(intensity, 
+                                      index=index, 
+                                      method=method, 
+                                      window=window, 
+                                      sd=sd,
+                                      sd_intensity=sd_intensity,
+                                      p=p,
+                                      coef=coef,
+                                      polyorder=polyorder,
+                                      wavelet=wavelet,
+                                      threshold_mode=threshold_mode)
 
         return SpectrumBaseModule(
             mz_list=data.mz_list,
@@ -255,86 +243,42 @@ class MSIPreprocessor():
     def noise_estimation_spectrum(
         x: SpectrumBaseModule,
         nbins: int = 1,
-        overlap: float = 0.5,
-        k: int = 5,
+        overlap: float = 0.2,
         method: str = "sd",
-        denoise_method: str = "bi_ns"
+        denoise_method: str = "bi_ns",
+        dynamic: bool = False
     ):
         """
         Estimate noise level in the MSI data.
-        
-        Args:
-            data (MSBaseModule): Input MSI data
-            
-        Returns:
-            np.ndarray: A 1D array of length equal to `x.intensity.size` representing the
-                estimated noise baseline. When `nbins <= 1`, the array is constant with the
-                global noise estimate value.
-
-        Raises:
-            TypeError: If `x.intensity` is not a 1D numpy array.
-            ValueError: If `nbins < 1` or `k <= 0`.
         """
-        if x.intensity is None or x.intensity.ndim != 1:
-            logger.error("x.intensity must be a 1D numpy array")
-            raise TypeError("x.intensity must be a 1D numpy array")
-        if nbins < 1:
-            logger.error("nbins must be >= 1")
-            raise ValueError("nbins must be >= 1")
-        if k <= 0:
-            logger.error("k must be a positive integer")
-            raise ValueError("k must be a positive integer")
+        intensity = x.intensity
+        index = x.mz_list
 
-        # Smooth signal (neighborhood-search Gaussian) and compute absolute residuals
-        smoothed = MSIPreprocessor.noise_reduction_spectrum(x, window=k, method=denoise_method)
+        return estimator(intensity,
+                         index,
+                         nbins=nbins,
+                         overlap=overlap,
+                         method=method,
+                         dynamic=dynamic,
+                         denoise_method=denoise_method)
 
-        residuals = np.abs(smoothed.intensity - x.intensity)
-
-        #noise_estimation part
-        noise_estimation = estimation_fun(method)(residuals)
-
-        #find bins
-        if nbins > 1:
-            bins, meta = _findbins(residuals, nbins=nbins, overlap=overlap)
-            lower = meta["lower"].astype(int)
-            upper = meta["upper"].astype(int)
-
-            #core location
-            midpoints = (lower + upper) // 2
-
-            #noise_estimation for all bins
-            noise_estimations = []
-            for bin_data in bins:
-                noise_estimations.append(estimation_fun(method)(bin_data))
-
-            #spline for noise line
-            rank_spline = int(max(1, min(3, len(midpoints) - 1)))
-            spline_fn = InterpolatedUnivariateSpline(midpoints, noise_estimations, k=rank_spline)
-            noise_estimation = spline_fn(np.arange(len(residuals), dtype=float))
-
-        return noise_estimation
 
     @staticmethod
-    def calculate_snr_spectrum(spectrum: SpectrumBaseModule, method="quantile") -> float:
+    def calculate_snr_spectrum(spectrum: SpectrumBaseModule, 
+                               method="quantile") -> float:
+        """
+        pass
+        """
         signal_level = np.percentile(spectrum.intensity, 95)
-        noise = MSIPreprocessor.noise_estimation_spectrum(spectrum, method=method)
+
+        noise = MSIPreprocessor.noise_estimation_spectrum(spectrum, 
+                                                          method=method)
+        
         logger.info(f"SNR: signal_level:{signal_level}, noise:{noise}")
         return signal_level / noise
 
     @staticmethod
     def preprocess_pipeline(data:SpectrumBaseModule) -> SpectrumBaseModule:
         """
-        Execute a complete preprocessing pipeline.
-        
-        Applies multiple preprocessing steps in sequence to the MSI data.
-        
-        Args:
-            steps (List[str]): List of preprocessing steps to apply
-            **kwargs: Additional parameters for preprocessing methods
-            
-        Returns:
-            np.ndarray: Fully preprocessed MSI data
-            
-        Raises:
-            ValueError: If invalid preprocessing step is specified
+        pass
         """

@@ -2,11 +2,11 @@
 Author: MassFlow Development Team Bionet/NeoNexus lyk
 License: See LICENSE file in project root
 """
-from typing import Optional
+from typing import Optional,Union
 import numpy as np
 from scipy import stats
 from logger import get_logger
-from module.ms_module import SpectrumBaseModule
+from module.ms_module import SpectrumBaseModule ,SpectrumImzML
 
 logger = get_logger(__name__)
 
@@ -60,8 +60,6 @@ def smooth_signal_ma(
     ValueError: If `window` <= 0 when `coef` is None.
     TypeError: If `intensity` is not a 1D numpy array.
     """
-    # # Basic validation
-    _input_validation(intensity)
 
     # If weights not specified, use uniform weights (moving average)
     if coef is None:
@@ -108,7 +106,6 @@ def smooth_signal_gaussian(
         ValueError: If `window` is not a positive integer.
     TypeError: If `intensity` is not 1D.
     """
-    _input_validation(intensity)
 
     # Ensure window length is odd for symmetric kernel
     window = window + 1 - window % 2
@@ -154,7 +151,6 @@ def smooth_signal_savgol(
         np.ndarray
             Smoothed signal
     """
-    _input_validation(intensity)
     from scipy.signal import savgol_filter
 
     # Minimum window size check
@@ -181,7 +177,6 @@ def smooth_signal_wavelet(
     """
     Wavelet denoising for signal smoothing.
     """
-    _input_validation(intensity)
     import pywt
     original_length = len(intensity)
 
@@ -237,7 +232,6 @@ def smooth_ns_signal_pre(
         ValueError: If `k` or `p` is not a positive integer.
     TypeError: If `x.intensity` is not a 1D numpy array.
     """
-    _input_validation(intensity, index)
 
     if k < 1 or p < 1:
         logger.error("k and p must be positive integers")
@@ -422,22 +416,37 @@ def smooth_preprocess(data:SpectrumBaseModule):
     data.intensity = intensity
     return data
 
-def smooth_function(method: str = "wavelet"):
+def smoother(intensity:np.ndarray,
+            index:Optional[np.ndarray]=None,
+            method: str = "ma",
+            window: int = 5,
+            sd: float = None,
+            sd_intensity: float = None,
+            p: int = 2,
+            coef: np.ndarray = None,
+            polyorder: int = 2,
+            wavelet: str = 'db4',
+            threshold_mode: str = 'soft'):
+    
     """A general function for MS data smoothing"""
+    # # Basic validation
+    _input_validation(intensity)
+
+    # Choose smoothing method
     if method == "ma":
-        return smooth_signal_ma
+        return  smooth_signal_ma(intensity, coef=coef, window=window)
     elif method == "gaussian":
-        return smooth_signal_gaussian
+        return  smooth_signal_gaussian(intensity, sd=sd, window=window)
     elif method == "ma_ns":
-        return smooth_ns_signal_ma
+        return  smooth_ns_signal_ma(intensity,index=index, p=p, k=window)
     elif method == "savgol":
-        return smooth_signal_savgol
+        return smooth_signal_savgol(intensity, window=window, polyorder=polyorder)
     elif method == "wavelet":
-        return smooth_signal_wavelet
+        return smooth_signal_wavelet(intensity, wavelet=wavelet, threshold_mode=threshold_mode)
     elif method == "gaussian_ns":
-        return smooth_ns_signal_gaussian
+        return smooth_ns_signal_gaussian(intensity,index=index, sd=sd,p=p,k=window)
     elif method == "bi_ns":
-        return smooth_ns_signal_bi
+        return smooth_ns_signal_bi(intensity,index=index, sd_dist=sd, sd_intensity=sd_intensity, p=p,k=window)
     else:
         supported = "ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns"
         logger.error(f"Unsupported smoothing method: {method}. Use one of: {supported}.")
