@@ -2,6 +2,7 @@ from typing import List, Tuple, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 from preprocess.ms_preprocess import MSIPreprocessor
+from module.ms_module import SpectrumBaseModule
 from logger import get_logger
 
 logger = get_logger("tools.plot")
@@ -91,8 +92,8 @@ def add_metrics_box(ax,
     corr = float(np.corrcoef(o, d)[0, 1]) if min_len > 1 else 0.0
     tic_ratio = float(d.sum() / o.sum()) if o.sum() > 0 else 1.0
 
-    snr_orig = MSIPreprocessor.calculate_snr(base)
-    snr_update = MSIPreprocessor.calculate_snr(target)
+    snr_orig = MSIPreprocessor.calculate_snr_spectrum(base)
+    snr_update = MSIPreprocessor.calculate_snr_spectrum(target)
     snr_improvement = snr_update / snr_orig if snr_orig > 0 else 1.0
 
     metrics_text = (f"Range: {base.mz_list[0]:.4f} - {base.mz_list[-1]:.4f}\n"
@@ -205,8 +206,8 @@ def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
     else:
         plt.show()
 
-def plot_two_individual(target: Optional['SpectrumBaseModule'] = None,
-                        base: Optional['SpectrumBaseModule'] = None,
+def plot_two_individual(target: SpectrumBaseModule,
+                        base: SpectrumBaseModule,
                         save_path=None,
                         figsize=(20, 5),
                         dpi: int = 300,
@@ -222,6 +223,7 @@ def plot_two_individual(target: Optional['SpectrumBaseModule'] = None,
     if plot_mode == "line":
         ax_top.plot(base.mz_list, base.intensity, color=color[0], linewidth=1)
         ax_bottom.plot(target.mz_list, target.intensity, color=color[1], linewidth=1)
+
     else:
         m1, s1, b1 = ax_top.stem(base.mz_list, base.intensity)
         plt.setp(s1, linewidth=0.7, color=color[0], alpha=0.7)

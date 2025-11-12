@@ -558,8 +558,8 @@ class SpectrumImzML(SpectrumBaseModule):
     def mz_list(self):
         if self._mz_list is None:
             mz, intensity = self._parser.getspectrum(self._index)
-            self._mz_list = mz
-            self._intensity = intensity
+            self._mz_list = mz.copy()
+            self._intensity = intensity.copy()
         return self._mz_list
 
     @mz_list.setter
