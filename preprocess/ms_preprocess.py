@@ -326,7 +326,7 @@ class MSIPreprocessor:
 
     @staticmethod
     def calculate_snr_spectrum(
-        spectrum: SpectrumBaseModule, method="quantile"
+        spectrum: SpectrumBaseModule, method="sd"
     ) -> float:
         """
         Calculate the signal-to-noise ratio (SNR) for a spectrum.

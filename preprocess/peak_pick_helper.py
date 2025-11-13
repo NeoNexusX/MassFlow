@@ -87,7 +87,7 @@ def find_pick_scipy(
     distance: int | None = 1,
     prominence: float | None = None,
     snr: float  = 2,
-    noise: str = "wavlete",
+    noise: str = "wavelet",
     relheight: float = 0.3):
     """
     Peak picking using `scipy.signal.find_peaks` with SNR-based filtering.
@@ -129,7 +129,7 @@ def find_pick_scipy(
     #snr selection
     return peaks, props
 
-def _interp(arr: np.ndarray, idx_f: float, n: int | None = None) -> float:
+def _interp(arr: np.ndarray, idx_f: float) -> float:
     """
     Linear interpolation over an array for a fractional index.
 
@@ -144,6 +144,7 @@ def _interp(arr: np.ndarray, idx_f: float, n: int | None = None) -> float:
     Raises:
         ValueError: If n is provided and does not match arr length.
     """
+    n = int(arr.shape[0])
     m = int(arr.shape[0])
     if n is not None and n != m:
         raise ValueError("Provided n does not match arr length")
@@ -181,8 +182,6 @@ def compute_peak_areas(intensity: np.ndarray,
         ValueError: If required boundary keys are missing from `props` or boundary is invalid.
     """
 
-    n = len(intensity)
-
     if boundary == "bases":
         if "left_bases" not in props or "right_bases" not in props:
             raise ValueError("Missing `left_bases/right_bases` in props; enable `prominence` during peak picking.")
@@ -201,10 +200,10 @@ def compute_peak_areas(intensity: np.ndarray,
         if rf <= lf:
             areas[k] = 0.0
             continue
-        xl = _interp(index, lf,n)
-        xr = _interp(index, rf,n)
-        yl = _interp(intensity, lf,n)
-        yr = _interp(intensity, rf,n)
+        xl = _interp(index, lf)
+        xr = _interp(index, rf)
+        yl = _interp(intensity, lf)
+        yr = _interp(intensity, rf)
         logger.debug(f"li={lf},ri={rf},peak={peaks[k]}")
         li = int(np.ceil(lf))
         ri = int(np.floor(rf))
