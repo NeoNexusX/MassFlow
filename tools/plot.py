@@ -14,7 +14,7 @@ def plot_spectrum(
     figsize=(20, 5),
     dpi: int = 300,
     colors: List[str] = ['#5c9dba', '#df4c5b'],
-    plot_mode: str = "line",
+    plot_mode: List[str] = ["line","line"],
     mz_range: Optional[Tuple[float, float]] = None,
     intensity_range: Optional[Tuple[float, float]] = None,
     metrics_box: bool = True,
@@ -31,7 +31,7 @@ def plot_spectrum(
             figsize=figsize,
             dpi=dpi,
             color=colors[0],
-            plot_mode=plot_mode,
+            plot_mode=plot_mode[0],
             mz_range=mz_range,
             intensity_range=intensity_range,
             title_suffix=title_suffix,
@@ -104,8 +104,8 @@ def add_metrics_box(ax,
                     f"SNR improvement: {snr_improvement:.2f}x")
     # Log the metrics
     logger.info(metrics_text)
-    ax.text(box_loc[0], 
-            box_loc[1], 
+    ax.text(box_loc[0],
+            box_loc[1],
             metrics_text,
             transform=ax.transAxes, verticalalignment='top',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
@@ -154,7 +154,7 @@ def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
                       figsize=(20, 5),
                       dpi: int = 300,
                       color: List[str] = ['#5d7db3', '#d2c3d5'],
-                      plot_mode: str = "line",
+                      plot_mode: str = ["line","line"],
                       mz_range: Optional[Tuple[float, float]] = None,
                       intensity_range: Optional[Tuple[float, float]] = None,
                       metrics_box: bool = True,
@@ -162,9 +162,8 @@ def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
 
     _, ax = plt.subplots(1, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 6))
 
-    if plot_mode == "line":
+    if plot_mode[0] == "line":
         ax.plot(base.mz_list, base.intensity, color=color[0], linewidth=1, label='Original')
-        ax.plot(target.mz_list, target.intensity, color=color[1], linewidth=1, label='Preprocessed' if not title_suffix else f'Preprocessed ({title_suffix})')
 
     else:
         m1, s1, b1 = ax.stem(base.mz_list, base.intensity, label='Original')
@@ -172,6 +171,9 @@ def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
         plt.setp(m1, markersize=3, color=color[0], alpha=0.7)
         plt.setp(b1, linewidth=0.5, color='gray', alpha=0.4)
 
+    if plot_mode[1] == "line":
+        ax.plot(target.mz_list, target.intensity, color=color[1], linewidth=1, label='Preprocessed' if not title_suffix else f'Preprocessed ({title_suffix})')
+    else:
         m2, s2, b2 = ax.stem(target.mz_list, target.intensity, label='Preprocessed' if not title_suffix else f'Preprocessed ({title_suffix})')
         plt.setp(s2, linewidth=0.7, color=color[1], alpha=0.7)
         plt.setp(m2, markersize=3, color=color[1], alpha=0.7)
@@ -212,7 +214,7 @@ def plot_two_individual(target: SpectrumBaseModule,
                         figsize=(20, 5),
                         dpi: int = 300,
                         color: List[str] = ['#5d7db3', '#d2c3d5'],
-                        plot_mode: str = "line",
+                        plot_mode: str = ["line","line"],
                         mz_range: Optional[Tuple[float, float]] = None,
                         intensity_range: Optional[Tuple[float, float]] = None,
                         metrics_box: bool = True,
@@ -220,9 +222,8 @@ def plot_two_individual(target: SpectrumBaseModule,
     # get two subplots
     _, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
 
-    if plot_mode == "line":
+    if plot_mode[0] == "line":
         ax_top.plot(base.mz_list, base.intensity, color=color[0], linewidth=1)
-        ax_bottom.plot(target.mz_list, target.intensity, color=color[1], linewidth=1)
 
     else:
         m1, s1, b1 = ax_top.stem(base.mz_list, base.intensity)
@@ -230,6 +231,9 @@ def plot_two_individual(target: SpectrumBaseModule,
         plt.setp(m1, markersize=3, color=color[0], alpha=0.7)
         plt.setp(b1, linewidth=0.5, color='gray', alpha=0.4)
 
+    if plot_mode[1] == "line":
+        ax_bottom.plot(target.mz_list, target.intensity, color=color[1], linewidth=1)
+    else:
         m2, s2, b2 = ax_bottom.stem(target.mz_list, target.intensity)
         plt.setp(s2, linewidth=0.7, color=color[1], alpha=0.7)
         plt.setp(m2, markersize=3, color=color[1], alpha=0.7)

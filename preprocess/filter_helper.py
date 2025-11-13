@@ -427,7 +427,7 @@ def smoother(intensity:np.ndarray,
             polyorder: int = 2,
             wavelet: str = 'db4',
             threshold_mode: str = 'soft'):
-    
+
     """A general function for MS data smoothing"""
     # # Basic validation
     _input_validation(intensity)

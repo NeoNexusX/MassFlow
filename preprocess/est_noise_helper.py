@@ -330,7 +330,7 @@ def estimator(intensity: np.ndarray,
 
 def calculate_snr(intensity: np.ndarray,
                   indexes: Optional[np.ndarray] = None,
-                  method="quantile",
+                  method="mad",
                   denoise_method: str = "bi_ns",):
     """
     pass
@@ -344,4 +344,3 @@ def calculate_snr(intensity: np.ndarray,
 
     logger.info(f"SNR: signal_level:{signal_level}, noise:{noise}")
     return signal_level / noise
-    
