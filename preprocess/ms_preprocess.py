@@ -33,7 +33,7 @@ Author: MassFlow Development Team Bionet/NeoNexus lyk
 License: See LICENSE file in project root
 """
 
-from typing import Union, Optional
+from typing import Union
 import numpy as np
 from module.ms_module import SpectrumBaseModule, SpectrumImzML
 from logger import get_logger
@@ -82,6 +82,22 @@ class MSIPreprocessor:
                             method: str = 'scipy',
                             relheight: float = 0.1,
                             return_type: str = 'height') -> SpectrumBaseModule:
+        """
+        Perform peak picking on a single spectrum and return a reduced spectrum.
+
+        Parameters:
+            data (SpectrumBaseModule): Input spectrum.
+            width (int): Required peak width for underlying detector.
+            method (str): Peak pick backend; currently supports 'scipy'.
+            relheight (float): Relative height threshold for candidate peaks.
+            return_type (str): 'height' for peak heights or 'area' for integrated areas.
+
+        Returns:
+            SpectrumBaseModule: New spectrum containing picked peaks and original coordinates.
+
+        Raises:
+            ValueError: If `method` or `return_type` is unsupported.
+        """
 
         intensity = data.intensity
         index = data.mz_list
@@ -121,19 +137,20 @@ class MSIPreprocessor:
     @staticmethod
     def peak_alignment_spectrum(data: SpectrumBaseModule) -> SpectrumBaseModule:
         """
-        Perform peak alignment across spectra.
+        Align peaks across spectra to compensate for mass calibration drift.
 
-        Abstract method for aligning peaks across different spectra to correct
-        for mass calibration drift and improve data consistency.
+        Notes:
+            This is an abstract placeholder in the preprocessing interface.
+            Concrete implementations should provide spectrum-wise alignment.
 
-        Args:
-            fill this
+        Parameters:
+            data (SpectrumBaseModule): Input spectrum.
 
         Returns:
-            processed_data (MSI): Processed MSI object with peak_aligned data
+            SpectrumBaseModule: Aligned spectrum (implementation-defined).
 
         Raises:
-            NotImplementedError: If not implemented by subclass
+            NotImplementedError: If not implemented by subclass.
         """
         pass
 
@@ -150,7 +167,27 @@ class MSIPreprocessor:
         epsilon: float = 1e-3,
     ) -> tuple[Union[np.ndarray, SpectrumBaseModule], np.ndarray]:
         """
-        重构后重写文档部分
+        Baseline correction using ASLS or SNIP with optional baseline scaling.
+
+        Parameters:
+            data (Union[np.ndarray, SpectrumBaseModule]): Input 1D intensity or spectrum.
+            method (str): 'asls' or 'snip'.
+            lam (float): ASLS smoothness parameter.
+            p (float): ASLS asymmetry parameter.
+            niter (int): ASLS iteration count.
+            baseline_scale (float): Scale factor in [0,1] applied to estimated baseline.
+            m (int): SNIP window half-size.
+            decreasing (bool): SNIP decreasing rule.
+            epsilon (float): SNIP early-stop tolerance.
+
+        Returns:
+            Tuple[Union[np.ndarray, SpectrumBaseModule], np.ndarray]:
+                - corrected data (vector or spectrum)
+                - estimated baseline (vector)
+
+        Raises:
+            ValueError: If `method` is unsupported.
+            TypeError: If `data` is neither `np.ndarray` nor `SpectrumBaseModule`.
         """
         #模仿noise_reduction_spectrum仿写，实现分层架构，
         #删除apply_single函数，重写一个baseline_corrector实现apply_single函数的效果，放在baseline_correction_helper里面
@@ -208,28 +245,25 @@ class MSIPreprocessor:
         threshold_mode: str = "soft",
     ) -> Union[SpectrumBaseModule, SpectrumImzML]:
         """
-        Perform noise reduction on MSI data.
+        Reduce spectral noise while preserving features using multiple algorithms.
 
-        Reduce noise in spectra while preserving important features using
-        several algorithms.
-
-        Args:
-            data: MSBaseModule or MS object containing spectral data
-            method (str): Denoising method ('ma', 'gaussian', 'savgol', 'wavelet')
-            window (int): Window size for denoising (must be a positive integer)
-            sd (float): Standard deviation for Gaussian filter (used when method='gaussian')
-            coef (np.ndarray, optional): Custom convolution kernel coefficients for 'ma' method
-            polyorder (int): Polynomial order for Savitzky-Golay filter (must be less than window)
-            wavelet (str): Wavelet type for wavelet denoising ('db4', 'db8', 'haar', 'coif2', etc.)
-            threshold_mode (str): Thresholding mode for wavelet denoising ('soft' or 'hard')
-
+        Parameters:
+            data (SpectrumBaseModule | SpectrumImzML): Spectrum to denoise.
+            method (str): One of {'ma','gaussian','savgol','wavelet','ma_ns','gaussian_ns','bi_ns'}.
+            window (int): Window size or neighbor count depending on method.
+            sd (float, optional): Gaussian scale parameter.
+            coef (np.ndarray, optional): Custom kernel for 'ma'.
+            polyorder (int): Polynomial order for Savitzky-Golay.
+            wavelet (str): Wavelet family for wavelet denoising.
+            threshold_mode (str): 'soft' or 'hard' thresholding.
+            sd_intensity (float, optional): Intensity scale for bilateral method.
+            p (int): Minkowski metric for NS queries.
 
         Returns:
-            MSBaseModule: New spectrum with the same coordinates and mz_list, but smoothed intensity.
+            SpectrumBaseModule: New spectrum with smoothed intensity and original coordinates.
 
         Raises:
-            TypeError: If data is not MSBaseModule or MS
-            ValueError: If method is not supported
+            ValueError: If `method` is unsupported.
         """
         intensity = data.intensity
         index = data.mz_list
@@ -264,7 +298,18 @@ class MSIPreprocessor:
         dynamic: bool = False,
     ):
         """
-        Estimate noise level in the MSI data.
+        Estimate noise level for a spectrum using binning and SSE metrics.
+
+        Parameters:
+            x (SpectrumBaseModule): Input spectrum.
+            nbins (int): Initial number of bins for segmentation.
+            overlap (float): Overlap ratio between adjacent bins.
+            method (str): Estimator identifier (e.g., 'sd').
+            denoise_method (str): Denoising method for pre-estimation.
+            dynamic (bool): Whether to adapt bins dynamically.
+
+        Returns:
+            float | np.ndarray: Estimated noise scalar or per-bin array depending on method.
         """
         intensity = x.intensity
         index = x.mz_list
@@ -284,7 +329,14 @@ class MSIPreprocessor:
         spectrum: SpectrumBaseModule, method="quantile"
     ) -> float:
         """
-        pass
+        Calculate the signal-to-noise ratio (SNR) for a spectrum.
+
+        Parameters:
+            spectrum (SpectrumBaseModule): Input spectrum.
+            method (str): Noise estimation method forwarded to `noise_estimation_spectrum`.
+
+        Returns:
+            float: SNR computed as quantile-based signal level divided by estimated noise.
         """
         signal_level = np.percentile(spectrum.intensity, 95)
 
@@ -296,5 +348,11 @@ class MSIPreprocessor:
     @staticmethod
     def preprocess_pipeline(data: SpectrumBaseModule) -> SpectrumBaseModule:
         """
-        pass
+        Composite preprocessing pipeline (placeholder).
+
+        Parameters:
+            data (SpectrumBaseModule): Input spectrum to preprocess.
+
+        Returns:
+            SpectrumBaseModule: Preprocessed spectrum (implementation-defined).
         """

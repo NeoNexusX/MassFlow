@@ -6,8 +6,8 @@ particularly for Mass Spectrometry Imaging (MSI) applications. It includes suppo
 lazy loading, efficient data management, and visualization capabilities.
 
 Classes:
-    MSBaseModule: Base class for mass spectrum data with coordinates
-    MSImzML: Specialized class for handling ImzML format with lazy loading
+    SpectrumBaseModule: Base class for mass spectrum data with coordinates
+    SpectrumImzML: Specialized class for handling ImzML format with lazy loading
     MS: Collection class for managing multiple mass spectra
 
 Author: MassFlow Development Team Bionet/NeoNexus
@@ -25,20 +25,17 @@ logger = get_logger("ms_module")
 
 class PixelCoordinates:
     """
-    Initialize pixel coordinates with optional zero-based adjustment.
+    Coordinate holder for MSI pixels with optional zero-based view.
 
-    Args:
-        x (int): X coordinate value.
-        y (int): Y coordinate value.
-        z (int): Z coordinate value.
-        coordinate_set_zero (bool, optional): If True, getters will return (value - 1)
-            to convert 1-based coordinates to 0-based. Defaults to False.
+    This class stores raw `x`, `y`, `z` coordinates and provides a `zero_based`
+    switch that, when enabled, makes the public getters return values offset by `-1`
+    (useful when converting 1-based coordinates to 0-based indices).
 
-    Returns:
-        None
-
-    Raises:
-        TypeError: If any of x, y, or z cannot be converted to int.
+    Attributes:
+        x (int): X coordinate (getter returns adjusted value if `zero_based` is True).
+        y (int): Y coordinate (getter returns adjusted value if `zero_based` is True).
+        z (int): Z coordinate (getter returns adjusted value if `zero_based` is True).
+        zero_based (bool): Whether to expose coordinates in zero-based form.
     """
 
     def __init__(self, x: int, y: int, z: int, zero_based: bool = False):
@@ -77,10 +74,7 @@ class PixelCoordinates:
         Get the X coordinate.
 
         Returns:
-            int: Adjusted X coordinate (minus 1 if coordinate_set_zero is True).
-
-        Raises:
-            None
+            int: X coordinate, adjusted by `-1` when `zero_based` is True.
         """
         return self._x - 1 if self.zero_based else self._x
 
@@ -94,10 +88,7 @@ class PixelCoordinates:
         Get the Y coordinate.
 
         Returns:
-            int: Adjusted Y coordinate (minus 1 if coordinate_set_zero is True).
-
-        Raises:
-            None
+            int: Y coordinate, adjusted by `-1` when `zero_based` is True.
         """
         return self._y - 1 if self.zero_based else self._y
 
@@ -111,10 +102,7 @@ class PixelCoordinates:
         Get the Z coordinate.
 
         Returns:
-            int: Adjusted Z coordinate (minus 1 if coordinate_set_zero is True).
-
-        Raises:
-            None
+            int: Z coordinate, adjusted by `-1` when `zero_based` is True.
         """
         return self._z - 1 if self.zero_based else self._z
 
@@ -125,7 +113,7 @@ class PixelCoordinates:
     @property
     def zero_based(self) -> bool:
         """
-        Alias flag indicating whether coordinates are zero-based.
+        Flag indicating whether getters return zero-based coordinates.
 
         Returns:
             bool: True if coordinates are zero-based; False otherwise.
@@ -135,13 +123,10 @@ class PixelCoordinates:
     @zero_based.setter
     def zero_based(self, value: bool):
         """
-        Set alias flag and synchronize internal state.
+        Set the flag controlling zero-based view of coordinates.
 
         Args:
             value (bool): True for zero-based; False for one-based.
-
-        Returns:
-            None
         """
         self._zero_based = bool(value)
 
@@ -150,13 +135,13 @@ class PixelCoordinates:
         Compare equality based on adjusted coordinates.
 
         Args:
-            other (PixelCoor): Another PixelCoor instance to compare.
+            other (PixelCoordinates): Another PixelCoordinates instance to compare.
 
         Returns:
             bool: True if all adjusted coordinates match; False otherwise.
 
         Raises:
-            TypeError: If `other` is not an instance of PixelCoor.
+            TypeError: If `other` is not an instance of PixelCoordinates.
         """
         if not isinstance(other, PixelCoordinates):
             raise TypeError("other must be a PixelCoor")
@@ -179,13 +164,10 @@ class PixelCoordinates:
         Determine if this pixel is to the left of another pixel.
 
         Args:
-            other (PixelCoor): The other pixel to compare against.
+            other (PixelCoordinates): The other pixel to compare against.
 
         Returns:
             bool: True if this pixel's X is less than the other's X; otherwise False.
-
-        Raises:
-            TypeError: If `other` is not an instance of PixelCoor.
         """
         return self.x < other.x
 
@@ -194,13 +176,10 @@ class PixelCoordinates:
         Determine if this pixel is to the right of another pixel.
 
         Args:
-            other (PixelCoor): The other pixel to compare against.
+            other (PixelCoordinates): The other pixel to compare against.
 
         Returns:
             bool: True if this pixel's X is greater than the other's X; otherwise False.
-
-        Raises:
-            TypeError: If `other` is not an instance of PixelCoor.
         """
         return self.x > other.x
 
@@ -209,13 +188,10 @@ class PixelCoordinates:
         Determine if this pixel is above another pixel.
 
         Args:
-            other (PixelCoor): The other pixel to compare against.
+            other (PixelCoordinates): The other pixel to compare against.
 
         Returns:
             bool: True if this pixel's Y is greater than the other's Y; otherwise False.
-
-        Raises:
-            TypeError: If `other` is not an instance of PixelCoor.
         """
         return self.y > other.y
 
@@ -259,7 +235,7 @@ class SpectrumBaseModule:
         x (int): X coordinate
         y (int): Y coordinate
         z (int): Z coordinate
-        sorted_by_mz_fun (bool): Flag indicating if data is sorted by m/z values
+        sorted_by_mz (bool): Flag indicating if data is sorted by m/z values
 
     Properties:
         mz_list (np.ndarray): Array of m/z values
@@ -309,8 +285,8 @@ class SpectrumBaseModule:
                 "coordinates must be PixelCoordinates or a list/tuple of three ints."
             )
 
+        self.sorted_by_mz = False
         if sorted_by_mz_fun:
-            self.sorted_by_mz = sorted_by_mz_fun
             self.sort_by_mz()
 
     # lazy load properties
@@ -360,10 +336,6 @@ class SpectrumBaseModule:
 
         Returns:
             int: Number of peaks (length of mz_list array)
-
-        Example:
-            >>> spectrum = MSBaseModule(mz_array, intensity_array, [0, 0, 0])
-            >>> print(len(spectrum))  # Output: number of peaks
         """
         return len(self.mz_list)
 
@@ -371,7 +343,7 @@ class SpectrumBaseModule:
         """
         Check equality based on coordinates.
 
-        Two MSBaseModule instances are considered equal if they have the same coordinates.
+        Two SpectrumBaseModule instances are considered equal if they have the same coordinates.
 
         Args:
             other: Object to compare with
@@ -391,7 +363,7 @@ class SpectrumBaseModule:
             index (int): Index of the peak to retrieve
 
         Returns:
-            Tuple[float, float]: Tuple of (m/z, intensity) values at the given index
+            Tuple[float, float]: (m/z, intensity) values at the given index
 
         Raises:
             IndexError: If index is out of range
@@ -404,22 +376,19 @@ class SpectrumBaseModule:
 
         This method sorts both arrays simultaneously to maintain correspondence
         between m/z values and their intensities. The operation is performed
-        in-place and updates the sorted_by_mz_fun flag.
+        in-place and updates the `sorted_by_mz` flag.
 
         Note:
-            - Only sorts if data is not already sorted (sorted_by_mz_fun is False)
+            - Only sorts if data is not already sorted (`sorted_by_mz` is False)
             - Logs a warning if mz_list or intensity is None
-            - After sorting, sorted_by_mz_fun flag is set to True
+            - After sorting, `sorted_by_mz` flag is set to True
         """
-        if (
-            self.sorted_by_mz
-            and self.mz_list is not None
-            and self.intensity is not None
-        ):
+        if (self.sorted_by_mz is False and self.mz_list is not None and self.intensity is not None):
 
             sorted_indices = np.argsort(self.mz_list)
             self._mz_list = self.mz_list[sorted_indices]
             self._intensity = self.intensity[sorted_indices]
+            self.sorted_by_mz = True
 
         elif self.mz_list is None or self.intensity is None:
             logger.warning("mz_list or intensity is None, can not sort by mz.")
@@ -430,14 +399,24 @@ class SpectrumBaseModule:
         sort_by_mz: bool = True,
     ):
         """
-        pass
+        Crop spectrum within a given m/z range and return a shallow copy.
+
+        Args:
+            xr (Optional[Tuple[float, float] | List[float]]): Lower and upper m/z bounds.
+            sort_by_mz (bool): Whether to sort by m/z prior to range search.
+
+        Returns:
+            SpectrumBaseModule: New spectrum object sharing attributes with sliced arrays.
+
+        Raises:
+            ValueError: If `mz_list` is None or `xr` is invalid.
         """
         if self.mz_list is not None:
             if xr is not None and len(xr) == 2:
                 mz_c = None
                 inten_c = None
                 # without sort and dont want to sort
-                if not self.sort_by_mz and not sort_by_mz:
+                if not self.sorted_by_mz and not sort_by_mz:
                     mask_xr = np.ones_like(self.mz_list, dtype=bool)
 
                     if xr is not None and self.mz_list is not None:
@@ -451,8 +430,7 @@ class SpectrumBaseModule:
 
                 # with sort and want to sort  or want sort but no sort
                 elif sort_by_mz:
-                    if not self.sort_by_mz:
-                        self.sorted_by_mz = True
+                    if not self.sorted_by_mz:
                         self.sort_by_mz()
                     start_index = np.searchsorted(self.mz_list, xr[0], side="left")
                     end_index = np.searchsorted(self.mz_list, xr[1], side="right")
@@ -473,7 +451,7 @@ class SpectrumBaseModule:
 
         # ---build a new object ：same class、copy attributes ---
         new_obj = self.__class__.__new__(self.__class__)
-        new_obj.__dict__.update(self.__dict__)  # 复制所有属性
+        new_obj.__dict__.update(self.__dict__)  # Copy all attributes
         new_obj.mz_list = mz_c
         new_obj.intensity = inten_c
         return new_obj
@@ -522,7 +500,7 @@ class SpectrumImzML(SpectrumBaseModule):
     """
     Specialized mass spectrum class for ImzML format with lazy loading capabilities.
 
-    This class extends MSBaseModule to provide efficient handling of ImzML (Imaging Mass
+    This class extends SpectrumBaseModule to provide efficient handling of ImzML (Imaging Mass
     Spectrometry Markup Language) format data. It implements lazy loading to minimize
     memory usage by loading spectrum data only when accessed.
 
@@ -545,7 +523,7 @@ class SpectrumImzML(SpectrumBaseModule):
     Note:
         - Data loading is deferred until first property access
         - Both mz_list and intensity are loaded together for efficiency
-        - Inherits all visualization and manipulation methods from MSBaseModule
+        - Inherits all visualization and manipulation methods from SpectrumBaseModule
     """
 
     def __init__(self, parser: ImzMLParser, index: int, coordinates):
@@ -582,7 +560,7 @@ class MS:
     """
     Collection class for managing multiple mass spectra with coordinate-based indexing.
 
-    This class serves as a container and manager for multiple MSBaseModule instances,
+    This class serves as a container and manager for multiple SpectrumBaseModule instances,
     providing efficient storage, retrieval, and manipulation of mass spectrometry data
     organized by 3D spatial coordinates. It supports both sequential and coordinate-based
     access patterns.
@@ -592,7 +570,7 @@ class MS:
     - A nested dictionary (_coordinate_index) for fast coordinate-based lookup
 
     Attributes:
-        _queue (List[MSBaseModule]): Sequential list of all spectra
+        _queue (List[SpectrumBaseModule]): Sequential list of all spectra
         _coordinate_index (Dict): Nested dictionary mapping coordinates to spectra
                                  Structure: {z: {x: {y: MSBaseModule}}}
 
@@ -640,7 +618,7 @@ class MS:
         a nested dictionary structure for fast coordinate-based lookup.
 
         Args:
-            spectrum (MSBaseModule): Mass spectrum to add to the collection
+            spectrum (SpectrumBaseModule): Mass spectrum to add to the collection
 
         Note:
             - Automatically extracts coordinates from the spectrum
@@ -668,7 +646,7 @@ class MS:
             z (int, optional): Z coordinate. Defaults to 0.
 
         Returns:
-            MSBaseModule: Mass spectrum at the specified coordinates
+            SpectrumBaseModule: Mass spectrum at the specified coordinates
 
         Raises:
             KeyError: If no spectrum exists at the specified coordinates
@@ -689,8 +667,8 @@ class MS:
             raise KeyError(f"No spectrum found at coordinates ({x}, {y}, {z})")
         return self._coordinate_index[z][x][y]
 
-    def __getitem__(
-        self, key: Union[Tuple[int, int, int], Tuple[int, int], slice]
+    def __getitem__(self,
+                    key: Union[int,Tuple[int, int, int], Tuple[int, int], slice]
     ) -> Union[SpectrumBaseModule, List[SpectrumBaseModule]]:
         """
         Retrieve mass spectrum using flexible indexing methods.
@@ -706,7 +684,7 @@ class MS:
                 Index, coordinates, or slice for spectrum retrieval
 
         Returns:
-            Union[MSBaseModule, List[MSBaseModule]]: Single spectrum for index/coordinates,
+            Union[SpectrumBaseModule, List[SpectrumBaseModule]]: Single spectrum for index/coordinates,
             or a list of spectra for slice access
 
         Raises:
@@ -714,30 +692,26 @@ class MS:
             KeyError: If coordinates don't exist in the collection
             IndexError: If sequential index is out of range
         """
-        try:
-            if isinstance(key, int):
-                # Return the item from the queue by index
-                return self._queue[key]
-            elif isinstance(key, tuple):
-                if len(key) == 3:
-                    x, y, z = key
-                    return self._coordinate_index[z][x][y]
-                elif len(key) == 2:
-                    x, y = key
-                    return self._coordinate_index[0][x][y]  # z defaults to 0
-            elif isinstance(key, slice):
-                # Support slice access on the internal sequential queue
-                return self._queue[key]
-            else:
-                logger.error("Index must be in tuple format, like [x, y, z] or [x, y]")
-                raise TypeError(
-                    "Index must be in tuple format, like [x, y, z] or [x, y]"
-                )
-        except (KeyError, IndexError) as e:
-            logger.error(
-                f"Error accessing spectrum with key {key}: {e},please use mask to see all unique coordinates"
+        if isinstance(key, int):
+            # Return the item from the queue by index
+            return self._queue[key]
+        elif isinstance(key, tuple):
+            if len(key) == 3:
+                x, y, z = key
+                return self._coordinate_index[z][x][y]
+            elif len(key) == 2:
+                x, y = key
+                z = 0 if 0 in self._coordinate_index else next(iter(self._coordinate_index))
+                return self._coordinate_index[z][x][y]
+        elif isinstance(key, slice):
+            # Support slice access on the internal sequential queue
+            return self._queue[key]
+        else:
+            logger.error("Index must be in tuple format, like [x, y, z] or [x, y]")
+            raise TypeError(
+                "Index must be in tuple format, like [x, y, z] or [x, y]"
             )
-            raise e
+
 
     def __setitem__(
         self,
@@ -799,7 +773,7 @@ class MS:
         Allows iteration through all mass spectra in the order they were added.
 
         Returns:
-            Iterator[MSBaseModule]: Iterator over mass spectra
+            Iterator[SpectrumBaseModule]: Iterator over mass spectra
         """
         return iter(self._queue)
 
@@ -814,22 +788,22 @@ class MS:
         """
         Plot the occupancy mask stored in metadata.
 
-        Parameters
-        - save_path (Optional[str]): If provided, save the figure to this path; otherwise, display it.
-        - figsize (Tuple[int, int]): Matplotlib figure size (width, height). Defaults to (8, 8).
-        - dpi (int): Dots-per-inch when saving. Defaults to 300.
-        - origin (str): Image origin for imshow, 'upper' or 'lower'. Defaults to 'upper'.
-        - cmap (str): Colormap used to render the mask. Defaults to 'Greys'.
+        Args:
+            save_path (Optional[str]): Path to save the figure; show if None.
+            figsize (Tuple[int, int]): Matplotlib figure size (width, height). Defaults to (8, 8).
+            dpi (int): Dots-per-inch for saving. Defaults to 300.
+            origin (str): Image origin for `imshow`, either 'upper' or 'lower'. Defaults to 'upper'.
+            cmap (str): Colormap for rendering the mask. Defaults to 'Greys'.
 
-        Returns
-        - None: This function produces a plot or saves an image.
+        Returns:
+            None
 
-        Raises
-        - ValueError: If metadata or mask is missing, or mask dimensions are invalid.
+        Raises:
+            ValueError: If metadata or mask is missing.
 
-        Notes
-        - This method directly visualizes `self.meta.mask` without recomputing.
-        - Ensure `self.meta.mask` matches `(max_count_of_pixels_y, max_count_of_pixels_x)`.
+        Notes:
+            - Directly visualizes `self.meta.mask` without recomputing.
+            - Ensure `self.meta.mask` shape matches `(max_count_of_pixels_y, max_count_of_pixels_x)`.
         """
         # Validate metadata and mask
         if self.meta is None:
@@ -865,9 +839,9 @@ class MS:
             ValueError: If metadata is missing on the MS instance.
 
         Notes:
-            - This updates `self.meta.coordinates_zero_based` and toggles each spectrum's
-              `PixelCoordinates` view via `set_coordinate_zero_based`.
-            - The coordinate index is rebuilt to reflect new x/y/z values under the flag.
+            - Updates `self.meta.coordinates_zero_based` and toggles each spectrum's
+              `PixelCoordinates.zero_based` property.
+            - Rebuilds the coordinate index to reflect new x/y/z values under the flag.
         """
         if self.meta is None:
             logger.error("MS meta data is required to synchronize coordinates.")

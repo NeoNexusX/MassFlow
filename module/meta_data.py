@@ -84,7 +84,7 @@ class MetaDataFileBase:
     @mask.setter
     def mask(self, mask: np.ndarray):
         """Set the mask of the data model."""
-        if mask is not None and mask.shape == (self.max_count_of_pixels_y, self.max_count_of_pixels_x):
+        if mask is not None and len(mask.shape) == 2:
             self._mask = mask
             self._set('mask', mask)
     #Metadata properties with auto-sync

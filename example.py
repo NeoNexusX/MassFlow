@@ -1,6 +1,6 @@
+from module.ms_data_manager_imzml import MSDataManagerImzML
 from module.ms_module import MS
 from preprocess.ms_preprocess import MSIPreprocessor
-from module.ms_data_manager_imzml import MSDataManagerImzML
 from tools.plot import plot_spectrum
 from logger import get_logger
 

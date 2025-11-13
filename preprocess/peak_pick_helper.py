@@ -89,7 +89,25 @@ def find_pick_scipy(
     snr: float  = 2,
     noise: str = "wavlete",
     relheight: float = 0.3):
-    """Peak pick using scipy.signal.find_peaks."""
+    """
+    Peak picking using `scipy.signal.find_peaks` with SNR-based filtering.
+
+    Parameters:
+        intensity (np.ndarray): 1D intensity array.
+        index (np.ndarray): 1D coordinate array aligned with `intensity`.
+        width (int | List[int]): Required width(s) of peaks.
+        distance (int | None): Required minimal horizontal distance between peaks.
+        prominence (float | None): Required prominence of peaks; enables base indices in props.
+        snr (float): Signal-to-noise threshold applied after peak detection.
+        noise (str): Noise estimation method identifier used by `estimator`.
+        relheight (float): Relative height ratio for `height` constraint.
+
+    Returns:
+        Tuple[np.ndarray, dict]: Indices of selected peaks and properties dict from `find_peaks`.
+
+    Raises:
+        ValueError: If inputs are invalid or method constraints fail downstream.
+    """
 
     max_height = np.nanmax(intensity)
     relheight = relheight * max_height
@@ -145,6 +163,22 @@ def compute_peak_areas(intensity: np.ndarray,
                        boundary: str = "ips",
                        ) -> np.ndarray:
     """
+    Compute peak areas via piecewise linear interpolation and Simpson integration.
+
+    Parameters:
+        intensity (np.ndarray): 1D intensity array.
+        index (np.ndarray): 1D coordinate array aligned with `intensity`.
+        peaks (np.ndarray): Peak indices returned by `find_peaks`.
+        props (dict): Peak properties from `find_peaks`; must contain
+            `left_ips/right_ips` when `boundary='ips'` or
+            `left_bases/right_bases` when `boundary='bases'`.
+        boundary (str): One of {'ips','bases'} selecting integration boundaries.
+
+    Returns:
+        np.ndarray: Areas per peak, same length as `peaks`.
+
+    Raises:
+        ValueError: If required boundary keys are missing from `props` or boundary is invalid.
     """
 
     n = len(intensity)

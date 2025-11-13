@@ -21,6 +21,26 @@ def plot_spectrum(
     title_suffix: Optional[str] = None,
     overlay: bool = False,
 ):
+    """
+    Plot one or two spectra with optional overlay and metrics box.
+
+    Parameters:
+        base (SpectrumBaseModule | None): Base/original spectrum to plot.
+        target (SpectrumBaseModule | None): Target/processed spectrum to plot.
+        save_path (str | None): File path to save the figure; display if None.
+        figsize (Tuple[int,int]): Figure size.
+        dpi (int): Saving DPI.
+        colors (List[str]): Colors for base/target.
+        plot_mode (List[str]): Per-spectrum mode: 'line' or 'stem'.
+        mz_range (Tuple[float,float] | None): X-axis range.
+        intensity_range (Tuple[float,float] | None): Y-axis range.
+        metrics_box (bool): Whether to overlay metrics.
+        title_suffix (str | None): Optional suffix added to title.
+        overlay (bool): Plot spectra together if True, otherwise on separate axes.
+
+    Returns:
+        None
+    """
     logger.info(f"Plotting spectrum with plot_mode={plot_mode}, mz_range={mz_range}, intensity_range={intensity_range}, metrics_box={metrics_box}, title_suffix={title_suffix}, overlay={overlay}")
     figsize=figsize if overlay or target is None else (figsize[0], figsize[1] * 2)
 
@@ -71,14 +91,17 @@ def add_metrics_box(ax,
                     box_loc: Tuple[float, float] = (0.02, 0.98),
                     fontsize: int = 9):
     """
-    Overlay metrics text box on the given axes based on original and processed intensity arrays.
-    Automatically aligns to the shortest length when arrays differ.
+    Overlay a metrics box summarizing correlation, TIC ratio, and SNR.
 
-    Metrics:
-    - Correlation coefficient
-    - TIC ratio (Total Ion Current ratio)
-    - SNR orig / SNR den (MAD-based SNR estimate)
-    - SNR improvement multiplier
+    Parameters:
+        ax (matplotlib.axes.Axes): Target axes.
+        base (SpectrumBaseModule): Original spectrum.
+        target (SpectrumBaseModule): Processed spectrum.
+        box_loc (Tuple[float,float]): Axes-relative location of the box.
+        fontsize (int): Font size.
+
+    Returns:
+        None
     """
     if base is None or target is None:
         return
@@ -120,6 +143,23 @@ def plot_single(base,
                 mz_range: Optional[Tuple[float, float]] = None,
                 intensity_range: Optional[Tuple[float, float]] = None,        
                 title_suffix: Optional[str] = None):
+    """
+    Plot a single spectrum in either line or stem mode.
+
+    Parameters:
+        base (SpectrumBaseModule): Spectrum to plot.
+        save_path (str | None): File path to save; display if None.
+        figsize (Tuple[int,int]): Figure size.
+        dpi (int): Saving DPI.
+        color (str): Plot color.
+        plot_mode (str): 'line' or 'stem'.
+        mz_range (Tuple[float,float] | None): X-axis range.
+        intensity_range (Tuple[float,float] | None): Y-axis range.
+        title_suffix (str | None): Title suffix.
+
+    Returns:
+        None
+    """
 
     plt.figure(figsize=figsize)
     mode = (plot_mode or "stem").lower()
@@ -154,11 +194,30 @@ def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
                       figsize=(20, 5),
                       dpi: int = 300,
                       color: List[str] = ['#5d7db3', '#d2c3d5'],
-                      plot_mode: str = ["line","line"],
+                      plot_mode: List[str] = ["line","line"],
                       mz_range: Optional[Tuple[float, float]] = None,
                       intensity_range: Optional[Tuple[float, float]] = None,
                       metrics_box: bool = True,
                       title_suffix: Optional[str] = None):
+    """
+    Overlay base and processed spectra on a single axes.
+
+    Parameters:
+        target (SpectrumBaseModule | None): Processed spectrum.
+        base (SpectrumBaseModule | None): Original spectrum.
+        save_path (str | None): File path to save; display if None.
+        figsize (Tuple[int,int]): Figure size.
+        dpi (int): Saving DPI.
+        color (List[str]): Colors for base/target.
+        plot_mode (List[str]): Modes for base/target: 'line' or 'stem'.
+        mz_range (Tuple[float,float] | None): X-axis range.
+        intensity_range (Tuple[float,float] | None): Y-axis range.
+        metrics_box (bool): Whether to overlay metrics.
+        title_suffix (str | None): Title suffix.
+
+    Returns:
+        None
+    """
 
     _, ax = plt.subplots(1, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 6))
 
@@ -214,11 +273,30 @@ def plot_two_individual(target: SpectrumBaseModule,
                         figsize=(20, 5),
                         dpi: int = 300,
                         color: List[str] = ['#5d7db3', '#d2c3d5'],
-                        plot_mode: str = ["line","line"],
+                        plot_mode: List[str] = ["line","line"],
                         mz_range: Optional[Tuple[float, float]] = None,
                         intensity_range: Optional[Tuple[float, float]] = None,
                         metrics_box: bool = True,
                         title_suffix: Optional[str] = None):
+    """
+    Plot base and processed spectra on separate aligned subplots.
+
+    Parameters:
+        target (SpectrumBaseModule): Processed spectrum.
+        base (SpectrumBaseModule): Original spectrum.
+        save_path (str | None): File path to save; display if None.
+        figsize (Tuple[int,int]): Figure size.
+        dpi (int): Saving DPI.
+        color (List[str]): Colors for base/target.
+        plot_mode (List[str]): Modes for base/target: 'line' or 'stem'.
+        mz_range (Tuple[float,float] | None): X-axis range.
+        intensity_range (Tuple[float,float] | None): Y-axis range.
+        metrics_box (bool): Whether to overlay metrics.
+        title_suffix (str | None): Title suffix.
+
+    Returns:
+        None
+    """
     # get two subplots
     _, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
 
