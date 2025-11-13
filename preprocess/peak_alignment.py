@@ -199,7 +199,7 @@ def get_reference_mz_axis2(
     return ref
 
 def peak_matching(
-        n_sample, #用于_estimate_mass_resolution
+        n_sample, # Used for _estimate_mass_resolution
         gap_to_tol_factor,
         ms_data: MS,
         reference_mz_axis: np.ndarray,
@@ -217,7 +217,7 @@ def peak_matching(
     For each pixel's centroid peak x, call the selected matching method to find the reference peak y within the tolerance.
     Then aggregate the intensity of that pixel's centroid peak x into the corresponding reference peak y, using the combiner method.
 
-    arg:
+    Args:
     - ms_data: MS object, containing sparse centroid peak tables for several pixels
     - reference_mz_axis: Reference m/z axis (strictly increasing array)
     - tolerance: Tolerance value; None to estimate a typical value based on the data (_get_tol)

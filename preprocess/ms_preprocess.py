@@ -119,14 +119,14 @@ class MSIPreprocessor():
             mz_res: Optional[float] = None,
             px_perc: float = 0.01,
             N_sample: Optional[int] = None,
-            smoothing_window: int = 10,
-            # parameters for paek alignment(intended for use in 'peak_matching')
+            smoothing_window: int = 11,
+            # parameters for peak alignment (intended for use in 'peak_matching')
             n_sample: int = 2000,
             gap_to_tol_factor: float = 0.5,
             combiner: str = 'max',
             unique: bool = False,
             match_method: str = 'diff',
-            # 输入与通用参数
+            # Input and common parameters
             ms_data: MS = None,
             reference_mz_axis: Optional[np.ndarray] = None,
             tolerance: Optional[float] = None,
