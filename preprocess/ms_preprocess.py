@@ -33,7 +33,7 @@ Author: MassFlow Development Team Bionet/NeoNexus lyk
 License: See LICENSE file in project root
 """
 
-from typing import Union
+from typing import Union,Optional
 import numpy as np
 from module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
 from logger import get_logger
@@ -311,7 +311,7 @@ class MSIPreprocessor:
     def noise_reduction_spectrum(
         data: Union[SpectrumBaseModule, SpectrumImzML],
         method: str = "ma",
-        window: int = 5,
+        window: int = 3,
         sd: float = None,
         sd_intensity: float = None,
         p: int = 2,
@@ -370,7 +370,7 @@ class MSIPreprocessor:
         nbins: int = 1,
         overlap: float = 0.2,
         method: str = "sd",
-        denoise_method: str = "bi_ns",
+        denoise_method: str = "gaussian",
         dynamic: bool = False,
     ):
         """

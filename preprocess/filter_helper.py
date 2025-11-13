@@ -251,8 +251,7 @@ def smooth_ns_signal_pre(
             "mz_list must be provided and match intensity length; using np.arange as fallback mz_list"
         )
         index = np.arange(len(intensity))
-    else:
-        logger.debug(f"using provided mz_list for neighborhood search with k={k} and p={p}\r\n{index[:5]}")
+
     from scipy.spatial import cKDTree
 
     tree = cKDTree(index.reshape(-1, 1))

@@ -324,6 +324,7 @@ def estimator(intensity: np.ndarray,
     else:
         #normal noise_estimation part
         noise_estimation = estimation_fun(residuals,method=method)
+        noise_estimation = max(noise_estimation,0.1)
 
     return noise_estimation
 

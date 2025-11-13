@@ -1,30 +1,39 @@
-from module.ms_data_manager_imzml import MSDataManagerImzML
 from module.ms_module import MS
 from preprocess.ms_preprocess import MSIPreprocessor
+from module.ms_data_manager_imzml import MSDataManagerImzML
 from tools.plot import plot_spectrum
 from logger import get_logger
 
 logger = get_logger("example")
 
+# Run examples when executing this file directly
 if __name__ == "__main__":
     FILE_PATH = "data/example.imzML"
     ms = MS()
     ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
     ms_md.load_full_data_from_file()
     ms_md.inspect_data()
-    sp = ms[0]
 
-    smoother = MSIPreprocessor.noise_reduction_spectrum(sp,method="bi_ns")
-    pickpeak = MSIPreprocessor.peak_pick_spectrum(smoother,return_type="area")
+    for i, spectrum in enumerate(ms):
+        denoised = MSIPreprocessor.noise_reduction_spectrum(spectrum,method="ma")
+        ms[i].mz_list = denoised.mz_list
+        ms[i].intensity = denoised.intensity
 
-    # denoised_2 = MSIPreprocessor.noise_reduction_spectrum(denoised,method="wavelet")
-    # Plotting
-    plot_spectrum(
-        base=sp,
-        target=pickpeak,
-        mz_range=(400, 420),
-        intensity_range=(-1, 15),
-        metrics_box=False,
-        overlay=True,
-        plot_mode=["line","stem"],
-    )
+    denoise_test = ms[0]
+    plot_spectrum(denoise_test,    
+                  mz_range=(500.0, 510.0),
+                  intensity_range=(0, 1.2),)
+
+    for i, spectrum in enumerate(ms):
+        peakpicked = MSIPreprocessor.peak_pick_spectrum(spectrum,relheight=0.001,)
+        ms[i].mz_list = peakpicked.mz_list
+        ms[i].intensity = peakpicked.intensity
+
+    peakpicked = ms[0]
+    plot_spectrum(peakpicked,
+                plot_mode=["stem"])
+
+    ms_ali = MSIPreprocessor.peak_alignment(ms_data=ms,ref_method='mean',combiner='max',round_digits=4,half_window=5,snr_threshold=10,match_method='dp')
+    spectrum_alit = ms_ali[0]
+    plot_spectrum(spectrum_alit,
+                  plot_mode=["stem"])
