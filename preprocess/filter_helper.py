@@ -10,9 +10,36 @@ from module.ms_module import SpectrumBaseModule
 
 logger = get_logger(__name__)
 
+def _input_validation(
+    intensity:np.ndarray,
+    index: Optional[np.ndarray] = None):
+    """
+    Validate input parameters for smoothing functions.
+    
+    Parameters:
+        intensity (np.ndarray): 1D intensity array to be preprocessed.
+        index (Optional[np.ndarray]): 1D index array (e.g., m/z values). If None, 
+            will be generated as np.arange(len(intensity)).
+    
+    Raises:
+        TypeError: If intensity is not a numpy array.
+        ValueError: If intensity is not 1D or empty.
+    """
+    # Validate intensity array
+    if intensity is None:
+        logger.error("intensity must be a numpy array")
+        raise TypeError("intensity must be a numpy array")
+
+    elif intensity.ndim != 1 or intensity.size == 0:
+        logger.error("intensity must be a non-empty 1D array")
+        raise ValueError("intensity must be a non-empty 1D array")
+
+    if index is not None and (index.ndim != 1 or index.size != intensity.size):
+        logger.error("index must be a 1D array with the same length as intensity")
+        raise ValueError("index must be a 1D array with the same length as intensity")
 
 def smooth_signal_ma(
-    x: SpectrumBaseModule,
+    intensity:np.ndarray,
     coef: Optional[np.ndarray] = None,
     window: int = 5,
 ):
@@ -20,7 +47,7 @@ def smooth_signal_ma(
     Apply moving-average (or arbitrary kernel) smoothing to a 1D spectrum.
 
     Parameters:
-        x (MSBaseModule): Spectrum with 1D `intensity` array and aligned `mz_list`.
+        intensity (np.ndarray): 1D intensity array to be preprocessed.
         coef (Optional[np.ndarray]): 1D convolution kernel. If None, uses a
             uniform kernel with length `window`.
         window (int): Window size used when `coef` is None. Must be > 0. If even,
@@ -33,11 +60,6 @@ def smooth_signal_ma(
     ValueError: If `window` <= 0 when `coef` is None.
     TypeError: If `intensity` is not a 1D numpy array.
     """
-    # Basic validation
-    intensity = x.intensity
-    if not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
-        logger.error("x.intensity must be a 1D numpy array ")
-        raise TypeError("x.intensity must be a 1D numpy array")
 
     # If weights not specified, use uniform weights (moving average)
     if coef is None:
@@ -62,33 +84,27 @@ def smooth_signal_ma(
     return y
 
 def smooth_signal_gaussian(
-    x: SpectrumBaseModule,
+    intensity:np.ndarray,
     sd: Optional[float] = None,
     window: int = 5,
 ):
     """
-    Apply Gaussian smoothing to a 1D spectrum using a discrete Gaussian kernel.
+    Gaussian smoothing for a 1D intensity array using a discrete kernel.
 
     Parameters:
-    x (MSBaseModule): Spectrum with 1D `intensity` array and aligned `mz_list`.
-        sd (Optional[float]): Standard deviation of the Gaussian. If None, it is
-            set to `window / 4.0` to give a reasonable spread.
-        window (int): Kernel window size (number of samples). Should be a
-            positive integer. If even, it is adjusted to the next odd integer to
-            preserve center alignment.
+        intensity (np.ndarray): 1D intensity array to be smoothed.
+        sd (Optional[float]): Standard deviation of the Gaussian. If None, set to
+            `window / 4.0` for a reasonable spread.
+        window (int): Kernel window size (number of samples). If even, it is
+            adjusted to the next odd integer to preserve center alignment.
 
     Returns:
         np.ndarray: Smoothed intensity array with the same length as the input.
 
     Raises:
-        ValueError: If `window` is not a positive integer.
-    TypeError: If `intensity` is not 1D.
+        ValueError: If `window` <= 0.
+        TypeError: If `intensity` is not a 1D array.
     """
-    intensity = x.intensity
-    if not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
-        raise TypeError("x.intensity must be a 1D numpy array")
-    if not isinstance(window, int) or window <= 0:
-        raise ValueError("window must be a positive integer")
 
     # Ensure window length is odd for symmetric kernel
     window = window + 1 - window % 2
@@ -109,10 +125,13 @@ def smooth_signal_gaussian(
         # Fallback to numpy-only implementation if SciPy is unavailable
         coef = np.exp(-0.5 * (positions / sd) ** 2)
 
-    return smooth_signal_ma(x, coef=coef)
+    return smooth_signal_ma(intensity, coef=coef)
 
 def smooth_signal_savgol(
-        x: SpectrumBaseModule, window: int = 5, polyorder: int = 2):
+        intensity:np.ndarray,
+        window: int = 5,
+        polyorder: int = 2
+):
     """
     Savitzky-Golay filter for signal smoothing.
     
@@ -120,7 +139,7 @@ def smooth_signal_savgol(
     with a low-degree polynomial by the method of linear least squares.
     
     Args:
-        x : np.ndarray
+        intensity : np.ndarray
             Input signal
         window : int
             Window size (must be odd and greater than polyorder)
@@ -146,21 +165,28 @@ def smooth_signal_savgol(
         polyorder = window - 1
 
     # Apply Savitzky-Golay filter
-    return savgol_filter(x.intensity, window, polyorder)
+    return savgol_filter(intensity, window, polyorder)
 
 def smooth_signal_wavelet(
-        x: SpectrumBaseModule, 
-        wavelet: str = 'db4', 
-        threshold_mode: str = 'soft'):
-
+        intensity:np.ndarray,
+        wavelet: str = 'db4',
+        threshold_mode: str = 'soft'
+):
     """
-    Wavelet denoising for signal smoothing.
-    """
+    Wavelet-based denoising for 1D intensity smoothing.
 
+    Parameters:
+        intensity (np.ndarray): 1D intensity array to be denoised.
+        wavelet (str): Wavelet family (e.g., 'db4', 'haar').
+        threshold_mode (str): Thresholding mode, 'soft' or 'hard'.
+
+    Returns:
+        np.ndarray: Denoised intensity array with the same length as input.
+
+    Raises:
+        ImportError: If `pywt` is not available.
+    """
     import pywt
-
-    # Ensure writable, contiguous array
-    intensity = x.intensity.copy()
     original_length = len(intensity)
 
     # Perform wavelet decomposition
@@ -191,19 +217,19 @@ def smooth_signal_wavelet(
     return reconstructed
 
 def smooth_ns_signal_pre(
-    x: SpectrumBaseModule,
+    intensity:np.ndarray,
+    index:np.ndarray,
     k: int = 5,
     p: int = 1,
 ):
     """
-    Prepare neighborhood search (kNN on m/z) for NS-based smoothing.
+    Prepare neighborhood search (kNN over `index`) for NS-based smoothing.
 
     Parameters:
-        x (MSBaseModule): Input MSI spectrum object. Must provide 1D `intensity`
-            and optional `mz_list` aligned to the same length.
+        intensity (np.ndarray): Input 1D intensity array.
+        index (np.ndarray): 1D coordinate array aligned with `intensity` (e.g., m/z).
         k (int): Number of nearest neighbors used for smoothing. Must be >= 1.
         p (int): Minkowski metric parameter for KD-tree query. Must be >= 1.
-            (Weights are applied in subsequent functions.)
 
     Returns:
         Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -212,37 +238,30 @@ def smooth_ns_signal_pre(
             - idxs: shape (N, k) neighbor indices
 
     Raises:
-        ValueError: If `k` or `p` is not a positive integer.
-    TypeError: If `x.intensity` is not a 1D numpy array.
+        ValueError: If `k` or `p` is not positive.
+        ValueError: If `index` is None or length mismatches `intensity` (fallback applied).
     """
-
-    intensity = x.intensity
-    mz_list = x.mz_list
-
-    # Basic validation
-    if not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
-        logger.error("x.intensity must be a 1D numpy array")
-        raise TypeError("x.intensity must be a 1D numpy array")
 
     if k < 1 or p < 1:
         logger.error("k and p must be positive integers")
         raise ValueError("k and p must be positive integers")
 
-    if mz_list is None or len(mz_list) != len(intensity):
+    if index is None or len(index) != len(intensity):
         logger.warning(
             "mz_list must be provided and match intensity length; using np.arange as fallback mz_list"
         )
-        mz_list = np.arange(len(intensity))
-
+        index = np.arange(len(intensity))
+    else:
+        logger.debug(f"using provided mz_list for neighborhood search with k={k} and p={p}\r\n{index[:5]}")
     from scipy.spatial import cKDTree
 
-    tree = cKDTree(mz_list.reshape(-1, 1))
+    tree = cKDTree(index.reshape(-1, 1))
 
     if len(intensity) < k:
         logger.warning("spectrum length must be greater than k")
         k = len(intensity)
 
-    dists, idxs = tree.query(mz_list.reshape(-1, 1), k=k, p=p)
+    dists, idxs = tree.query(index.reshape(-1, 1), k=k, p=p)
 
     # Ensure idxs is (N, k) for consistent neighbor aggregation
     if np.ndim(idxs) == 1:
@@ -268,7 +287,8 @@ def smooth_ns_signal_pre(
 def smooth_ns_signal_calculate(
     neigh_intensity: np.ndarray,
     weights: np.ndarray,
-    axis: int = 1):
+    axis: int = 1
+):
     """
     Calculate the smoothed intensity using the given neighborhood intensity and weights.
 
@@ -284,28 +304,27 @@ def smooth_ns_signal_calculate(
     return np.sum(neigh_intensity * weights, axis=axis)
 
 def smooth_ns_signal_ma(
-    x: SpectrumBaseModule,
+    intensity:np.ndarray,
+    index:np.ndarray,
     k: int = 5,
     p: int = 1,
 ):
     """
-    Apply moving-average smoothing with neighborhood search and noise suppression.
+    Moving-average smoothing with neighborhood search and row-wise normalization.
 
     Parameters:
-        x (MSBaseModule): Input MSI spectrum object. Must provide 1D `intensity`
-            and optional `mz_list` aligned to the same length.
-        k (int): Number of nearest neighbors used for smoothing. Must be >= 1.
+        intensity (np.ndarray): Input 1D intensity array.
+        index (np.ndarray): 1D coordinate array aligned with `intensity`.
+        k (int): Number of neighbors. Must be >= 1.
         p (int): Minkowski metric parameter for KD-tree query. Must be >= 1.
 
     Returns:
-        np.ndarray: Smoothed intensity array with shape (N,), where N is the
-            length of `intensity`.
+        np.ndarray: Smoothed intensity array of shape (N,).
 
     Raises:
-        ValueError: If `k` or `p` is not a positive integer.
-        TypeError: If `x.intensity` is not a 1D numpy array.
+        ValueError: If `k` or `p` is not positive.
     """
-    neigh_intensity, _, _ = smooth_ns_signal_pre(x, k=k, p=p)
+    neigh_intensity, _, _ = smooth_ns_signal_pre(intensity, index, k=k, p=p)
     weights = np.ones(k, dtype=float)
     weights = weights / np.sum(weights)
     smoothed_intensity = smooth_ns_signal_calculate(neigh_intensity, weights, axis=1)
@@ -313,16 +332,30 @@ def smooth_ns_signal_ma(
     return smoothed_intensity
 
 def smooth_ns_signal_gaussian(
-    x: SpectrumBaseModule,
+    intensity:np.ndarray,
+    index:np.ndarray,
     k: int = 5,
     p: int = 1,
     sd: float = None,
 ):
     """
-    Apply Gaussian smoothing with neighborhood search and noise suppression.
+    Gaussian-weighted neighborhood smoothing with distance-based weights.
+
+    Parameters:
+        intensity (np.ndarray): Input 1D intensity array.
+        index (np.ndarray): 1D coordinate array aligned with `intensity`.
+        k (int): Number of neighbors. Must be >= 1.
+        p (int): Minkowski metric parameter for KD-tree query. Must be >= 1.
+        sd (float, optional): Gaussian scale over neighbor distances; auto-estimated if None.
+
+    Returns:
+        np.ndarray: Smoothed intensity array of shape (N,).
+
+    Raises:
+        ValueError: If `k` or `p` is not positive.
     """
 
-    neigh_intensity, dists, _ = smooth_ns_signal_pre(x, k=k, p=p)
+    neigh_intensity, dists, _ = smooth_ns_signal_pre(intensity, index, k=k, p=p)
 
     if len(dists.shape)<2:
         dists = dists.reshape(-1,1)
@@ -345,17 +378,31 @@ def smooth_ns_signal_gaussian(
     return smoothed_intensity
 
 def smooth_ns_signal_bi(
-    x: SpectrumBaseModule,
+    intensity:np.ndarray,
+    index:np.ndarray,
     k: int = 5,
     p: int = 2,
     sd_dist: float = None,
     sd_intensity: float = None
 ):
     """
-    Apply Bilateral Gaussian smoothing with neighborhood search and noise suppression.
+    Bilateral Gaussian smoothing combining spatial and intensity similarity.
+
+    Parameters:
+        intensity (np.ndarray): Input 1D intensity array.
+        index (np.ndarray): 1D coordinate array aligned with `intensity`.
+        k (int): Number of neighbors. Must be >= 1.
+        p (int): Minkowski metric for KD-tree queries (distance).
+        sd_dist (float, optional): Spatial Gaussian scale over neighbor distances.
+        sd_intensity (float, optional): Intensity Gaussian scale; MAD-based if None.
+
+    Returns:
+        np.ndarray: Smoothed intensity array of shape (N,).
+
+    Raises:
+        ValueError: If `k` or `p` is not positive.
     """
-    intensity = x.intensity
-    neigh_intensity, dists, _ = smooth_ns_signal_pre(x, k=k, p=p)
+    neigh_intensity, dists, _ = smooth_ns_signal_pre(intensity, index, k=k, p=p)
 
     if len(dists.shape)<2:
         dists = dists.reshape(-1,1)
@@ -394,7 +441,14 @@ def smooth_ns_signal_bi(
     return smoothed_intensity
 
 def smooth_preprocess(data:SpectrumBaseModule):
-    """ A general preprocess pipeline for MS data smoothing
+    """
+    Basic preprocessing pipeline for MS data smoothing.
+
+    Parameters:
+        data (SpectrumBaseModule): Spectrum object whose `intensity` will be sanitized.
+
+    Returns:
+        SpectrumBaseModule: The same object with non-negative intensity values.
     """
     intensity = data.intensity.copy()
     data.intensity = None # clear intensity to avoid confusion
@@ -402,3 +456,60 @@ def smooth_preprocess(data:SpectrumBaseModule):
 
     data.intensity = intensity
     return data
+
+def smoother(intensity:np.ndarray,
+            index:Optional[np.ndarray]=None,
+            method: str = "ma",
+            window: int = 5,
+            sd: float = None,
+            sd_intensity: float = None,
+            p: int = 2,
+            coef: np.ndarray = None,
+            polyorder: int = 2,
+            wavelet: str = 'db4',
+            threshold_mode: str = 'soft'):
+
+    """
+    Unified smoothing entry for multiple methods.
+
+    Parameters:
+        intensity (np.ndarray): 1D intensity array.
+        index (Optional[np.ndarray]): 1D coordinate array aligned with `intensity` for NS methods.
+        method (str): One of {'ma','gaussian','savgol','wavelet','ma_ns','gaussian_ns','bi_ns'}.
+        window (int): Window size or neighbor count depending on method.
+        sd (float, optional): Gaussian scale parameter for relevant methods.
+        sd_intensity (float, optional): Intensity scale for bilateral method.
+        p (int): Minkowski metric for NS queries.
+        coef (np.ndarray, optional): Custom kernel for moving-average.
+        polyorder (int): Polynomial order for Savitzky-Golay.
+        wavelet (str): Wavelet family for wavelet denoising.
+        threshold_mode (str): 'soft' or 'hard' for wavelet thresholding.
+
+    Returns:
+        np.ndarray: Smoothed intensity array.
+
+    Raises:
+        ValueError: If `method` is unsupported or invalid parameter combinations are provided.
+    """
+    # # Basic validation
+    _input_validation(intensity)
+
+    # Choose smoothing method
+    if method == "ma":
+        return  smooth_signal_ma(intensity, coef=coef, window=window)
+    elif method == "gaussian":
+        return  smooth_signal_gaussian(intensity, sd=sd, window=window)
+    elif method == "ma_ns":
+        return  smooth_ns_signal_ma(intensity,index=index, p=p, k=window)
+    elif method == "savgol":
+        return smooth_signal_savgol(intensity, window=window, polyorder=polyorder)
+    elif method == "wavelet":
+        return smooth_signal_wavelet(intensity, wavelet=wavelet, threshold_mode=threshold_mode)
+    elif method == "gaussian_ns":
+        return smooth_ns_signal_gaussian(intensity,index=index, sd=sd,p=p,k=window)
+    elif method == "bi_ns":
+        return smooth_ns_signal_bi(intensity,index=index, sd_dist=sd, sd_intensity=sd_intensity, p=p,k=window)
+    else:
+        supported = "ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns"
+        logger.error(f"Unsupported smoothing method: {method}. Use one of: {supported}.")
+        raise ValueError(f"Unknown smoothing method: {method}")

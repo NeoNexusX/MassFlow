@@ -4,12 +4,29 @@ License: See LICENSE file in project root
 
 Noise estimation utilities.
 """
+from typing import Optional
 import numpy as np
 from scipy import stats
-
+from scipy.interpolate import InterpolatedUnivariateSpline
+from preprocess.filter_helper import smoother
 from logger import get_logger
 
 logger = get_logger(__name__)
+
+def _input_validation(intensity,index,nbins,overlap):
+
+    if intensity is None or intensity.ndim != 1:
+        logger.error("x.intensity must be a 1D numpy array")
+        raise TypeError("x.intensity must be a 1D numpy array")
+    if index is not None and (index.ndim !=1 or len(index)!=len(intensity)):
+        logger.error("index must be a 1D numpy array of the same length as intensity")
+        raise TypeError("index must be a 1D numpy array of the same length as intensity")
+    if nbins < 1:
+        logger.error("nbins must be >= 1")
+        raise ValueError("nbins must be >= 1")
+    if overlap > 1 or overlap <0:
+        logger.error("overlap must be in [0,1]")
+        raise ValueError("overlap must be in [0,1]")
 
 
 def _linear_sse(data: np.ndarray, i: int, j: int) -> float:
@@ -250,31 +267,80 @@ def _findbins(data: np.ndarray,
         return bins, meta
 
 
-def estimation_fun(method: str = 'sd'):
-    """Return a callable for noise estimation from a vector.
-
-    Supported methods:
-    - 'sd': Standard deviation (``np.nanstd``).
-    - 'mad': Median absolute deviation (``scipy.stats.median_abs_deviation``).
-    - 'quantile': Quantile estimator (``np.nanquantile``; requires extra params externally).
-    - 'diff': Mean absolute deviation from mean (custom lambda over NaNs).
-
-    Args:
-        method (str): Estimation method key.
-
-    Returns:
-        Callable[[np.ndarray], float]: Function that maps a vector to a scalar noise estimate.
-
-    Raises:
-        ValueError: If an unknown ``method`` is provided.
+def estimation_fun(data,method: str = 'sd'):
     """
+    Return a callable for noise estimation from a vector.
+    """
+
     if method == 'sd':
-        return np.nanstd
+        return np.nanstd(data)
     elif method == 'mad':
-        return stats.median_abs_deviation
+        return stats.median_abs_deviation(data)
     elif method == 'quantile':
-        return np.nanquantile
+        return np.nanquantile(data,0.95)
     elif method == 'diff':
-        return lambda x: np.nanmean(np.abs(x - np.nanmean(x)))
+        return np.nanmean(np.abs(data - np.nanmean(data)))
     else:
         raise ValueError(f"Unknown noise estimation method: {method}")
+
+
+def estimator(intensity: np.ndarray,
+              indexes: np.ndarray,
+              nbins: int = 1,
+              overlap: float = 0.5,
+              dynamic: bool = False,
+              method: str = 'sd',
+              denoise_method: str = 'bi_ns'
+    ):
+    """
+    Estimate noise level in the MSI data.
+    """
+    #basic input validation
+    _input_validation(intensity,indexes,nbins,overlap)
+
+    # Smooth signal (neighborhood-search Gaussian) and compute absolute residuals
+    smoothed = smoother(intensity,indexes,method=denoise_method)
+
+    residuals = np.abs(smoothed - intensity)
+
+    #find bins
+    if nbins > 1:
+        bins, meta = _findbins(residuals, nbins=nbins, overlap=overlap,dynamic=dynamic)
+        lower = meta["lower"].astype(int)
+        upper = meta["upper"].astype(int)
+
+        #core location
+        midpoints = (lower + upper) // 2
+
+        #noise_estimation for all bins
+        noise_estimations = []
+        for bin_data in bins:
+            noise_estimations.append(estimation_fun(bin_data,method=method))
+
+        #spline for noise line
+        rank_spline = int(max(1, min(3, len(midpoints) - 1))) #此处要验证
+        spline_fn = InterpolatedUnivariateSpline(midpoints, noise_estimations, k=rank_spline)
+        noise_estimation = spline_fn(np.arange(len(residuals), dtype=float))
+    else:
+        #normal noise_estimation part
+        noise_estimation = estimation_fun(residuals,method=method)
+
+    return noise_estimation
+
+
+def calculate_snr(intensity: np.ndarray,
+                  indexes: Optional[np.ndarray] = None,
+                  method="mad",
+                  denoise_method: str = "bi_ns",):
+    """
+    pass
+    """
+    signal_level = np.percentile(intensity, 95)
+
+    noise = estimator(intensity,
+                      indexes,
+                      method=method,
+                      denoise_method=denoise_method)
+
+    logger.info(f"SNR: signal_level:{signal_level}, noise:{noise}")
+    return signal_level / noise
