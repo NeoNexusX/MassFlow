@@ -204,7 +204,6 @@ def compute_peak_areas(intensity: np.ndarray,
         xr = _interp(index, rf)
         yl = _interp(intensity, lf)
         yr = _interp(intensity, rf)
-        logger.debug(f"li={lf},ri={rf},peak={peaks[k]}")
         li = int(np.ceil(lf))
         ri = int(np.floor(rf))
         xs = [xl]
@@ -213,7 +212,6 @@ def compute_peak_areas(intensity: np.ndarray,
         #add points between lf and rf
         if ri >= li:
             xs.extend(index[li:ri + 1].tolist())
-            logger.debug(f"intensity[li:ri + 1]={intensity[li:ri + 1]}")
             ys.extend(intensity[li:ri + 1].tolist())
 
         xs.append(xr)
@@ -222,5 +220,4 @@ def compute_peak_areas(intensity: np.ndarray,
         ys = np.asarray(ys, dtype=float)
 
         areas[k] = float(simpson(ys, xs))
-        logger.debug(f"xs={xs}\r\nys={ys},area={areas[k]}")
     return areas

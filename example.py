@@ -20,20 +20,13 @@ if __name__ == "__main__":
         ms[i].intensity = denoised.intensity
 
     denoise_test = ms[0]
-    plot_spectrum(denoise_test,    
+    plot_spectrum(denoise_test,
                   mz_range=(500.0, 510.0),
                   intensity_range=(0, 1.2),)
 
-    for i, spectrum in enumerate(ms):
-        peakpicked = MSIPreprocessor.peak_pick_spectrum(spectrum,relheight=0.001,)
-        ms[i].mz_list = peakpicked.mz_list
-        ms[i].intensity = peakpicked.intensity
+    peakpicked = MSIPreprocessor.peak_pick_spectrum(denoise_test,relheight=0.001,return_type="area")
 
-    peakpicked = ms[0]
-    plot_spectrum(peakpicked,
-                plot_mode=["stem"])
-
-    ms_ali = MSIPreprocessor.peak_alignment(ms_data=ms,ref_method='mean',combiner='max',round_digits=4,half_window=5,snr_threshold=10,match_method='dp')
-    spectrum_alit = ms_ali[0]
-    plot_spectrum(spectrum_alit,
-                  plot_mode=["stem"])
+    plot_spectrum(denoise_test,
+                  peakpicked,
+                  plot_mode=["line","stem"],
+                  overlay=True)
