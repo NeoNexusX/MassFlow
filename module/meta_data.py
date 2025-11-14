@@ -4,17 +4,14 @@ Author: MassFlow Development Team Bionet/dre,NeoNeuxs
 License: See LICENSE file in project root
 """
 import os
-from pyimzml.metadata import ParamGroup
+import numpy as np
 from pyimzml.ImzMLParser import ImzMLParser
 from logger import get_logger
-
 logger = get_logger("meta_data")
 
 meta_index = {
     "IMS:1000042": "max_count_of_pixels_x", # Image width (pixel count)
     "IMS:1000043": "max_count_of_pixels_y",# Image height (pixel count)
-    "IMS:1000044": "max_dimension_x",# Image width (physical size, µm)
-    "IMS:1000045": "max_dimension_y",# Image height (physical size, µm)
     "IMS:1000046": "pixel_size_x",# Pixel width (µm)
     "IMS:1000047": "pixel_size_y",# Pixel height (µm)
     "IMS:1000053": "absolute_position_offset_x",# X-axis position offset
@@ -25,9 +22,10 @@ meta_index = {
     "MS:1000128": "profile_spectrum",# Mass spectrum in profile mode
     "MS:1000579": "ms1_spectrum",# MS1 spectrum
     "MS:1000580": "msn_spectrum"# MSn spectrum
+
 }
 
-class MetaDataBase:
+class MetaDataFileBase:
     """
     Abstract base class for MSI data models.
 
@@ -38,29 +36,61 @@ class MetaDataBase:
     to the metadata dictionary via property setters.
     """
 
-    def __init__(self, name, version=None, mz_num=None, storage_mode='split'):
+    def __init__(self,
+                name: str = "default",
+                version: float = 1.0,
+                storage_mode: str = 'split',
+                max_count_of_pixels_x: int = None,
+                max_count_of_pixels_y: int = None,
+                pixel_size_x: float = None,
+                pixel_size_y: float = None,
+                mask = None):
 
         self._meta = {}
         # Initialize all metadata fields via properties to trigger auto-sync
         self._name = None
         self._version = None
-        self._mz_num = None
         self._storage_mode = None
         self._meta_index = None
+        self._max_count_of_pixels_x = 0
+        self._max_count_of_pixels_y = 0
+        self._pixel_size_x = None
+        self._pixel_size_y = None
+        self._processed = None
+        self._centroid_spectrum = None
+        self._profile_spectrum = None
+        self._peakpick = None
+        self._mask = None
 
         #set actual values through properties
         self.name = name
         self.version = version
-        self.mz_num = mz_num
         self.storage_mode = storage_mode
         self.meta_index = meta_index
+        self.max_count_of_pixels_x = max_count_of_pixels_x
+        self.max_count_of_pixels_y = max_count_of_pixels_y
+        self.pixel_size_x = pixel_size_x
+        self.pixel_size_y = pixel_size_y
+        self.mask = mask
 
     def _set(self, key, value):
         self._meta[key] = value
 
+    @property
+    def mask(self):
+        """Return the mask of the data model."""
+        return self._mask
+
+    @mask.setter
+    def mask(self, mask: np.ndarray):
+        """Set the mask of the data model."""
+        if mask is not None and len(mask.shape) == 2:
+            self._mask = mask
+            self._set('mask', mask)
     #Metadata properties with auto-sync
     @property
     def name(self):
+        """Return the name of the data model."""
         return self._name
 
     @name.setter
@@ -71,6 +101,7 @@ class MetaDataBase:
 
     @property
     def version(self):
+        """Return the version of the data model."""
         return self._version
 
     @version.setter
@@ -81,17 +112,8 @@ class MetaDataBase:
             self._set('version', version)
 
     @property
-    def mz_num(self):
-        return self._mz_num
-
-    @mz_num.setter
-    def mz_num(self, mz_num):
-        if mz_num is not None:
-            self._mz_num = int(mz_num)
-            self._set('mz_num', self._mz_num)
-
-    @property
     def storage_mode(self):
+        """Return the storage mode of the data model."""
         return self._storage_mode
 
     @storage_mode.setter
@@ -99,6 +121,98 @@ class MetaDataBase:
         if mode is not None:
             self._storage_mode = mode
             self._set('storage_mode', self._storage_mode)
+
+    @property
+    def max_count_of_pixels_x(self):
+        """Return the pixel count along the X axis."""
+        return self._max_count_of_pixels_x
+
+    @max_count_of_pixels_x.setter
+    def max_count_of_pixels_x(self, max_count_of_pixels_x):
+        """Set the pixel count along the X axis."""
+        if max_count_of_pixels_x is not None:
+            self._max_count_of_pixels_x = max_count_of_pixels_x
+            self._set('max_count_of_pixels_x', max_count_of_pixels_x)
+
+    @property
+    def max_count_of_pixels_y(self):
+        """Return the pixel count along the Y axis."""
+        return self._max_count_of_pixels_y
+
+    @max_count_of_pixels_y.setter
+    def max_count_of_pixels_y(self, max_count_of_pixels_y):
+        """Set the pixel count along the Y axis."""
+        if max_count_of_pixels_y is not None:
+            self._max_count_of_pixels_y = max_count_of_pixels_y
+            self._set('max_count_of_pixels_y', max_count_of_pixels_y)
+
+    @property
+    def pixel_size_x(self):
+        """Return the pixel size along the X axis."""
+        return self._pixel_size_x
+
+    @pixel_size_x.setter
+    def pixel_size_x(self, pixel_size_x):
+        """Set the pixel size along the X axis."""
+        if pixel_size_x is not None:
+            self._pixel_size_x = pixel_size_x
+            self._set('pixel_size_x', pixel_size_x)
+
+    @property
+    def pixel_size_y(self):
+        """Return the pixel size along the Y axis."""
+        return self._pixel_size_y
+
+    @pixel_size_y.setter
+    def pixel_size_y(self, pixel_size_y):
+        """Set the pixel size along the Y axis."""
+        if pixel_size_y is not None:
+            self._pixel_size_y = pixel_size_y
+            self._set('pixel_size_y', pixel_size_y)
+
+    @property
+    def processed(self):
+        """Return whether the data has been processed."""
+        return self._processed
+
+    @processed.setter
+    def processed(self, processed):
+        """Set whether the data has been processed."""
+        self._processed = processed
+        self._set('processed', processed)
+
+    @property
+    def peakpick(self):
+        """Return whether peak picking has been performed."""
+        return self._peakpick
+
+    @peakpick.setter
+    def peakpick(self, peakpick):
+        """Set whether peak picking has been performed."""
+        self._peakpick = peakpick
+        self._set('peakpick', peakpick)
+
+    @property
+    def centroid_spectrum(self):
+        """Return whether centroid spectra are present."""
+        return self._centroid_spectrum
+
+    @centroid_spectrum.setter
+    def centroid_spectrum(self, centroid_spectrum):
+        """Set whether centroid spectra are present."""
+        self._centroid_spectrum = centroid_spectrum
+        self._set('centroid_spectrum', centroid_spectrum)
+
+    @property
+    def profile_spectrum(self):
+        """Return whether profile spectra are present."""
+        return self._profile_spectrum
+
+    @profile_spectrum.setter
+    def profile_spectrum(self, profile_spectrum):
+        """Set whether profile spectra are present."""
+        self._profile_spectrum = profile_spectrum
+        self._set('profile_spectrum', profile_spectrum)
 
     def __getitem__(self, key):
         return self._meta[key]
@@ -126,46 +240,172 @@ class MetaDataBase:
 
     @property
     def meta_index(self):
+        """Return the meta index dictionary."""
         return self._meta_index
 
     @meta_index.setter
-    def meta_index(self, meta_index):
-        if meta_index is not None:
-            if not isinstance(meta_index, dict):
+    def meta_index(self, meta_index_data):
+        if meta_index_data is not None:
+            if not isinstance(meta_index_data, dict):
+                logger.error("meta_index must be a dict")
                 raise TypeError("meta_index must be a dict")
-            self._meta_index = meta_index
+            self._meta_index = meta_index_data
 
+    def update_meta(self):
+        """Update the meta index with new entries."""
+        for meta_key in self._meta:
+            self._meta[meta_key] = getattr(self, meta_key, None)
 
-class MetaDataImzMl(MetaDataBase):
-    """ImzML metadata wrapper that loads and caches frequently used fields."""
+class MSIMetaData(MetaDataFileBase):
+    """
+    Metadata class for MSI image-matrix data.
+
+    Extends MetaDataBase with two commonly used fields:
+    - `mask`: the spatial mask of the sample (2D array or similar)
+    - `need_base_mask`: whether to generate a base mask from intensity
+
+    All fields are synchronized into the internal `_meta` dict via property setters.
+    """
     def __init__(self,
-                 name="MSI",
+                 mask=None,
+                 need_base_mask: bool = False,
+                 name: str = "default",
+                 version: float = 1.0,
+                 storage_mode: str = 'split',
+                 max_count_of_pixels_x: int = None,
+                 max_count_of_pixels_y: int = None,
+                 pixel_size_x: float = None,
+                 pixel_size_y: float = None,
+                 mz_num: int = None):
+        """
+        Initialize MSI metadata instance.
+
+        Parameters:
+            name (str): Dataset name.
+            version (float): Metadata version, must be > 0.
+            storage_mode (str): Storage mode, e.g., 'split' or 'merge'.
+            max_count_of_pixels_x (int): Pixel count along the X axis.
+            max_count_of_pixels_y (int): Pixel count along the Y axis.
+            pixel_size_x (float): Pixel size along the X axis.
+            pixel_size_y (float): Pixel size along the Y axis.
+            mask (Any): Spatial 2D mask used to define image dimensions.
+            need_base_mask (bool): Whether base mask generation is required.
+
+        Returns:
+            None
+
+        Raises:
+            AssertionError: If `version` is not positive (checked in base class).
+        """
+        super().__init__(name=name,
+                         version=version,
+                         storage_mode=storage_mode,
+                         max_count_of_pixels_x=max_count_of_pixels_x,
+                         max_count_of_pixels_y=max_count_of_pixels_y,
+                         pixel_size_x=pixel_size_x,
+                         pixel_size_y=pixel_size_y,
+                         mask=mask)
+
+        self._need_base_mask = None
+        self._mz_num = None
+
+
+        # Set actual values through properties to sync into `_meta`
+        self.need_base_mask = need_base_mask
+        self.mz_num = mz_num
+
+    @property
+    def need_base_mask(self):
+        """
+        Get the flag indicating whether to generate a base mask.
+
+        Returns:
+            bool|None: The current flag value.
+        """
+        return self._need_base_mask
+
+    @need_base_mask.setter
+    def need_base_mask(self, need_base_mask: bool):
+        """
+        Set the flag indicating whether to generate a base mask.
+
+        Parameters:
+            need_base_mask (bool): True to enable base mask generation.
+
+        Returns:
+            None
+        """
+        if need_base_mask is not None:
+            self._need_base_mask = bool(need_base_mask)
+            self._set('need_base_mask', self._need_base_mask)
+
+    @property
+    def mz_num(self):
+        """
+        Get the number of m/z values.
+
+        Returns:
+            int|None: The current number of m/z values.
+        """
+        return self._mz_num
+
+    @mz_num.setter
+    def mz_num(self, mz_num: int):
+        """
+        Set the number of m/z values.
+
+        Parameters:
+            mz_num (int): The number of m/z values.
+
+        Returns:
+            None
+        """
+        if mz_num is not None:
+            self._mz_num = int(mz_num)
+            self._set('mz_num', self._mz_num)
+
+class ImzMlMetaData(MetaDataFileBase):
+
+    """ImzML metadata wrapper that loads and caches frequently used fields."""
+
+    def __init__(self,
+                 name="ImzML",
                  version=1.0,
-                 mz_num=None,
                  storage_mode='split',
                  parser: ImzMLParser = None,
-                 filepath: str = None
-                 ):
+                 filepath = None,
+                 absolute_position_offset_x = None,
+                 absolute_position_offset_y = None,
+                 centroid_spectrum = None,
+                 profile_spectrum = None,
+                 ms1_spectrum = None,
+                 msn_spectrum = None,
+                 instrument_model = None,
+                 spectrum_count_num = None,
+                 min_pixel_x = None,
+                 min_pixel_y = None,
+                 mask = None,
+                 pixel_size_x=None,
+                 pixel_size_y=None,
+                 max_count_of_pixels_x=None,
+                 max_count_of_pixels_y=None,
+                 coordinates_zero_based: bool = True):
+
         """Initialize the metadata object with either a parser or a file path."""
-        super().__init__(name, version, mz_num, storage_mode)
+        super().__init__(name=name, version=version, storage_mode=storage_mode, 
+                         mask=mask,pixel_size_x=pixel_size_x,pixel_size_y=pixel_size_y,
+                         max_count_of_pixels_x=max_count_of_pixels_x,max_count_of_pixels_y=max_count_of_pixels_y)
 
         self._filepath = None
         self._parser = None
         self._spectrum_count_num = None
-        self._max_count_of_pixels_x = None
-        self._max_count_of_pixels_y = None
-        self._max_dimension_x = None
-        self._max_dimension_y = None
-        self._pixel_size_x = None
-        self._pixel_size_y = None
         self._absolute_position_offset_x = None
         self._absolute_position_offset_y = None
-        self._processed = None
         self._instrument_model = None
-        self._centroid_spectrum = None
-        self._profile_spectrum = None
         self._ms1_spectrum = None
         self._msn_spectrum = None
+        self._min_pixel_x = 9999
+        self._min_pixel_y = 9999
 
         # Set actual value through property
         if parser is not None:
@@ -173,11 +413,21 @@ class MetaDataImzMl(MetaDataBase):
         elif filepath is not None:
             self.filepath = filepath
         else:
+            logger.error("Either parser or filepath must be provided")
             raise ValueError("Either parser or filepath must be provided")
 
-        if self.parser is not None:
-            self.spectrum_count_num = len(self.parser.coordinates)
-            self.extract_metadata()  # Use pyimzml.ImzMLParser to retrieve metadata
+        self.absolute_position_offset_x = absolute_position_offset_x
+        self.absolute_position_offset_y = absolute_position_offset_y
+        self.centroid_spectrum = centroid_spectrum
+        self.profile_spectrum = profile_spectrum
+        self.ms1_spectrum = ms1_spectrum
+        self.msn_spectrum = msn_spectrum
+        self.instrument_model = instrument_model
+        self.spectrum_count_num = spectrum_count_num
+        self.min_pixel_x = min_pixel_x
+        self.min_pixel_y = min_pixel_y
+        self.coordinates_zero_based = coordinates_zero_based
+
 
     @property
     def filepath(self):
@@ -201,9 +451,8 @@ class MetaDataImzMl(MetaDataBase):
     @parser.setter
     def parser(self, parser: ImzMLParser):
         """Set the pyimzML parser instance."""
-        if parser is not None and not isinstance(parser, ImzMLParser):
-            raise TypeError("parser must be an instance of pyimzML.ImzMLParser or None")
-        self._parser = parser
+        if parser is not None:
+            self._parser = parser
 
     @property
     def spectrum_count_num(self):
@@ -213,76 +462,9 @@ class MetaDataImzMl(MetaDataBase):
     @spectrum_count_num.setter
     def spectrum_count_num(self, spectrum_count_num: int):
         """Persist the number of spectra and sync it to the base storage."""
-        self._spectrum_count_num = spectrum_count_num
-        self._set('spectrum_count_num', spectrum_count_num)
-
-    @property
-    def max_count_of_pixels_x(self):
-        """Return the pixel count along the X axis."""
-        return self._max_count_of_pixels_x
-
-    @max_count_of_pixels_x.setter
-    def max_count_of_pixels_x(self, max_count_of_pixels_x):
-        """Set the pixel count along the X axis."""
-        if max_count_of_pixels_x is not None:
-            self._max_count_of_pixels_x = max_count_of_pixels_x
-            self._set('max_count_of_pixels_x', max_count_of_pixels_x)
-
-    @property
-    def max_count_of_pixels_y(self):
-        """Return the pixel count along the Y axis."""
-        return self._max_count_of_pixels_y
-
-    @max_count_of_pixels_y.setter
-    def max_count_of_pixels_y(self, max_count_of_pixels_y):
-        """Set the pixel count along the Y axis."""
-        if max_count_of_pixels_y is not None:
-            self._max_count_of_pixels_y = max_count_of_pixels_y
-            self._set('max_count_of_pixels_y', max_count_of_pixels_y)
-
-    @property
-    def max_dimension_x(self):
-        """Return the physical dimension along the X axis."""
-        return self._max_dimension_x
-
-    @max_dimension_x.setter
-    def max_dimension_x(self, max_dimension_x):
-        """Set the physical dimension along the X axis."""
-        self._max_dimension_x = max_dimension_x
-        self._set('max_dimension_x', max_dimension_x)
-
-    @property
-    def max_dimension_y(self):
-        """Return the physical dimension along the Y axis."""
-        return self._max_dimension_y
-
-    @max_dimension_y.setter
-    def max_dimension_y(self, max_dimension_y):
-        """Set the physical dimension along the Y axis."""
-        self._max_dimension_y = max_dimension_y
-        self._set('max_dimension_y', max_dimension_y)
-
-    @property
-    def pixel_size_x(self):
-        """Return the pixel size along the X axis."""
-        return self._pixel_size_x
-
-    @pixel_size_x.setter
-    def pixel_size_x(self, pixel_size_x):
-        """Set the pixel size along the X axis."""
-        self._pixel_size_x = pixel_size_x
-        self._set('pixel_size_x', pixel_size_x)
-
-    @property
-    def pixel_size_y(self):
-        """Return the pixel size along the Y axis."""
-        return self._pixel_size_y
-
-    @pixel_size_y.setter
-    def pixel_size_y(self, pixel_size_y):
-        """Set the pixel size along the Y axis."""
-        self._pixel_size_y = pixel_size_y
-        self._set('pixel_size_y', pixel_size_y)
+        if spectrum_count_num is not None:
+            self._spectrum_count_num = spectrum_count_num
+            self._set('spectrum_count_num', spectrum_count_num)
 
     @property
     def absolute_position_offset_x(self):
@@ -292,8 +474,9 @@ class MetaDataImzMl(MetaDataBase):
     @absolute_position_offset_x.setter
     def absolute_position_offset_x(self, absolute_position_offset_x):
         """Set the absolute position offset on the X axis."""
-        self._absolute_position_offset_x = absolute_position_offset_x
-        self._set('absolute_position_offset_x', absolute_position_offset_x)
+        if absolute_position_offset_x is not None:
+            self._absolute_position_offset_x = absolute_position_offset_x
+            self._set('absolute_position_offset_x', absolute_position_offset_x)
 
     @property
     def absolute_position_offset_y(self):
@@ -303,18 +486,9 @@ class MetaDataImzMl(MetaDataBase):
     @absolute_position_offset_y.setter
     def absolute_position_offset_y(self, absolute_position_offset_y):
         """Set the absolute position offset on the Y axis."""
-        self._absolute_position_offset_y = absolute_position_offset_y
-        self._set('absolute_position_offset_y', absolute_position_offset_y)
-
-    @property
-    def processed(self):
-        """Return whether the data has been processed."""
-        return self._processed
-    @processed.setter
-    def processed(self, processed):
-        """Set whether the data has been processed."""
-        self._processed = processed
-        self._set('processed', processed)
+        if absolute_position_offset_y is not None:
+            self._absolute_position_offset_y = absolute_position_offset_y
+            self._set('absolute_position_offset_y', absolute_position_offset_y)
 
     @property
     def instrument_model(self):
@@ -324,30 +498,9 @@ class MetaDataImzMl(MetaDataBase):
     @instrument_model.setter
     def instrument_model(self, instrument_model):
         """Set the mass spectrometer model."""
-        self._instrument_model = instrument_model
-        self._set('instrument_model', instrument_model)
-
-    @property
-    def centroid_spectrum(self):
-        """Return whether centroid spectra are present."""
-        return self._centroid_spectrum
-
-    @centroid_spectrum.setter
-    def centroid_spectrum(self, centroid_spectrum):
-        """Set whether centroid spectra are present."""
-        self._centroid_spectrum = centroid_spectrum
-        self._set('centroid_spectrum', centroid_spectrum)
-
-    @property
-    def profile_spectrum(self):
-        """Return whether profile spectra are present."""
-        return self._profile_spectrum
-
-    @profile_spectrum.setter
-    def profile_spectrum(self, profile_spectrum):
-        """Set whether profile spectra are present."""
-        self._profile_spectrum = profile_spectrum
-        self._set('profile_spectrum', profile_spectrum)
+        if instrument_model is not None:
+            self._instrument_model = instrument_model
+            self._set('instrument_model', instrument_model)
 
     @property
     def ms1_spectrum(self):
@@ -357,8 +510,9 @@ class MetaDataImzMl(MetaDataBase):
     @ms1_spectrum.setter
     def ms1_spectrum(self, ms1_spectrum):
         """Set whether MS1 spectra are present."""
-        self._ms1_spectrum = ms1_spectrum
-        self._set('ms1_spectrum', ms1_spectrum)
+        if ms1_spectrum is not None:
+            self._ms1_spectrum = ms1_spectrum
+            self._set('ms1_spectrum', ms1_spectrum)
 
     @property
     def msn_spectrum(self):
@@ -368,55 +522,45 @@ class MetaDataImzMl(MetaDataBase):
     @msn_spectrum.setter
     def msn_spectrum(self, msn_spectrum):
         """Set whether MSn spectra are present."""
-        self._msn_spectrum = msn_spectrum
-        self._set('msn_spectrum', msn_spectrum)
+        if msn_spectrum is not None:
+            self._msn_spectrum = msn_spectrum
+            self._set('msn_spectrum', msn_spectrum)
 
-    def extract_metadata(self):
-        """Iterate _meta_index and populate matching attributes from the parser."""
+    @property
+    def min_pixel_x(self):
+        """Return the minimum pixel X coordinate."""
+        return self._min_pixel_x-1 if self.coordinates_zero_based else self._min_pixel_x
 
-        logger.info("Extracting metadata...")
+    @min_pixel_x.setter
+    def min_pixel_x(self, min_pixel_x):
+        """Set the minimum pixel X coordinate."""
+        if min_pixel_x is not None and min_pixel_x >= 0 and min_pixel_x <= self.max_count_of_pixels_x:
+            self._min_pixel_x = min_pixel_x
+            self._set('min_pixel_x', min_pixel_x)
 
-        if self.parser is None:
-            logger.error("Parser is not initialized. Please set parser or filepath first.")
+    @property
+    def min_pixel_y(self):
+        """Return the minimum pixel Y coordinate."""
+        return self._min_pixel_y-1 if self.coordinates_zero_based else self._min_pixel_y
 
-        for accession_id, prop_name in self._meta_index.items():
-            param_value = self.find_param_by_accession_id(accession_id)
-            if param_value is not None:
-                setattr(self, prop_name, param_value)
+    @min_pixel_y.setter
+    def min_pixel_y(self, min_pixel_y):
+        """Set the minimum pixel Y coordinate."""
+        if min_pixel_y is not None and min_pixel_y >= 0 and min_pixel_y <= self.max_count_of_pixels_y:
+            self._min_pixel_y = min_pixel_y
+            self._set('min_pixel_y', min_pixel_y)
 
+    @property
+    def coordinates_zero_based(self) -> bool:
+        """
+        Flag indicating whether coordinates are zero-based.
+        """
+        return self._coordinates_zero_based
 
-    def find_param_by_accession_id(self, accession_id: str): # Use pyimzML.ImzMLParser to fetch metadata
-        """Search the predefined metadata areas for the given accession identifier."""
-
-        search_areas = [
-            self.parser.metadata.file_description,  # File description (data type, creation time, etc.)
-            self.parser.metadata.scan_settings,  # Scan settings (scan mode, m/z range, etc.)
-            self.parser.metadata.instrument_configurations,  # Instrument configuration (model, ion source, etc.)
-            self.parser.metadata.samples,  # Sample information (sample name, preparation, etc.)
-            self.parser.metadata.softwares,  # Software information (parser, version, etc.)
-            self.parser.metadata.data_processings,  # Data processing (peak picking, normalization, etc.)
-            self.parser.metadata.referenceable_param_groups,  # Referenceable parameter groups (shared metadata)
-        ]
-
-        for area in search_areas:
-            if area is None:
-                continue
-
-            result = self._search_in_area(area, accession_id)
-            if result is not None:
-                return result
-
-        return None
-
-    def _search_in_area(self, area, accession_id):
-        """Search a single parameter area for the given accession identifier."""
-        if isinstance(area, ParamGroup):
-            if accession_id in area:
-                return area[accession_id]
-
-        elif isinstance(area, dict):
-            for param_group in area.values():
-                if accession_id in param_group:
-                    return param_group[accession_id]
-
-        return None
+    @coordinates_zero_based.setter
+    def coordinates_zero_based(self, value: bool):
+        """
+        Set the zero-based coordinate flag and persist in metadata.
+        """
+        self._coordinates_zero_based = value
+        self._set('coordinates_zero_based', self._coordinates_zero_based)

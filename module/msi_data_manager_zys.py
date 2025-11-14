@@ -11,11 +11,11 @@ License: See LICENSE file in project root
 from typing import Optional
 import h5py
 import numpy as np
-from .msi_data_manager import MSIDataManager
+from .msi_data_manager_base import MSIDataManagerBase
 from .msi_module import MSIBaseModule
 
 
-class MSIDataManagerZYS(MSIDataManager):
+class MSIDataManagerZYS(MSIDataManagerBase):
     """
     MSI Data Manager specialized for ZYS format files.
     
@@ -54,6 +54,7 @@ class MSIDataManagerZYS(MSIDataManager):
         """
         assert self.filepath.endswith('.mat'), "Error: filepath is not a .mat file."
         self.h5_data_zys = h5py.File(self.filepath, 'r')
+        self.rebuild_hdf5_file_from_zys()
 
     def get_dataset_from_zys(self, dataset_path: str):
         """
@@ -161,6 +162,8 @@ class MSIDataManagerZYS(MSIDataManager):
             # If msroi shape differs from _mask, fix mask orientation by transposing
             mask_to_set = _mask.T if self._msi.queue[0].msroi.shape != _mask.shape else _mask
             self._msi.meta.mask = mask_to_set
+            self._msi.meta.max_count_of_pixels_x = int(mask_to_set.shape[1])
+            self._msi.meta.max_count_of_pixels_y = int(mask_to_set.shape[0])
         else:
             # No valid channels; clear m/z count in metadata and keep queue empty
             self._msi.meta.mask = _mask

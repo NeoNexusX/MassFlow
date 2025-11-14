@@ -9,12 +9,12 @@
 
 ## 文件与目录
 - 目录使用小写单词，必要时用下划线分隔：`module/`。
-- Python 文件使用 `snake_case`：`msi_module.py`、`msi_data_manager.py`、`msi_data_manager_zys.py`。
-- 示例文件：`example.py`；不在示例中放业务逻辑。
+- Python 文件使用 `snake_case`：`ms_module.py`、`ms_data_manager_imzml.py`、`msi_data_manager_msi.py`、`msi_data_manager_zys.py`。
+- 示例文件：`example.ipynb`；不在示例中放业务逻辑。
 
 ## 模块与包
 - 公开模块导出在 `module/__init__.py` 中维护（按需）。
-- 相对导入保持简洁：`from .msi_module import MSI, MSIBaseModule`。
+- 相对导入保持简洁：`from .ms_module import MS, SpectrumBaseModule`。
 
 ## 类命名（PascalCase）
 - 领域模型类：`MSI`。

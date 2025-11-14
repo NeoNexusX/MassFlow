@@ -10,10 +10,10 @@ import h5py
 import numpy as np
 from logger import get_logger
 from .msi_module import MSI, MSIBaseModule
-from .msi_data_manager import MSIDataManager
+from .msi_data_manager_base import MSIDataManagerBase
 logger = get_logger("msi_data_manager_msi")
 
-class MSIDataManagerMSI(MSIDataManager):
+class MSIDataManager(MSIDataManagerBase):
     """
     MSI Data Manager for .msi Data
 
@@ -23,7 +23,8 @@ class MSIDataManagerMSI(MSIDataManager):
     def __init__(self,
                  msi: MSI,
                  target_mz_range=None,
-                 filepath=None):
+                 filepath=None,
+                 ):
 
         super().__init__(msi, target_mz_range, filepath)
         self.me_tr = None

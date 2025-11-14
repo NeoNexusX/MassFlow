@@ -42,14 +42,23 @@ conda activate massflow
 pip install -r requirements.txt
 ```
 
-## Quick Start (Run the Example)
-Run the bundled example to verify your environment:
+## Quick Start
+Open `example.ipynb` in Jupyter (recommended), or run the snippet below to verify data loading and plotting:
 
-```bash
-python example.py
+```python
+# Quick snippet: load .imzML and plot occupancy mask
+from module.ms_module import MS
+from module.ms_data_manager_imzml import MSDataManagerImzML
+
+FILE_PATH = "data/your_file.imzML"
+ms = MS()
+with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PATH) as manager:
+    manager.load_full_data_from_file()
+    manager.inspect_data()
+    ms.plot_ms_mask()
 ```
 
-This script demonstrates reading MSI/MS data and basic preprocessing. Logs are written to `logs/`.
+This demonstrates reading MSI/MS data and basic visualization. Logs are written to `logs/`.
 
 
 Other useful commands:
@@ -62,6 +71,9 @@ Other useful commands:
 - On Apple Silicon (M1/M2/M3), prefer Python 3.11+ and native wheels; update `pip` with `python -m pip install --upgrade pip`.
 
 ## Next Steps
-- Contribution guidelines: `docs/CONTRIBUTING_EN.md` / `docs/CONTRIBUTING.md`
-- Naming conventions: `docs/NAMING_CONVENTIONS_EN.md` / `docs/NAMING_CONVENTIONS.md`
-- Collaboration guide: `docs/Collaboration_Guide.md` / `docs/协作指北.md`
+- Contribution: `/contribution`
+- Naming conventions: `/naming-conventions`
+- Data structures: `/ms-data-structures`
+- Noise reduction: `/noise_reduction`
+- Baseline correction: `/baseline_correction`
+- Collaboration guide: `/collaboration_guide`

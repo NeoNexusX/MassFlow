@@ -18,7 +18,7 @@ from .msi_module import MSI
 logger = get_logger("msi_data_manager")
 
 
-class MSIDataManager(ABC):
+class MSIDataManagerBase(ABC):
     """
     Abstract base class for MSI Data Manager.
 
@@ -41,6 +41,7 @@ class MSIDataManager(ABC):
                  msi: MSI,
                  target_mz_range=None,
                  filepath=None):
+
         self._msi = msi
         self.target_mz_range = target_mz_range
         self.filepath = filepath
@@ -72,24 +73,25 @@ class MSIDataManager(ABC):
         queue length, and count of non-empty base masks.
         """
 
-        logger.info("MSI meta data:")
+        meta_data = "MSI meta data:\r\n"
         for attr, value in self._msi.meta.items():
             shape = getattr(value, 'shape', None)
-            if shape is not None:
-                logger.info(f"    meta_{attr}: {shape}")
+            if shape is not None and len(shape) > 0:
+                meta_data+=(f"    meta_{attr}: {shape}\r\n")
             else:
-                logger.info(f"    meta_{attr}: {value}")
+                meta_data+=(f"    meta_{attr}: {value}\r\n")
+        logger.info(meta_data)
 
-        logger.info("MSI  information:")
         if self._msi.queue:
             mz_values = [module.mz for module in self._msi.queue]
             max_mz = max(mz_values)
             min_mz = min(mz_values)
             non_empty_count = sum(1 for module in self._msi.queue if module.base_mask is not None)
-            logger.info(f"    MSI max mz: {max_mz}\n"
-                        f"    MSI min mz: {min_mz}\n"
-                        f"    MSI len : {len(self._msi)}\n"
-                        f"    base_mask not empty is {non_empty_count}")
+            logger.info(f"MSI  information:\r\n"
+                        f"    MSI max mz: {max_mz}\r\n"
+                        f"    MSI min mz: {min_mz}\r\n"
+                        f"    MSI len : {len(self._msi)}\r\n"
+                        f"    base_mask not empty is {non_empty_count}\r\n")
             # print(f"MSI queue mz values: {[mz.item() for mz in mz_values]}")
         else:
             logger.info("MSI queue is empty.")
@@ -177,10 +179,10 @@ class MSIDataManager(ABC):
                 group = file_handle.create_group(group_name)
 
             if 'mz' not in group and mz_data is not None:
-                MSIDataManager._upsert_dataset(group, 'mz', data=mz_data)
+                MSIDataManagerBase._upsert_dataset(group, 'mz', data=mz_data)
 
             if 'msroi' not in group and msroi is not None:
-                MSIDataManager._upsert_dataset(group,
+                MSIDataManagerBase._upsert_dataset(group,
                                                'msroi',
                                                 data=msroi,
                                                 compression=compression,
