@@ -1,3 +1,4 @@
+from typing import Optional
 """
 Mass Spectrometry Imaging (MSI) Preprocessing Module
 
@@ -41,6 +42,7 @@ from .peak_alignment import peak_matching, get_reference_mz_axis, get_reference_
 from .filter_helper import (
     smoother,
 )
+from .normalizer_helper import normalizer
 from .baseline_correction_helper import asls_baseline, snip_baseline
 from .est_noise_helper import estimator
 from .peak_pick_helper import peak_pick_fun
@@ -117,23 +119,44 @@ class MSIPreprocessor:
 
     @staticmethod
     def normalization_spectrum(
-        data: SpectrumBaseModule, method: str = "total_ion_current"
-    ) -> SpectrumBaseModule:
+        data: Union[SpectrumBaseModule, SpectrumImzML],
+        scale_method: str = 'none',
+        method: str = "tic",
+    ) -> Union[SpectrumBaseModule, SpectrumImzML]:
         """
-        Perform Total Ion Current (TIC) normalization.
+        Normalize a single spectrum using TIC or median, with optional scaling.
 
-        Abstract method for normalizing MSI data using various TIC-based approaches
-        to account for variations in total ion intensity across pixels.
-
-        Args:
-            method (str): Normalization method ('total_ion_current', 'median', 'max')
+        Parameters:
+            data (SpectrumBaseModule | SpectrumImzML): Input spectrum whose `intensity` will be normalized.
+            scale_method (str): Additional scaling after primary normalization:
+                - 'none': no extra scaling
+                - 'unit': min-max scaling to [0, 1]
+            method (str): Primary normalization method:
+                - 'tic': Total Ion Current normalization (sum equals 1)
+                - 'median': Median normalization (median equals 1)
 
         Returns:
-            processed_data (MSI): Processed MSI object with peak-picked data
+            SpectrumBaseModule: A new spectrum that retains the original `mz_list` and `coordinates`,
+            with `intensity` replaced by the normalized (and optionally scaled) values.
 
         Raises:
-            NotImplementedError: If not implemented by subclass
+            ValueError: If `method` is unsupported or if TIC/median is not greater than 0
+            (propagated from the lower-level normalizer).
         """
+        intensity = data.intensity
+        index = data.mz_list
+
+        norm_intensity = normalizer(
+            intensity,
+            scale_method=scale_method,
+            method=method
+        )
+
+        return SpectrumBaseModule(
+            mz_list=data.mz_list,
+            intensity=norm_intensity,
+            coordinates=data.coordinates,
+        )
 
     @staticmethod
     def peak_alignment(
