@@ -4,17 +4,16 @@ from logger import get_logger
 
 logger = get_logger(__name__)
 
-def _input_validation(
-    intensity:np.ndarray,
-    index: Optional[np.ndarray] = None):
+
+def _input_validation(intensity: np.ndarray, index: Optional[np.ndarray] = None):
     """
     Validate input parameters for normalization functions.
-    
+
     Parameters:
         intensity (np.ndarray): 1D intensity array to be preprocessed.
-        index (Optional[np.ndarray]): 1D index array (e.g., m/z values). If None, 
+        index (Optional[np.ndarray]): 1D index array (e.g., m/z values). If None,
             will be generated as np.arange(len(intensity)).
-    
+
     Raises:
         TypeError: If intensity is not a numpy array.
         ValueError: If intensity is not 1D or empty.
@@ -32,10 +31,8 @@ def _input_validation(
         logger.error("index must be a 1D array with the same length as intensity")
         raise ValueError("index must be a 1D array with the same length as intensity")
 
-def tic_normalize(
-        intensity: np.ndarray,
-        scale_method: str = 'none'
-):
+
+def tic_normalize(intensity: np.ndarray, scale_method: str = "none"):
     """
     Total Ion Current (TIC) normalization.
 
@@ -60,13 +57,11 @@ def tic_normalize(
         raise ValueError("TIC value is not greater than 0, cannot normalize data")
     # Apply scaling method
     norm_intensity = apply_scaling(norm_intensity, scale_method)
-    
+
     return norm_intensity
 
-def median_normalize(
-        intensity: np.ndarray,
-        scale_method: str = 'none'
-):
+
+def median_normalize(intensity: np.ndarray, scale_method: str = "none"):
     """
     Median normalization.
 
@@ -91,13 +86,11 @@ def median_normalize(
         raise ValueError("Median value is not greater than 0, cannot normalize data")
     # Apply scaling method
     norm_intensity = apply_scaling(norm_intensity, scale_method)
-    
+
     return norm_intensity
 
-def apply_scaling(
-        intensity: np.ndarray,
-        scale_method: str
-):
+
+def apply_scaling(intensity: np.ndarray, scale_method: str):
     """
     Apply scaling transformation to intensity data.
 
@@ -113,9 +106,9 @@ def apply_scaling(
     Raises:
         ValueError: If scale_method is not supported.
     """
-    if scale_method == 'none':
+    if scale_method == "none":
         return intensity
-    elif scale_method == 'unit':
+    elif scale_method == "unit":
         # Min-max scaling to [0, 1] range
         if intensity.size == 0:
             return intensity
@@ -124,18 +117,21 @@ def apply_scaling(
         if intensity_max - intensity_min > 0:
             return (intensity - intensity_min) / (intensity_max - intensity_min)
         else:
-        # If all values are the same, return original values
+            # If all values are the same, return original values
             return intensity
-        
-    else:
-        logger.error(f"Unsupported scale_method: {scale_method}. "
-                        f"Supported methods are: 'none', 'unit'")
-        raise ValueError(f"Unsupported scale_method: {scale_method}. "
-                        f"Supported methods are: 'none', 'unit'")
 
-def normalizer(intensity: np.ndarray,
-               scale_method: str = 'none',
-               method: str = "tic"):
+    else:
+        logger.error(
+            f"Unsupported scale_method: {scale_method}. "
+            f"Supported methods are: 'none', 'unit'"
+        )
+        raise ValueError(
+            f"Unsupported scale_method: {scale_method}. "
+            f"Supported methods are: 'none', 'unit'"
+        )
+
+
+def normalizer(intensity: np.ndarray, scale_method: str = "none", method: str = "tic"):
     """
     Unified normalization dispatcher.
 
@@ -163,5 +159,7 @@ def normalizer(intensity: np.ndarray,
         return median_normalize(intensity, scale_method=scale_method)
     else:
         supported = "tic, median"
-        logger.error(f"Unsupported normalization method: {method}. Use one of: {supported}.")
+        logger.error(
+            f"Unsupported normalization method: {method}. Use one of: {supported}."
+        )
         raise ValueError(f"Unknown normalization method: {method}")

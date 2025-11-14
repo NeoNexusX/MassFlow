@@ -2,9 +2,11 @@
 
 English | [简体中文](README_CN.md)
 
-MassFlow is a modular and high-performance preprocessing framework for Mass Spectrometry Imaging (MSI) data. It provides efficient data management, processing, and visualization capabilities for MSI research.
+MassFlow is a modular, high-performance framework for Mass Spectrometry Imaging (MSI) and Mass Spectrometry (MS) data. It provides lazy imzML reading, denoising/smoothing, baseline correction, normalization, peak alignment/picking, and MSI data management and export (.msi/.h5).
 
 ## Installation
+
+Requirements: Python >= 3.9 (recommend Python 3.12)
 
 ```bash
 # Clone the repository
@@ -18,24 +20,24 @@ pip install -r requirements.txt
 ## Development and Contributing
 
 ### Contribution Workflow & Standards
-- Contributing guide: see `docs/CONTRIBUTING_EN.md` (English) and `docs/CONTRIBUTING.md` (Chinese)
-- Issue templates: `.github/ISSUE_TEMPLATE/feature.md`, `.github/ISSUE_TEMPLATE/bug.md` and English templates `feature_en.md`, `bug_en.md` (available in GitHub “New issue” page)
-- Naming conventions: see `docs/NAMING_CONVENTIONS_EN.md` and `docs/NAMING_CONVENTIONS.md`
-- Commit messages: follow Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `refactor:`, `test:`). Example: `feat(data-manager): support split/merge write modes`
-- Local checks (sample commands): `ruff .`, `black .`, `isort .`, `pylint module/`
-- PR checklist highlights: consistent interfaces and naming, no obvious performance/memory issues, assertions and error handling in place, docs/examples/tests updated, CI passes, clear change description
+- Contributing guide: `docs/en/contribution.md` (English) and `docs/zh/contribution.md` (Chinese)
+- Naming conventions: `docs/en/naming-conventions.md` and `docs/zh/naming-conventions.md`
+- Issue templates: `.github/ISSUE_TEMPLATE/feature.md`, `.github/ISSUE_TEMPLATE/bug.md`, `feature_en.md`, `bug_en.md`
+- Commit messages: Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `refactor:`, `test:`). Example: `feat(data-manager): support split/merge write modes`
+- Local checks: `ruff .`, `black .`, `isort .`, `pylint module/`
+- PR checklist: consistent interfaces and naming, no performance/memory issues, assertions and error handling in place, docs/examples updated, CI passes, clear change description
 
-### Recommended Trae/VSCode Extensions (Python & Code Quality)
+### Recommended VSCode Extensions
 
-To improve code quality and developer experience, install the following extensions. The workspace file `.vscode/extensions.json` also recommends them automatically.
+Install these extensions to improve Python development and data handling:
 
-- `ms-python.python` — Python support
-- `ms-python.vscode-pylance` — IntelliSense and type analysis
-- `ms-python.pylint` — Static analysis (uses repo `.pylintrc`)
-- `charliermarsh.ruff` — Fast linting and style enforcement
-- `ms-python.black-formatter` — Code formatting (Black)
-- `ms-python.isort` — Import sorting
-- `h5web.vscode-h5web` — HDF5 visualization
+- `ms-python.python`
+- `ms-python.vscode-pylance`
+- `ms-python.pylint`
+- `charliermarsh.ruff`
+- `ms-python.black-formatter`
+- `ms-python.isort`
+- `h5web.vscode-h5web`
 
 Command line install (optional):
 
@@ -65,6 +67,8 @@ with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PAT
     ms.plot_ms_mask()
 ```
 
+Online docs: https://neonexusx.github.io/MassFlow/
+
 Or minimal usage (read imzML and denoise one spectrum):
 
 
@@ -72,29 +76,33 @@ Or minimal usage (read imzML and denoise one spectrum):
 
 ```
 MassFlow/
-├── example.py
-├── logger.py
 ├── module/
 │   ├── __init__.py
+│   ├── meta_data.py
 │   ├── ms_data_manager.py
+│   ├── ms_data_manager_imzml.py
 │   ├── ms_module.py
-│   ├── msi_data_manager.py
+│   ├── msi_data_manager_base.py
 │   ├── msi_data_manager_msi.py
 │   ├── msi_data_manager_zys.py
 │   └── msi_module.py
 ├── preprocess/
-│   ├── filter.py
-│   └── ms_preprocess.py
-├── data/
-│   ├── example.imzML
-│   └── example.ibd
+│   ├── ms_preprocess.py
+│   ├── filter_helper.py
+│   ├── baseline_correction_helper.py
+│   ├── normalizer_helper.py
+│   ├── peak_alignment.py
+│   └── peak_pick_helper.py
 ├── docs/
-│   ├── CONTRIBUTING.md / EN.md
-│   ├── NAMING_CONVENTIONS.md / EN.md
-│   ├── Collaboration_Guide.md
-│   └── 协作指北.md
-├── logs/
-│   └── *.log
+│   ├── en/...
+│   └── zh/...
+├── .github/
+│   └── ISSUE_TEMPLATE/...
+├── tools/
+│   └── plot.py
+├── example.ipynb
+├── example.py
+├── logger.py
 ├── requirements.txt
 ├── LICENSE
 └── README*.md
@@ -129,13 +137,9 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## References
 
-- [MSI Data Processing Workflow](https://pleinelune-r.github.io/2025/08/05/MSI%E6%95%B0%E6%8D%AE%E5%A4%84%E7%90%86%E6%B5%81%E7%A8%8B/)
-- [Cardinal MSI](https://cardinalmsi.org/)
-- [Cardinal GitHub Repository](https://github.com/kuwisdelu/Cardinal/tree/devel/R)
-- [MATLAB: Preprocessing Raw Mass Spectrometry Data](https://www.mathworks.com/help/bioinfo/ug/preprocessing-raw-mass-spectrometry-data.html)
-- [Mass Spectrometry Imaging Preprocessing Review](https://www.sciencedirect.com/science/article/pii/S0169743921001015)
-- [PyOpenMS Documentation](https://pyopenms.readthedocs.io/en/latest/user_guide/background.html#why-use-openms)
-- [Recent Advances in MSI Analysis](https://pubs.acs.org/doi/10.1021/jasms.4c00314)
+- Cardinal MSI: https://cardinalmsi.org/
+- MATLAB Mass Spectrometry Preprocessing: https://www.mathworks.com/help/bioinfo/ug/preprocessing-raw-mass-spectrometry-data.html
+- PyOpenMS: https://pyopenms.readthedocs.io/
 
 ## Contributing
 

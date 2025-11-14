@@ -23,10 +23,15 @@ if __name__ == "__main__":
     plot_spectrum(denoise_test,
                   mz_range=(500.0, 510.0),
                   intensity_range=(0, 1.2),)
+    normalized_unit = MSIPreprocessor.normalization_spectrum(
+    data=denoised,
+    method="tic",          # or "median"
+    scale_method="unit"    # min-max scaling to [0, 1]
+    )
 
-    peakpicked = MSIPreprocessor.peak_pick_spectrum(denoise_test,relheight=0.001,return_type="area")
-
-    plot_spectrum(denoise_test,
-                  peakpicked,
-                  plot_mode=["line","stem"],
-                  overlay=True)
+    plot_spectrum(
+            base = normalized_unit,
+            mz_range=(500.0, 510.0),
+            intensity_range=(0.0, 0.1),
+            title_suffix='TIC_normalized_unit'
+        )
