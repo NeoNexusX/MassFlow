@@ -8,7 +8,7 @@ def _input_validation(
     intensity:np.ndarray,
     index: Optional[np.ndarray] = None):
     """
-    Validate input parameters for smoothing functions.
+    Validate input parameters for normalization functions.
     
     Parameters:
         intensity (np.ndarray): 1D intensity array to be preprocessed.
@@ -124,8 +124,8 @@ def apply_scaling(
         if intensity_max - intensity_min > 0:
             return (intensity - intensity_min) / (intensity_max - intensity_min)
         else:
-            # If all values are the same, keep original
-            return np.zeros_like(intensity)
+        # If all values are the same, return original values
+            return intensity
         
     else:
         logger.error(f"Unsupported scale_method: {scale_method}. "
@@ -160,7 +160,7 @@ def normalizer(intensity: np.ndarray,
     if method == "tic":
         return tic_normalize(intensity, scale_method=scale_method)
     elif method == "median":
-        return  median_normalize(intensity, scale_method=scale_method)
+        return median_normalize(intensity, scale_method=scale_method)
     else:
         supported = "tic, median"
         logger.error(f"Unsupported normalization method: {method}. Use one of: {supported}.")

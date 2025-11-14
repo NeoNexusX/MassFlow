@@ -144,8 +144,6 @@ class MSIPreprocessor:
             (propagated from the lower-level normalizer).
         """
         intensity = data.intensity
- 
-
         norm_intensity = normalizer(
             intensity,
             scale_method=scale_method,

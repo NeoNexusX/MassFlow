@@ -41,7 +41,7 @@ preprocess.ms_preprocess.MSIPreprocessor.normalization_spectrum(
 
 - Description: Unified entry for spectrum normalization. Dispatches to TIC or median normalization and optionally applies post-scaling. Returns a spectrum object preserving `mz_list` and coordinates, with normalized `intensity`.
 - Supported `method`s:
-  - `'tic'`, `'total_ion_current'` (sum equals 1)
+  - `'tic'` (sum equals 1)
   - `'median'` (median equals 1)
 - Supported `scale_method`s:
   - `'none'` (no extra scaling)
@@ -80,7 +80,7 @@ ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH, coordinates_zero_based=False)
 ms_md.load_full_data_from_file()
 sp = ms[0]
 # Denoise then normalize
-denoised = MSIPreprocessor.noise_reduction(
+denoised = MSIPreprocessor.noise_reduction_spectrum(
     data=sp,
     method="savgol",
     window=11,
@@ -115,7 +115,7 @@ plot_spectrum(
 
 ### Median normalization (after Savitzky-Golay denoising)
 ```python
-denoised = MSIPreprocessor.noise_reduction(
+denoised = MSIPreprocessor.noise_reduction_spectrum(
     data=sp,
     method="savgol",
     window=11,
@@ -148,7 +148,7 @@ normalized_unit = MSIPreprocessor.normalization_spectrum(
     scale_method="unit"    # min-max scaling to [0, 1]
 )
 plot_spectrum(
-        base = normalized_tic,
+        base = normalized_unit,
         mz_range=(500.0, 510.0),
         intensity_range=(0.0, 0.1),
         title_suffix='TIC_normalized_unit'     
