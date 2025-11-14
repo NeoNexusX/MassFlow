@@ -144,7 +144,7 @@ class MSIPreprocessor:
             (propagated from the lower-level normalizer).
         """
         intensity = data.intensity
-        index = data.mz_list
+ 
 
         norm_intensity = normalizer(
             intensity,
