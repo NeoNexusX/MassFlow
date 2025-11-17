@@ -37,7 +37,7 @@ from typing import Union,Optional
 import numpy as np
 from module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
 from logger import get_logger
-from .peak_alignment import peak_matching, get_reference_mz_axis, get_reference_mz_axis2
+from .peak_align_helper import peak_align, get_reference
 from .filter_helper import (
     smoother,
 )
@@ -136,97 +136,103 @@ class MSIPreprocessor:
         """
 
     @staticmethod
-    def peak_alignment(
-            # reference_mz_axis：'mean' 或 'histogram'
-            ref_method: str = 'mean',
-            # Computes reference axis parameters (mean spectrum + local extrema) using the mean method.
-            agg: str = 'mean',
-            round_digits: int = 6,
-            half_window: int = 3,
-            findlimits: bool = False,
-            snr_threshold: Optional[float] = None,
-            min_height: Optional[float] = None,
-            min_distance_da: Optional[float] = None,
-            min_distance_factor: float = 1.0,
-            noise_method: str = 'mad',
-            # Histogram/Loess reference_axis_parameters
-            mz_res: Optional[float] = None,
-            px_perc: float = 0.01,
-            N_sample: Optional[int] = None,
-            smoothing_window: int = 11,
-            # parameters for peak alignment (intended for use in 'peak_matching')
-            n_sample: int = 2000,
-            gap_to_tol_factor: float = 0.5,
-            combiner: str = 'max',
-            unique: bool = False,
-            match_method: str = 'diff',
-            # Input and common parameters
-            ms_data: MS = None,
-            reference_mz_axis: Optional[np.ndarray] = None,
-            tolerance: Optional[float] = None,
-            units: str = 'ppm',
-    ) -> MS:
+    def peak_alignment(ms_data: MS,
+                       ref: Optional[np.ndarray] = None,
+                       units: str = 'ppm',
+                       tolerance: Optional[float] = None,
+                       binfun: str = 'min',
+                       binratio: int = 2,
+                       # 2
+                       ref_method: Optional[str] = None,
+                       ref_mzres: Optional[float] = None,
+                       ref_mzmaxshift: Optional[float] = None,
+                       ref_mzunits: Optional[str] = None) -> MS:
         """
-        Unified peak alignment API: selects reference axis generation method based on ref_method,
-        then aligns spectra using diff or dp method.
+        Peak alignment entry point: collect per-spectrum peak lists, choose reference axis source,
+        call the core `peak_align`, and build a new MS with a unified reference axis.
 
         Parameters:
-        - ref_method: 'mean' for mean spectrum + local extrema; 'histogram' for histogram + Loess.
-        - mean parameters: agg, round_digits, half_window, findlimits, snr_threshold, min_height, min_distance_da, min_distance_factor, noise_method.
-        - Histogram/Loess reference_axis_parameters: mz_res, px_perc, N_sample, smoothing_window.
-        - peak alignment parameters: n_sample, gap_to_tol_factor, combiner('max'/'sum'/'mean'), unique, match_method('diff'/'dp').
-        - common parameters: ms_data, reference_mz_axis（若提供则跳过参考轴生成）, tolerance, units('ppm'/'da').
+            ms_data (MS): unaligned MS collection
+            ref (np.ndarray|None): external reference axis; None means internal estimation or external computation via `ref_method`
+            units (str): tolerance units, 'ppm' or 'mz'/'absolute'
+            tolerance (float|None): tolerance half-window; None means auto-estimation
+            binfun (str): resolution aggregation strategy, 'median'|'min'|'max'|'mean'
+            binratio (int): tolerance scaling factor, default 2
+            ref_method (str|None): reference axis source; 'density' uses `get_reference` to compute the axis
+            ref_mzres (float|None): histogram resolution for reference axis; defaults mapped as ppm→100.0, Da→0.01
+            ref_mzmaxshift (float|None): peak detection window for the reference axis (gap for `__findpeaks`); defaults mapped as ppm→100.0, Da→0.05
+            ref_mzunits (str|None): units used for reference axis computation; defaults derived from `units` (ppm→'ppm'; mz/absolute→'Da')
 
-        Returns:
-        - MS: MS object with aligned spectra, all m/z unified to reference axis.
+        Workflow:
+            1) Collect m/z and intensity for each spectrum; validate length equality and non-empty
+            2) Choose reference axis:
+               - If `ref` is provided, use it directly
+               - If `ref_method=='density'`, concatenate all spectra m/z and call `get_reference(mz_all, ref_mzres, ref_mzmaxshift, ref_mzunits)`
+               - Otherwise, estimate the reference axis internally via the alignment logic
+            3) Call `peak_align` to obtain the alignment matrix
+            4) Build a new MS: unify all spectra m/z to the reference axis and fill intensities from aligned columns
+            5) Update necessary metadata (`processed`)
         """
-        # Parameter validation and method selection
-        if ms_data is None:
-            raise ValueError("ms_data cannot be empty")
-        ref_method = (ref_method or 'mean').lower().strip()
-        if ref_method not in ('mean', 'histogram'):
-            raise ValueError("`ref_method` must be either 'mean' or 'histogram'")
-        match_method = (match_method or 'diff').lower().strip()
-        if match_method not in ('diff', 'dp'):
-            raise ValueError("`match_method` must be either 'diff' or 'dp'")
 
-        # Reference axis generation: if not provided, generate it based on the specified method.
-        if reference_mz_axis is None:
-            if ref_method == 'mean':
-                reference_mz_axis = get_reference_mz_axis(
-                    ms_data=ms_data,
-                    agg=agg,
-                    round_digits=round_digits,
-                    half_window=half_window,
-                    findlimits=findlimits,
-                    snr_threshold=snr_threshold,
-                    noise_method=noise_method,
-                    min_height=min_height,
-                    n_sample=n_sample,
-                    min_distance_da=min_distance_da,
-                    min_distance_factor=min_distance_factor,
-                )
-            else:  # 'histogram'
-                reference_mz_axis = get_reference_mz_axis2(
-                    ms_data=ms_data,
-                    mz_res=mz_res,
-                    px_perc=px_perc,
-                    N_sample=N_sample,
-                    smoothing_window=smoothing_window,
-                )
+        logger.info(
+            f"peak_alignment: ref={'provided' if ref is not None else 'None'}, units={units}, tolerance={tolerance}, binfun={binfun}, binratio={binratio}, spectra={len(ms_data)}, ref_method={ref_method}")
+        # 1) collect per-spectrum index and data lists
+        index_list = []
+        data_list = []
 
-        # Peak alignment: map spectra to reference axis and aggregate using combiner
-        ms_aligned = peak_matching(
-            ms_data=ms_data,
-            reference_mz_axis=reference_mz_axis,
+        # validate equal lengths and non-empty arrays
+        for spectrum in ms_data:
+            mz = spectrum.mz_list
+            it = spectrum.intensity
+            if mz is None or it is None:
+                logger.error('spectrum has no mz_list/intensity loaded')
+                raise ValueError('spectrum has no mz_list/intensity loaded')
+            if mz.size != it.size:
+                logger.error('lengths of mz_list and intensity must match')
+                raise ValueError('lengths of mz_list and intensity must match')
+            index_list.append(mz)
+            data_list.append(it)
+
+        if ref is None and (ref_method == 'density'):
+            if len(index_list) == 0:
+                logger.error('peak_alignment: no spectra available for keneng reference computation')
+                raise ValueError('no spectra available for reference computation')
+            mz_all = np.concatenate(index_list)
+            if ref_mzunits is None:
+                ref_mzunits = 'ppm' if units == 'ppm' else 'Da'
+            if ref_mzres is None:
+                ref_mzres = float(tolerance) if tolerance is not None else (100.0 if ref_mzunits == 'ppm' else 0.01)
+            if ref_mzmaxshift is None:
+                ref_mzmaxshift = float(tolerance) if tolerance is not None else (
+                    100.0 if ref_mzunits == 'ppm' else 0.05)
+            ref = get_reference(mz_all, ref_mzres, ref_mzmaxshift, ref_mzunits)
+            ref = ref[np.isfinite(ref)]
+            logger.info(
+                f"peak_alignment: keneng ref computed len={ref.size}, ref_units={ref_mzunits}, mzres={ref_mzres}, maxshift={ref_mzmaxshift}, fused_from_tolerance={tolerance is not None}")
+
+        # call peak_align to perform alignment
+        res = peak_align(
+            index_list,
+            data_list,
+            ref=ref,
+            binfun=binfun,
+            binratio=binratio,
             tolerance=tolerance,
-            units=units,
-            n_sample=n_sample,
-            gap_to_tol_factor=gap_to_tol_factor,
-            combiner=combiner,
-            unique=unique,
-            method=match_method,
-        )
+            units=units)
+        logger.info(
+            f"peak_alignment: ref_len={len(res.ref)}, tolerance={res.tolerance}, units={res.units}, spectra={len(index_list)}")
+
+        # build ms_aligned and populate data; copy coordinates and essential metadata tolerance/binfun/binratio
+        ms_aligned = MS()
+        ms_aligned.meta = ms_data.meta
+        for col, spectrum in enumerate(ms_data):
+            aligned = res.matrix[:, col]
+            new_spec = SpectrumBaseModule(mz_list=res.ref, intensity=aligned, coordinates=spectrum.coordinates,
+                                          sorted_by_mz_fun=True)
+            ms_aligned.add_spectrum(new_spec)
+
+        logger.info(f"ms_aligned built: B={len(ms_aligned[0])}, S={len(ms_aligned)}")
+        ms_aligned.meta.processed = True
 
         return ms_aligned
 
