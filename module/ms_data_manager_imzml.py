@@ -67,7 +67,8 @@ class MSDataManagerImzML(MSDataManager):
         """
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-
+            
+            #regular checks
             if not self.filepath or not os.path.exists(self.filepath):
                 logger.error(f"Error: File {self.filepath} does not exist.")
                 raise FileNotFoundError(f"Error: File {self.filepath} does not exist.")
@@ -75,6 +76,7 @@ class MSDataManagerImzML(MSDataManager):
             if not self.filepath.lower().endswith('.imzml'):
                 logger.error(f"Error: {self.filepath} is not an .imzML file.")
                 raise ValueError(f"Error: {self.filepath} is not an .imzML file.")
+
             # meta data load part
             self.pre_load_meta()
             logger.info(f"Loading data from {self.filepath}...")
@@ -87,7 +89,7 @@ class MSDataManagerImzML(MSDataManager):
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
                     spectrum = SpectrumImzML(parser=self.parser,
                                              index=i,
-                                             coordinates=PixelCoordinates(x, y, z, self.ms.meta.coordinates_zero_based))
+                                             coordinates=[x, y, z])
                     self._ms.add_spectrum(spectrum)
                     self.loading_meta(x=spectrum.coordinates.x, y=spectrum.coordinates.y)
                     self.current_spectrum_num += 1

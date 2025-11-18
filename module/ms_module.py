@@ -274,7 +274,7 @@ class SpectrumBaseModule:
         self._mz_list = mz_list
         self._intensity = intensity
 
-        # Normalize coordinates to PixelCoordinates instance
+        # Initialize coordinates to PixelCoordinates instance
         if isinstance(coordinates, PixelCoordinates):
             self.coordinates = coordinates
         elif isinstance(coordinates, (list, tuple)) and len(coordinates) == 3:
@@ -627,10 +627,7 @@ class MS:
             - Creates nested dictionary structure if coordinates don't exist.
             - Updates the existing spectrum in place when coordinates already exist.
         """
-        spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
-        x, y, z = spectrum.x, spectrum.y, spectrum.z
-
-        self.add_spectrum_coord(x,y,z,spectrum)
+        self.update_spectrum_with_coord(spectrum = spectrum)
 
     def get_spectrum(self, x: int, y: int, z: int = 0) -> SpectrumBaseModule:
         """
@@ -659,24 +656,31 @@ class MS:
                 f"max_pixel_x: {self.meta.pixel_size_x}\r\n"
                 f"min_pixel_y: {self.meta.min_pixel_y}\r\n"
                 f"max_pixel_y: {self.meta.pixel_size_y}\r\n"
+                f"plot mask to see the aviliable location"                
             )
             raise KeyError(f"No spectrum found at coordinates ({x}, {y}, {z})")
         return self._coordinate_index[z][x][y]
 
-    def add_spectrum_coord(self, x,y,z,spectrum: SpectrumBaseModule):
+    def update_spectrum_with_coord(self,spectrum: SpectrumBaseModule,x=-1,y=-1,z=-1):
         """
         """
-        if (
-            z in self._coordinate_index
-            and x in self._coordinate_index[z]
-            and y in self._coordinate_index[z][x]
+        # Sync zero_based setting if meta is available
+        if self.meta:
+            spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
+        # get locations
+        x = spectrum.x if x == -1 else x
+        y = spectrum.y if y == -1 else y
+        z = spectrum.z if z == -1 else z
+        
+        if (z in self._coordinate_index and 
+            x in self._coordinate_index[z] and 
+            y in self._coordinate_index[z][x]
             ):
             existing = self._coordinate_index[z][x][y]
             self._coordinate_index[z][x][y] = spectrum
             try:
                 idx = self._queue.index(existing)
                 self._queue[idx] = spectrum
-                logger.info(f"Updated spectrum at coordinates ({x}, {y}, {z})")
             except ValueError as exc:
                 logger.error(f"Failed to update spectrum at coordinates ({x}, {y}, {z})")
                 raise ValueError(f"Failed to update spectrum at coordinates ({x}, {y}, {z})") from exc
@@ -688,12 +692,28 @@ class MS:
             self._coordinate_index[z][x][y] = spectrum
             self._queue.append(spectrum)
 
-    def add_spectrum_index(self,index,spectrum: SpectrumBaseModule):
+    def update_spectrum_with_index(self,index:int,spectrum: SpectrumBaseModule):
         """
         """
-        old_index = self._queue.index(spectrum)
+        if index < 0 or isinstance(index,int) is False :
+            logger.error(f"Index {index} out of range.")
+            raise IndexError(f"Index {index} out of range.")
+
+        # Sync zero_based setting if meta is available
+        if self.meta:
+            spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
+
+        # check if coordinates match
+        if self._queue[index] == spectrum:
+            #update queue
+            self._queue[index] = spectrum
+            self._coordinate_index[spectrum.z][spectrum.x][spectrum.y] = spectrum
+        else:
+            logger.error(f"Spectrum at index {index} does not match coordinates ({spectrum.x}, {spectrum.y}, {spectrum.z}).")
+            raise ValueError(f"Spectrum at index {index} does not match coordinates ({spectrum.x}, {spectrum.y}, {spectrum.z}).")
         
-        x,y,z = spectrum.x,spectrum.y,spectrum.z
+        # or index >= len(self._queue)
+        
 
 
     def __getitem__(self,
@@ -741,7 +761,6 @@ class MS:
                 "Index must be in tuple format, like [x, y, z] or [x, y]"
             )
 
-
     def __setitem__(
         self,
         key: Union[int, Tuple[int, int, int], Tuple[int, int]],
@@ -761,35 +780,17 @@ class MS:
             TypeError: If key is not a tuple.
             IndexError: If tuple length is not 2 or 3.
         """
-        if len(key) == 3:
+        if isinstance(key,int):
+            self.update_spectrum_with_index(key,spectrum)
+        elif len(key) == 3:
             x, y, z = key
-            self.add_spectrum_coord(x,y,z,spectrum)
+            self.update_spectrum_with_coord(spectrum,x,y,z)
         elif len(key) == 2:
             x, y = key
             z = next(iter(self._coordinate_index))
-            self.add_spectrum_coord(x,y,z,spectrum)
-        elif len(key) == 1:
-            index = key[0]
+            self.update_spectrum_with_coord(spectrum,x,y,z)
         else:
             raise IndexError("Coordinates must be 2 or 3 integers")
-
-
-        # Update spectrum coordinates using PixelCoordinates, respecting meta zero-based setting
-        spectrum.coordinates = PixelCoordinates(
-            x, y, z, self.meta.coordinates_zero_based
-        )
-
-        # Add to index
-        if z not in self._coordinate_index:
-            self._coordinate_index[z] = {}
-        if x not in self._coordinate_index[z]:
-            self._coordinate_index[z][x] = {}
-        if y not in self._coordinate_index[z][x]:
-            self._coordinate_index[z][x][y] = spectrum
-
-        # If not in queue, add to queue
-        if spectrum not in self._queue:
-            self._queue.append(spectrum)
     
     def __len__(self):
         """
