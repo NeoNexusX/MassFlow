@@ -138,7 +138,7 @@ def plot_single(base,
                 save_path=None,
                 figsize=(20, 5),
                 dpi: int = 300,
-                color='#5d7db3',
+                color='#5c9dba',
                 plot_mode: str = "line",
                 mz_range: Optional[Tuple[float, float]] = None,
                 intensity_range: Optional[Tuple[float, float]] = None,        
@@ -301,7 +301,7 @@ def plot_two_individual(target: SpectrumBaseModule,
     _, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
 
     if plot_mode[0] == "line":
-        ax_top.plot(base.mz_list, base.intensity, color=color[0], linewidth=1)
+        ax_top.plot(base.mz_list, base.intensity, color=color[0], linewidth=2)
 
     else:
         m1, s1, b1 = ax_top.stem(base.mz_list, base.intensity)

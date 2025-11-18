@@ -105,7 +105,7 @@ class MSIPreprocessor:
         intensity = data.intensity
         index = data.mz_list
         peak_intensity,peak_index = peak_pick_fun(intensity,
-                                                    index,
+                                                  index,
                                                     width=width,
                                                     method=method,
                                                     relheight=relheight,
@@ -332,12 +332,14 @@ class MSIPreprocessor:
     def noise_reduction_spectrum(
         data: Union[SpectrumBaseModule, SpectrumImzML],
         method: str = "ma",
-        window: int = 3,
+        window: int = 5,
         sd: float = None,
         sd_intensity: float = None,
         p: int = 2,
         coef: np.ndarray = None,
-        polyorder: int = 2,
+        polyorder: int = 3,
+        derive: int = 0,
+        delta: float = 1.0,
         wavelet: str = "db4",
         threshold_mode: str = "soft",
     ) -> Union[SpectrumBaseModule, SpectrumImzML]:
@@ -375,6 +377,8 @@ class MSIPreprocessor:
             p=p,
             coef=coef,
             polyorder=polyorder,
+            derive=derive,
+            delta=delta,
             wavelet=wavelet,
             threshold_mode=threshold_mode,
         )

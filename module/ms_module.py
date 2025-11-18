@@ -611,30 +611,26 @@ class MS:
 
     def add_spectrum(self, spectrum: SpectrumBaseModule):
         """
-        Add a mass spectrum to the collection with coordinate indexing.
+        Add or update a mass spectrum with coordinate indexing.
 
-        This method adds a spectrum to both the sequential queue and the coordinate
-        index for efficient access. The spectrum's coordinates are used to create
-        a nested dictionary structure for fast coordinate-based lookup.
+        This method ensures the spectrum is accessible via both the sequential queue
+        and the coordinate index. If a spectrum already exists at the given coordinates,
+        it will be updated (replaced) in both the coordinate index and the queue to
+        avoid duplicates.
 
         Args:
-            spectrum (SpectrumBaseModule): Mass spectrum to add to the collection
+            spectrum (SpectrumBaseModule): Mass spectrum to add or update.
 
-        Note:
-            - Automatically extracts coordinates from the spectrum
-            - Creates nested dictionary structure if coordinates don't exist
-            - Spectrum is added to both queue and coordinate index
 
+        Notes:
+            - Automatically extracts coordinates from the spectrum.
+            - Creates nested dictionary structure if coordinates don't exist.
+            - Updates the existing spectrum in place when coordinates already exist.
         """
         spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
-        self._queue.append(spectrum)
         x, y, z = spectrum.x, spectrum.y, spectrum.z
 
-        if z not in self._coordinate_index:
-            self._coordinate_index[z] = {}
-        if x not in self._coordinate_index[z]:
-            self._coordinate_index[z][x] = {}
-        self._coordinate_index[z][x][y] = spectrum
+        self.add_spectrum_coord(x,y,z,spectrum)
 
     def get_spectrum(self, x: int, y: int, z: int = 0) -> SpectrumBaseModule:
         """
@@ -666,6 +662,39 @@ class MS:
             )
             raise KeyError(f"No spectrum found at coordinates ({x}, {y}, {z})")
         return self._coordinate_index[z][x][y]
+
+    def add_spectrum_coord(self, x,y,z,spectrum: SpectrumBaseModule):
+        """
+        """
+        if (
+            z in self._coordinate_index
+            and x in self._coordinate_index[z]
+            and y in self._coordinate_index[z][x]
+            ):
+            existing = self._coordinate_index[z][x][y]
+            self._coordinate_index[z][x][y] = spectrum
+            try:
+                idx = self._queue.index(existing)
+                self._queue[idx] = spectrum
+                logger.info(f"Updated spectrum at coordinates ({x}, {y}, {z})")
+            except ValueError as exc:
+                logger.error(f"Failed to update spectrum at coordinates ({x}, {y}, {z})")
+                raise ValueError(f"Failed to update spectrum at coordinates ({x}, {y}, {z})") from exc
+        else:
+            if z not in self._coordinate_index:
+                self._coordinate_index[z] = {}
+            if x not in self._coordinate_index[z]:
+                self._coordinate_index[z][x] = {}
+            self._coordinate_index[z][x][y] = spectrum
+            self._queue.append(spectrum)
+
+    def add_spectrum_index(self,index,spectrum: SpectrumBaseModule):
+        """
+        """
+        old_index = self._queue.index(spectrum)
+        
+        x,y,z = spectrum.x,spectrum.y,spectrum.z
+
 
     def __getitem__(self,
                     key: Union[int,Tuple[int, int, int], Tuple[int, int], slice]
@@ -715,15 +744,15 @@ class MS:
 
     def __setitem__(
         self,
-        key: Union[Tuple[int, int, int], Tuple[int, int]],
+        key: Union[int, Tuple[int, int, int], Tuple[int, int]],
         spectrum: SpectrumBaseModule,
     ):
         """
-        Assign mass spectrum to specific coordinates with automatic indexing.
+        Assign or replace a spectrum by index or coordinates with bounds checking and index sync.
 
         Args:
-            key (Union[Tuple[int, int], Tuple[int, int, int]]): Target coordinates for spectrum placement.
-            spectrum (SpectrumBaseModule): Mass spectrum to assign.
+            key (Union[int, Tuple[int, int], Tuple[int, int, int]]): Sequential index or target coordinates.
+            spectrum (SpectrumBaseModule): Spectrum to assign.
 
         Returns:
             None
@@ -734,11 +763,16 @@ class MS:
         """
         if len(key) == 3:
             x, y, z = key
+            self.add_spectrum_coord(x,y,z,spectrum)
         elif len(key) == 2:
             x, y = key
-            z = 0
+            z = next(iter(self._coordinate_index))
+            self.add_spectrum_coord(x,y,z,spectrum)
+        elif len(key) == 1:
+            index = key[0]
         else:
             raise IndexError("Coordinates must be 2 or 3 integers")
+
 
         # Update spectrum coordinates using PixelCoordinates, respecting meta zero-based setting
         spectrum.coordinates = PixelCoordinates(
@@ -756,7 +790,7 @@ class MS:
         # If not in queue, add to queue
         if spectrum not in self._queue:
             self._queue.append(spectrum)
-
+    
     def __len__(self):
         """
         Return the number of spectra in the collection.
