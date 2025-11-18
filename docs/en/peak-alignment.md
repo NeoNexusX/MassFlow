@@ -1,36 +1,36 @@
 # MassFlow Peak Alignment
 
-This document systematically describes the peak alignment workflow and implementation in MassFlow, focusing on reference m/z axis construction, per-spectrum peak matching and aggregation, tolerance estimation, and the unified API. The core implementation resides in:
+This document systematically describes the peak alignment workflow and implementation in MassFlow, focusing on building the reference m/z axis, per-spectrum peak matching and aggregation, tolerance estimation, and a unified external API. The core implementation resides in:
 
 - `preprocess/peak_align_helper.py`
 - `preprocess/ms_preprocess.py`
 
-The intent is to present implementation-centric details: function signatures, parameter meaning, data dimensions and flow, and reproducible usage examples.
+The goal is to present implementation-centric details, including function signatures, parameter semantics, data shapes and flow, and reproducible usage examples.
 
 ## Overview
 
-“Reference axis construction” and “peak matching and aggregation” are layered:
+Layering of "reference axis construction" and "peak matching & aggregation":
 
 - Reference domain and reference peaks
-  - Automatically estimate a shared reference domain and resolution step: `estimate_domain`
-  - Aggregate peaks from each spectrum into the domain under tolerance and take means: `binpeaks`
-  - Merge neighboring reference peaks within tolerance: `mergepeaks`
-- Density method for reference peaks
-  - When `ref_method='density'`, concatenate all spectra m/z and call `get_reference(mz_all, ref_mzres, ref_mzmaxshift, ref_mzunits)` to compute the reference axis
+  - Automatically estimate shared reference domain and resolution step: `estimate_domain`
+  - Aggregate per-spectrum peaks into the domain by tolerance and average: `binpeaks`
+  - Merge adjacent reference peaks within the tolerance neighborhood: `mergepeaks`
+- Reference peaks via density method
+  - Density method: when `ref_method='density'`, merge m/z from all spectra and call `get_reference(mz_all, ref_mzres, ref_mzmaxshift, ref_mzunits)` to compute the reference axis
 - Sparse matrix alignment
-  - On the unified reference axis, choose nearest hits for each spectrum and fill intensities: `align_sparse`
-  - Auto tolerance estimation and unit normalization: `_estimate_tolerance`, `_normalize_units`
-- Unified entry
-  - `MSIPreprocessor.peak_alignment` collects data, chooses the reference axis source (external or internal), calls `peak_align`, and constructs a new `MS` collection
+  - On the unified reference axis, select nearest hits per spectrum and fill intensities: `align_sparse`
+  - Automatic tolerance estimation and unit normalization: `_estimate_tolerance`, `_normalize_units`
+- Unified entry point
+  - `MSIPreprocessor.peak_alignment` collects data, selects the reference axis source (external or internal), calls `peak_align`, and constructs a new `MS` set
 
 ### Pipeline
 
 ```mermaid
 graph TD
-    A["MS object (ms_data)"] --> B("Preprocess entry MSIPreprocessor.peak_alignment");
+    A["MS object (ms_data)"] --> B("Preprocessing entry MSIPreprocessor.peak_alignment");
 
     subgraph "Reference axis source"
-        B -- ref argument --> C{External ref?};
+        B -- ref parameter --> C{External ref?};
         C -- Yes --> F["Reference m/z axis (np.ndarray)"];
         C -- No --> D{ref_method?};
         D -- 'density' --> E[get_reference];
@@ -43,16 +43,16 @@ graph TD
         A --> H["peak_align_helper.align_sparse"];
         F --> H;
         H --> I["Aligned matrix (B×S)"];
-        I --> J[Count/Frequency stats];
+        I --> J[Counts/Frequency statistics];
     end
 
-    J --> K["Build new MS (unified reference axis)"];
+    J --> K["Construct new MS (unified reference axis)"];
 ```
 
 
 ## Core Functions
 
-### MSIPreprocessor.peak_alignment
+### MSIPreprocessor.peak_alignment method
 
 ```python
 def preprocess.ms_preprocess.MSIPreprocessor.peak_alignment(
@@ -63,181 +63,32 @@ def preprocess.ms_preprocess.MSIPreprocessor.peak_alignment(
 ```
 
 - Behavior
-  - Collect each spectrum’s `mz_list` and `intensity`; validate equal lengths and non-emptiness
+  - Collect per-spectrum `mz_list` and `intensity`, validate equal lengths and non-empty
   - Reference axis source:
     - If `ref` is provided, use it directly
-    - If `ref_method=='density'`, concatenate all spectra m/z and call `get_reference(mz_all, ref_mzres, ref_mzmaxshift, ref_mzunits)` to compute the reference axis
-    - Otherwise, internally estimate the reference domain and generate reference peaks in the lower-level logic
-  - Call `peak_align` to obtain `AlignResult` (matrix, reference axis, count, frequency, tolerance and units)
-  - Build a new `MS` where all spectra share `res.ref` and intensities come from the corresponding column
+    - If `ref_method=='density'`, merge m/z from all spectra and call `get_reference(mz_all, ref_mzres, ref_mzmaxshift, ref_mzunits)` to compute the reference axis
+    - Otherwise, internally estimate the reference domain and generate reference peaks within the underlying alignment logic
+  - Call `peak_align` to obtain `AlignResult` (matrix, ref axis, counts, frequency, tolerance and units)
+  - Build a new `MS`, unify all spectra m/z to `res.ref`, and use the corresponding intensity columns
 - Parameters
-  - `ms_data` — Unaligned `MS` collection
-  - `ref` — External reference axis; `None` means auto estimation or computing via `ref_method`
-  - `units` — Tolerance units, `'ppm'` or `'mz'/'absolute'`
-  - `tolerance` — Half-window tolerance; `None` means auto estimation
-  - `binfun` — Resolution aggregation strategy, `'median'|'min'|'max'|'mean'`
-  - `binratio` — Tolerance scaling factor, default 2
-  - `ref_method` — Reference axis source; `'density'` uses kernel-density histogram `get_reference`
-  - `ref_mzres` — Histogram resolution; defaults map to ppm→`100.0`, Da→`0.01`
-  - `ref_mzmaxshift` — Minimal peak distance for detection (as `gap` for `__findpeaks`); defaults map to ppm→`100.0`, Da→`0.05`
-  - `ref_mzunits` — Units for reference axis computation; defaults derived from `units` (ppm→`'ppm'`; mz/absolute→`'Da'`)
+  - `ms_data` — unaligned `MS` collection
+  - `ref` — external reference axis; `None` means automatic estimation or computation based on `ref_method`
+  - `units` — tolerance unit, `'ppm'` or `'mz'/'absolute'`
+  - `tolerance` — tolerance half-window; `None` means auto-estimation
+  - `binfun` — resolution aggregation strategy, `'median'|'min'|'max'|'mean'`
+  - `binratio` — tolerance scaling factor, default 2
+  - `ref_method` — selects reference axis source; `'density'` uses the kernel density histogram method `get_reference`
+  - `ref_mzres` — reference axis histogram resolution; defaults map to ppm→`100.0`, Da→`0.01`
+  - `ref_mzmaxshift` — minimum spacing for peak detection (gap for `__findpeaks`); defaults map to ppm→`100.0`, `Da`→`0.05`
+  - `ref_mzunits` — units for reference axis computation; defaults mapped from `units` (ppm→`'ppm'`; mz/absolute→`'Da'`)
 - Returns
-  - New `MS` object whose spectra share the same reference m/z axis
+  - A new `MS` object in which all spectra share the same reference m/z axis
 - Code reference
   - `preprocess/ms_preprocess.py:159`
 
-### peak_align
+#### Examples
 
-```python
-def preprocess.peak_align_helper.peak_align(
-    index_list, data_list, ref=None,
-    spectra='intensity', index='mz',
-    binfun='min', binratio=2,
-    tolerance=None, units='ppm'
-) -> AlignResult
-```
-
-- Function
-  - Unit normalization (`'ppm'/'relative'`→`'relative'`, `'mz'/'absolute'`→`'absolute'`)
-  - Reference domain estimation and reference peak construction (when `ref` is absent: `estimate_domain`→`binpeaks`→`mergepeaks`)
-  - Auto tolerance estimation (when `tolerance` is absent): `_estimate_tolerance`
-  - Sparse matrix alignment: `align_sparse` (fast path plus two branches)
-  - Output count and frequency stats
-- Parameters
-  - `index_list`/`data_list` — list of peak indices and intensities per spectrum
-  - `ref` — external reference peak vector; `None` means internal build
-  - `binfun`/`binratio`/`tolerance`/`units` — consistent with Cardinal’s interface
-- Returns
-  - `AlignResult`: matrix, reference axis, count, frequency, tolerance and units
-- Code reference
-  - `preprocess/peak_align_helper.py:602`
-
-### AlignResult dataclass
-
-```python
-class preprocess.peak_align_helper.AlignResult(matrix, ref, count, freq, tolerance, units, binfun, binratio)
-```
-
-- Fields
-  - `matrix` — aligned matrix of shape `(len(ref), nspec)` (rows on reference axis, columns are spectra)
-  - `ref` — reference peak vector (ascending)
-  - `count` — per-reference peak hit count
-  - `freq` — hit frequency (`count/nspec`)
-  - `tolerance/units/binfun/binratio` — runtime parameter echo
-- Code reference
-  - `preprocess/peak_align_helper.py:32`
-
-### estimate_domain
-
-```python
-def preprocess.peak_align_helper.estimate_domain(xlist, width='median', units='relative') -> (domain, by)
-```
-
-- Function
-  - Estimate resolution and range for each spectrum’s peak indices, aggregate resolution by `width`
-  - Generate an ascending reference domain according to units (relative sequence or linear sequence), and apply minimum resolution thresholds
-- Returns
-  - `(domain, by)`: reference domain and resolution step
-- Code reference
-  - `preprocess/peak_align_helper.py:241`
-
-### binpeaks
-
-```python
-def preprocess.peak_align_helper.binpeaks(peaklist, domain=None, xlist=None, tol=None, tol_ref='abs', merge=False, na_drop=True) -> PeakBins
-```
-
-- Function
-  - Initial mapping: for each spectrum, use `bsearch(nearest=False)` to map peak indices to bins in `domain`
-  - Duplicate resolution: when multiple peaks from the same spectrum hit the same bin, keep the one closest to the bin center by relative/absolute difference; mark the rest as no-hit
-  - Mean-aggregate hits to obtain peak positions and intensities; record counts
-- Returns
-  - `PeakBins`: `peaks/values/counts/tolerance/domain`
-- Code reference
-  - `preprocess/peak_align_helper.py:298`
-
-### mergepeaks
-
-```python
-def preprocess.peak_align_helper.mergepeaks(peaks, n, x, tol=None, tol_ref='abs', na_drop=True) -> PeakBins
-```
-
-- Function
-  - Expand left/right within tolerance to find neighborhood `[i..j]`, compute count-weighted averages for position and intensity, write to the middle index, and clear others
-  - Expansion gating on counts: once counts rise again after passing the mode side, treat as a new peak and stop expansion
-- Code reference
-  - `preprocess/peak_align_helper.py:418`
-
-### align_sparse
-
-```python
-def preprocess.peak_align_helper.align_sparse(index_list, data_list, ref, tol, tol_ref) -> np.ndarray
-```
-
-- Function
-  - Fast path: when a spectrum’s m/z grid matches the reference within tolerance point-by-point, copy the entire intensity column directly
-  - Downsample: when `len(ref) <= 2*len(idx)` or the reference domain is not ascending, search nearest hits of the reference axis in sorted indices
-  - Upsample: otherwise, center on each spectrum peak, locate a start position on the reference axis, extend left/right, and fill the first unprocessed bins within tolerance
-- Returns
-  - Aligned 2D matrix (rows aligned to `ref`, columns are spectra)
-- Code reference
-  - `preprocess/peak_align_helper.py:494`
-
-### bsearch
-
-```python
-def preprocess.peak_align_helper.bsearch(x, table, tol=0.0, tol_ref='abs', nomatch=-1, nearest=False) -> np.ndarray
-```
-
-- Function
-  - In a sorted `table`, for each `x[i]`, compare left and right neighbors by relative/absolute difference; return the nearer one within tolerance (tie breaks to left)
-- Code reference
-  - `preprocess/peak_align_helper.py:97`
-
-### reldiff
-
-```python
-def preprocess.peak_align_helper.reldiff(x, y=None, ref='y') -> np.ndarray
-```
-
-- Function
-  - Compute relative/absolute differences; when `y` is absent, compute adjacent differences of `x`
-- Code reference
-  - `preprocess/peak_align_helper.py:53`
-
-### estres
-
-```python
-def preprocess.peak_align_helper.estres(x, tol=None, ref=None) -> float
-```
-
-- Function
-  - Choose the reference by robustness (MAD) between adjacent absolute vs relative differences, and return the minimal difference as resolution
-  - Optional tolerance checks grid consistency
-- Code reference
-  - `preprocess/peak_align_helper.py:191`
-
-### get_reference (density method)
-
-```python
-def preprocess.peak_align_helper.get_reference(mz, mzres, mzmaxshift, mzunits) -> np.ndarray
-```
-
-- Function
-  - Based on kernel density estimation over a histogram, identify high-frequency peaks and return an ascending consensus m/z reference axis
-  - Includes smoothing (tri-cubic weighting), PCHIP interpolation, MAD thresholding, tie-breaking, and local maxima detection
-- Parameters
-  - `mz` — concatenated m/z array (1D)
-  - `mzres` — histogram resolution (bin width)
-  - `mzmaxshift` — minimal distance for peak detection (used as `gap`)
-  - `mzunits` — `'Da'` or `'ppm'` (in ppm mode, processing occurs in ppm space and converts back to m/z)
-- Code reference
-  - `preprocess/peak_align_helper.py:793`
-
-
-## Examples
-
-### Example 1: Use internal reference axis with auto tolerance
+- **Example 1: Use the default reference axis construction**
 
 ```python
 >>> from preprocess.ms_preprocess import MSIPreprocessor
@@ -256,10 +107,11 @@ INFO:     25-11-17 05:46 249 ms_preprocess - ms_aligned built: B=53061, S=17176
             intensity_range=[0,5],
             plot_mode="stem")
 output:
-  
 ```
 
-![py-400-406-0-5](/Users/dre/Desktop/未命名文件夹/py-400-406-0-5.png)
+<img src="https://upload.cc/i1/2025/11/18/XYbytg.png" alt="图片描述" width="100%">
+
+- **Example 2: Compare with Cardinal using the same parameters**
 
 ```R
 >>> from preprocess.ms_preprocess import MSIPreprocessor
@@ -297,61 +149,217 @@ aligned to 60979 reference peaks with relative tolerance 1e-05 (10 ppm)
 output:
 ```
 
-![car-400-406-0-5](/Users/dre/Desktop/未命名文件夹/car-400-406-0-5.png)
+<img src="https://upload.cc/i1/2025/11/18/5mBwxj.png" alt="图片描述" width="100%">
 
-### Example 2: Density method with explicit parameters
+- **Example 3: Use the density method to build the reference axis**
 
 ```python
 >>> from preprocess.ms_preprocess import MSIPreprocessor
 >>> ms_aligned = MSIPreprocessor.peak_alignment(
 ...     ms_data=ms,
-...     ref_method='density',      # use kernel-density histogram method
+...     ref_method='density',      # use kernel density histogram method
 ...     ref_mzres=3,               # histogram resolution
-...     ref_mzmaxshift=3,          # minimal distance for peak detection
+...     ref_mzmaxshift=3,          # minimum peak detection spacing
 ...     units='ppm',               # tolerance units
-...     tolerance=None,            # auto tolerance estimation
-...     binfun='min',              # resolution aggregation strategy
-...     binratio=2                 # tolerance scaling factor
+...     tolerance=None,            # auto-estimate tolerance
 ... )
->>> print(f"ref_len={len(ms_aligned[0])}")
 output:
-ref_len=19523
+INFO:     25-11-17 20:55 198 ms_preprocess - peak_alignment: ref=None, units=ppm, tolerance=None, binfun=min, binratio=2, spectra=17176, ref_method=density
+INFO:     25-11-17 20:55 806 peak_alignment - get_reference: start, n=5828712, mzunits=ppm, mzres=3, mzmaxshift=3
+INFO:     25-11-17 20:55 829 peak_alignment - get_reference: histogram range=(5983275.970265, 6900122.553712), nbins=305617
+DEBUG:    25-11-17 20:55 855 peak_alignment - get_reference: iconst=3, histint_len=916851
+INFO:     25-11-17 20:55 891 peak_alignment - get_reference: done, peaks=19523
+INFO:     25-11-17 20:55 229 ms_preprocess - peak_alignment: density ref computed len=19523, ref_units=ppm, mzres=3, maxshift=3, fused_from_tolerance=False
+INFO:     25-11-17 20:55 630 peak_alignment - peak_align: start, spectra=17176, ref=provided, units=ppm, tolerance=None, binfun=min, binratio=2
+INFO:     25-11-17 20:55 636 peak_alignment - peak_align: domain estimated, bins=57269, by=1.6e-05
+INFO:     25-11-17 20:55 648 peak_alignment - peak_align: tolerance resolved to 3.2e-05 (units=relative)
+INFO:     25-11-17 20:55 673 peak_alignment - peak_align: done, B=19523, S=17176, tol=3.2e-05, units=relative
+INFO:     25-11-17 20:55 240 ms_preprocess - peak_alignment: ref_len=19523, tolerance=3.2e-05, units=relative, spectra=17176
+INFO:     25-11-17 20:55 250 ms_preprocess - ms_aligned built: B=19523, S=17176
 ```
+
+### peak_align function
+
+```python
+def preprocess.peak_align_helper.peak_align(
+    index_list, data_list, ref=None,
+    spectra='intensity', index='mz',
+    binfun='min', binratio=2,
+    tolerance=None, units='ppm'
+) -> AlignResult
+```
+
+- Functionality
+  - Unit normalization (`'ppm'/'relative'`→`'relative'`, `'mz'/'absolute'`→`'absolute'`)
+  - Reference domain estimation and reference peak construction (when `ref` is missing: `estimate_domain`→`binpeaks`→`mergepeaks`)
+  - Automatic tolerance estimation (when `tolerance` is missing): `_estimate_tolerance`
+  - Sparse matrix alignment: `align_sparse` (including a fast path and two branches)
+  - Output counts and frequency statistics
+- Parameters
+  - `index_list`/`data_list` — per-spectrum peak index and intensity lists
+  - `ref` — external reference peak vector; `None` means internal construction
+  - `binfun`/`binratio`/`tolerance`/`units` — aligned with the Cardinal interface
+- Returns
+  - `AlignResult`: matrix, reference axis, counts, frequency, tolerance, and units
+- Code reference
+  - `preprocess/peak_align_helper.py:602`
+
+### AlignResult data class
+
+```python
+class preprocess.peak_align_helper.AlignResult(matrix, ref, count, freq, tolerance, units, binfun, binratio)
+```
+
+- Fields
+  - `matrix` — an aligned matrix of shape `(len(ref), nspec)` (rows aligned to reference axis, columns are spectra)
+  - `ref` — the reference peak vector (ascending)
+  - `count` — hit count per reference peak
+  - `freq` — hit frequency (`count/nspec`)
+  - `tolerance/units/binfun/binratio` — echo of runtime parameters
+- Code reference
+  - `preprocess/peak_align_helper.py:32`
+
+### estimate_domain function
+
+```python
+def preprocess.peak_align_helper.estimate_domain(xlist, width='median', units='relative') -> (domain, by)
+```
+
+- Functionality
+  - Estimate resolution and range for each spectrum's peak indices, and aggregate resolution by `width`
+  - Generate an ascending reference domain (relative sequence or linear sequence) based on units, applying a minimum resolution threshold
+- Returns
+  - `(domain, by)`: reference domain and resolution step size
+- Code reference
+  - `preprocess/peak_align_helper.py:241`
+
+### binpeaks function
+
+```python
+def preprocess.peak_align_helper.binpeaks(peaklist, domain=None, xlist=None, tol=None, tol_ref='abs', merge=False, na_drop=True) -> PeakBins
+```
+
+- Functionality
+  - Initial mapping: for each spectrum, map peak indices to `domain` bins using `bsearch(nearest=False)`
+  - Conflict deduplication: when the same spectrum hits the same bin, keep the closest to the bin center by relative/absolute difference, mark others as misses
+  - Aggregate hits per bin by averaging peak position and intensity, and record counts
+- Returns
+  - `PeakBins`: `peaks/values/counts/tolerance/domain`
+- Code reference
+  - `preprocess/peak_align_helper.py:298`
+
+### mergepeaks function
+
+```python
+def preprocess.peak_align_helper.mergepeaks(peaks, n, x, tol=None, tol_ref='abs', na_drop=True) -> PeakBins
+```
+
+- Functionality
+  - Within a tolerance half-window, expand left and right to find the neighborhood peak set `[i..j]`, compute count-weighted average position and intensity, update to the middle index, and clear the rest
+  - Expansion count gating: once counts rise again after passing the mode side, treat it as a new peak and stop expansion immediately
+- Code reference
+  - `preprocess/peak_align_helper.py:418`
+
+### align_sparse function
+
+```python
+def preprocess.peak_align_helper.align_sparse(index_list, data_list, ref, tol, tol_ref) -> np.ndarray
+```
+
+- Functionality
+  - fast path: when a spectrum’s m/z grid matches the reference axis point-wise within tolerance, copy the entire column of intensities directly
+  - downsample: when `len(ref) <= 2*len(idx)` or the reference domain is not strictly ascending, search for nearest hits in the sorted peak indices according to the reference axis
+  - upsample: otherwise, center on spectrum peaks, locate a starting point on the reference axis, then expand left and right, filling the first unprocessed bin within the tolerance window
+- Returns
+  - Aligned 2D matrix (rows aligned to `ref`, columns are spectra)
+- Code reference
+  - `preprocess/peak_align_helper.py:494`
+
+### bsearch function
+
+```python
+def preprocess.peak_align_helper.bsearch(x, table, tol=0.0, tol_ref='abs', nomatch=-1, nearest=False) -> np.ndarray
+```
+
+- Functionality
+  - In the sorted `table`, find left and right neighbors for each `x[i]` and compare relative/absolute differences; within tolerance, return the closer one (tie breaks to the left)
+- Code reference
+  - `preprocess/peak_align_helper.py:97`
+
+### reldiff function
+
+```python
+def preprocess.peak_align_helper.reldiff(x, y=None, ref='y') -> np.ndarray
+```
+
+- Functionality
+  - Compute relative/absolute differences; when `y` is not provided, compute differences between adjacent elements of `x`
+- Code reference
+  - `preprocess/peak_align_helper.py:53`
+
+### estres function
+
+```python
+def preprocess.peak_align_helper.estres(x, tol=None, ref=None) -> float
+```
+
+- Functionality
+  - Choose a reference based on the robustness (MAD) of adjacent absolute vs relative differences, and return the minimum difference as resolution
+  - Optional tolerance threshold for grid consistency checking
+- Code reference
+  - `preprocess/peak_align_helper.py:191`
+
+### get_reference function (density method)
+
+```python
+def preprocess.peak_align_helper.get_reference(mz, mzres, mzmaxshift, mzunits) -> np.ndarray
+```
+
+- Functionality
+  - Based on kernel density estimation, find high-frequency peak positions in histogram space and return an ascending consensus m/z reference axis
+  - Includes smoothing (tri-cubic weights), PCHIP interpolation, MAD thresholding, tie-breaking, and local extrema detection
+- Parameters
+  - `mz` — merged m/z array (1D)
+  - `mzres` — histogram resolution (bin width)
+  - `mzmaxshift` — minimum spacing for peak detection (as `gap`)
+  - `mzunits` — `'Da'` or `'ppm'` (in ppm mode, operate in ppm space and finally write back to m/z)
+- Code reference
+  - `preprocess/peak_align_helper.py:793`
 
 
 ## Parameter and Unit Conventions
 
 - Unit normalization:
-  - `'ppm'/'relative'` normalized to relative units; `'mz'/'absolute'` to absolute units
-  - Difference reference in alignment/search: relative→`tol_ref='x'`; absolute→`tol_ref='abs'`
+  - `'ppm'/'relative'` normalized to relative units; `'mz'/'absolute'` normalized to absolute units
+  - Difference reference choice in alignment and search: relative→`tol_ref='x'`; absolute→`tol_ref='abs'`
 - Tolerance estimation:
   - When `tolerance=None`, first estimate resolution `estres`, then multiply by `binratio`
-  - Rounding rules: relative uses a 6-digit half-step (`round(2*res, 6)/2`), absolute uses 4 digits
-- Reference axis:
-  - When an external `ref` is provided, skip internal construction
-  - `'density'` requires or auto-maps `ref_mzres/ref_mzmaxshift/ref_mzunits`
+  - Rounding rules: relative uses 6-digit half-step (`round(2*res, 6)/2`), absolute uses 4 digits
+- Reference axis construction:
+  - When external `ref` is provided, skip internal construction
+  - `'density'` method requires passing or auto-mapping `ref_mzres/ref_mzmaxshift/ref_mzunits`
 
 
 ## Data Flow Summary
 
-1. Collect all spectra’s `mz_list` and `intensity`
-2. Choose the reference axis source (external `ref`, `'density'` method, or internal estimation of domain and peaks)
+1. Collect `mz_list` and `intensity` for all spectra
+2. Choose the reference axis source (external `ref`, `'density'` method, or internal domain and peak estimation)
 3. Normalize units and parse/estimate tolerance
-4. Align on the reference axis to obtain a `(B, S)` matrix
-5. Build a new `MS` with unified m/z axis and filled intensities
+4. Align on the reference axis using sparse matrices to obtain the `(B, S)` alignment matrix
+5. Build a new `MS` collection, unify the m/z axis, and fill intensities
 
 
 ## Extensibility Notes
 
-- External grid alignment: if you already have a high-quality external grid (e.g., from third-party tools), pass it as `ref` to skip domain construction
-- Tolerance strategy: tune `binratio` according to instrument drift and resolution; or specify `tolerance` manually
-- Scale optimization: for sparse peak lists, prefer absolute units and a shorter reference axis to reduce search and extension costs
+- External grid alignment: if you already have a high-quality external grid (e.g., from third-party tools), you can directly pass it as `ref` to skip reference domain construction
+- Tolerance strategy: `binratio` can be tuned based on instrument drift and resolution; tolerance can also be specified manually
+- Scale optimization: for sparse peak-list scenarios, prefer absolute units and a shorter reference axis to reduce search and expansion cost
 
 
 ## Glossary
 
-- Reference Axis: row index of the aligned matrix; ascending m/z list
+- Reference axis: row index of the alignment matrix, ascending m/z list
 - Relative tolerance (ppm): half-window proportional to m/z
 - Absolute tolerance (Da): fixed m/z half-window
-- downsample/upsample: alignment strategies when the reference axis is shorter/longer
-- Count-weighted mean: aggregation strategy using hit count as weights
+- downsample/upsample: two alignment strategies for shorter/longer reference axes
+- Count-weighted average: aggregation strategy using hit counts as weights
