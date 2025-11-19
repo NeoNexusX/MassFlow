@@ -5,8 +5,8 @@ License: See LICENSE file in project root
 from typing import Optional
 import numpy as np
 from scipy import stats
-from src.massflow.logger import get_logger
-from module.ms_module import SpectrumBaseModule
+from massflow.logger import get_logger
+from massflow.module.ms_module import SpectrumBaseModule
 
 logger = get_logger(__name__)
 

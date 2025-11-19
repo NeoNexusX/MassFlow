@@ -1,6 +1,7 @@
 from typing import Optional
 import numpy as np
-from src.massflow.logger import get_logger
+# 修改点：使用相对引用，..代表上一级目录(massflow包根目录)
+from massflow.logger import get_logger
 
 logger = get_logger("ms_preprocess")
 

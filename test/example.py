@@ -1,8 +1,8 @@
-from src.massflow.module.ms_module import MS
-from src.massflow.preprocess.ms_preprocess import MSIPreprocessor
-from src.massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.module.ms_module import MS
+from massflow.preprocess.ms_preprocess import MSIPreprocessor
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 import time
-from src.massflow.logger import get_logger
+from massflow.logger import get_logger
 from typing import Optional
 logger = get_logger("example")
 

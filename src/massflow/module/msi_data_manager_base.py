@@ -12,7 +12,7 @@ import os
 from abc import ABC, abstractmethod
 import h5py
 import numpy as np
-from src.massflow.logger import get_logger
+from massflow.logger import get_logger
 from .msi_module import MSI
 
 logger = get_logger("msi_data_manager")

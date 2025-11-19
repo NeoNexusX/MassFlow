@@ -10,7 +10,7 @@ License: See LICENSE file in project root
 """
 from abc import ABC, abstractmethod
 import numpy as np
-from src.massflow.logger import get_logger
+from massflow.logger import get_logger
 from .ms_module import MS
 
 logger = get_logger("ms_data_manager")

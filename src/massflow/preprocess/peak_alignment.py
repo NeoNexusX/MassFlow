@@ -1,6 +1,6 @@
 import numpy as np
-from module.ms_module import MS, SpectrumBaseModule
-from src.massflow.logger import get_logger
+from massflow.module.ms_module import MS, SpectrumBaseModule
+from massflow.logger import get_logger
 from typing import Optional, Tuple, Literal, List
 from scipy.signal import find_peaks, lfilter
 
