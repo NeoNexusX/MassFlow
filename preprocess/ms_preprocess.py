@@ -1,40 +1,4 @@
-from typing import Optional
-"""
-Mass Spectrometry Imaging (MSI) Preprocessing Module
-
-This module defines an abstract base class for preprocessing Mass Spectrometry Imaging (MSI) data.
-It provides a framework for implementing essential preprocessing techniques such as:
-
-- Peak picking: Identifying significant peaks in mass spectra.
-- TIC normalization: Normalizing data to account for variations in total ion intensity.
-- Peak alignment: Aligning peaks across spectra to correct for mass calibration drift.
-- Baseline correction: Removing baseline drift and background signals.
-- Noise reduction: Reducing noise while preserving spectral features.
-
-The `MSIPreprocessor` class is designed to be extended by concrete implementations that define
-specific algorithms for each preprocessing step. It supports both traditional input formats
-(e.g., mz, msroi arrays) and MSI object integration for seamless compatibility with the MSI framework.
-
-Classes:
-- MSIPreprocessor: Abstract base class for defining preprocessing workflows.
-
-Methods:
-- peak_pick: Abstract method for peak picking.
-- peak_pick_pixel: Abstract method for pixel-level peak picking.
-- tic_normalization: Abstract method for TIC-based normalization.
-- peak_alignment: Abstract method for aligning peaks across spectra.
-- baseline_correction: Abstract method for correcting baseline drift.
-- noise_reduction: Abstract method for reducing noise in mass spectra.
-- preprocess_pipeline: Abstract method for executing a complete preprocessing pipeline.
-
-This module is intended for developers extending the MSI framework with custom preprocessing
-algorithms.
-
-Author: MassFlow Development Team Bionet/NeoNexus lyk
-License: See LICENSE file in project root
-"""
-
-from typing import Union,Optional
+from typing import Union, Optional, Sequence
 import numpy as np
 from module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
 from logger import get_logger
@@ -81,7 +45,7 @@ class MSIPreprocessor:
 
     @staticmethod
     def peak_pick_spectrum(data: SpectrumBaseModule,
-                            width: int = 2,
+                            width: int | Sequence[int] = 2,
                             method: str = 'scipy',
                             relheight: float = 0.1,
                             return_type: str = 'height') -> SpectrumBaseModule:

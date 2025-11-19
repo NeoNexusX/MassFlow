@@ -1,37 +1,52 @@
 from module.ms_module import MS
 from preprocess.ms_preprocess import MSIPreprocessor
 from module.ms_data_manager_imzml import MSDataManagerImzML
-from tools.plot import plot_spectrum
+import time
 from logger import get_logger
 
 logger = get_logger("example")
 
-# Run examples when executing this file directly
-if __name__ == "__main__":
-    FILE_PATH = "data/example.imzML"
-    ms = MS()
-    ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
-    ms_md.load_full_data_from_file()
-    ms_md.inspect_data()
+
+
+def benchmark(test_times=1,
+              mass_data: MS=None,
+              func=None):
+
+    #pre load data
+    for spectrum_data in mass_data:
+        _ = spectrum_data.mz_list
+
+    # time start:
+    times = []
+    for i in range(test_times):
+        t0 = time.perf_counter()
+        # run function:
+        func(mass_data)
+        t1 = time.perf_counter()
+        times.append(t1 - t0)
+        logger.info(f"test times : {i}, time : {t1 - t0:.6f} s")
+
+    logger.info(f"total time : {sum(times):.6f} s ,test times : {test_times})"
+                f"average time : {sum(times)/test_times:.6f} s")
+
+
+def denoise_benchmark(ms=None):
 
     for i, spectrum in enumerate(ms):
         denoised = MSIPreprocessor.noise_reduction_spectrum(spectrum,method="ma")
         ms[i].mz_list = denoised.mz_list
         ms[i].intensity = denoised.intensity
 
-    denoise_test = ms[0]
-    plot_spectrum(denoise_test,
-                  mz_range=(500.0, 510.0),
-                  intensity_range=(0, 1.2),)
-    normalized_unit = MSIPreprocessor.normalization_spectrum(
-    data=denoised,
-    method="tic",          # or "median"
-    scale_method="unit"    # min-max scaling to [0, 1]
-    )
 
-    plot_spectrum(
-            base = normalized_unit,
-            mz_range=(500.0, 510.0),
-            intensity_range=(0.0, 0.1),
-            title_suffix='TIC_normalized_unit'
-        )
+
+# Run examples when executing this file directly
+if __name__ == "__main__":
+    FILE_PATH = "data/example.imzML"
+    ms = MS()
+    with MSDataManagerImzML(ms, filepath=FILE_PATH) as ms_md:
+        ms_md.load_full_data_from_file()
+        ms_md.inspect_data()
+
+        benchmark(test_times=1000,
+                    mass_data=ms,
+                    func=denoise_benchmark)
