@@ -9,7 +9,7 @@ import numpy as np
 from scipy import stats
 from scipy.interpolate import InterpolatedUnivariateSpline
 from preprocess.filter_helper import smoother
-from logger import get_logger
+from src.massflow.logger import get_logger
 
 logger = get_logger(__name__)
 

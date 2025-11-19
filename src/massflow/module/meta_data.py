@@ -6,7 +6,7 @@ License: See LICENSE file in project root
 import os
 import numpy as np
 from pyimzml.ImzMLParser import ImzMLParser
-from logger import get_logger
+from massflow.logger import get_logger
 logger = get_logger("meta_data")
 
 meta_index = {

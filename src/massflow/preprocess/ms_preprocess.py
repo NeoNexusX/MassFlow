@@ -1,7 +1,7 @@
 from typing import Union, Optional, Sequence
 import numpy as np
 from module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
-from logger import get_logger
+from src.massflow.logger import get_logger
 from .peak_alignment import peak_matching, get_reference_mz_axis, get_reference_mz_axis2
 from .filter_helper import (
     smoother,

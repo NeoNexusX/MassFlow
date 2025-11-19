@@ -4,7 +4,7 @@ License: See LICENSE file in project root
 """
 from scipy.signal import find_peaks
 import numpy as np
-from logger import get_logger
+from src.massflow.logger import get_logger
 from .est_noise_helper import estimator
 from typing import Sequence
 from scipy.integrate import simpson

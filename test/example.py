@@ -1,16 +1,19 @@
-from module.ms_module import MS
-from preprocess.ms_preprocess import MSIPreprocessor
-from module.ms_data_manager_imzml import MSDataManagerImzML
+from src.massflow.module.ms_module import MS
+from src.massflow.preprocess.ms_preprocess import MSIPreprocessor
+from src.massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 import time
-from logger import get_logger
-
+from src.massflow.logger import get_logger
+from typing import Optional
 logger = get_logger("example")
 
 
-
 def benchmark(test_times=1,
-              mass_data: MS=None,
+              mass_data: Optional[MS]=None,
               func=None):
+
+    if mass_data is None or func is None:
+        logger.error("mass_data or func is None, please check!")
+        return
 
     #pre load data
     for spectrum_data in mass_data:
@@ -30,12 +33,13 @@ def benchmark(test_times=1,
                 f"average time : {sum(times)/test_times:.6f} s")
 
 
-def denoise_benchmark(ms=None):
+def denoise_benchmark(mass_spectrum: Optional[MS]=None):
 
-    for i, spectrum in enumerate(ms):
-        denoised = MSIPreprocessor.noise_reduction_spectrum(spectrum,method="ma")
-        ms[i].mz_list = denoised.mz_list
-        ms[i].intensity = denoised.intensity
+    if mass_spectrum is not None:
+        for i, spectrum in enumerate(mass_spectrum):
+            denoised = MSIPreprocessor.noise_reduction_spectrum(spectrum,method="ma")
+            mass_spectrum[i].mz_list = denoised.mz_list
+            mass_spectrum[i].intensity = denoised.intensity
 
 
 

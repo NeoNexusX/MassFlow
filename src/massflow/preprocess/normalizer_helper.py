@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Optional
-from logger import get_logger
+from src.massflow.logger import get_logger
 
 logger = get_logger(__name__)
 

@@ -1,7 +1,0 @@
-numpy
-h5py
-matplotlib
-pympler
-pyimzml
-scipy
-colorama

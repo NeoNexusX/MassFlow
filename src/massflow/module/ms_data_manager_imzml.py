@@ -11,9 +11,9 @@ import os
 import warnings
 from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
-from logger import get_logger
+from src.massflow.logger import get_logger
 from .ms_data_manager import MSDataManager
-from .ms_module import MS,SpectrumImzML,PixelCoordinates
+from .ms_module import MS,SpectrumImzML
 from .meta_data import ImzMlMetaData
 
 logger = get_logger("ms_data_manager_imzml")

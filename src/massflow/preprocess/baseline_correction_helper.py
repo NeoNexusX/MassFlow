@@ -1,6 +1,6 @@
 from typing import Optional
 import numpy as np
-from logger import get_logger
+from src.massflow.logger import get_logger
 
 logger = get_logger("ms_preprocess")
 
