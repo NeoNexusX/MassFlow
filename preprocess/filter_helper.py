@@ -63,10 +63,15 @@ def smooth_signal_ma(
 
     # If weights not specified, use uniform weights (moving average)
     if coef is None:
-        if not isinstance(window, int) or window <= 0:
+        if not isinstance(window, int):
+            logger.error("window must be an integer for moving average")
+            raise TypeError("window must be an integer for moving average")
+        if window <= 0:
+            logger.error("window must be a positive integer when coef is None")
             raise ValueError("window must be a positive integer when coef is None")
-        # Ensure window length is odd
-        window = window + 1 - window % 2
+        if window % 2 == 0:
+            logger.error("window must be an odd integer for center alignment")
+            raise ValueError("window must be an odd integer for center alignment")
         coef = np.ones(window, dtype=float)
 
     # Normalize kernel weights
@@ -105,6 +110,20 @@ def smooth_signal_gaussian(
         ValueError: If `window` <= 0.
         TypeError: If `intensity` is not a 1D array.
     """
+
+    # Validate window and sd
+    if not isinstance(window, int):
+        logger.error("window must be an integer for gaussian smoothing")
+        raise TypeError("window must be an integer for gaussian smoothing")
+    if window <= 0:
+        logger.error("window must be a positive integer for gaussian smoothing")
+        raise ValueError("window must be a positive integer for gaussian smoothing")
+    if window % 2 == 0:
+        logger.error("window must be an odd integer for gaussian smoothing")
+        raise ValueError("window must be an odd integer for gaussian smoothing")
+    if sd is not None and (not np.isfinite(sd) or sd <= 0):
+        logger.error("sd must be a positive finite number for gaussian smoothing")
+        raise ValueError("sd must be a positive finite number for gaussian smoothing")
 
     # Ensure window length is odd for symmetric kernel
     window = window + 1 - window % 2
@@ -152,7 +171,10 @@ def smooth_signal_savgol(
     """
     from scipy.signal import savgol_filter
 
-    # Minimum window size check
+    # Validate parameters strictly: raise on invalid inputs
+    if not isinstance(window, int):
+        logger.error("window must be an integer for Savitzky-Golay filter")
+        raise TypeError("window must be an integer for Savitzky-Golay filter")
     if window < 3:
         window = 3
 
@@ -162,7 +184,8 @@ def smooth_signal_savgol(
 
     # Ensure polyorder is less than window
     if polyorder >= window:
-        polyorder = window - 1
+        logger.error("polyorder must be less than window for Savitzky-Golay filter")
+        raise ValueError("polyorder must be less than window for Savitzky-Golay filter")
 
     # Apply Savitzky-Golay filter
     return savgol_filter(intensity, window, polyorder)
@@ -187,6 +210,11 @@ def smooth_signal_wavelet(
         ImportError: If `pywt` is not available.
     """
     import pywt
+
+    # Validate threshold_mode
+    if threshold_mode not in {"soft", "hard"}:
+        logger.error("threshold_mode must be 'soft' or 'hard' for wavelet denoising")
+        raise ValueError("threshold_mode must be 'soft' or 'hard' for wavelet denoising")
     original_length = len(intensity)
 
     # Perform wavelet decomposition
@@ -242,6 +270,12 @@ def smooth_ns_signal_pre(
         ValueError: If `index` is None or length mismatches `intensity` (fallback applied).
     """
 
+    # Enforce integer types
+    if not isinstance(k, (int, np.integer)) or not isinstance(p, (int, np.integer)):
+        logger.error("k and p must be integers")
+        raise TypeError("k and p must be integers")
+
+    # Enforce positivity
     if k < 1 or p < 1:
         logger.error("k and p must be positive integers")
         raise ValueError("k and p must be positive integers")
@@ -324,6 +358,14 @@ def smooth_ns_signal_ma(
     Raises:
         ValueError: If `k` or `p` is not positive.
     """
+    # Validate k and p locally as well
+    if not isinstance(k, (int, np.integer)) or not isinstance(p, (int, np.integer)):
+        logger.error("k and p must be integers")
+        raise TypeError("k and p must be integers")
+    if k < 1 or p < 1:
+        logger.error("k and p must be positive integers")
+        raise ValueError("k and p must be positive integers")
+
     neigh_intensity, _, _ = smooth_ns_signal_pre(intensity, index, k=k, p=p)
     weights = np.ones(k, dtype=float)
     weights = weights / np.sum(weights)
@@ -354,6 +396,14 @@ def smooth_ns_signal_gaussian(
     Raises:
         ValueError: If `k` or `p` is not positive.
     """
+
+    # Validate k and p locally as well
+    if not isinstance(k, (int, np.integer)) or not isinstance(p, (int, np.integer)):
+        logger.error("k and p must be integers")
+        raise TypeError("k and p must be integers")
+    if k < 1 or p < 1:
+        logger.error("k and p must be positive integers")
+        raise ValueError("k and p must be positive integers")
 
     neigh_intensity, dists, _ = smooth_ns_signal_pre(intensity, index, k=k, p=p)
 
@@ -402,6 +452,14 @@ def smooth_ns_signal_bi(
     Raises:
         ValueError: If `k` or `p` is not positive.
     """
+    # Validate k and p locally as well
+    if not isinstance(k, (int, np.integer)) or not isinstance(p, (int, np.integer)):
+        logger.error("k and p must be integers")
+        raise TypeError("k and p must be integers")
+    if k < 1 or p < 1:
+        logger.error("k and p must be positive integers")
+        raise ValueError("k and p must be positive integers")
+
     neigh_intensity, dists, _ = smooth_ns_signal_pre(intensity, index, k=k, p=p)
 
     if len(dists.shape)<2:
@@ -491,25 +549,28 @@ def smoother(intensity:np.ndarray,
     Raises:
         ValueError: If `method` is unsupported or invalid parameter combinations are provided.
     """
-    # # Basic validation
+    # Basic validation
     _input_validation(intensity)
 
+    # Normalize and validate method
+    method_norm = (method or "ma").strip().lower()
+    supported = {"ma", "gaussian", "savgol", "wavelet", "ma_ns", "gaussian_ns", "bi_ns"}
+    if method_norm not in supported:
+        logger.error("Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns", method)
+        raise ValueError(f"Unsupported smoothing method: {method}")
+
     # Choose smoothing method
-    if method == "ma":
-        return  smooth_signal_ma(intensity, coef=coef, window=window)
-    elif method == "gaussian":
-        return  smooth_signal_gaussian(intensity, sd=sd, window=window)
-    elif method == "ma_ns":
-        return  smooth_ns_signal_ma(intensity,index=index, p=p, k=window)
-    elif method == "savgol":
+    if method_norm == "ma":
+        return smooth_signal_ma(intensity, coef=coef, window=window)
+    elif method_norm == "gaussian":
+        return smooth_signal_gaussian(intensity, sd=sd, window=window)
+    elif method_norm == "ma_ns":
+        return smooth_ns_signal_ma(intensity, index=index, p=p, k=window)
+    elif method_norm == "savgol":
         return smooth_signal_savgol(intensity, window=window, polyorder=polyorder)
-    elif method == "wavelet":
+    elif method_norm == "wavelet":
         return smooth_signal_wavelet(intensity, wavelet=wavelet, threshold_mode=threshold_mode)
-    elif method == "gaussian_ns":
-        return smooth_ns_signal_gaussian(intensity,index=index, sd=sd,p=p,k=window)
-    elif method == "bi_ns":
-        return smooth_ns_signal_bi(intensity,index=index, sd_dist=sd, sd_intensity=sd_intensity, p=p,k=window)
-    else:
-        supported = "ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns"
-        logger.error(f"Unsupported smoothing method: {method}. Use one of: {supported}.")
-        raise ValueError(f"Unknown smoothing method: {method}")
+    elif method_norm == "gaussian_ns":
+        return smooth_ns_signal_gaussian(intensity, index=index, sd=sd, p=p, k=window)
+    else:  # method_norm == "bi_ns"
+        return smooth_ns_signal_bi(intensity, index=index, sd_dist=sd, sd_intensity=sd_intensity, p=p, k=window)
