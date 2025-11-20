@@ -12,7 +12,7 @@ This document introduces the baseline correction module in MassFlow, focusing on
   - SNIP (Statistics-Sensitive Non-linear Iterative Peak-clipping): iterative clipping with adaptive early stop.
   - ASLS (Asymmetric Least Squares): robust baseline estimation with peak preservation.
 - Baseline scaling
-  - `baseline_scale` scales the estimated baseline by `(0,1]` (default `0.8`) to prevent over-subtraction.
+  - `baseline_scale` scales the estimated baseline by `(0,1]` (default `1.0`) to prevent over-subtraction.
   - The returned baseline is scaled. Set `baseline_scale=1.0` to keep native algorithm behavior.
 
 ### Function Relationship Diagram
@@ -36,7 +36,7 @@ graph LR
 ### MSIPreprocessor.baseline_correction_spectrum
 ```python
 preprocess.ms_preprocess.MSIPreprocessor.baseline_correction_spectrum(
-  data: SpectrumBaseModule | SpectrumImzM
+  data: SpectrumBaseModule | SpectrumImzML
   method: str = "asls",
   smooth: str = "none",
   span: float = 0.1,
@@ -46,7 +46,7 @@ preprocess.ms_preprocess.MSIPreprocessor.baseline_correction_spectrum(
   lam: float = 1e7,
   p: float = 0.01,
   niter: int = 15,
-  baseline_scale: float = 0.8,
+  baseline_scale: float = 1.0,
   m: int | None = None,
   decreasing: bool = True
 ) -> tuple[SpectrumBaseModule, np.ndarray]
@@ -70,7 +70,7 @@ preprocess.baseline_correction_helper.baseline_corrector(
   lam: float = 1e7,
   p: float = 0.01,
   niter: int = 15,
-  baseline_scale: float = 0.8,
+  baseline_scale: float = 1.0,
   m: int | None = None,
   decreasing: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]
@@ -81,7 +81,7 @@ preprocess.baseline_correction_helper.baseline_corrector(
   - `method`: `'locmin' | 'snip' | 'asls'`.
   - `smooth`, `span`, `s`, `upper`, `width`: LocMin options (smoothing and anchor detection).
   - `lam`, `p`, `niter`: ASLS options.
-  - `baseline_scale`: scale factor in `[0,1]` applied to the estimated baseline (default `0.8`).
+  - `baseline_scale`: scale factor in `(0,1]` applied to the estimated baseline (default `1.0`).
   - `m`, `decreasing`: SNIP options.
 - Returns:
   - `(corrected, scaled_baseline)`: corrected intensity and the scaled baseline.
@@ -111,7 +111,9 @@ preprocess.baseline_correction_helper.locmin_baseline(
   - `s=0.0` yields exact interpolation through all anchor points; `s>0.0` smooths the spline toward a residual sum of squares ≈ `s`.
   - Endpoints are always included as anchors to ensure full coverage.
   - Minima and maxima detection are symmetric; maxima produce an upper envelope.
-- Exceptions: `ValueError` (span or width is not positive), TypeError (y is not a 1D array)
+ - Exceptions:
+   - `ValueError`: invalid `smooth` value; `span` not in `(0,1]`; `s < 0`; `width < 3`.
+   - `TypeError`: `width` is not an integer, intensity is not a 1D array.
 
 Example：
 
@@ -147,7 +149,7 @@ plot_spectrum(
 ### snip_baseline
 ```python
 preprocess.baseline_correction_helper.snip_baseline(
-  y: np.ndarray,
+  intensity: np.ndarray,
   m: int | None = None,
   decreasing: bool = True
 ) -> np.ndarray
@@ -158,7 +160,9 @@ preprocess.baseline_correction_helper.snip_baseline(
   - `decreasing`: Iterate from large window to small (`True`) or small to large (`False`)
 - Returns:
   - `baseline`: Estimated baseline as 1D numpy array
-- Exceptions: ValueError (m <= 0), TypeError (y is not a 1D array)
+ - Exceptions:
+   - `TypeError`: `m` is not an integer.
+   - `ValueError`: `m <= 0`; `intensity` is not a 1D array.
 
 Example:
 
@@ -192,7 +196,7 @@ plot_spectrum(
 ### asls_baseline
 ```python
 preprocess.baseline_correction_helper.asls_baseline(
-  y: np.ndarray,
+  intensity: np.ndarray,
   lam: float = 1e7,
   p: float = 0.01,
   niter: int = 15
@@ -205,17 +209,20 @@ preprocess.baseline_correction_helper.asls_baseline(
   - `niter`: Iteration count (positive integer; typical range 5–30)
 - Returns:
   - `baseline`: Estimated baseline as 1D numpy array
-- Exceptions: ValueError (lam or p is not positive, niter is not positive), TypeError (y is not a 1D array)
+ - Exceptions:
+   - `ValueError`: `lam <= 0`; `p` not in `(0,1)`; `niter` not a positive integer.
+   - `TypeError`:  `intensity` is not a 1D array
 
 ## Parameters and Tuning
 - General
   - `baseline_scale` (`(0,1]`): smaller values reduce over-subtraction; `1.0` preserves native behavior.
 - LocMin
   - `width`: Larger window reduces anchor density; start at 5–9.
+    - Must be an integer and `>= 3`.
   - `upper`: Use maxima for upper envelope; keep `False` for baseline.
   - `smooth`: `'none'` for raw interpolation; `'loess'` for local smoothing; `'spline'` for global smoothing.
   - `span`: Loess span 0.05–0.3; larger values smooth more aggressively.
-  - `spar`: Spline smoothing factor; `None` for interpolation.
+  - `s`: Spline smoothing target residual sum of squares; `0.0` or `None` for interpolation.
 - ASLS
   - `lam` (smoothness): `1e4–1e8`, larger → smoother baseline.
   - `p` (asymmetry): `0.001–0.1`, smaller → stronger peak preservation.

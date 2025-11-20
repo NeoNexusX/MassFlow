@@ -350,7 +350,7 @@ def baseline_corrector(
     lam: float = 1e7,
     p: float = 0.01,
     niter: int = 15,
-    baseline_scale: float = 0.8,
+    baseline_scale: float = 1.0,
     m: Optional[int] = None,
     decreasing: bool = True,
  
@@ -364,7 +364,7 @@ def baseline_corrector(
         lam (float): ASLS smoothness parameter.
         p (float): ASLS asymmetry parameter.
         niter (int): ASLS iteration count.
-        baseline_scale (float): Scale factor in [0,1] applied to estimated baseline.
+        baseline_scale (float): Scale factor in (0,1] applied to estimated baseline.
         m (int): SNIP window half-size.
         decreasing (bool): SNIP decreasing rule.
 
@@ -383,9 +383,9 @@ def baseline_corrector(
         raise ValueError(f"Unsupported baseline method: {method}")
 
     # Validate baseline_scale
-    if not np.isfinite(baseline_scale) or not (0.0 <= float(baseline_scale) <= 1.0):
-        logger.error("baseline_scale must be a finite number in [0,1]")
-        raise ValueError("baseline_scale must be a finite number in [0,1]")
+    if not np.isfinite(baseline_scale) or not (0.0 < float(baseline_scale) <= 1.0):
+        logger.error("baseline_scale must be a finite number in (0,1]")
+        raise ValueError("baseline_scale must be a finite number in (0,1]")
 
     # Width will be validated inside locmin_baseline/_local_extrema_mask for single-source of truth
 
@@ -405,7 +405,7 @@ def baseline_corrector(
         raise ValueError(f"Unsupported baseline method: {method}")
 
     # Scale baseline and subtract
-    scale = float(np.clip(baseline_scale, 0.0, 1.0))
+    scale = float(baseline_scale)
     scaled_baseline = scale * baseline
     corrected = xi - scaled_baseline
     corrected = np.maximum(corrected, 0.0)

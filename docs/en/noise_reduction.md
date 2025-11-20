@@ -44,15 +44,17 @@ preprocess.ms_preprocess.MSIPreprocessor.noise_reduction_spectrum(
   polyorder: int = 2,
   wavelet: str = "db4",
   threshold_mode: str = "soft",
-) -> SpectrumBaseModule | SpectrumImzML
+) -> SpectrumBaseModule
 ```
 
 - Description: Unified entry point for denoising. Dispatches to the specific filter implementation based on `method`, and returns a spectrum object with the same coordinates as the input, where `intensity` is the smoothed result.
 - Supported `method`s:
   - `ma`, `gaussian`, `savgol`, `wavelet`
   - `ma_ns`, `gaussian_ns`, `bi_ns`
-- Returns: A new `SpectrumBaseModule` (or `SpectrumImzML`) instance, with `mz_list` and coordinates preserved, and `intensity` replaced with the smoothed result.
-- Exceptions: `ValueError` (unsupported method), `TypeError` (invalid input type).
+- Returns: A new `SpectrumBaseModule` instance, with `mz_list` and coordinates preserved, and `intensity` replaced with the smoothed result.
+- Exceptions:
+  - `ValueError`: unsupported `method`.
+  - `TypeError`: invalid input type.
 
 ### smooth_signal_ma
 
@@ -64,12 +66,15 @@ preprocess.filter_helper.smooth_signal_ma(
 ) -> np.ndarray
 ```
 
+- Notes: When passing `coef`, it is normalized automatically; its length determines the effective window.
 - Description: Moving average (or custom convolution kernel) smoothing. Uses `edge` padding for 1D boundaries and automatically normalizes weights.
-- Parameters:
+- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method.):
   - `coef`: Convolution kernel; if `None`, a uniform kernel of length `window` is used.
-  - `window`: Window length (positive integer; if even, it is automatically adjusted to an odd number).
+  - `window`: Window length (positive integer; must be odd when `coef` is None).
 - Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (`window <= 0` when `coef` is not provided), `TypeError`/`ValueError` (input not a non-empty 1D array).
+- Exceptions:
+  - `ValueError`: `window <= 0` or even when `coef` is None,intensity is not a 1D array.
+  - `TypeError`: `window` must be integer when `coef` is None.
 
 Example:
 
@@ -80,15 +85,6 @@ denoised_spectrum = MSIPreprocessor.noise_reduction_spectrum(
     window=7
 )
 ```
-
-- Notes: When passing `coef`, it is normalized automatically; its length determines the effective window.
-
-- Description: Moving average (or custom convolution kernel) smoothing. Uses `edge` padding for 1D boundaries and automatically normalizes weights.
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method.):
-  - `coef`: Convolution kernel; if `None`, a uniform kernel of length `window` is used.
-  - `window`: Window length (positive integer; if even, it is automatically adjusted to an odd number).
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (`window <= 0` when `coef` is not provided), `TypeError` (`intensity` is not 1D).
 
 Example:
 
@@ -113,7 +109,7 @@ ms_md.load_full_data_from_file()
 sp = ms[0]
 
 # Denoising processing (using directly set window size)
-denoised_spectrum = MSIPreprocessor.noise_reduction(
+denoised_spectrum = MSIPreprocessor.noise_reduction_spectrum(
     data=sp,
     method="ma",
     window=7  # Window size for moving average
@@ -142,12 +138,14 @@ preprocess.filter_helper.smooth_signal_gaussian(
 ) -> np.ndarray
 ```
 
-- Description: Discrete Gaussian kernel smoothing; defaults to `sd = window / 4.0`.
-- Parameters:
-  - `sd`: Gaussian standard deviation. If `None`, set to `window / 4.0`.
-  - `window`: Kernel length; automatically made odd for symmetry.
+- Description: Discrete Gaussian kernel smoothing; defaults to `sd = window / 4`.
+- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method.): 
+  - `sd` (Gaussian standard deviation), default `sd = window / 4.0`
+  - `window` (odd length),default = 5
 - Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (`window <= 0`), `TypeError`/`ValueError` (input not a non-empty 1D array).
+- Exceptions:
+  - `ValueError`: `window <= 0` or even; `sd` must be positive finite,intensity is not a 1D array.
+  -  `TypeError`: `window` must be integer.
 
 Example:
 
@@ -156,36 +154,8 @@ denoised = MSIPreprocessor.noise_reduction_spectrum(
     data=sp,
     method="gaussian",
     window=7,
-    sd=None
-)
-```
-
-- Description: Discrete Gaussian kernel smoothing; defaults to `sd = window / 4`.
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method.): 
-  - `sd` (Gaussian standard deviation), default `sd = window / 4.0`
-  - `window` (odd length),default = 5
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (window is not positive), `TypeError` (`intensity` is not 1D).
-
-Example:
-
-```python
-    denoised = MSIPreprocessor.noise_reduction(
-        data=sp,
-        method="gaussian",
-        window=7,
-        # If default, it is set to `window / 4.0`
-        # sd=None
-    )
-
-    # Plotting (overlay)
-    plot_spectrum(
-        base=sp,
-        target=denoised,
-        mz_range=(500.0, 510.0),
-        intensity_range=(0.0, 1.5),
-        metrics_box=True,
-        title_suffix='Gaussian',
+    # If default, it is set to `window / 4.0`
+    # sd=None
     )
 ```
 
@@ -206,8 +176,9 @@ preprocess.filter_helper.smooth_signal_savgol(
   - `window`: Odd window size; minimum 3.
   - `polyorder`: Polynomial order; automatically lowered to be `< window` if necessary.
 - Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: Parameters are auto-corrected to valid ranges; in extreme invalid cases, SciPy may raise.
-
+- Exceptions: 
+  - `ValueError`: `window <= 0` or even; `polyorder` must be less than `window`,intensity is not a 1D array.
+  -  `TypeError`: `window` and `polyorder` must be integer.
 Example:
 
 ```python
@@ -216,37 +187,8 @@ denoised = MSIPreprocessor.noise_reduction_spectrum(
     method="savgol",
     window=10,
     polyorder=1
+    
 )
-```
-
-- Description: Savitzky-Golay polynomial fitting smoothing; automatically ensures `window` is odd and `window >= 3`, and adjusts `polyorder < window`.
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method):
-  - `polyorder` default = 2 `polyorder < window` (if not satisfied, it is automatically lowered).
-  - `window` default =5
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (window or polyorder is not positive), `TypeError` (`intensity` is not 1D).
-
-Example:
-
-```python
-	denoised = MSIPreprocessor.noise_reduction(
-        data=sp,
-        method="savgol",
-        window=10,
-        #window default = 5
-        polyorder=1
-        #polyorder default = 2
-    )
-
-    # Plotting (overlay)
-    plot_spectrum(
-        base=sp,
-        target=denoised,
-        mz_range=(500.0, 510.0),
-        intensity_range=(0.0, 1.5),
-        metrics_box=True,
-        title_suffix='Savgol',
-    )
 ```
 
 ![image-20251109124408310](https://s2.loli.net/2025/11/09/NQ7wOruaiIGoPFl.png)
@@ -266,11 +208,13 @@ preprocess.filter_helper.smooth_signal_wavelet(
 ```
 
 - Description: Wavelet threshold denoising; automatically estimates noise using Donoho-Johnstone universal threshold and applies soft/hard thresholding. The output length is guaranteed to match the input through proper wavelet reconstruction.
-- Parameters:
-  - `wavelet`: e.g., `db4`, `haar`.
-  - `threshold_mode`: `'soft'` or `'hard'`.
+- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method.): 
+  - `wavelet` (e.g., `db4`, `db8`, `haar`, `coif2`),default `db4`
+  - `threshold_mode` (`soft`/`hard`),default `'soft'`
 - Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ImportError` (PyWavelets `pywt` not installed); `TypeError`/`ValueError` (input not a non-empty 1D array).
+- Exceptions:
+  - `ImportError`: PyWavelets `pywt` not installed.
+  - `ValueError`: `threshold_mode` must be 'soft' or 'hard',intensity is not a 1D array.
 
 Example:
 
@@ -279,32 +223,6 @@ denoised = MSIPreprocessor.noise_reduction_spectrum(
     data=sp,
     method="wavelet",
 )
-```
-
-- Description: Wavelet threshold denoising; automatically estimates noise using Donoho-Johnstone universal threshold and applies soft/hard thresholding. The output length is guaranteed to match the input through proper wavelet reconstruction.
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method.): 
-  - `wavelet` (e.g., `db4`, `db8`, `haar`, `coif2`),default `db4`
-  - `threshold_mode` (`soft`/`hard`),default `'soft'`
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `TypeError` (`intensity` is not 1D).
-
-Example:
-
-```python
-    denoised = MSIPreprocessor.noise_reduction(
-        data=sp,
-        method="wavelet",
-    )
-
-    # Plotting (overlay)
-    plot_spectrum(
-        base=sp,
-        target=denoised,
-        mz_range=(500.0, 510.0),
-        intensity_range=(0.0, 1.5),
-        metrics_box=True,
-        title_suffix='wavelet',
-    )
 ```
 
 ![image-20251109124103599](https://s2.loli.net/2025/11/09/n7d8Eab15MuxpNR.png)
@@ -320,14 +238,14 @@ preprocess.filter_helper.smooth_ns_signal_ma(
 ) -> np.ndarray
 ```
 
-- Description: Performs equal-weight average smoothing over the m/z neighborhood (row-normalized).
-- Parameters:
-  - `index`: 1D coordinates aligned with `intensity` (e.g., m/z).
-  - `k`: number of neighbors (>=1).
-  - `p`: Minkowski distance parameter (>=1).
+- Description: Bilateral weighting considers both m/z distance and intensity difference; weights are row-normalized and exponents are clipped to avoid underflow.
+- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method):  
+  - `k` (number of neighbors),default 5,
+  - `p` (distance metric),default 2.
 - Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (`k < 1` or `p < 1`); input validation as above.
-- Notes: If `index` is `None` or length-mismatched, it falls back to `np.arange(len(intensity))` with a warning instead of raising.
+- Exceptions:
+  - `ValueError`: `k < 1` or `p < 1`,intensity is not a 1D array.
+  -  `TypeError`: `k` and `p` must be integers.
 
 Example:
 
@@ -338,33 +256,6 @@ denoised = MSIPreprocessor.noise_reduction_spectrum(
     window=10,  # window maps to k
     p=2
 )
-```
-
-- Description: Performs equal-weight average smoothing over the m/z neighborhood (row-normalized).
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method):  
-  - `k` (number of neighbors),default 5,
-  - `p` (distance metric),default 2.
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (k or p is not positive),`TypeError` (`intensity` is not 1D).
-
-Example:
-
-```python
-    denoised = MSIPreprocessor.noise_reduction(
-        data=sp,
-        method="ma_ns",
-        window=10,#(window = k)
-        #window default = 5
-    )
-    # Plotting (overlay)
-    plot_spectrum(
-        base=sp,
-        target=denoised,
-        mz_range=(500.0, 510.0),
-        intensity_range=(0.0, 1.5),
-        metrics_box=True,
-        title_suffix='ma_ns',
-    )
 ```
 
 ![image-20251109123931844](https://s2.loli.net/2025/11/09/a5i4Styzwh2pARo.png)
@@ -389,7 +280,9 @@ preprocess.filter_helper.smooth_ns_signal_gaussian(
   - `p`: Minkowski distance parameter (>=1).
   - `sd`: Gaussian scale over neighbor distances; auto-estimated if `None`.
 - Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (`k < 1` or `p < 1`); input validation as above.
+- Exceptions:
+  - `ValueError`: `k < 1` or `p < 1`,intensity is not a 1D array.
+  -  `TypeError`: `k` and `p` must be integers.
 - Notes: If `index` is `None` or length-mismatched, it falls back to `np.arange(...)` with a warning.
 
 Example:
@@ -402,34 +295,6 @@ denoised = MSIPreprocessor.noise_reduction_spectrum(
     p=2,
     sd=None
 )
-```
-
-- Description: Performs equal-weight average smoothing over the m/z neighborhood (row-normalized).
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method):  
-  - `k` (number of neighbors),default 5,
-  - `p` (distance metric),default 2.
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (k or p is not positive),`TypeError` (`intensity` is not 1D).
-
-Example:
-
-```python
-    denoised = MSIPreprocessor.noise_reduction(
-        data=sp,
-        method="gaussian_ns",
-        window=10,#(window = k)
-        #window default = 5
-    )
-
-    # Plotting (overlay)
-    plot_spectrum(
-        base=sp,
-        target=denoised,
-        mz_range=(500.0, 510.0),
-        intensity_range=(0.0, 1.5),
-        metrics_box=True,
-        title_suffix='gaussian_ns',
-    )
 ```
 
 ![image-20251109123848344](https://s2.loli.net/2025/11/09/Bpv1GQ8eVfI9HkK.png)
@@ -455,7 +320,9 @@ preprocess.filter_helper.smooth_ns_signal_bi(
   - `sd_dist`: spatial Gaussian scale over neighbor distances; default `median(max_row_distance)/2`.
   - `sd_intensity`: intensity Gaussian scale; default `stats.median_abs_deviation(intensity, scale="normal")`.
 - Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (`k < 1` or `p < 1`); input validation as above.
+- Exceptions:
+  - `ValueError`: `k < 1` or `p < 1`,intensity is not a 1D array.
+  -  `TypeError`: `k` and `p` must be integers.
 - Notes: Both exponent terms are clipped to avoid numerical underflow; weights are row-normalized.
 
 Example:
@@ -469,33 +336,6 @@ denoised = MSIPreprocessor.noise_reduction_spectrum(
 )
 ```
 
-- Description: Performs equal-weight average smoothing over the m/z neighborhood (row-normalized).
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method):  
-  - `k` (number of neighbors),default 5,
-  - `p` (distance metric),default 2.
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: `ValueError` (k or p is not positive),`TypeError` (`intensity` is not 1D).
-
-Example:
-
-```python
-    denoised = MSIPreprocessor.noise_reduction(
-        data=sp,
-        method="bi_ns",
-        window=10,#(window = k)
-    )
-
-    # Plotting (overlay)
-    plot_spectrum(
-        base=sp,
-        target=denoised,
-        mz_range=(500.0, 510.0),
-        intensity_range=(0.0, 1.5),
-        metrics_box=True,
-        title_suffix='bi_ns',
-    )
-```
-
 window =10
 
 ![image-20251109123751589](https://s2.loli.net/2025/11/09/2ucOreGy5CYsxpk.png)
@@ -507,7 +347,7 @@ window=20:
 ## Parameter Descriptions and Tuning Suggestions
 
 - `window` (Convolution/SG window or neighbor count `k` in NS methods)
-  - Positive integer; even numbers are automatically converted to the nearest odd number (for center alignment) for convolution/SG.
+  - Positive integer. Savitzky-Golay: auto-coerced to odd and minimum 3. Moving Average/Gaussian: must be odd (raises on even).
   - Recommendation: 5–15 (adjust based on peak width and noise intensity).
 - `coef` (Custom convolution kernel)
   - Automatically normalized when passed; its length determines the effective window.

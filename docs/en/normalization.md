@@ -67,9 +67,9 @@ preprocess.normalizer_helper.normalizer(
     - `scale_method` is case-insensitive and supports only `'none'` and `'unit'`.
 - Returns:
   - `intensity`: normalized (and optionally scaled) 1D numpy array.
-- Raises:
-  - `ValueError`: unsupported `method`.
-  - `TypeError`/`ValueError`: input not a non-empty 1D array.
+ - Raises:
+  - `ValueError`: unsupported `method`, `scale_method`; `scale` must be finite and non-negative.
+  - `TypeError`: input not a non-empty 1D array.
 
 ### tic_normalize
 ```python
@@ -86,7 +86,9 @@ preprocess.normalizer_helper.tic_normalize(
     - Must be a finite non-negative number.
 - Returns:
   - `intensity`: 1D numpy array; sum equals 1 before amplitude/optional unit scaling
-- Exceptions: `ValueError` (TIC ≤ 0), `TypeError`/`ValueError` (input not a non-empty 1D array)
+- Exceptions: 
+  - `ValueError`: TIC ≤ 0; unsupported `scale_method`; 
+  - `TypeError`: input not a non-empty 1D array
 
 Example： (after Savitzky-Golay denoising)
 
@@ -146,16 +148,18 @@ preprocess.normalizer_helper.rms_normalize(
   scale: float = 1.0
 ) -> np.ndarray
 ```
-- Description: Normalize by root mean square (RMS). Divides by RMS when RMS > 0; if RMS ≤ 0 (or NaN), returns zeros. Applies amplitude `scale`, then optional `'unit'` scaling.
+ - Description: Normalize by root mean square (RMS). Divides by RMS when RMS > 0; if RMS ≤ 0 (or NaN), raises `ValueError`. Applies amplitude `scale`, then optional `'unit'` scaling.
 - Parameters:
-  - `scale_method`: `'none' | 'unit'`
+  - `scale_method`: `'none' | 'unit'` 
   - `scale`: Amplitude scaling factor applied after normalization (default 1.0)
     - Must be a finite non-negative number.
 - Returns:
   - `intensity`: 1D numpy array; RMS equals 1 (before amplitude/optional unit scaling)
 - Notes:
-  - Implementation matches R style: `b = sqrt(mean(x^2))`; if `b > 0` then `y = scale * x / b`, else zeros.
-- Exceptions: `ValueError` (RMS ≤ 0), `TypeError`/`ValueError` (input not a non-empty 1D array)
+  - Implementation matches R style: `b = sqrt(mean(x^2))`; if `b > 0` then `y = scale * x / b`, otherwise an error is raised.
+ - Exceptions:
+   - `ValueError`: RMS ≤ 0; unsupported `scale_method`.
+   - `TypeError`: input not a non-empty 1D array.
 
 Example： (after Savitzky-Golay denoising)
 
@@ -204,7 +208,9 @@ preprocess.normalizer_helper.median_normalize(
     - Must be a finite non-negative number.
 - Returns:
   - `intensity`: 1D numpy array; median equals 1 before amplitude/optional unit scaling
-- Exceptions: `ValueError` (median ≤ 0), `TypeError`/`ValueError` (input not a non-empty 1D array)
+ - Exceptions:
+   - `ValueError`: median ≤ 0; unsupported `scale_method`.
+   - `TypeError`: input not a non-empty 1D array.
 
 Example： (after Savitzky-Golay denoising)
 
@@ -244,10 +250,12 @@ preprocess.normalizer_helper.apply_scaling(
   - `'none'`: return original values
   - `'unit'`: min-max scale to `[0, 1]`
 - Parameters:
-  - `scale_method`: `'none' | 'unit'`
+  - `scale_method`: `'none' | 'unit'` (case-insensitive)
 - Returns:
   - `intensity`: scaled 1D numpy array
-- Exceptions: `ValueError` (unsupported `scale_method`); input validation as above
+ - Exceptions:
+   - `ValueError`: unsupported `scale_method`.
+   - `TypeError`: input not a non-empty 1D array.
 
 ### Optional 0–1 scaling (unit scaling)
 ```python
@@ -282,6 +290,8 @@ plot_spectrum(
   Ensure the spectrum has non-zero sum after preprocessing; avoid using entirely empty or clipped spectra.
 - `ValueError: Median value is not greater than 0`  
   Ensure intensities are not all zero; consider baseline correction or avoiding aggressive clipping.
+ - `ValueError: RMS value is not greater than 0`  
+   Check for empty/constant spectra or all-NaN values; ensure preprocessing retains signal.
 - Unsupported method or scale_method  
   Check spelling: `method='tic'|'median'`, `scale_method='none'|'unit'`.
 
