@@ -1,7 +1,7 @@
 from typing import Sequence, Tuple, Optional
 import numpy as np
 import matplotlib.pyplot as plt
-from preprocess.ms_preprocess import MSIPreprocessor
+from massflow.preprocess.ms_preprocess import MSIPreprocessor
 from massflow.module.ms_module import SpectrumBaseModule
 from massflow.logger import get_logger
 

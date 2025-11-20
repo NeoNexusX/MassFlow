@@ -40,9 +40,19 @@ class MSIPreprocessor:
         Raises:
             ValueError: If neither msi_object nor (mz, msroi) are provided
         """
+    @staticmethod
+    def base_input_check(data):
+        """
+        Validate input data.
+
+        Raises:
+            ValueError: If input data is invalid or missing required attributes
+        """
+        if data.intensity is None or data.mz_list is None:
+            raise ValueError("Input spectrum must have both intensity and mz_list data.")
 
     @staticmethod
-    def peak_pick_spectrum(data: SpectrumBaseModule,
+    def peak_pick_spectrum( data: SpectrumBaseModule,
                             width: int | Sequence[int] = 2,
                             method: str = 'scipy',
                             relheight: float = 0.1,
@@ -63,11 +73,12 @@ class MSIPreprocessor:
         Raises:
             ValueError: If `method` or `return_type` is unsupported.
         """
+        MSIPreprocessor.base_input_check(data=data)
 
         intensity = data.intensity
         index = data.mz_list
-        peak_intensity,peak_index = peak_pick_fun(intensity,
-                                                  index,
+        peak_intensity,peak_index = peak_pick_fun(  intensity, # type: ignore
+                                                    index, # type: ignore
                                                     width=width,
                                                     method=method,
                                                     relheight=relheight,
@@ -105,9 +116,11 @@ class MSIPreprocessor:
             ValueError: If `method` is unsupported or if TIC/median is not greater than 0
             (propagated from the lower-level normalizer).
         """
+        MSIPreprocessor.base_input_check(data=data)
+
         intensity = data.intensity
         norm_intensity = normalizer(
-            intensity,
+            intensity, # type: ignore
             scale_method=scale_method,
             method=method
         )
@@ -295,10 +308,10 @@ class MSIPreprocessor:
         data: Union[SpectrumBaseModule, SpectrumImzML],
         method: str = "ma",
         window: int = 5,
-        sd: float = None,
-        sd_intensity: float = None,
+        sd: Optional[float] = None,
+        sd_intensity: Optional[float] = None,
         p: int = 2,
-        coef: np.ndarray = None,
+        coef: Optional[np.ndarray] = None,
         polyorder: int = 3,
         derive: int = 0,
         delta: float = 1.0,
@@ -326,18 +339,20 @@ class MSIPreprocessor:
         Raises:
             ValueError: If `method` is unsupported.
         """
+        MSIPreprocessor.base_input_check(data=data)
+
         intensity = data.intensity
         index = data.mz_list
 
         smoothed_intensity = smoother(
-            intensity,
+            intensity,# type: ignore
             index=index,
             method=method,
             window=window,
-            sd=sd,
-            sd_intensity=sd_intensity,
+            sd=sd,# type: ignore
+            sd_intensity=sd_intensity,# type: ignore
             p=p,
-            coef=coef,
+            coef=coef,# type: ignore
             polyorder=polyorder,
             derive=derive,
             delta=delta,
@@ -374,12 +389,14 @@ class MSIPreprocessor:
         Returns:
             float | np.ndarray: Estimated noise scalar or per-bin array depending on method.
         """
+        MSIPreprocessor.base_input_check(data=x)
+
         intensity = x.intensity
         index = x.mz_list
 
         return estimator(
-            intensity,
-            index,
+            intensity,# type: ignore
+            index,# type: ignore
             nbins=nbins,
             overlap=overlap,
             method=method,
@@ -401,7 +418,9 @@ class MSIPreprocessor:
         Returns:
             float: SNR computed as quantile-based signal level divided by estimated noise.
         """
-        signal_level = np.percentile(spectrum.intensity, 95)
+        MSIPreprocessor.base_input_check(data=spectrum)
+
+        signal_level = np.percentile(spectrum.intensity, 95)# type: ignore
 
         noise = MSIPreprocessor.noise_estimation_spectrum(spectrum, method=method)
 
@@ -409,7 +428,7 @@ class MSIPreprocessor:
         return signal_level / noise
 
     @staticmethod
-    def preprocess_pipeline(data: SpectrumBaseModule) -> SpectrumBaseModule:
+    def preprocess_pipeline(data: SpectrumBaseModule):
         """
         Composite preprocessing pipeline (placeholder).
 

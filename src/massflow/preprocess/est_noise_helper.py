@@ -8,8 +8,8 @@ from typing import Optional
 import numpy as np
 from scipy import stats
 from scipy.interpolate import InterpolatedUnivariateSpline
-from .filter_helper import smoother
 from massflow.logger import get_logger
+from .filter_helper import smoother
 
 logger = get_logger(__name__)
 

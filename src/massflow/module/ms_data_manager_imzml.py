@@ -55,7 +55,8 @@ class MSDataManagerImzML(MSDataManager):
 
         # meta data protection and read meta data
         if self.ms.meta is None:
-            self.ms.meta  = ImzMlMetaData(parser=self.parser, coordinates_zero_based=coordinates_zero_based)
+            self.ms.meta = ImzMlMetaData(parser=self.parser, coordinates_zero_based=coordinates_zero_based)
+
         elif self.ms.meta.parser is None:
             self.ms.meta.parser = self.parser
 

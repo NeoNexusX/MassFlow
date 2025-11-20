@@ -1,8 +1,8 @@
+from typing import Optional, Tuple, Literal, List
 import numpy as np
+from scipy.signal import find_peaks
 from massflow.module.ms_module import MS, SpectrumBaseModule
 from massflow.logger import get_logger
-from typing import Optional, Tuple, Literal, List
-from scipy.signal import find_peaks, lfilter
 
 logger = get_logger("peak alignment")
 

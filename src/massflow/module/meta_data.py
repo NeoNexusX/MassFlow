@@ -4,6 +4,7 @@ Author: MassFlow Development Team Bionet/dre,NeoNeuxs
 License: See LICENSE file in project root
 """
 import os
+from typing import Optional
 import numpy as np
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
@@ -40,11 +41,12 @@ class MetaDataFileBase:
                 name: str = "default",
                 version: float = 1.0,
                 storage_mode: str = 'split',
-                max_count_of_pixels_x: int = None,
-                max_count_of_pixels_y: int = None,
-                pixel_size_x: float = None,
-                pixel_size_y: float = None,
-                mask = None):
+                max_count_of_pixels_x: Optional[int] = None,
+                max_count_of_pixels_y: Optional[int] = None,
+                pixel_size_x: Optional[float] = None,
+                pixel_size_y: Optional[float] = None,
+                mask: Optional[np.ndarray] = None,
+                coordinates_zero_based: bool = True): # [新增参数]
 
         self._meta = {}
         # Initialize all metadata fields via properties to trigger auto-sync
@@ -61,6 +63,7 @@ class MetaDataFileBase:
         self._profile_spectrum = None
         self._peakpick = None
         self._mask = None
+        self._coordinates_zero_based = None # [新增初始化]
 
         #set actual values through properties
         self.name = name
@@ -72,6 +75,7 @@ class MetaDataFileBase:
         self.pixel_size_x = pixel_size_x
         self.pixel_size_y = pixel_size_y
         self.mask = mask
+        self.coordinates_zero_based = coordinates_zero_based # [新增赋值]
 
     def _set(self, key, value):
         self._meta[key] = value
@@ -82,7 +86,7 @@ class MetaDataFileBase:
         return self._mask
 
     @mask.setter
-    def mask(self, mask: np.ndarray):
+    def mask(self, mask: Optional[np.ndarray]):
         """Set the mask of the data model."""
         if mask is not None and len(mask.shape) == 2:
             self._mask = mask
@@ -256,6 +260,25 @@ class MetaDataFileBase:
         for meta_key in self._meta:
             self._meta[meta_key] = getattr(self, meta_key, None)
 
+    @property
+    def coordinates_zero_based(self)-> bool:
+        """
+        Flag indicating whether coordinates are zero-based.
+        """
+        if self._coordinates_zero_based is not None:
+            return self._coordinates_zero_based
+        else:
+            logger.error("coordinates_zero_based is None, returning default False.")
+            raise ValueError("coordinates_zero_based is None.")
+
+    @coordinates_zero_based.setter
+    def coordinates_zero_based(self, value: bool):
+        """
+        Set the zero-based coordinate flag and persist in metadata.
+        """
+        self._coordinates_zero_based = value
+        self._set('coordinates_zero_based', self._coordinates_zero_based)
+
 class MSIMetaData(MetaDataFileBase):
     """
     Metadata class for MSI image-matrix data.
@@ -272,11 +295,11 @@ class MSIMetaData(MetaDataFileBase):
                  name: str = "default",
                  version: float = 1.0,
                  storage_mode: str = 'split',
-                 max_count_of_pixels_x: int = None,
-                 max_count_of_pixels_y: int = None,
-                 pixel_size_x: float = None,
-                 pixel_size_y: float = None,
-                 mz_num: int = None):
+                 max_count_of_pixels_x: Optional[int] = None,
+                 max_count_of_pixels_y: Optional[int] = None,
+                 pixel_size_x: Optional[float] = None,
+                 pixel_size_y: Optional[float] = None,
+                 mz_num: Optional[int] = None):
         """
         Initialize MSI metadata instance.
 
@@ -350,7 +373,7 @@ class MSIMetaData(MetaDataFileBase):
         return self._mz_num
 
     @mz_num.setter
-    def mz_num(self, mz_num: int):
+    def mz_num(self, mz_num: Optional[int]):
         """
         Set the number of m/z values.
 
@@ -372,8 +395,8 @@ class ImzMlMetaData(MetaDataFileBase):
                  name="ImzML",
                  version=1.0,
                  storage_mode='split',
-                 parser: ImzMLParser = None,
-                 filepath = None,
+                 parser: Optional[ImzMLParser] = None,
+                 filepath: Optional[str] = None,
                  absolute_position_offset_x = None,
                  absolute_position_offset_y = None,
                  centroid_spectrum = None,
@@ -392,9 +415,11 @@ class ImzMlMetaData(MetaDataFileBase):
                  coordinates_zero_based: bool = True):
 
         """Initialize the metadata object with either a parser or a file path."""
+        # [修改] 将 coordinates_zero_based 传递给父类
         super().__init__(name=name, version=version, storage_mode=storage_mode, 
                          mask=mask,pixel_size_x=pixel_size_x,pixel_size_y=pixel_size_y,
-                         max_count_of_pixels_x=max_count_of_pixels_x,max_count_of_pixels_y=max_count_of_pixels_y)
+                         max_count_of_pixels_x=max_count_of_pixels_x,max_count_of_pixels_y=max_count_of_pixels_y,
+                         coordinates_zero_based=coordinates_zero_based)
 
         self._filepath = None
         self._parser = None
@@ -460,7 +485,7 @@ class ImzMlMetaData(MetaDataFileBase):
         return self._spectrum_count_num
 
     @spectrum_count_num.setter
-    def spectrum_count_num(self, spectrum_count_num: int):
+    def spectrum_count_num(self, spectrum_count_num: Optional[int]):
         """Persist the number of spectra and sync it to the base storage."""
         if spectrum_count_num is not None:
             self._spectrum_count_num = spectrum_count_num
@@ -550,17 +575,3 @@ class ImzMlMetaData(MetaDataFileBase):
             self._min_pixel_y = min_pixel_y
             self._set('min_pixel_y', min_pixel_y)
 
-    @property
-    def coordinates_zero_based(self) -> bool:
-        """
-        Flag indicating whether coordinates are zero-based.
-        """
-        return self._coordinates_zero_based
-
-    @coordinates_zero_based.setter
-    def coordinates_zero_based(self, value: bool):
-        """
-        Set the zero-based coordinate flag and persist in metadata.
-        """
-        self._coordinates_zero_based = value
-        self._set('coordinates_zero_based', self._coordinates_zero_based)
