@@ -55,6 +55,7 @@ preprocess.ms_preprocess.MSIPreprocessor.baseline_correction_spectrum(
 - Supported methods: `"locmin"`, `"snip"`, `"asls"`
 - Returns: `(corrected_spectrum, baseline)`; corrected spectrum preserves `mz_list` and coordinates.
 - Exceptions: `ValueError` (unsupported method), `TypeError` (invalid input type)
+ 
 
 ### baseline_corrector
 ```python
@@ -111,9 +112,9 @@ preprocess.baseline_correction_helper.locmin_baseline(
   - `s=0.0` yields exact interpolation through all anchor points; `s>0.0` smooths the spline toward a residual sum of squares ≈ `s`.
   - Endpoints are always included as anchors to ensure full coverage.
   - Minima and maxima detection are symmetric; maxima produce an upper envelope.
- - Exceptions:
-   - `ValueError`: invalid `smooth` value; `span` not in `(0,1]`; `s < 0`; `width < 3`.
-   - `TypeError`: `width` is not an integer, intensity is not a 1D array.
+- Exceptions:
+  - `ValueError`: invalid `smooth` value; `span` not in `(0,1]`; `s < 0`; `width < 3`.
+  - `TypeError`: `width` is not an integer, intensity is not a 1D array.
 
 Example：
 
@@ -129,7 +130,7 @@ corrected_sp, baseline = MSIPreprocessor.baseline_correction_spectrum(
     data=sp,
     method="locmin",
     upper=False,
-    width=5,
+    width=11,
     smooth="none",
     baseline_scale=1.0
 )
@@ -160,9 +161,9 @@ preprocess.baseline_correction_helper.snip_baseline(
   - `decreasing`: Iterate from large window to small (`True`) or small to large (`False`)
 - Returns:
   - `baseline`: Estimated baseline as 1D numpy array
- - Exceptions:
-   - `TypeError`: `m` is not an integer.
-   - `ValueError`: `m <= 0`; `intensity` is not a 1D array.
+- Exceptions:
+  - `TypeError`: `m` is not an integer.
+  - `ValueError`: `m <= 0`; `intensity` is not a 1D array.
 
 Example:
 
@@ -210,8 +211,8 @@ preprocess.baseline_correction_helper.asls_baseline(
 - Returns:
   - `baseline`: Estimated baseline as 1D numpy array
  - Exceptions:
-   - `ValueError`: `lam <= 0`; `p` not in `(0,1)`; `niter` not a positive integer.
-   - `TypeError`:  `intensity` is not a 1D array
+  - `ValueError`: `lam <= 0`; `p` not in `(0,1)`; `niter` not a positive integer.
+  - `TypeError`:  `intensity` is not a 1D array
 
 ## Parameters and Tuning
 - General
@@ -241,3 +242,17 @@ preprocess.baseline_correction_helper.asls_baseline(
 - `preprocess/baseline_correction_helper.py` (LocMin, SNIP, ASLS implementations)
 - `module/ms_module.py` (Data structure for `SpectrumBaseModule`)
 - `tools/plot.py` (Plotting utilities for `SpectrumBaseModule`)
+
+## Error Handling and Logging
+
+- All input validation errors log via `logger.error` before raising `TypeError` or `ValueError`.
+- Baseline scaling: `baseline_scale` must be a finite number in `(0,1]`; violations log and raise `ValueError`.
+- LocMin:
+  - `smooth` must be one of `'none' | 'loess' | 'spline'`.
+  - `span` must be in `(0,1]`; `s` must be a finite number and `>= 0`.
+  - `width` must be an integer and `>= 3`.
+  - Loess/Spline smoothing depends on external functions (`_smooth1d`, `UnivariateSpline`); if they fail (e.g., missing dependency, invalid parameters), exceptions will propagate.
+- SNIP:
+  - `m` must be an integer (type violation raises `TypeError`); if provided, it must be `>= 1`.
+- ASLS:
+  - `lam` must be a positive finite number; `p` must be in `(0,1)`; `niter` must be a positive integer.

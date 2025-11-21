@@ -11,32 +11,62 @@ from module.ms_module import SpectrumBaseModule
 logger = get_logger(__name__)
 
 def _input_validation(
-    intensity:np.ndarray,
-    index: Optional[np.ndarray] = None):
+    intensity: np.ndarray,
+    index: Optional[np.ndarray] = None,
+    *,
+    window: Optional[int] = None,
+    sd: Optional[float] = None,
+    k: Optional[int] = None,
+    p: Optional[int] = None,
+) -> None:
     """
-    Validate input parameters for smoothing functions.
-    
-    Parameters:
-        intensity (np.ndarray): 1D intensity array to be preprocessed.
-        index (Optional[np.ndarray]): 1D index array (e.g., m/z values). If None, 
-            will be generated as np.arange(len(intensity)).
-    
+    Unified validation and normalization for smoothing-related parameters.
+
+    Performs validation only; does not normalize or mutate values.
+
     Raises:
-        TypeError: If intensity is not a numpy array.
-        ValueError: If intensity is not 1D or empty.
+        TypeError: `intensity` is not a NumPy array.
+        ValueError: `intensity` is not 1D or empty; invalid `window/k/p/sd/...`;
+            or `threshold_mode` is not 'soft'/'hard'.
     """
-    # Validate intensity array
-    if intensity is None:
+    # Validate intensity (must be non-empty 1D NumPy array)
+    if not isinstance(intensity, np.ndarray):
         logger.error("intensity must be a numpy array")
         raise TypeError("intensity must be a numpy array")
-
-    elif intensity.ndim != 1 or intensity.size == 0:
+    if intensity.ndim != 1 or intensity.size == 0:
         logger.error("intensity must be a non-empty 1D array")
         raise ValueError("intensity must be a non-empty 1D array")
 
-    if index is not None and (index.ndim != 1 or index.size != intensity.size):
-        logger.error("index must be a 1D array with the same length as intensity")
-        raise ValueError("index must be a 1D array with the same length as intensity")
+    # Index check (if provided, must be 1D and match intensity length)
+    if index is not None:
+        if not isinstance(index, np.ndarray) or index.ndim != 1 or index.size != intensity.size:
+            logger.error("index must be a 1D array with the same length as intensity")
+            raise ValueError("index must be a 1D array with the same length as intensity")
+
+    # Validate window (if provided): positive integer
+    if window is not None:
+        if not isinstance(window, int) or window <= 0:
+            logger.error("window must be a positive integer")
+            raise ValueError("window must be a positive integer")
+
+    # Validate sd (if provided): positive float
+    if sd is not None:
+        if sd <= 0:
+            logger.error("sd must be positive")
+            raise ValueError("sd must be positive")
+
+    # Validate k/p (if provided): positive integers; k must not exceed length
+    if k is not None:
+        if not isinstance(k, int) or k < 1 or k > intensity.size:
+            logger.error("k must be a positive integer not exceeding intensity length")
+            raise ValueError("k must be a positive integer not exceeding intensity length")
+    if p is not None:
+        if not isinstance(p, int) or p < 1:
+            logger.error("p must be a positive integer")
+            raise ValueError("p must be a positive integer")
+
+    # No normalization; return None on success
+    return None
 
 def smooth_signal_ma(
     intensity:np.ndarray,
@@ -50,29 +80,28 @@ def smooth_signal_ma(
         intensity (np.ndarray): 1D intensity array to be preprocessed.
         coef (Optional[np.ndarray]): 1D convolution kernel. If None, uses a
             uniform kernel with length `window`.
-        window (int): Window size used when `coef` is None. Must be > 0. If even,
-            it will be adjusted to the next odd number for center alignment.
+        window (int): Window size used when `coef` is None. Must be a positive
+            integer.
 
     Returns:
         np.ndarray: Smoothed intensity array with the same length as the input.
 
     Raises:
-    ValueError: If `window` <= 0 when `coef` is None.
-    TypeError: If `intensity` is not a 1D numpy array.
+        ValueError: `window` must be a positive integer when `coef` is None.
+        TypeError: `intensity` must be 1D NumPy array; `coef` if provided must be 1D.
     """
-
-    # If weights not specified, use uniform weights (moving average)
+    # Validate and prepare kernel
     if coef is None:
-        if not isinstance(window, int):
-            logger.error("window must be an integer for moving average")
-            raise TypeError("window must be an integer for moving average")
-        if window <= 0:
+        if not isinstance(window, int) or window <= 0:
             logger.error("window must be a positive integer when coef is None")
             raise ValueError("window must be a positive integer when coef is None")
-        if window % 2 == 0:
-            logger.error("window must be an odd integer for center alignment")
-            raise ValueError("window must be an odd integer for center alignment")
+        # Force odd window length for centered alignment
+        window = window + 1 - (window % 2)
         coef = np.ones(window, dtype=float)
+    else:
+        if not isinstance(coef, np.ndarray) or coef.ndim != 1 or coef.size == 0:
+            logger.error("coef must be a non-empty 1D numpy array")
+            raise TypeError("coef must be a non-empty 1D numpy array")
 
     # Normalize kernel weights
     coef = coef.astype(float)
@@ -100,33 +129,27 @@ def smooth_signal_gaussian(
         intensity (np.ndarray): 1D intensity array to be smoothed.
         sd (Optional[float]): Standard deviation of the Gaussian. If None, set to
             `window / 4.0` for a reasonable spread.
-        window (int): Kernel window size (number of samples). If even, it is
-            adjusted to the next odd integer to preserve center alignment.
+        window (int): Kernel window size (number of samples). Must be a
+            positive integer.
 
     Returns:
         np.ndarray: Smoothed intensity array with the same length as the input.
 
     Raises:
-        ValueError: If `window` <= 0.
-        TypeError: If `intensity` is not a 1D array.
+        ValueError: `window` must be a positive integer; `sd` must be positive if provided.
+        TypeError: `intensity` must be a 1D array.
     """
-
     # Validate window and sd
-    if not isinstance(window, int):
-        logger.error("window must be an integer for gaussian smoothing")
-        raise TypeError("window must be an integer for gaussian smoothing")
-    if window <= 0:
-        logger.error("window must be a positive integer for gaussian smoothing")
-        raise ValueError("window must be a positive integer for gaussian smoothing")
-    if window % 2 == 0:
-        logger.error("window must be an odd integer for gaussian smoothing")
-        raise ValueError("window must be an odd integer for gaussian smoothing")
-    if sd is not None and (not np.isfinite(sd) or sd <= 0):
-        logger.error("sd must be a positive finite number for gaussian smoothing")
-        raise ValueError("sd must be a positive finite number for gaussian smoothing")
+    if not isinstance(window, int) or window <= 0:
+        logger.error("window must be a positive integer")
+        raise ValueError("window must be a positive integer")
+    if sd is not None and sd <= 0:
+        logger.error("sd must be positive")
+        raise ValueError("sd must be positive")
 
-    # Ensure window length is odd for symmetric kernel
-    window = window + 1 - window % 2
+    # Force odd window length for centered alignment
+    window = window + 1 - (window % 2)
+
     half_window = window // 2
 
     # Generate Gaussian kernel
@@ -154,14 +177,14 @@ def smooth_signal_savgol(
     """
     Savitzky-Golay filter for signal smoothing.
     
-    The Savitzky-Golay filter fits successive sub-sets of adjacent data points 
-    with a low-degree polynomial by the method of linear least squares.
+    The Savitzky-Golay filter fits successive sub-sets of adjacent data points
+    with a low-degree polynomial by linear least squares.
     
     Args:
         intensity : np.ndarray
             Input signal
         window : int
-            Window size (must be odd and greater than polyorder)
+            Window size (must be a positive integer and greater than polyorder; SciPy requires odd window length).
         polyorder : int
             Polynomial order (must be less than window)
             
@@ -171,10 +194,7 @@ def smooth_signal_savgol(
     """
     from scipy.signal import savgol_filter
 
-    # Validate parameters strictly: raise on invalid inputs
-    if not isinstance(window, int):
-        logger.error("window must be an integer for Savitzky-Golay filter")
-        raise TypeError("window must be an integer for Savitzky-Golay filter")
+
     if window < 3:
         window = 3
 
@@ -184,10 +204,10 @@ def smooth_signal_savgol(
 
     # Ensure polyorder is less than window
     if polyorder >= window:
-        logger.error("polyorder must be less than window for Savitzky-Golay filter")
-        raise ValueError("polyorder must be less than window for Savitzky-Golay filter")
+        logger.error("polyorder must be less than window")
+        raise ValueError("polyorder must be less than window")
 
-    # Apply Savitzky-Golay filter
+    # Apply filter
     return savgol_filter(intensity, window, polyorder)
 
 def smooth_signal_wavelet(
@@ -211,10 +231,11 @@ def smooth_signal_wavelet(
     """
     import pywt
 
-    # Validate threshold_mode
+    # Validate threshold mode
     if threshold_mode not in {"soft", "hard"}:
         logger.error("threshold_mode must be 'soft' or 'hard' for wavelet denoising")
         raise ValueError("threshold_mode must be 'soft' or 'hard' for wavelet denoising")
+
     original_length = len(intensity)
 
     # Perform wavelet decomposition
@@ -245,8 +266,8 @@ def smooth_signal_wavelet(
     return reconstructed
 
 def smooth_ns_signal_pre(
-    intensity:np.ndarray,
-    index:np.ndarray,
+    intensity: np.ndarray,
+    index: np.ndarray,
     k: int = 5,
     p: int = 1,
 ):
@@ -267,13 +288,8 @@ def smooth_ns_signal_pre(
 
     Raises:
         ValueError: If `k` or `p` is not positive.
-        ValueError: If `index` is None or length mismatches `intensity` (fallback applied).
+        ValueError: If `index` is None or length mismatches `intensity`.
     """
-
-    # Enforce integer types
-    if not isinstance(k, (int, np.integer)) or not isinstance(p, (int, np.integer)):
-        logger.error("k and p must be integers")
-        raise TypeError("k and p must be integers")
 
     # Enforce positivity
     if k < 1 or p < 1:
@@ -291,6 +307,12 @@ def smooth_ns_signal_pre(
 
     tree = cKDTree(index.reshape(-1, 1))
 
+    if not isinstance(k, int) or k < 1:
+        logger.error("k must be a positive integer")
+        raise ValueError("k must be a positive integer")
+    if not isinstance(p, int) or p < 1:
+        logger.error("p must be a positive integer")
+        raise ValueError("p must be a positive integer")
     if len(intensity) < k:
         logger.warning("spectrum length must be greater than k")
         k = len(intensity)
@@ -358,13 +380,6 @@ def smooth_ns_signal_ma(
     Raises:
         ValueError: If `k` or `p` is not positive.
     """
-    # Validate k and p locally as well
-    if not isinstance(k, (int, np.integer)) or not isinstance(p, (int, np.integer)):
-        logger.error("k and p must be integers")
-        raise TypeError("k and p must be integers")
-    if k < 1 or p < 1:
-        logger.error("k and p must be positive integers")
-        raise ValueError("k and p must be positive integers")
 
     neigh_intensity, _, _ = smooth_ns_signal_pre(intensity, index, k=k, p=p)
     weights = np.ones(k, dtype=float)
@@ -397,14 +412,6 @@ def smooth_ns_signal_gaussian(
         ValueError: If `k` or `p` is not positive.
     """
 
-    # Validate k and p locally as well
-    if not isinstance(k, (int, np.integer)) or not isinstance(p, (int, np.integer)):
-        logger.error("k and p must be integers")
-        raise TypeError("k and p must be integers")
-    if k < 1 or p < 1:
-        logger.error("k and p must be positive integers")
-        raise ValueError("k and p must be positive integers")
-
     neigh_intensity, dists, _ = smooth_ns_signal_pre(intensity, index, k=k, p=p)
 
     if len(dists.shape)<2:
@@ -412,10 +419,13 @@ def smooth_ns_signal_gaussian(
     dists_max = np.max(dists, axis=1)
 
     sd = np.median(dists_max) / 2.0 if sd is None else sd
+    if sd <= 0:
+        logger.error("sd must be positive")
+        raise ValueError("sd must be positive")
 
     # dist_ = np.exp(-dists**2 / (2 * sd**2))
     exponent = -0.5 * (dists / sd) ** 2
-    exponent = np.clip(exponent, -88.0, 0.0)  # float64 下约为 exp(-700) ~ 5e-305
+    exponent = np.clip(exponent, -88.0, 0.0)  # Numerical stability: clamp exponent to avoid underflow
     weights = np.exp(exponent)
 
     # calculate row-wise normalized weights avoid divide by zero
@@ -452,14 +462,6 @@ def smooth_ns_signal_bi(
     Raises:
         ValueError: If `k` or `p` is not positive.
     """
-    # Validate k and p locally as well
-    if not isinstance(k, (int, np.integer)) or not isinstance(p, (int, np.integer)):
-        logger.error("k and p must be integers")
-        raise TypeError("k and p must be integers")
-    if k < 1 or p < 1:
-        logger.error("k and p must be positive integers")
-        raise ValueError("k and p must be positive integers")
-
     neigh_intensity, dists, _ = smooth_ns_signal_pre(intensity, index, k=k, p=p)
 
     if len(dists.shape)<2:
@@ -467,6 +469,9 @@ def smooth_ns_signal_bi(
     dists_max = np.max(dists, axis=1)
 
     sd_dist = np.median(dists_max) / 2.0 if sd_dist is None else sd_dist
+    if sd_dist <= 0:
+        logger.error("sd_dist must be positive")
+        raise ValueError("sd_dist must be positive")
 
     # dist_ = np.exp(-dists**2 / (2 * sd**2))
     exponent = -0.5 * (dists / sd_dist) ** 2
@@ -481,6 +486,9 @@ def smooth_ns_signal_bi(
 
     # Intensity weights (based on neighbor intensity differences)
     sd_intensity = stats.median_abs_deviation(intensity, nan_policy="omit", scale="normal") if sd_intensity is None else sd_intensity
+    if sd_intensity <= 0:
+        logger.error("sd_intensity must be positive")
+        raise ValueError("sd_intensity must be positive")
 
     diff = neigh_intensity - intensity.reshape(-1, 1)  # shape (N, k)
     iexponent = -0.5 * (diff / sd_intensity) ** 2
@@ -515,17 +523,19 @@ def smooth_preprocess(data:SpectrumBaseModule):
     data.intensity = intensity
     return data
 
-def smoother(intensity:np.ndarray,
-            index:Optional[np.ndarray]=None,
-            method: str = "ma",
-            window: int = 5,
-            sd: float = None,
-            sd_intensity: float = None,
-            p: int = 2,
-            coef: np.ndarray = None,
-            polyorder: int = 2,
-            wavelet: str = 'db4',
-            threshold_mode: str = 'soft'):
+def smoother(
+    intensity: np.ndarray,
+    index: Optional[np.ndarray] = None,
+    method: str = "ma",
+    window: int = 5,
+    sd: Optional[float] = None,
+    sd_intensity: Optional[float] = None,
+    p: int = 2,
+    coef: Optional[np.ndarray] = None,
+    polyorder: int = 2,
+    wavelet: str = "db4",
+    threshold_mode: str = "soft",
+) -> np.ndarray:
 
     """
     Unified smoothing entry for multiple methods.
@@ -547,30 +557,45 @@ def smoother(intensity:np.ndarray,
         np.ndarray: Smoothed intensity array.
 
     Raises:
-        ValueError: If `method` is unsupported or invalid parameter combinations are provided.
+        ValueError: If `method` is unsupported or parameter combinations are invalid.
+        TypeError: If `intensity` is invalid or `coef` is not 1D.
     """
-    # Basic validation
-    _input_validation(intensity)
-
-    # Normalize and validate method
+    # Normalize method and validate supported set
     method_norm = (method or "ma").strip().lower()
     supported = {"ma", "gaussian", "savgol", "wavelet", "ma_ns", "gaussian_ns", "bi_ns"}
     if method_norm not in supported:
-        logger.error("Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns", method)
+        logger.error(
+            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns",
+            method,
+        )
         raise ValueError(f"Unsupported smoothing method: {method}")
 
-    # Choose smoothing method
+    # Validate shared parameters only (no normalization)
     if method_norm == "ma":
-        return smooth_signal_ma(intensity, coef=coef, window=window)
+        _input_validation(intensity=intensity, window=window if coef is None else None)
+        return smooth_signal_ma(intensity, window=window, coef=coef)
+
     elif method_norm == "gaussian":
-        return smooth_signal_gaussian(intensity, sd=sd, window=window)
-    elif method_norm == "ma_ns":
-        return smooth_ns_signal_ma(intensity, index=index, p=p, k=window)
+        _input_validation(intensity=intensity, window=window, sd=sd)
+        return smooth_signal_gaussian(intensity, window=window, sd=sd)
+
     elif method_norm == "savgol":
+        _input_validation(intensity=intensity, window=window)
         return smooth_signal_savgol(intensity, window=window, polyorder=polyorder)
+
     elif method_norm == "wavelet":
+        _input_validation(intensity=intensity)
         return smooth_signal_wavelet(intensity, wavelet=wavelet, threshold_mode=threshold_mode)
+
+    elif method_norm == "ma_ns":
+        _input_validation(intensity=intensity, index=index, k=window, p=p)
+        return smooth_ns_signal_ma(intensity, index=index, k=window, p=p)
+
     elif method_norm == "gaussian_ns":
-        return smooth_ns_signal_gaussian(intensity, index=index, sd=sd, p=p, k=window)
-    else:  # method_norm == "bi_ns"
-        return smooth_ns_signal_bi(intensity, index=index, sd_dist=sd, sd_intensity=sd_intensity, p=p, k=window)
+        _input_validation(intensity=intensity, index=index, k=window, p=p, sd=sd)
+        return smooth_ns_signal_gaussian(intensity, index=index, k=window, p=p, sd=sd)
+
+    else:
+        # bi_ns
+        _input_validation(intensity=intensity, index=index, k=window, p=p)
+        return smooth_ns_signal_bi(intensity, index=index, k=window, p=p, sd_dist=sd, sd_intensity=sd_intensity)

@@ -67,7 +67,7 @@ preprocess.normalizer_helper.normalizer(
     - `scale_method` is case-insensitive and supports only `'none'` and `'unit'`.
 - Returns:
   - `intensity`: normalized (and optionally scaled) 1D numpy array.
- - Raises:
+- Raises:
   - `ValueError`: unsupported `method`, `scale_method`; `scale` must be finite and non-negative.
   - `TypeError`: input not a non-empty 1D array.
 
@@ -157,9 +157,9 @@ preprocess.normalizer_helper.rms_normalize(
   - `intensity`: 1D numpy array; RMS equals 1 (before amplitude/optional unit scaling)
 - Notes:
   - Implementation matches R style: `b = sqrt(mean(x^2))`; if `b > 0` then `y = scale * x / b`, otherwise an error is raised.
- - Exceptions:
-   - `ValueError`: RMS ≤ 0; unsupported `scale_method`.
-   - `TypeError`: input not a non-empty 1D array.
+- Exceptions:
+  - `ValueError`: RMS ≤ 0; unsupported `scale_method`.
+  - `TypeError`: input not a non-empty 1D array.
 
 Example： (after Savitzky-Golay denoising)
 
@@ -208,11 +208,11 @@ preprocess.normalizer_helper.median_normalize(
     - Must be a finite non-negative number.
 - Returns:
   - `intensity`: 1D numpy array; median equals 1 before amplitude/optional unit scaling
- - Exceptions:
-   - `ValueError`: median ≤ 0; unsupported `scale_method`.
-   - `TypeError`: input not a non-empty 1D array.
+- Exceptions:
+  - `ValueError`: median ≤ 0; unsupported `scale_method`.
+  - `TypeError`: input not a non-empty 1D array.
 
-Example： (after Savitzky-Golay denoising)
+Example: (after Savitzky-Golay denoising)
 
 ```python
 denoised = MSIPreprocessor.noise_reduction_spectrum(
@@ -253,9 +253,9 @@ preprocess.normalizer_helper.apply_scaling(
   - `scale_method`: `'none' | 'unit'` (case-insensitive)
 - Returns:
   - `intensity`: scaled 1D numpy array
- - Exceptions:
-   - `ValueError`: unsupported `scale_method`.
-   - `TypeError`: input not a non-empty 1D array.
+- Exceptions:
+  - `ValueError`: unsupported `scale_method`.
+  - `TypeError`: input not a non-empty 1D array.
 
 ### Optional 0–1 scaling (unit scaling)
 ```python

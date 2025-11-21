@@ -70,11 +70,11 @@ preprocess.filter_helper.smooth_signal_ma(
 - Description: Moving average (or custom convolution kernel) smoothing. Uses `edge` padding for 1D boundaries and automatically normalizes weights.
 - Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method.):
   - `coef`: Convolution kernel; if `None`, a uniform kernel of length `window` is used.
-  - `window`: Window length (positive integer; must be odd when `coef` is None).
+  - `window`: Window length (positive integer; if even and `coef is None`, it is automatically coerced to odd for centered alignment).
 - Returns: A 1D `intensity` array of the same length as the input.
 - Exceptions:
   - `ValueError`: `window <= 0` or even when `coef` is None,intensity is not a 1D array.
-  - `TypeError`: `window` must be integer when `coef` is None.
+  - `TypeError`: `window` must be integer when `coef` is None，`coef` must be a non-empty 1D numpy array when provided.
 
 Example:
 
@@ -171,10 +171,10 @@ preprocess.filter_helper.smooth_signal_savgol(
 ) -> np.ndarray
 ```
 
-- Description: Savitzky-Golay polynomial fitting smoothing; automatically ensures `window` is odd and `window >= 3`, and adjusts `polyorder < window`.
+ - Description: Savitzky-Golay polynomial fitting smoothing; automatically ensures `window` is odd and `window >= 3`. `polyorder` must be strictly less than `window` (a violation raises an error).
 - Parameters:
   - `window`: Odd window size; minimum 3.
-  - `polyorder`: Polynomial order; automatically lowered to be `< window` if necessary.
+  - `polyorder`: Polynomial order; must be `< window`.
 - Returns: A 1D `intensity` array of the same length as the input.
 - Exceptions: 
   - `ValueError`: `window <= 0` or even; `polyorder` must be less than `window`,intensity is not a 1D array.
@@ -238,7 +238,7 @@ preprocess.filter_helper.smooth_ns_signal_ma(
 ) -> np.ndarray
 ```
 
-- Description: Bilateral weighting considers both m/z distance and intensity difference; weights are row-normalized and exponents are clipped to avoid underflow.
+ - Description: Uniform neighborhood smoothing over the `k` nearest neighbors (row-wise mean). Index validation and fallback are handled upstream.
 - Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method):  
   - `k` (number of neighbors),default 5,
   - `p` (distance metric),default 2.
@@ -347,7 +347,7 @@ window=20:
 ## Parameter Descriptions and Tuning Suggestions
 
 - `window` (Convolution/SG window or neighbor count `k` in NS methods)
-  - Positive integer. Savitzky-Golay: auto-coerced to odd and minimum 3. Moving Average/Gaussian: must be odd (raises on even).
+  - Positive integer. Savitzky-Golay: auto-coerced to odd and minimum 3. Moving Average/Gaussian: even windows are automatically coerced to odd for centered alignment.
   - Recommendation: 5–15 (adjust based on peak width and noise intensity).
 - `coef` (Custom convolution kernel)
   - Automatically normalized when passed; its length determines the effective window.
@@ -366,6 +366,13 @@ window=20:
   - Defaults to `median_abs_deviation(intensity, scale="normal")`.
 
 ## References
+
+## Error Handling and Logging
+
+- All input validation errors are logged via `logger.error` before raising `TypeError` or `ValueError`.
+- Savitzky-Golay: `window` is coerced to odd; if `polyorder >= window`, a `ValueError` is logged and raised.
+- Gaussian and Moving Average: `window` must be a positive integer; if even, it is coerced to odd. `sd` must be positive.
+- Neighborhood methods: when `index` is missing or mismatched, a `logger.warning` is emitted and it falls back to `np.arange(len(intensity))` for KD-tree queries.
 
 - `preprocess/filter_helper.py` (Core implementation of filtering/denoising)
 - `preprocess/ms_preprocess.py` (Unified entry point and parameter dispatch)

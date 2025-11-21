@@ -1,7 +1,6 @@
 from typing import Optional
 import numpy as np
 from logger import get_logger
-from module.ms_module import SpectrumBaseModule
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 
@@ -23,7 +22,7 @@ def _input_validation(
         ValueError: If intensity is not 1D or empty.
     """
     # Validate intensity array
-    if intensity is None:
+    if not isinstance(intensity, np.ndarray):
         logger.error("intensity must be a numpy array")
         raise TypeError("intensity must be a numpy array")
 
@@ -239,7 +238,7 @@ def locmin_baseline(
     span: float = 0.1,
     s: Optional[float] = 0.0,
     upper: bool = False,
-    width: int = 5
+    width: int = 5,
 ) -> np.ndarray:
     """
     Baseline estimation by interpolation from local extrema.
@@ -310,25 +309,15 @@ def locmin_baseline(
 
         smooth_kind = (smooth or "none").strip().lower()
         if smooth_kind == "loess":
-            try:
-                from .peak_alignment import _smooth1d
-                span = float(span)
-                window = int(max(5, min(n, round(span * n))))
-                baseline = _smooth1d(x, baseline, window=window, method="loess", weighting="tri-cubic")
-            except Exception:
-                window = int(max(5, min(n, round(float(span) * n))))
-                if window % 2 == 0:
-                    window += 1
-                kernel = np.ones(window, dtype=np.float64) / window
-                baseline = np.convolve(baseline, kernel, mode="same")
+            from .peak_alignment import _smooth1d
+            span = float(span)
+            window = int(max(5, min(n, round(span * n))))
+            baseline = _smooth1d(x, baseline, window=window, method="loess", weighting="tri-cubic")
         elif smooth_kind == "spline":
-            try:
-                from scipy.interpolate import UnivariateSpline
-                s_val = float(s) if s is not None else 0.0
-                spl = UnivariateSpline(x, baseline, s=max(0.0, s_val))
-                baseline = spl(x)
-            except Exception:
-                baseline = baseline  # no-op fallback
+            from scipy.interpolate import UnivariateSpline
+            s_val = float(s) if s is not None else 0.0
+            spl = UnivariateSpline(x, baseline, s=max(0.0, s_val))
+            baseline = spl(x)
 
         return np.asarray(baseline, dtype=np.float64)
 
@@ -360,13 +349,19 @@ def baseline_corrector(
 
     Parameters:
         intensity (np.ndarray): Input 1D intensity array.
+        index (Optional[np.ndarray]): Optional 1D index (e.g., m/z). If provided, length must match `intensity`.
         method (str): 'locmin', 'snip', or 'asls'.
-        lam (float): ASLS smoothness parameter.
-        p (float): ASLS asymmetry parameter.
-        niter (int): ASLS iteration count.
+        smooth (str): LocMin smoothing method ('none', 'gaussian', etc.), used when method='locmin'.
+        span (float): LocMin smoothing span (fraction of data), used when method='locmin'.
+        s (float, optional): LocMin smoothing strength, used when method='locmin'.
+        upper (bool): LocMin baseline type; if True, finds upper baseline, used when method='locmin'.
+        width (int): LocMin local minima window width, used when method='locmin'.
+        lam (float): ASLS smoothness parameter, used when method='asls'.
+        p (float): ASLS asymmetry parameter, used when method='asls'.
+        niter (int): ASLS iteration count, used when method='asls'.
         baseline_scale (float): Scale factor in (0,1] applied to estimated baseline.
-        m (int): SNIP window half-size.
-        decreasing (bool): SNIP decreasing rule.
+        m (int): SNIP window half-size, used when method='snip'.
+        decreasing (bool): SNIP decreasing rule, used when method='snip'.
 
     Returns:
         tuple[np.ndarray, np.ndarray]: (corrected, scaled_baseline)
