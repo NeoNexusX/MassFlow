@@ -221,3 +221,4 @@ logs/
 .trae/
 *.pdf
 *.ipynb
+*.pymon

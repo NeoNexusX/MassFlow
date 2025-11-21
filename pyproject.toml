@@ -19,4 +19,6 @@ dependencies = [
 dev = [
     "pytest>=9.0.1",
     "pytest-benchmark>=5.2.3",
+    "pytest-memray>=1.8.0",
+    "pytest-monitor>=1.6.6",
 ]

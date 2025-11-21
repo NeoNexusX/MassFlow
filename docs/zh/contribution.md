@@ -5,6 +5,11 @@
 ## 快速开始
 - Fork 仓库首先切换到远程的 dev 分支，创建你的工作分支（推荐分支命名见下文）。
 - 在本地安装推荐的 Cursor/Trae/VSCode 插件（见 README 与 `.vscode/extensions.json`）。Pycharm 可以略过
+- 安装依赖与开发环境：
+  ```bash
+  # 确保已安装 uv
+  uv sync && uv pip install -e .  
+  ```
 - 遵循命名规范与代码风格（`NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`、`.pylintrc`）。
 - 完成任务后提交 PR，按照评审清单自检并请求评审。
 
@@ -53,6 +58,10 @@
 - 测试范围：
   - 单元测试：模块方法与关键路径（加载、写入、过滤、可视化）
   - 集成测试：从数据文件到处理输出的端到端路径（轻量数据）
+- 运行测试：
+  ```bash
+  uv run pytest
+  ```
 - 本地检查（建议作为提交前步骤）：
   - 无报错
 

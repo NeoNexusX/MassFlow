@@ -5,6 +5,11 @@ Thank you for contributing to MassFlow! This document defines the shared workflo
 ## Quick Start
 - Fork the repository or branch off `main` for your work branch (recommended naming below).
 - Install the recommended Cursor/Trae/VSCode extensions locally (see README and `.vscode/extensions.json`). PyCharm users can skip this.
+- Install dependencies and development environment:
+  ```bash
+  # Ensure uv is installed
+  uv sync && uv pip install -e .  
+  ```
 - Follow naming conventions and code style (`NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`, `.pylintrc`).
 - When your task is done, open a PR, self-check with the review checklist, and request review.
 
@@ -54,6 +59,10 @@ Thank you for contributing to MassFlow! This document defines the shared workflo
 - Test scope:
   - Unit tests: module methods and critical paths (load, write, filter, visualize).
   - Integration tests: end-to-end from data files to processed outputs (use lightweight data).
+- Run tests:
+  ```bash
+  uv run pytest
+  ```
 - Local checks (recommended before committing):
   - Ensure no errors.
 

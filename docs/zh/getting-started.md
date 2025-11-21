@@ -23,32 +23,31 @@ MassFlow 是一个面向质谱成像（MSI）与质谱（MS）数据的模块化
   ```
 - 下载 ZIP：点击 GitHub “Code” → “Download ZIP” 并在本地解压。
 
-## 设置 Python 环境（macOS）
-建议使用虚拟环境：
+## 设置 Python 环境
 
 ```bash
-# 在仓库根目录
-python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
+uv install part:
+  https://uv.doczh.com/getting-started/installation/
 
-# 安装依赖
-pip install -r requirements.txt
+For Example :
+  Linux && Macos :
+  curl -LsSf https://astral.sh/uv/install.sh | sh 
+  Windows:
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+依赖安装：
+uv sync &&  uv pip install -e .
 ```
 
-如果使用 `conda`：
-```bash
-conda create -n massflow python=3.12 -y
-conda activate massflow
-pip install -r requirements.txt
+## 运行示例 和测试：
 ```
-
-## 运行示例
-推荐在 Jupyter 打开 `example.ipynb`，或直接运行以下代码片段验证数据读取与可视化：
+uv run pytest
+```
 
 ```python
 # 快速片段：读取 .imzML 并绘制占用掩码
-from module.ms_module import MS
-from module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.module.ms_module import MS
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 
 FILE_PATH = "data/your_file.imzML"
 ms = MS()

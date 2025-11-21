@@ -24,31 +24,30 @@ You can obtain the repository in one of the following ways:
 - Download ZIP: click "Code" → "Download ZIP" on GitHub and extract locally.
 
 ## Set Up Python Environment
-It is recommended to use a virtual environment on macOS:
 
 ```bash
-# In the repository root
-python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
+# Install uv:
+# https://docs.astral.sh/uv/getting-started/installation/
 
-# Install dependencies
-pip install -r requirements.txt
+# For Example:
+# Linux & macOS:
+curl -LsSf https://astral.sh/uv/install.sh | sh 
+# Windows:
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Install dependencies:
+uv sync && uv pip install -e .
 ```
 
-If you use `conda`:
+## Run Examples and Tests
 ```bash
-conda create -n massflow python=3.12 -y
-conda activate massflow
-pip install -r requirements.txt
+uv run pytest
 ```
-
-## Quick Start
-Open `example.ipynb` in Jupyter (recommended), or run the snippet below to verify data loading and plotting:
 
 ```python
 # Quick snippet: load .imzML and plot occupancy mask
-from module.ms_module import MS
-from module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.module.ms_module import MS
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 
 FILE_PATH = "data/your_file.imzML"
 ms = MS()
@@ -60,8 +59,7 @@ with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PAT
 
 This demonstrates reading MSI/MS data and basic visualization. Logs are written to `logs/`.
 
-
-Other useful commands:
+## Common Commands
 - Build static site: `npm run docs:build`
 - Preview built site: `npm run docs:preview`
 
