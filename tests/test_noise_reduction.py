@@ -1,10 +1,12 @@
+import time
+from functools import partial
+
 import pytest
 from massflow.module.ms_module import MS
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.logger import get_logger
 from massflow.preprocess.ms_preprocess import MSIPreprocessor
-from functools import partial
-import time
+
 logger = get_logger("test_noise_reduction")
 
 # @pytest.fixture(scope="function")
@@ -19,7 +21,7 @@ def pre_load_data_setup(data_file_path="data/example.imzML"):
         # Pre-load data
         for spectrum_data in mass_data:
             _ = spectrum_data.mz_list
-        
+
         logger.info("data pre-load finished!")
 
     return (mass_data,), {}
@@ -42,24 +44,24 @@ class TestNoiseReduction:
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_noise_reduction_methods_replace_data_benchmark(self, benchmark, method):
         logger.info(f"Testing noise reduction with method: {method}")
-        
+
         benchmark.pedantic(partial(replace_spectrum_data,method=method),
                            rounds=10,
                            setup=pre_load_data_setup,
                            iterations=1,
                            warmup_rounds=1)
-        
+
         logger.info(f"Finished noise reduction with method: {method}")
 
     @pytest.mark.parametrize("method", ["ma", "gaussian"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_noise_reduction_methods_replace_spectrum_benchmark(self, benchmark, method):
         logger.info(f"Testing noise reduction with method: {method}")
-        
+
         benchmark.pedantic(partial(replace_spectrum,method=method),
                            rounds=10,
                            setup=pre_load_data_setup,
                            iterations=1,
                            warmup_rounds=1)
-        
+
         logger.info(f"Finished noise reduction with method: {method}")

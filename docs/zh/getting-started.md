@@ -1,13 +1,9 @@
----
-title: 快速开始
----
-
 # 快速开始
 
 MassFlow 是一个面向质谱成像（MSI）与质谱（MS）数据的模块化框架，提供高效的数据读取、预处理（去噪/平滑）与基础数据管理能力。
 
 ## 前置条件
-- Python `>= 3.9`（开发测试版本为 `3.12`）
+- uv  python项目管理软件
 
 ## 获取源码
 推荐通过以下方式获取仓库：
@@ -26,6 +22,9 @@ MassFlow 是一个面向质谱成像（MSI）与质谱（MS）数据的模块化
 ## 设置 Python 环境
 
 ```bash
+close conda first:
+  conda deactivate
+
 uv install part:
   https://uv.doczh.com/getting-started/installation/
 
@@ -35,14 +34,33 @@ For Example :
   Windows:
   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-依赖安装：
+Install dependencies:
 uv sync &&  uv pip install -e .
 ```
 
 ## 运行示例 和测试：
-```
+
+测试使用了pytest框架，详见：https://docs.pytest.org/en/stable/ 或者 中文：https://docs.pytest.cn/en/stable/
+
+运行所有测试：
+
+```bash
 uv run pytest
 ```
+
+运行某一个测试：
+
+```python
+uv run pytest tests/test_read.py::TestDataReading
+```
+
+如果已经启动了由uv管理的虚拟环境则可以省略uv run：
+
+```python
+pytest tests/test_read.py::TestDataReading
+```
+
+测试样例代码：
 
 ```python
 # 快速片段：读取 .imzML 并绘制占用掩码

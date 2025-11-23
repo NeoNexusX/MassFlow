@@ -113,7 +113,8 @@ export default withMermaid(
           { text: 'Collaboration Guide', link: '/collaboration_guide' },
           { text: 'Naming Conventions', link: '/naming-conventions' },
           { text: 'Data Structures', link: '/ms-data-structures' },
-          { text: 'Noise Reduction', link: '/noise_reduction' }
+          { text: 'Noise Reduction', link: '/noise_reduction' },
+          { text: 'Testing Guide', link: '/testing_guide' }
         ]
       },
     ],

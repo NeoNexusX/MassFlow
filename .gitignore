@@ -222,3 +222,4 @@ logs/
 *.pdf
 *.ipynb
 *.pymon
+*.benchmark
