@@ -1,20 +1,21 @@
-from typing import List, Tuple, Optional
+from typing import Sequence, Tuple, Optional
 import numpy as np
 import matplotlib.pyplot as plt
-from preprocess.ms_preprocess import MSIPreprocessor
-from module.ms_module import SpectrumBaseModule
-from logger import get_logger
+from massflow.preprocess.ms_preprocess import MSIPreprocessor
+from massflow.module.ms_module import SpectrumBaseModule
+from massflow.logger import get_logger
 
 logger = get_logger("tools.plot")
 
 def plot_spectrum(
     base: Optional["SpectrumBaseModule"] = None,
-    target:Optional["SpectrumBaseModule"] = None,
+    target: Optional["SpectrumBaseModule"] = None,
     save_path=None,
     figsize=(20, 5),
     dpi: int = 300,
-    colors: List[str] = ['#5c9dba', '#df4c5b'],
-    plot_mode: List[str] = ["line","line"],
+    colors: Optional[Sequence[str]] = None,
+    line_width: Optional[Sequence[float]] = None,
+    plot_mode: Optional[Sequence[str]] = None,
     mz_range: Optional[Tuple[float, float]] = None,
     intensity_range: Optional[Tuple[float, float]] = None,
     metrics_box: bool = True,
@@ -41,7 +42,14 @@ def plot_spectrum(
     Returns:
         None
     """
-    logger.info(f"Plotting spectrum with plot_mode={plot_mode}, mz_range={mz_range}, intensity_range={intensity_range}, metrics_box={metrics_box}, title_suffix={title_suffix}, overlay={overlay}")
+    # initialize default values
+    line_width = [1, 1] if line_width is None else line_width
+    colors = ['#5c9dba', '#df4c5b'] if colors is None else colors
+    plot_mode = ["line","line"] if plot_mode is None else plot_mode
+
+    logger.info(f"Plotting spectrum with plot_mode={plot_mode},"
+                "line_width={line_width}, mz_range={mz_range}, intensity_range={intensity_range},"
+                "metrics_box={metrics_box}, title_suffix={title_suffix}, overlay={overlay}")
     figsize=figsize if overlay or target is None else (figsize[0], figsize[1] * 2)
 
     if target is None:
@@ -51,6 +59,7 @@ def plot_spectrum(
             figsize=figsize,
             dpi=dpi,
             color=colors[0],
+            line_width=line_width[0],
             plot_mode=plot_mode[0],
             mz_range=mz_range,
             intensity_range=intensity_range,
@@ -65,6 +74,7 @@ def plot_spectrum(
             dpi=dpi,
             color=colors,
             plot_mode=plot_mode,
+            line_width=line_width,
             mz_range=mz_range,
             intensity_range=intensity_range,
             metrics_box=metrics_box,
@@ -79,6 +89,7 @@ def plot_spectrum(
             dpi=dpi,
             color=colors,
             plot_mode=plot_mode,
+            line_width=line_width,
             mz_range=mz_range,
             intensity_range=intensity_range,
             metrics_box=metrics_box,
@@ -138,10 +149,11 @@ def plot_single(base,
                 save_path=None,
                 figsize=(20, 5),
                 dpi: int = 300,
-                color='#5d7db3',
+                color='#5c9dba',
+                line_width: float = 1,
                 plot_mode: str = "line",
                 mz_range: Optional[Tuple[float, float]] = None,
-                intensity_range: Optional[Tuple[float, float]] = None,        
+                intensity_range: Optional[Tuple[float, float]] = None,
                 title_suffix: Optional[str] = None):
     """
     Plot a single spectrum in either line or stem mode.
@@ -164,12 +176,12 @@ def plot_single(base,
     plt.figure(figsize=figsize)
     mode = (plot_mode or "stem").lower()
     if mode == "line":
-        plt.plot(base.mz_list, base.intensity, color=color, linewidth=0.8, alpha=0.8)
+        plt.plot(base.mz_list, base.intensity, color=color, linewidth=line_width, alpha=0.8)
     else:
         markerline, stemlines, baseline = plt.stem(base.mz_list, base.intensity)
-        plt.setp(stemlines, linewidth=0.7, color=color, alpha=0.7)
-        plt.setp(markerline, markersize=3, color=color, alpha=0.7)
-        plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.4)
+        plt.setp(stemlines, linewidth=line_width, color=color, alpha=0.8)
+        plt.setp(markerline, markersize=3, color=color, alpha=0.8)
+        plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.6)
 
     # Axis range control
     x_min, x_max = (float(min(base.mz_list)), float(max(base.mz_list))) if mz_range is None else (mz_range[0], mz_range[1])
@@ -193,8 +205,9 @@ def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
                       save_path=None,
                       figsize=(20, 5),
                       dpi: int = 300,
-                      color: List[str] = ['#5d7db3', '#d2c3d5'],
-                      plot_mode: List[str] = ["line","line"],
+                      color: Optional[Sequence[str]] = None,
+                      line_width: Optional[Sequence[float]] = None,
+                      plot_mode: Optional[Sequence[str]] = None,
                       mz_range: Optional[Tuple[float, float]] = None,
                       intensity_range: Optional[Tuple[float, float]] = None,
                       metrics_box: bool = True,
@@ -220,23 +233,26 @@ def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
     """
 
     _, ax = plt.subplots(1, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 6))
+    color = ['#5d7db3', '#d2c3d5'] if color is None else color
+    line_width = [1, 1] if line_width is None else line_width
+    plot_mode = ["line","line"] if plot_mode is None else plot_mode
 
     if plot_mode[0] == "line":
-        ax.plot(base.mz_list, base.intensity, color=color[0], linewidth=1, label='Original')
+        ax.plot(base.mz_list, base.intensity, color=color[0], linewidth=line_width[0], label='Original')
 
     else:
         m1, s1, b1 = ax.stem(base.mz_list, base.intensity, label='Original')
-        plt.setp(s1, linewidth=0.7, color=color[0], alpha=0.7)
-        plt.setp(m1, markersize=3, color=color[0], alpha=0.7)
-        plt.setp(b1, linewidth=0.5, color='gray', alpha=0.4)
+        plt.setp(s1, linewidth=line_width[0], color=color[0], alpha=0.8)
+        plt.setp(m1, markersize=3, color=color[0], alpha=0.8)
+        plt.setp(b1, linewidth=0.5, color='gray', alpha=0.6)
 
     if plot_mode[1] == "line":
-        ax.plot(target.mz_list, target.intensity, color=color[1], linewidth=1, label='Preprocessed' if not title_suffix else f'Preprocessed ({title_suffix})')
+        ax.plot(target.mz_list, target.intensity, color=color[1], linewidth=line_width[1], label='Preprocessed' if not title_suffix else f'Preprocessed ({title_suffix})')
     else:
         m2, s2, b2 = ax.stem(target.mz_list, target.intensity, label='Preprocessed' if not title_suffix else f'Preprocessed ({title_suffix})')
-        plt.setp(s2, linewidth=0.7, color=color[1], alpha=0.7)
-        plt.setp(m2, markersize=3, color=color[1], alpha=0.7)
-        plt.setp(b2, linewidth=0.5, color='gray', alpha=0.4)
+        plt.setp(s2, linewidth=line_width[1], color=color[1], alpha=0.8)
+        plt.setp(m2, markersize=3, color=color[1], alpha=0.8)
+        plt.setp(b2, linewidth=0.5, color='gray', alpha=0.6)
 
     orig_c = base.crop_range(mz_range)
     now_c = target.crop_range(mz_range)
@@ -272,8 +288,9 @@ def plot_two_individual(target: SpectrumBaseModule,
                         save_path=None,
                         figsize=(20, 5),
                         dpi: int = 300,
-                        color: List[str] = ['#5d7db3', '#d2c3d5'],
-                        plot_mode: List[str] = ["line","line"],
+                        color: Optional[Sequence[str]] = None,
+                        line_width: Optional[Sequence[float]] = None,
+                        plot_mode: Optional[Sequence[str]] = None,
                         mz_range: Optional[Tuple[float, float]] = None,
                         intensity_range: Optional[Tuple[float, float]] = None,
                         metrics_box: bool = True,
@@ -299,23 +316,26 @@ def plot_two_individual(target: SpectrumBaseModule,
     """
     # get two subplots
     _, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
+    color = ['#5d7db3', '#d2c3d5'] if color is None else color
+    line_width = [1, 1] if line_width is None else line_width
+    plot_mode = ["line","line"] if plot_mode is None else plot_mode
 
     if plot_mode[0] == "line":
-        ax_top.plot(base.mz_list, base.intensity, color=color[0], linewidth=1)
+        ax_top.plot(base.mz_list, base.intensity, color=color[0], linewidth=line_width[0])
 
     else:
         m1, s1, b1 = ax_top.stem(base.mz_list, base.intensity)
-        plt.setp(s1, linewidth=0.7, color=color[0], alpha=0.7)
-        plt.setp(m1, markersize=3, color=color[0], alpha=0.7)
-        plt.setp(b1, linewidth=0.5, color='gray', alpha=0.4)
+        plt.setp(s1, linewidth=line_width[0], color=color[0], alpha=0.8)
+        plt.setp(m1, markersize=3, color=color[0], alpha=0.8)
+        plt.setp(b1, linewidth=0.5, color='gray', alpha=0.6)
 
     if plot_mode[1] == "line":
-        ax_bottom.plot(target.mz_list, target.intensity, color=color[1], linewidth=1)
+        ax_bottom.plot(target.mz_list, target.intensity, color=color[1], linewidth=line_width[1])
     else:
         m2, s2, b2 = ax_bottom.stem(target.mz_list, target.intensity)
-        plt.setp(s2, linewidth=0.7, color=color[1], alpha=0.7)
-        plt.setp(m2, markersize=3, color=color[1], alpha=0.7)
-        plt.setp(b2, linewidth=0.5, color='gray', alpha=0.4)
+        plt.setp(s2, linewidth=line_width[1], color=color[1], alpha=0.8)
+        plt.setp(m2, markersize=3, color=color[1], alpha=0.8)
+        plt.setp(b2, linewidth=0.5, color='gray', alpha=0.6)
 
     # Axis range settings
     x_min = float(mz_range[0]) if mz_range is not None else float(min(base.mz_list.min(), target.mz_list.min()))

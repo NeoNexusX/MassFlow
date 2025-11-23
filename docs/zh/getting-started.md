@@ -1,13 +1,9 @@
----
-title: 快速开始
----
-
 # 快速开始
 
 MassFlow 是一个面向质谱成像（MSI）与质谱（MS）数据的模块化框架，提供高效的数据读取、预处理（去噪/平滑）与基础数据管理能力。
 
 ## 前置条件
-- Python `>= 3.9`（开发测试版本为 `3.12`）
+- uv  python项目管理软件
 
 ## 获取源码
 推荐通过以下方式获取仓库：
@@ -23,32 +19,53 @@ MassFlow 是一个面向质谱成像（MSI）与质谱（MS）数据的模块化
   ```
 - 下载 ZIP：点击 GitHub “Code” → “Download ZIP” 并在本地解压。
 
-## 设置 Python 环境（macOS）
-建议使用虚拟环境：
+## 设置 Python 环境
 
 ```bash
-# 在仓库根目录
-python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
+close conda first:
+  conda deactivate
 
-# 安装依赖
-pip install -r requirements.txt
+uv install part:
+  https://uv.doczh.com/getting-started/installation/
+
+For Example :
+  Linux && Macos :
+  curl -LsSf https://astral.sh/uv/install.sh | sh 
+  Windows:
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+Install dependencies:
+uv sync &&  uv pip install -e .
 ```
 
-如果使用 `conda`：
+## 运行示例 和测试：
+
+测试使用了pytest框架，详见：https://docs.pytest.org/en/stable/ 或者 中文：https://docs.pytest.cn/en/stable/
+
+运行所有测试：
+
 ```bash
-conda create -n massflow python=3.12 -y
-conda activate massflow
-pip install -r requirements.txt
+uv run pytest
 ```
 
-## 运行示例
-推荐在 Jupyter 打开 `example.ipynb`，或直接运行以下代码片段验证数据读取与可视化：
+运行某一个测试：
+
+```python
+uv run pytest tests/test_read.py::TestDataReading
+```
+
+如果已经启动了由uv管理的虚拟环境则可以省略uv run：
+
+```python
+pytest tests/test_read.py::TestDataReading
+```
+
+测试样例代码：
 
 ```python
 # 快速片段：读取 .imzML 并绘制占用掩码
-from module.ms_module import MS
-from module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.module.ms_module import MS
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 
 FILE_PATH = "data/your_file.imzML"
 ms = MS()

@@ -1,47 +1,9 @@
-from typing import Optional
-"""
-Mass Spectrometry Imaging (MSI) Preprocessing Module
-
-This module defines an abstract base class for preprocessing Mass Spectrometry Imaging (MSI) data.
-It provides a framework for implementing essential preprocessing techniques such as:
-
-- Peak picking: Identifying significant peaks in mass spectra.
-- TIC normalization: Normalizing data to account for variations in total ion intensity.
-- Peak alignment: Aligning peaks across spectra to correct for mass calibration drift.
-- Baseline correction: Removing baseline drift and background signals.
-- Noise reduction: Reducing noise while preserving spectral features.
-
-The `MSIPreprocessor` class is designed to be extended by concrete implementations that define
-specific algorithms for each preprocessing step. It supports both traditional input formats
-(e.g., mz, msroi arrays) and MSI object integration for seamless compatibility with the MSI framework.
-
-Classes:
-- MSIPreprocessor: Abstract base class for defining preprocessing workflows.
-
-Methods:
-- peak_pick: Abstract method for peak picking.
-- peak_pick_pixel: Abstract method for pixel-level peak picking.
-- tic_normalization: Abstract method for TIC-based normalization.
-- peak_alignment: Abstract method for aligning peaks across spectra.
-- baseline_correction: Abstract method for correcting baseline drift.
-- noise_reduction: Abstract method for reducing noise in mass spectra.
-- preprocess_pipeline: Abstract method for executing a complete preprocessing pipeline.
-
-This module is intended for developers extending the MSI framework with custom preprocessing
-algorithms.
-
-Author: MassFlow Development Team Bionet/NeoNexus lyk
-License: See LICENSE file in project root
-"""
-
-from typing import Union,Optional
+from typing import Union, Optional, Sequence
 import numpy as np
-from module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
-from logger import get_logger
+from massflow.module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
+from massflow.logger import get_logger
 from .peak_alignment import peak_matching, get_reference_mz_axis, get_reference_mz_axis2
-from .filter_helper import (
-    smoother,
-)
+from .filter_helper import smoother
 from .normalizer_helper import normalizer
 from .baseline_correction_helper import asls_baseline, snip_baseline
 from .est_noise_helper import estimator
@@ -78,10 +40,20 @@ class MSIPreprocessor:
         Raises:
             ValueError: If neither msi_object nor (mz, msroi) are provided
         """
+    @staticmethod
+    def base_input_check(data):
+        """
+        Validate input data.
+
+        Raises:
+            ValueError: If input data is invalid or missing required attributes
+        """
+        if data.intensity is None or data.mz_list is None:
+            raise ValueError("Input spectrum must have both intensity and mz_list data.")
 
     @staticmethod
-    def peak_pick_spectrum(data: SpectrumBaseModule,
-                            width: int = 2,
+    def peak_pick_spectrum( data: SpectrumBaseModule,
+                            width: int | Sequence[int] = 2,
                             method: str = 'scipy',
                             relheight: float = 0.1,
                             return_type: str = 'height') -> SpectrumBaseModule:
@@ -101,11 +73,12 @@ class MSIPreprocessor:
         Raises:
             ValueError: If `method` or `return_type` is unsupported.
         """
+        MSIPreprocessor.base_input_check(data=data)
 
         intensity = data.intensity
         index = data.mz_list
-        peak_intensity,peak_index = peak_pick_fun(intensity,
-                                                    index,
+        peak_intensity,peak_index = peak_pick_fun(  intensity, # type: ignore
+                                                    index, # type: ignore
                                                     width=width,
                                                     method=method,
                                                     relheight=relheight,
@@ -143,9 +116,11 @@ class MSIPreprocessor:
             ValueError: If `method` is unsupported or if TIC/median is not greater than 0
             (propagated from the lower-level normalizer).
         """
+        MSIPreprocessor.base_input_check(data=data)
+
         intensity = data.intensity
         norm_intensity = normalizer(
-            intensity,
+            intensity, # type: ignore
             scale_method=scale_method,
             method=method
         )
@@ -332,12 +307,14 @@ class MSIPreprocessor:
     def noise_reduction_spectrum(
         data: Union[SpectrumBaseModule, SpectrumImzML],
         method: str = "ma",
-        window: int = 3,
-        sd: float = None,
-        sd_intensity: float = None,
+        window: int = 5,
+        sd: Optional[float] = None,
+        sd_intensity: Optional[float] = None,
         p: int = 2,
-        coef: np.ndarray = None,
-        polyorder: int = 2,
+        coef: Optional[np.ndarray] = None,
+        polyorder: int = 3,
+        derive: int = 0,
+        delta: float = 1.0,
         wavelet: str = "db4",
         threshold_mode: str = "soft",
     ) -> Union[SpectrumBaseModule, SpectrumImzML]:
@@ -362,19 +339,23 @@ class MSIPreprocessor:
         Raises:
             ValueError: If `method` is unsupported.
         """
+        MSIPreprocessor.base_input_check(data=data)
+
         intensity = data.intensity
         index = data.mz_list
 
         smoothed_intensity = smoother(
-            intensity,
+            intensity,# type: ignore
             index=index,
             method=method,
             window=window,
-            sd=sd,
-            sd_intensity=sd_intensity,
+            sd=sd,# type: ignore
+            sd_intensity=sd_intensity,# type: ignore
             p=p,
-            coef=coef,
+            coef=coef,# type: ignore
             polyorder=polyorder,
+            derive=derive,
+            delta=delta,
             wavelet=wavelet,
             threshold_mode=threshold_mode,
         )
@@ -408,12 +389,14 @@ class MSIPreprocessor:
         Returns:
             float | np.ndarray: Estimated noise scalar or per-bin array depending on method.
         """
+        MSIPreprocessor.base_input_check(data=x)
+
         intensity = x.intensity
         index = x.mz_list
 
         return estimator(
-            intensity,
-            index,
+            intensity,# type: ignore
+            index,# type: ignore
             nbins=nbins,
             overlap=overlap,
             method=method,
@@ -435,7 +418,9 @@ class MSIPreprocessor:
         Returns:
             float: SNR computed as quantile-based signal level divided by estimated noise.
         """
-        signal_level = np.percentile(spectrum.intensity, 95)
+        MSIPreprocessor.base_input_check(data=spectrum)
+
+        signal_level = np.percentile(spectrum.intensity, 95)# type: ignore
 
         noise = MSIPreprocessor.noise_estimation_spectrum(spectrum, method=method)
 
@@ -443,7 +428,7 @@ class MSIPreprocessor:
         return signal_level / noise
 
     @staticmethod
-    def preprocess_pipeline(data: SpectrumBaseModule) -> SpectrumBaseModule:
+    def preprocess_pipeline(data: SpectrumBaseModule):
         """
         Composite preprocessing pipeline (placeholder).
 

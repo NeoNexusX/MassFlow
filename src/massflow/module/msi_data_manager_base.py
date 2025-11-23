@@ -12,7 +12,7 @@ import os
 from abc import ABC, abstractmethod
 import h5py
 import numpy as np
-from logger import get_logger
+from massflow.logger import get_logger
 from .msi_module import MSI
 
 logger = get_logger("msi_data_manager")
@@ -178,10 +178,10 @@ class MSIDataManagerBase(ABC):
             else:
                 group = file_handle.create_group(group_name)
 
-            if 'mz' not in group and mz_data is not None:
+            if isinstance(group, h5py.Group) and 'mz' not in group and mz_data is not None:
                 MSIDataManagerBase._upsert_dataset(group, 'mz', data=mz_data)
 
-            if 'msroi' not in group and msroi is not None:
+            if isinstance(group, h5py.Group) and 'msroi' not in group and msroi is not None:
                 MSIDataManagerBase._upsert_dataset(group,
                                                'msroi',
                                                 data=msroi,

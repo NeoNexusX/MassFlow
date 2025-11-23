@@ -1,7 +1,9 @@
 from typing import Optional
 import numpy as np
-from logger import get_logger
+import scipy.sparse as sp
+import scipy.sparse.linalg as spla
 
+from massflow.logger import get_logger
 logger = get_logger("ms_preprocess")
 
 def asls_baseline(y: np.ndarray, lam: float, p: float, niter: int) -> np.ndarray:
@@ -11,8 +13,6 @@ def asls_baseline(y: np.ndarray, lam: float, p: float, niter: int) -> np.ndarray
     if n == 0:
         return np.array([], dtype=np.float64)
     try:
-        import scipy.sparse as sp
-        import scipy.sparse.linalg as spla
         D = sp.diags([1, -2, 1], [0, 1, 2], shape=(n-2, n), dtype=np.float64)
         w = np.ones(n, dtype=np.float64)
         for _ in range(int(max(1, niter))):

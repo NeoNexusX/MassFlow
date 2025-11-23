@@ -8,7 +8,7 @@ import os
 from pympler import tracker
 import h5py
 import numpy as np
-from logger import get_logger
+from massflow.logger import get_logger
 from .msi_module import MSI, MSIBaseModule
 from .msi_data_manager_base import MSIDataManagerBase
 logger = get_logger("msi_data_manager_msi")

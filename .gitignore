@@ -220,3 +220,6 @@ logs/
 .TEMP/
 .trae/
 *.pdf
+*.ipynb
+*.pymon
+*.benchmark

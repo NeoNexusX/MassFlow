@@ -10,11 +10,10 @@ License: See LICENSE file in project root
 """
 from abc import ABC, abstractmethod
 import numpy as np
-from logger import get_logger
-from .ms_module import MS
+from massflow.logger import get_logger
+from massflow.module.ms_module import MS
 
 logger = get_logger("ms_data_manager")
-
 
 class MSDataManager(ABC):
     """
@@ -81,7 +80,7 @@ class MSDataManager(ABC):
             filepath (str): Path to the input file.
         """
 
-    def inspect_data(self,inpect_num=3):
+    def inspect_data(self,inpect_num=2):
         """
         Inspect the data structure of the MSI object.
 
@@ -93,14 +92,18 @@ class MSDataManager(ABC):
         meta_info+=(f"  target_locs: {self.target_locs}\r\n")
         meta_info+=(f"  filepath: {self.filepath}\r\n")
         meta_info+=(f"  current_spectrum_num: {self.current_spectrum_num}\r\n")
-        for attr, value in self.ms.meta.items():
-            shape = getattr(value, 'shape', None)
-            if shape is not None and len(shape) > 0:
-                meta_info+=(f"  meta_{attr}: {shape}\r\n")
-            else:
-                meta_info+=(f"  meta_{attr}: {value}\r\n")
-        logger.info(meta_info)
+        
+        # get meta data info
+        if self.ms.meta is not None:
+            for attr, value in self.ms.meta.items():
+                shape = getattr(value, 'shape', None)
+                if shape is not None and len(shape) > 0:
+                    meta_info+=(f"  meta_{attr}: {shape}\r\n")
+                else:
+                    meta_info+=(f"  meta_{attr}: {value}\r\n")
+            logger.info(meta_info)
 
+        # get base info
         base_info = "MS  information:\r\n"
         pointer4num = 0
         for spectrum in self._ms:

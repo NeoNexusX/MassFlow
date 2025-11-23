@@ -2,12 +2,14 @@
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
+
+from typing import Sequence
 from scipy.signal import find_peaks
 import numpy as np
-from logger import get_logger
+from massflow.logger import get_logger
 from .est_noise_helper import estimator
-from typing import List
 from scipy.integrate import simpson
+
 logger = get_logger(__name__)
 
 
@@ -48,7 +50,7 @@ def _mask_peak_props(props: dict, mask: np.ndarray) -> dict:
 
 def peak_pick_fun(intensity: np.ndarray,
                   index: np.ndarray,
-                  width: int = 2,
+                  width: int | Sequence[int] = 2,
                   prominence: float | None = None,
                   snr: float  = 3,
                   noise: str = "wavelet",
@@ -83,7 +85,7 @@ def peak_pick_fun(intensity: np.ndarray,
 def find_pick_scipy(
     intensity: np.ndarray,
     index: np.ndarray,
-    width: int | List[int] = 6,
+    width: int | Sequence[int] = 6,
     distance: int | None = 1,
     prominence: float | None = None,
     snr: float  = 2,

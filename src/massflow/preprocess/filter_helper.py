@@ -5,8 +5,8 @@ License: See LICENSE file in project root
 from typing import Optional
 import numpy as np
 from scipy import stats
-from logger import get_logger
-from module.ms_module import SpectrumBaseModule
+from massflow.logger import get_logger
+from massflow.module.ms_module import SpectrumBaseModule
 
 logger = get_logger(__name__)
 
@@ -130,7 +130,9 @@ def smooth_signal_gaussian(
 def smooth_signal_savgol(
         intensity:np.ndarray,
         window: int = 5,
-        polyorder: int = 2
+        polyorder: int = 3,
+        derive: int = 0,
+        delta: float = 1.0
 ):
     """
     Savitzky-Golay filter for signal smoothing.
@@ -160,12 +162,11 @@ def smooth_signal_savgol(
     if window % 2 == 0:
         window += 1
 
-    # Ensure polyorder is less than window
-    if polyorder >= window:
-        polyorder = window - 1
+    if polyorder >= window and polyorder > 0:
+        polyorder = min(polyorder, window - 2)
 
     # Apply Savitzky-Golay filter
-    return savgol_filter(intensity, window, polyorder)
+    return savgol_filter(intensity, window, polyorder, deriv=derive, delta=delta)
 
 def smooth_signal_wavelet(
         intensity:np.ndarray,
@@ -465,6 +466,8 @@ def smoother(intensity:np.ndarray,
             p: int = 2,
             coef: np.ndarray = None,
             polyorder: int = 2,
+            derive: int = 0,
+            delta: float = 1.0,
             wavelet: str = 'db4',
             threshold_mode: str = 'soft'):
 
@@ -501,7 +504,7 @@ def smoother(intensity:np.ndarray,
     elif method == "ma_ns":
         return  smooth_ns_signal_ma(intensity,index=index, p=p, k=window)
     elif method == "savgol":
-        return smooth_signal_savgol(intensity, window=window, polyorder=polyorder)
+        return smooth_signal_savgol(intensity, window=window, polyorder=polyorder, derive=derive, delta=delta)
     elif method == "wavelet":
         return smooth_signal_wavelet(intensity, wavelet=wavelet, threshold_mode=threshold_mode)
     elif method == "gaussian_ns":

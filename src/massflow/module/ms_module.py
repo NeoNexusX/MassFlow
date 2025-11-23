@@ -14,12 +14,12 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Sequence,Literal
 import numpy as np
 import matplotlib.pyplot as plt
 from pyimzml.ImzMLParser import ImzMLParser
-from logger import get_logger
-
+from massflow.logger import get_logger
+from massflow.module.meta_data import MetaDataFileBase
 logger = get_logger("ms_module")
 
 
@@ -59,9 +59,9 @@ class PixelCoordinates:
         # internal storage
         self._zero_based = None
         # Store raw coordinates internally; getters apply adjustment when required.
-        self._x = None
-        self._y = None
-        self._z = None
+        self._x : Optional[int] = None
+        self._y : Optional[int] = None
+        self._z : Optional[int] = None
 
         self.x = x
         self.y = y
@@ -69,56 +69,72 @@ class PixelCoordinates:
         self.zero_based = zero_based
 
     @property
-    def x(self) -> int:
+    def x(self) -> Optional[int]:
         """
         Get the X coordinate.
 
         Returns:
             int: X coordinate, adjusted by `-1` when `zero_based` is True.
         """
-        return self._x - 1 if self.zero_based else self._x
+        if self._x is not None:
+            return self._x - 1 if self.zero_based else self._x
+        else:
+            logger.error("X coordinate is not set.")
+            return None
 
     @x.setter
     def x(self, value: int):
         self._x = value
 
     @property
-    def y(self) -> int:
+    def y(self) -> Optional[int]:
         """
         Get the Y coordinate.
 
         Returns:
             int: Y coordinate, adjusted by `-1` when `zero_based` is True.
         """
-        return self._y - 1 if self.zero_based else self._y
+        if self._y is  not None:
+            return self._y - 1 if self.zero_based else self._y
+        else:
+            logger.error("Y coordinate is not set.")
+            return None
 
     @y.setter
     def y(self, value: int):
         self._y = value
 
     @property
-    def z(self) -> int:
+    def z(self) -> Optional[int]:
         """
         Get the Z coordinate.
 
         Returns:
             int: Z coordinate, adjusted by `-1` when `zero_based` is True.
         """
-        return self._z - 1 if self.zero_based else self._z
+        if self._z is not None:
+            return self._z - 1 if self.zero_based else self._z
+        else:
+            logger.error("Z coordinate is not set.")
+            return None
 
     @z.setter
     def z(self, value: int):
         self._z = value
 
     @property
-    def zero_based(self) -> bool:
+    def zero_based(self) -> Optional[bool]:
         """
         Flag indicating whether getters return zero-based coordinates.
 
         Returns:
             bool: True if coordinates are zero-based; False otherwise.
         """
-        return self._zero_based
+        if self._zero_based is not None:
+            return self._zero_based
+        else:
+            logger.error("zero_based flag is not set.")
+            return None
 
     @zero_based.setter
     def zero_based(self, value: bool):
@@ -159,7 +175,7 @@ class PixelCoordinates:
         """
         return hash((self.x, self.y, self.z))
 
-    def lefter(self, other: "PixelCoordinates") -> bool:
+    def lefter(self, other: "PixelCoordinates") -> Optional[bool]:
         """
         Determine if this pixel is to the left of another pixel.
 
@@ -169,9 +185,13 @@ class PixelCoordinates:
         Returns:
             bool: True if this pixel's X is less than the other's X; otherwise False.
         """
-        return self.x < other.x
+        if self.x is None or other.x is None:
+            logger.error("X coordinate is None, cannot compare.")
+            return None
+        else:
+            return self.x < other.x
 
-    def righter(self, other: "PixelCoordinates") -> bool:
+    def righter(self, other: "PixelCoordinates") -> Optional[bool]:
         """
         Determine if this pixel is to the right of another pixel.
 
@@ -181,9 +201,13 @@ class PixelCoordinates:
         Returns:
             bool: True if this pixel's X is greater than the other's X; otherwise False.
         """
-        return self.x > other.x
+        if self.x is None or other.x is None:
+            logger.error("X coordinate is None, cannot compare.")
+            return None
+        else:
+            return self.x > other.x
 
-    def upper(self, other: "PixelCoordinates") -> bool:
+    def upper(self, other: "PixelCoordinates") -> Optional[bool]:
         """
         Determine if this pixel is above another pixel.
 
@@ -193,7 +217,11 @@ class PixelCoordinates:
         Returns:
             bool: True if this pixel's Y is greater than the other's Y; otherwise False.
         """
-        return self.y > other.y
+        if self.y is None or other.y is None:
+            logger.error("Y coordinate is None, cannot compare.")
+            return None
+        else:
+            return self.y > other.y
 
     def __repr__(self) -> str:
         """
@@ -209,10 +237,10 @@ class PixelCoordinates:
 
     def __len__(self) -> int:
         """
-        Return the number of dimensions (always 3 for PixelCoordinates).
+        Return the number of dimensions.
 
         Returns:
-            int: Always returns 3.
+            int: Returns 3 when all coordinates are initialized; otherwise 0.
 
         Raises:
             None
@@ -251,7 +279,7 @@ class SpectrumBaseModule:
         self,
         mz_list: Optional[np.ndarray],
         intensity: Optional[np.ndarray],
-        coordinates: Union[PixelCoordinates, List[int], Tuple[int, int, int]],
+        coordinates: Union[PixelCoordinates, Sequence[int]],
         sorted_by_mz_fun: bool = False,
     ):
         """
@@ -265,7 +293,8 @@ class SpectrumBaseModule:
             sorted_by_mz_fun (bool, optional): Whether the data is already sorted by m/z. Defaults to False.
 
         Raises:
-            AssertionError: If coordinates is not a list of exactly three integers.
+            AssertionError: If `coordinates` does not have length 3.
+            TypeError: If `coordinates` is neither `PixelCoordinates` nor a list/tuple of three ints.
         """
 
         assert len(coordinates) == 3, "Coordinates must be a list of three integers."
@@ -274,7 +303,7 @@ class SpectrumBaseModule:
         self._mz_list = mz_list
         self._intensity = intensity
 
-        # Normalize coordinates to PixelCoordinates instance
+        # Initialize coordinates to PixelCoordinates instance
         if isinstance(coordinates, PixelCoordinates):
             self.coordinates = coordinates
         elif isinstance(coordinates, (list, tuple)) and len(coordinates) == 3:
@@ -291,7 +320,7 @@ class SpectrumBaseModule:
 
     # lazy load properties
     @property
-    def mz_list(self) -> np.ndarray:
+    def mz_list(self):
         """
         Get the mz values of the MSI data.
 
@@ -305,7 +334,7 @@ class SpectrumBaseModule:
         self._mz_list = value
 
     @property
-    def intensity(self) -> np.ndarray:
+    def intensity(self):
         """
         Get the intensity values of the MSI data.
 
@@ -337,7 +366,8 @@ class SpectrumBaseModule:
         Returns:
             int: Number of peaks (length of mz_list array)
         """
-        return len(self.mz_list)
+        if self.mz_list is not None:
+            return len(self.mz_list)
 
     def __eq__(self, other):
         """
@@ -368,6 +398,9 @@ class SpectrumBaseModule:
         Raises:
             IndexError: If index is out of range
         """
+        if self.mz_list is None or self.intensity is None:
+            logger.error("mz_list or intensity is None, can not get item.")
+            raise IndexError("mz_list or intensity is None, can not get item.")
         return self.mz_list[index], self.intensity[index]
 
     def sort_by_mz(self):
@@ -395,7 +428,7 @@ class SpectrumBaseModule:
 
     def crop_range(
         self,
-        xr: Optional[Union[Tuple[float, float], List[float]]] = None,
+        xr: Optional[Sequence[float]] = None,
         sort_by_mz: bool = True,
     ):
         """
@@ -411,7 +444,7 @@ class SpectrumBaseModule:
         Raises:
             ValueError: If `mz_list` is None or `xr` is invalid.
         """
-        if self.mz_list is not None:
+        if self.mz_list is not None and self.intensity is not None:
             if xr is not None and len(xr) == 2:
                 mz_c = None
                 inten_c = None
@@ -457,7 +490,7 @@ class SpectrumBaseModule:
         return new_obj
 
     @property
-    def x(self) -> int:
+    def x(self):
         """
         Get the X coordinate from the underlying PixelCoordinates.
 
@@ -470,7 +503,7 @@ class SpectrumBaseModule:
         return self.coordinates.x
 
     @property
-    def y(self) -> int:
+    def y(self):
         """
         Get the Y coordinate from the underlying PixelCoordinates.
 
@@ -483,7 +516,7 @@ class SpectrumBaseModule:
         return self.coordinates.y
 
     @property
-    def z(self) -> int:
+    def z(self):
         """
         Get the Z coordinate from the underlying PixelCoordinates.
 
@@ -534,10 +567,20 @@ class SpectrumImzML(SpectrumBaseModule):
 
     @property
     def mz_list(self):
+        """
+        Lazily load and return m/z values for the spectrum.
+
+        Returns:
+            np.ndarray: Array of m/z values.
+
+        Notes:
+            - Triggers loading from the underlying ImzML parser on first access.
+            - Also initializes `self._intensity` to keep arrays in sync.
+        """
         if self._mz_list is None:
             mz, intensity = self._parser.getspectrum(self._index)
-            self._mz_list = mz.copy()
-            self._intensity = intensity.copy()
+            self._mz_list = mz
+            self._intensity = intensity
         return self._mz_list
 
     @mz_list.setter
@@ -546,6 +589,16 @@ class SpectrumImzML(SpectrumBaseModule):
 
     @property
     def intensity(self):
+        """
+        Lazily load and return intensity values for the spectrum.
+
+        Returns:
+            np.ndarray: Array of intensity values.
+
+        Notes:
+            - Accessing this property ensures m/z values are loaded first,
+              so both arrays remain synchronized.
+        """
         if self._intensity is None:
             # Ensure mz_list triggers lazy load and sets intensity
             _ = self.mz_list
@@ -594,7 +647,7 @@ class MS:
         Creates empty internal data structures for storing and indexing mass spectra.
         No parameters are required for initialization.
         """
-        self.meta = None
+        self.meta : Optional[MetaDataFileBase] = None
         self._queue = []
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
 
@@ -611,30 +664,23 @@ class MS:
 
     def add_spectrum(self, spectrum: SpectrumBaseModule):
         """
-        Add a mass spectrum to the collection with coordinate indexing.
+        Add or update a mass spectrum with coordinate indexing.
 
-        This method adds a spectrum to both the sequential queue and the coordinate
-        index for efficient access. The spectrum's coordinates are used to create
-        a nested dictionary structure for fast coordinate-based lookup.
+        This method ensures the spectrum is accessible via both the sequential queue
+        and the coordinate index. If a spectrum already exists at the given coordinates,
+        it will be updated (replaced) in both the coordinate index and the queue to
+        avoid duplicates.
 
         Args:
-            spectrum (SpectrumBaseModule): Mass spectrum to add to the collection
+            spectrum (SpectrumBaseModule): Mass spectrum to add or update.
 
-        Note:
-            - Automatically extracts coordinates from the spectrum
-            - Creates nested dictionary structure if coordinates don't exist
-            - Spectrum is added to both queue and coordinate index
 
+        Notes:
+            - Automatically extracts coordinates from the spectrum.
+            - Creates nested dictionary structure if coordinates don't exist.
+            - Updates the existing spectrum in place when coordinates already exist.
         """
-        spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
-        self._queue.append(spectrum)
-        x, y, z = spectrum.x, spectrum.y, spectrum.z
-
-        if z not in self._coordinate_index:
-            self._coordinate_index[z] = {}
-        if x not in self._coordinate_index[z]:
-            self._coordinate_index[z][x] = {}
-        self._coordinate_index[z][x][y] = spectrum
+        self.update_spectrum_with_coord(spectrum = spectrum)
 
     def get_spectrum(self, x: int, y: int, z: int = 0) -> SpectrumBaseModule:
         """
@@ -659,13 +705,91 @@ class MS:
         ):
             logger.error(
                 f"No spectrum found at coordinates ({x}, {y}, {z})\r\n"
-                f"min_pixel_x: {self.meta.min_pixel_x}\r\n"
-                f"max_pixel_x: {self.meta.pixel_size_x}\r\n"
-                f"min_pixel_y: {self.meta.min_pixel_y}\r\n"
-                f"max_pixel_y: {self.meta.pixel_size_y}\r\n"
+                f"plot mask to see the aviliable location, use ms.coordinate_index to see all the coordinates."
             )
             raise KeyError(f"No spectrum found at coordinates ({x}, {y}, {z})")
         return self._coordinate_index[z][x][y]
+
+    def update_spectrum_with_coord(self,spectrum: SpectrumBaseModule,x=-1,y=-1,z=-1):
+        """
+        Add or replace a spectrum in the coordinate index and queue.
+
+        Args:
+            spectrum (SpectrumBaseModule): Spectrum to insert or update.
+            x (int): Optional override for X coordinate; uses `spectrum.x` when -1.
+            y (int): Optional override for Y coordinate; uses `spectrum.y` when -1.
+            z (int): Optional override for Z coordinate; uses `spectrum.z` when -1.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If updating an existing spectrum fails to synchronize in the queue.
+        """
+        # Sync zero_based setting if meta is available
+        if self.meta :
+            spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
+
+        # get locations
+        x = spectrum.x if x == -1 else x
+        y = spectrum.y if y == -1 else y
+        z = spectrum.z if z == -1 else z
+
+        if (z in self._coordinate_index and
+            x in self._coordinate_index[z] and
+            y in self._coordinate_index[z][x]
+            ):
+            existing = self._coordinate_index[z][x][y]
+            self._coordinate_index[z][x][y] = spectrum
+            try:
+                idx = self._queue.index(existing)
+                self._queue[idx] = spectrum
+            except ValueError as exc:
+                logger.error(f"Failed to update spectrum at coordinates ({x}, {y}, {z})")
+                raise ValueError(f"Failed to update spectrum at coordinates ({x}, {y}, {z})") from exc
+        else:
+            if z not in self._coordinate_index:
+                self._coordinate_index[z] = {}
+            if x not in self._coordinate_index[z]:
+                self._coordinate_index[z][x] = {}
+            self._coordinate_index[z][x][y] = spectrum
+            self._queue.append(spectrum)
+
+    def update_spectrum_with_index(self,index:int,spectrum: SpectrumBaseModule):
+        """
+        Replace a spectrum at a sequential index and synchronize the coordinate index.
+
+        Args:
+            index (int): Position in the internal queue to replace.
+            spectrum (SpectrumBaseModule): Spectrum to assign at the given index.
+
+        Returns:
+            None
+
+        Raises:
+            IndexError: If `index` is negative or out of range.
+            ValueError: If the spectrum's coordinates do not match the existing entry at `index`.
+        """
+        if index < 0 or isinstance(index,int) is False :
+            logger.error(f"Index {index} out of range.")
+            raise IndexError(f"Index {index} out of range.")
+
+        elif index >=0 and index < len(self._queue):
+            # Sync zero_based setting if meta is available
+            if self.meta:
+                spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
+
+            # check if coordinates match
+            if self._queue[index] == spectrum:
+                #update queue
+                self._queue[index] = spectrum
+                self._coordinate_index[spectrum.z][spectrum.x][spectrum.y] = spectrum
+            else:
+                logger.error(f"Spectrum at index {index} does not match coordinates ({spectrum.x}, {spectrum.y}, {spectrum.z}).")
+                raise ValueError(f"Spectrum at index {index} does not match coordinates ({spectrum.x}, {spectrum.y}, {spectrum.z}).")
+        else:
+            logger.warning(f"Index {index} out of range {len(self._queue)}. Update spectrum with coordinates.")
+            self.update_spectrum_with_coord(spectrum = spectrum)
 
     def __getitem__(self,
                     key: Union[int,Tuple[int, int, int], Tuple[int, int], slice]
@@ -712,50 +836,37 @@ class MS:
                 "Index must be in tuple format, like [x, y, z] or [x, y]"
             )
 
-
     def __setitem__(
         self,
-        key: Union[Tuple[int, int, int], Tuple[int, int]],
+        key: Union[int, Tuple[int, int, int], Tuple[int, int]],
         spectrum: SpectrumBaseModule,
     ):
         """
-        Assign mass spectrum to specific coordinates with automatic indexing.
+        Assign or replace a spectrum by index or coordinates with bounds checking and index sync.
 
         Args:
-            key (Union[Tuple[int, int], Tuple[int, int, int]]): Target coordinates for spectrum placement.
-            spectrum (SpectrumBaseModule): Mass spectrum to assign.
+            key (Union[int, Tuple[int, int], Tuple[int, int, int]]): Sequential index or target coordinates.
+            spectrum (SpectrumBaseModule): Spectrum to assign.
 
         Returns:
             None
 
         Raises:
-            TypeError: If key is not a tuple.
-            IndexError: If tuple length is not 2 or 3.
+            IndexError: If coordinate tuple length is not 2 or 3, or sequential index is out of range.
+            ValueError: If assigning by index but the spectrum's coordinates do not match the existing entry.
         """
-        if len(key) == 3:
+        if isinstance(key,int):
+            self.update_spectrum_with_index(key,spectrum)
+        elif len(key) == 3:
             x, y, z = key
+            self.update_spectrum_with_coord(spectrum,x,y,z)
         elif len(key) == 2:
             x, y = key
-            z = 0
+            z = next(iter(self._coordinate_index))
+            self.update_spectrum_with_coord(spectrum,x,y,z)
         else:
+            logger.error("Coordinates must be 2 or 3 integers")
             raise IndexError("Coordinates must be 2 or 3 integers")
-
-        # Update spectrum coordinates using PixelCoordinates, respecting meta zero-based setting
-        spectrum.coordinates = PixelCoordinates(
-            x, y, z, self.meta.coordinates_zero_based
-        )
-
-        # Add to index
-        if z not in self._coordinate_index:
-            self._coordinate_index[z] = {}
-        if x not in self._coordinate_index[z]:
-            self._coordinate_index[z][x] = {}
-        if y not in self._coordinate_index[z][x]:
-            self._coordinate_index[z][x][y] = spectrum
-
-        # If not in queue, add to queue
-        if spectrum not in self._queue:
-            self._queue.append(spectrum)
 
     def __len__(self):
         """
@@ -782,7 +893,7 @@ class MS:
         save_path: Optional[str] = None,
         figsize: Tuple[int, int] = (8, 8),
         dpi: int = 300,
-        origin: str = "upper",
+        origin: Literal["upper", "lower"] = "lower",
         cmap: str = "Greys",
     ):
         """

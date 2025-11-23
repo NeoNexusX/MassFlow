@@ -11,9 +11,9 @@ import os
 import warnings
 from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
-from logger import get_logger
+from massflow.logger import get_logger
 from .ms_data_manager import MSDataManager
-from .ms_module import MS,SpectrumImzML,PixelCoordinates
+from .ms_module import MS,SpectrumImzML
 from .meta_data import ImzMlMetaData
 
 logger = get_logger("ms_data_manager_imzml")
@@ -55,7 +55,8 @@ class MSDataManagerImzML(MSDataManager):
 
         # meta data protection and read meta data
         if self.ms.meta is None:
-            self.ms.meta  = ImzMlMetaData(parser=self.parser, coordinates_zero_based=coordinates_zero_based)
+            self.ms.meta = ImzMlMetaData(parser=self.parser, coordinates_zero_based=coordinates_zero_based)
+
         elif self.ms.meta.parser is None:
             self.ms.meta.parser = self.parser
 
@@ -67,7 +68,8 @@ class MSDataManagerImzML(MSDataManager):
         """
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-
+            
+            #regular checks
             if not self.filepath or not os.path.exists(self.filepath):
                 logger.error(f"Error: File {self.filepath} does not exist.")
                 raise FileNotFoundError(f"Error: File {self.filepath} does not exist.")
@@ -75,6 +77,7 @@ class MSDataManagerImzML(MSDataManager):
             if not self.filepath.lower().endswith('.imzml'):
                 logger.error(f"Error: {self.filepath} is not an .imzML file.")
                 raise ValueError(f"Error: {self.filepath} is not an .imzML file.")
+
             # meta data load part
             self.pre_load_meta()
             logger.info(f"Loading data from {self.filepath}...")
@@ -87,7 +90,7 @@ class MSDataManagerImzML(MSDataManager):
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
                     spectrum = SpectrumImzML(parser=self.parser,
                                              index=i,
-                                             coordinates=PixelCoordinates(x, y, z, self.ms.meta.coordinates_zero_based))
+                                             coordinates=[x, y, z])
                     self._ms.add_spectrum(spectrum)
                     self.loading_meta(x=spectrum.coordinates.x, y=spectrum.coordinates.y)
                     self.current_spectrum_num += 1
