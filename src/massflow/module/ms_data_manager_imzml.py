@@ -57,8 +57,8 @@ class MSDataManagerImzML(MSDataManager):
         if self.ms.meta is None:
             self.ms.meta = ImzMlMetaData(parser=self.parser, coordinates_zero_based=coordinates_zero_based)
 
-        elif self.ms.meta.parser is None:
-            self.ms.meta.parser = self.parser
+        if self.ms.meta.parser is None: #type: ignore
+            self.ms.meta.parser = self.parser #type: ignore
 
     def load_full_data_from_file(self):
         """
@@ -80,7 +80,9 @@ class MSDataManagerImzML(MSDataManager):
 
             # meta data load part
             self.pre_load_meta()
+            # data load part
             logger.info(f"Loading data from {self.filepath}...")
+
             # spectrum data load part
             # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
             coords = self.parser.coordinates  # list of tuples
@@ -91,8 +93,11 @@ class MSDataManagerImzML(MSDataManager):
                     spectrum = SpectrumImzML(parser=self.parser,
                                              index=i,
                                              coordinates=[x, y, z])
-                    self._ms.add_spectrum(spectrum)
-                    self.loading_meta(x=spectrum.coordinates.x, y=spectrum.coordinates.y)
+
+                    #judge mz_list is used or not
+                    spectrum.mz_list = self.ms.shared_mz_list 
+                    self.ms.add_spectrum(spectrum)
+                    self.loading_meta(x=spectrum.coordinates.x, y=spectrum.coordinates.y,index=i)
                     self.current_spectrum_num += 1
 
             combined_message = "\r\n".join([ f"{wm.message}"for wm in w])
@@ -100,16 +105,20 @@ class MSDataManagerImzML(MSDataManager):
                 logger.warning(f"{combined_message}")
             self.loaded_meta()
 
+    def pre_load_meta(self,*args, **kwargs):
+        """Pre-load metadata before loading spectra."""
+        self.extract_metadata()
+
     def extract_metadata(self):
         """Iterate _meta_index and populate matching attributes from the parser."""
 
         logger.info("Extracting metadata...")
 
-        if self.ms.meta.parser is None:
+        if self.ms.meta.parser is None: #type: ignore
             logger.error("Parser is not initialized. Please set parser or filepath first.")
             raise ValueError("Parser is not initialized. Please set parser or filepath first.")
 
-        for accession_id, prop_name in self.ms.meta.meta_index.items():
+        for accession_id, prop_name in self.ms.meta.meta_index.items(): #type: ignore
             param_value = self.find_meta_by_accession_id(accession_id)
             if param_value is not None:
                 setattr(self.ms.meta, prop_name, param_value)
@@ -120,13 +129,13 @@ class MSDataManagerImzML(MSDataManager):
         """Search the predefined metadata areas for the given accession identifier."""
 
         search_areas = [
-            self.ms.meta.parser.metadata.file_description,  # File description (data type, creation time, etc.)
-            self.ms.meta.parser.metadata.scan_settings,  # Scan settings (scan mode, m/z range, etc.)
-            self.ms.meta.parser.metadata.instrument_configurations,  # Instrument configuration (model, ion source, etc.)
-            self.ms.meta.parser.metadata.samples,  # Sample information (sample name, preparation, etc.)
-            self.ms.meta.parser.metadata.softwares,  # Software information (parser, version, etc.)
-            self.ms.meta.parser.metadata.data_processings,  # Data processing (peak picking, normalization, etc.)
-            self.ms.meta.parser.metadata.referenceable_param_groups,  # Referenceable parameter groups (shared metadata)
+            self.ms.meta.parser.metadata.file_description,  # File description (data type, creation time, etc.) #type: ignore
+            self.ms.meta.parser.metadata.scan_settings,  # Scan settings (scan mode, m/z range, etc.)#type: ignore
+            self.ms.meta.parser.metadata.instrument_configurations,  # Instrument configuration (model, ion source, etc.)#type: ignore
+            self.ms.meta.parser.metadata.samples,  # Sample information (sample name, preparation, etc.) #type: ignore
+            self.ms.meta.parser.metadata.softwares,  # Software information (parser, version, etc.) #type: ignore
+            self.ms.meta.parser.metadata.data_processings,  # Data processing (peak picking, normalization, etc.) #type: ignore
+            self.ms.meta.parser.metadata.referenceable_param_groups,  # Referenceable parameter groups (shared metadata) #type: ignore
         ]
 
         for area in search_areas:
@@ -152,15 +161,17 @@ class MSDataManagerImzML(MSDataManager):
 
         return None
 
-    def pre_load_meta(self,*args, **kwargs):
-        """Pre-load metadata before loading spectra."""
-        self.extract_metadata()
-
     def loading_meta(self,*args, **kwargs):
         """update loading metadata before loading spectra."""
+
+        if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None: #type: ignore
+            logger.info("Assigning mz_list for continuous data. use shared mz_list. please watchout!")
+            self.ms.shared_mz_list , _ = self.parser.getspectrum(kwargs['index'])
+
         #update min   pixel x,y
-        self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs['x'])
-        self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs['y'])
+        if isinstance(self.ms.meta, ImzMlMetaData):
+            self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs['x'])
+            self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs['y'])
 
     def close(self):
         """

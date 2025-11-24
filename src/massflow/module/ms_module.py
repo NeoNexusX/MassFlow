@@ -559,9 +559,9 @@ class SpectrumImzML(SpectrumBaseModule):
         - Inherits all visualization and manipulation methods from SpectrumBaseModule
     """
 
-    def __init__(self, parser: ImzMLParser, index: int, coordinates):
+    def __init__(self, parser: ImzMLParser, index: int, coordinates,mz_list=None,intensity=None):
 
-        super().__init__(mz_list=None, intensity=None, coordinates=coordinates)
+        super().__init__(mz_list=mz_list, intensity=intensity, coordinates=coordinates)
         self._parser = parser
         self._index = int(index)
 
@@ -578,9 +578,7 @@ class SpectrumImzML(SpectrumBaseModule):
             - Also initializes `self._intensity` to keep arrays in sync.
         """
         if self._mz_list is None:
-            mz, intensity = self._parser.getspectrum(self._index)
-            self._mz_list = mz
-            self._intensity = intensity
+            _ = self.intensity  # Trigger loading of both mz and intensity
         return self._mz_list
 
     @mz_list.setter
@@ -600,8 +598,12 @@ class SpectrumImzML(SpectrumBaseModule):
               so both arrays remain synchronized.
         """
         if self._intensity is None:
-            # Ensure mz_list triggers lazy load and sets intensity
-            _ = self.mz_list
+            mz, intensity = self._parser.getspectrum(self._index)
+            self._intensity = intensity
+
+            if self._mz_list is None:
+                self._mz_list = mz
+
         return self._intensity
 
     @intensity.setter
@@ -650,6 +652,24 @@ class MS:
         self.meta : Optional[MetaDataFileBase] = None
         self._queue = []
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
+        self._shared_mz_list = None
+
+    @property
+    def shared_mz_list(self):
+        """
+        Get or set the flag for using common m/z list across spectra.
+
+        Returns:
+            bool: True if a common m/z list is used; False otherwise.
+        """
+        return self._shared_mz_list
+    @shared_mz_list.setter
+    def shared_mz_list(self, value):
+        if self.meta:
+            if self.meta.continuous is True:
+                self._shared_mz_list = value
+            else:
+                logger.warning("Meta data indicates non-continuous data; co_use_mz_list set to False.")
 
     @property
     def coordinate_index(self):

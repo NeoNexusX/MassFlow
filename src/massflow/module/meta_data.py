@@ -17,13 +17,13 @@ meta_index = {
     "IMS:1000047": "pixel_size_y",# Pixel height (µm)
     "IMS:1000053": "absolute_position_offset_x",# X-axis position offset
     "IMS:1000054": "absolute_position_offset_y",# Y-axis position offset
+    "IMS:1000030": "continuous",# Continuous data
     "IMS:1000031": "processed",# Whether the data is processed
     "MS:1000031": "instrument_model",# Instrument model
     "MS:1000127": "centroid_spectrum",# Mass spectrum in centroid mode
     "MS:1000128": "profile_spectrum",# Mass spectrum in profile mode
     "MS:1000579": "ms1_spectrum",# MS1 spectrum
     "MS:1000580": "msn_spectrum"# MSn spectrum
-
 }
 
 class MetaDataFileBase:
@@ -59,6 +59,7 @@ class MetaDataFileBase:
         self._pixel_size_x = None
         self._pixel_size_y = None
         self._processed = None
+        self._continuous = None
         self._centroid_spectrum = None
         self._profile_spectrum = None
         self._peakpick = None
@@ -175,6 +176,17 @@ class MetaDataFileBase:
             self._set('pixel_size_y', pixel_size_y)
 
     @property
+    def continuous(self):
+        """Return whether the data is continuous."""
+        return self._continuous
+
+    @continuous.setter
+    def continuous(self, continuous):
+        """Set whether the data is continuous."""
+        self._continuous = continuous
+        self._set('continuous', continuous)
+    
+    @property
     def processed(self):
         """Return whether the data has been processed."""
         return self._processed
@@ -184,6 +196,7 @@ class MetaDataFileBase:
         """Set whether the data has been processed."""
         self._processed = processed
         self._set('processed', processed)
+    
 
     @property
     def peakpick(self):
@@ -416,9 +429,13 @@ class ImzMlMetaData(MetaDataFileBase):
 
         """Initialize the metadata object with either a parser or a file path."""
         # [修改] 将 coordinates_zero_based 传递给父类
-        super().__init__(name=name, version=version, storage_mode=storage_mode, 
-                         mask=mask,pixel_size_x=pixel_size_x,pixel_size_y=pixel_size_y,
-                         max_count_of_pixels_x=max_count_of_pixels_x,max_count_of_pixels_y=max_count_of_pixels_y,
+        super().__init__(name=name, 
+                         version=version, 
+                         storage_mode=storage_mode, 
+                         mask=mask,pixel_size_x=pixel_size_x,
+                         pixel_size_y=pixel_size_y,
+                         max_count_of_pixels_x=max_count_of_pixels_x,
+                         max_count_of_pixels_y=max_count_of_pixels_y,
                          coordinates_zero_based=coordinates_zero_based)
 
         self._filepath = None
@@ -429,8 +446,8 @@ class ImzMlMetaData(MetaDataFileBase):
         self._instrument_model = None
         self._ms1_spectrum = None
         self._msn_spectrum = None
-        self._min_pixel_x = 9999
-        self._min_pixel_y = 9999
+        self._min_pixel_x = 99999
+        self._min_pixel_y = 99999
 
         # Set actual value through property
         if parser is not None:
