@@ -90,7 +90,7 @@ preprocess.normalizer_helper.tic_normalize(
   - `ValueError`: TIC ≤ 0; unsupported `scale_method`; 
   - `TypeError`: input not a non-empty 1D array
 
-Example： (after Savitzky-Golay denoising)
+Example: (after Savitzky-Golay denoising)
 
 ```python
 import sys
@@ -161,7 +161,7 @@ preprocess.normalizer_helper.rms_normalize(
   - `ValueError`: RMS ≤ 0; unsupported `scale_method`.
   - `TypeError`: input not a non-empty 1D array.
 
-Example： (after Savitzky-Golay denoising)
+Example: (after Savitzky-Golay denoising)
 
 ```python
 # Denoise then normalize (same as TIC example)

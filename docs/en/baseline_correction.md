@@ -116,7 +116,7 @@ preprocess.baseline_correction_helper.locmin_baseline(
   - `ValueError`: invalid `smooth` value; `span` not in `(0,1]`; `s < 0`; `width < 3`.
   - `TypeError`: `width` is not an integer, intensity is not a 1D array.
 
-Example：
+Example:
 
 ```python
 import numpy as np

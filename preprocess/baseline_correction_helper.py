@@ -68,12 +68,12 @@ def asls_baseline(
     if n == 0:
         return np.array([], dtype=np.float64)
 
-    # Sparse second-difference operator D (n-2 x n) with rows [1, -2, 1]
+    ones_n_minus_2 = np.ones(n - 2)
     D = diags(
-        diagonals=[np.ones(n - 2), -2.0 * np.ones(n - 2), np.ones(n - 2)],
-        offsets=[0, 1, 2],
-        shape=(n - 2, n),  
-        dtype=np.float64
+    diagonals=[ones_n_minus_2, -2.0 * ones_n_minus_2, ones_n_minus_2],
+    offsets=[0, 1, 2],
+    shape=(n - 2, n),
+    dtype=np.float64
     )
     # D^T D is a 5-diagonal sparse matrix
     DT_D = D.T @ D
@@ -99,7 +99,7 @@ def snip_baseline(
     """
     Statistics-sensitive Non-linear Iterative Peak-clipping (SNIP) baseline estimation.
 
-    This implementation follows the provided C version:
+    This implementation follows the SNIP algorithm using vectorized NumPy operations:" to accurately reflect the actual implementation language
     - Uses a working buffer `y` and a temporary buffer `z`.
     - For each window size `p`, updates `z[i] = min(y[i], (y[i-p] + y[i+p]) / 2)`,
       then writes `z[i]` back to `y[i]` for indices in [p, n - p).
@@ -220,8 +220,7 @@ def _local_extrema_mask(y: np.ndarray, width: int = 5, upper: bool = False) -> n
         for j in range(a, b + 1):
             if x[i] > x[j]:
                 is_ext = True
-            # Tie-handling matches C:
-            # left side: disallow x[j] >= x[i]; right side: disallow x[j] > x[i]
+    
             if j < i and x[j] >= x[i]:
                 is_ext = False
                 break
@@ -392,12 +391,8 @@ def baseline_corrector(
         baseline = locmin_baseline(xi, smooth=smooth, span=span, s=s, upper=upper, width=width)
     elif method_norm == "snip":
         baseline = snip_baseline(xi, m=m, decreasing=decreasing)
-    elif method_norm == "asls":
-        baseline = asls_baseline(xi, lam=lam, p=p, niter=niter)
     else:
-        supported = "locmin, snip, asls"
-        logger.error(f"Unsupported baseline method: {method}. Use one of: {supported}.")
-        raise ValueError(f"Unsupported baseline method: {method}")
+        baseline = asls_baseline(xi, lam=lam, p=p, niter=niter)
 
     # Scale baseline and subtract
     scale = float(baseline_scale)

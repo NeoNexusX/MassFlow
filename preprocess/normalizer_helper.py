@@ -176,8 +176,8 @@ def apply_scaling(
             return intensity
         
     else:
-        logger.error(f"Unsupported scale_method: {scale_method}. Supported methods are: 'none', 'unit'")
-        raise ValueError(f"Unsupported scale_method: {scale_method}. Supported methods are: 'none', 'unit'")
+        logger.error(f"Unsupported scale_method: {method_norm}. Supported methods are: 'none', 'unit'")
+        raise ValueError(f"Unsupported scale_method: {method_norm}. Supported methods are: 'none', 'unit'")
 
 def normalizer(intensity: np.ndarray,
                scale_method: str = 'none',

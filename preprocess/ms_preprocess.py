@@ -1,4 +1,3 @@
-from typing import Optional
 """
 Mass Spectrometry Imaging (MSI) Preprocessing Module
 
@@ -33,7 +32,7 @@ algorithms.
 Author: MassFlow Development Team Bionet/NeoNexus lyk
 License: See LICENSE file in project root
 """
-
+from typing import Optional
 from typing import Union
 import numpy as np
 from module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
@@ -260,30 +259,43 @@ class MSIPreprocessor:
         lam: float = 1e7,
         p: float = 0.01,
         niter: int = 15,
-        baseline_scale: float = 0.8,
+        baseline_scale: float = 1.0,
         m: Optional[int] = None,
         decreasing: bool = True,
     ) -> tuple[SpectrumBaseModule, np.ndarray]:
         """
-        Baseline correction using LocMin, ASLS, or SNIP with optional baseline scaling.
+        Baseline correction using LocMin, SNIP, or ASLS with optional baseline scaling.
 
         Parameters:
-            data (SpectrumBaseModule): Input spectrum to correct (1D intensity inside).
-            method (str): 'locmin', 'asls', or 'snip'.
-            lam (float): ASLS smoothness parameter.
-            p (float): ASLS asymmetry parameter.
-            niter (int): ASLS iteration count.
-            baseline_scale (float): Scale factor in [0, 1] applied to the estimated baseline.
-            m (int): SNIP window half-size.
-            decreasing (bool): SNIP decreasing rule.
+            data (SpectrumBaseModule | SpectrumImzML): Input spectrum containing 1D `intensity` and `mz_list`.
+                The corrected spectrum preserves `mz_list` and `coordinates`.
+            method (str): One of {'locmin', 'snip', 'asls'}.
+            smooth (str): LocMin smoothing method; one of {'none', 'loess', 'spline'}. Used when `method='locmin'`.
+            span (float): Loess span proportion in (0, 1]; typical 0.05–0.2. Used when `method='locmin'`.
+            s (float, optional): Spline smoothing target residual sum of squares (>= 0); `0.0` is interpolation. Used when `method='locmin'`.
+            upper (bool): If True, use local maxima as anchors (upper envelope); otherwise minima. Used when `method='locmin'`.
+            width (int): Neighborhood width (>= 3) for local extrema detection. Used when `method='locmin'`.
+            lam (float): ASLS smoothness parameter. Used when `method='asls'`.
+            p (float): ASLS asymmetry parameter in (0, 1). Used when `method='asls'`.
+            niter (int): ASLS iteration count (> 0). Used when `method='asls'`.
+            baseline_scale (float): Scale factor in (0, 1] applied to the estimated baseline prior to subtraction.
+            m (int, optional): SNIP window half-size (>= 1). Used when `method='snip'`.
+            decreasing (bool): SNIP decreasing rule; iterate from large window to small when True.
 
         Returns:
             Tuple[SpectrumBaseModule, np.ndarray]:
-                - corrected spectrum (retains original mz_list and coordinates)
-                - estimated baseline (vector)
+                - corrected spectrum (retains original `mz_list` and `coordinates`)
+                - scaled baseline vector
+
         Raises:
-            ValueError: If `method` is unsupported.
-            TypeError: If `data` is not a `SpectrumBaseModule`.
+            ValueError: Unsupported `method`.
+            TypeError: Invalid input type or non-1D arrays (propagated from helpers).
+            ValueError/ImportError: Smoothing dependency/parameter errors when `smooth in {'loess','spline'}` (propagated).
+
+        Notes:
+            - `index` is passed to the helper for validation only; current algorithms do not directly use it.
+            - Loess smoothing uses `preprocess.peak_alignment._smooth1d` and spline smoothing uses
+              `scipy.interpolate.UnivariateSpline`; ensure dependencies are installed and parameters valid.
         """
         
         intensity = data.intensity

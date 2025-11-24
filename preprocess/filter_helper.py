@@ -194,7 +194,6 @@ def smooth_signal_savgol(
     """
     from scipy.signal import savgol_filter
 
-
     if window < 3:
         window = 3
 
@@ -303,16 +302,18 @@ def smooth_ns_signal_pre(
         index = np.arange(len(intensity))
     else:
         logger.debug(f"using provided mz_list for neighborhood search with k={k} and p={p}\r\n{index[:5]}")
+
+    if not isinstance(k, int):
+        logger.error("k must be an integer")
+        raise ValueError("k must be an integer")
+    if not isinstance(p, int):
+        logger.error("p must be an integer")
+        raise ValueError("p must be an integer")
+    
     from scipy.spatial import cKDTree
 
     tree = cKDTree(index.reshape(-1, 1))
 
-    if not isinstance(k, int) or k < 1:
-        logger.error("k must be a positive integer")
-        raise ValueError("k must be a positive integer")
-    if not isinstance(p, int) or p < 1:
-        logger.error("p must be a positive integer")
-        raise ValueError("p must be a positive integer")
     if len(intensity) < k:
         logger.warning("spectrum length must be greater than k")
         k = len(intensity)
