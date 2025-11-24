@@ -1,6 +1,5 @@
 import time
 import functools
-from massflow.module.ms_module import MS
 from massflow.logger import get_logger
 logger = get_logger("test_tools")
 

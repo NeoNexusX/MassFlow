@@ -82,7 +82,7 @@ class MSDataManagerImzML(MSDataManager):
             self.pre_load_meta()
             logger.info(f"Loading data from {self.filepath}...")
             # spectrum data load part
-            # Build (x,y,z)->index mapping
+            # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
             coords = self.parser.coordinates  # list of tuples
             for i, c in enumerate(coords):
                 x, y, z = c

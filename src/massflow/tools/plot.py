@@ -123,7 +123,7 @@ def add_metrics_box(ax,
     o = base.intensity[:min_len]
     d = target.intensity[:min_len]
 
-    corr = float(np.corrcoef(o, d)[0, 1]) if min_len > 1 else 0.0
+    corr = float(np.corrcoef(o, d)[0, 1])
     tic_ratio = float(d.sum() / o.sum()) if o.sum() > 0 else 1.0
 
     snr_orig = MSIPreprocessor.calculate_snr_spectrum(base)
