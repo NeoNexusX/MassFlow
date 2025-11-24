@@ -52,7 +52,6 @@ def asls_baseline(
     Returns:
         np.ndarray: Estimated baseline (float64).
     """
-    intensity = np.asarray(intensity, dtype=np.float64)
     # Parameter validation
     if not np.isfinite(lam) or lam <= 0:
         logger.error("lam must be a positive finite number for ASLS")
@@ -89,90 +88,87 @@ def asls_baseline(
         # asymmetric weights: points above baseline get smaller weight
         w = p * (intensity > baseline) + (1.0 - p) * (intensity <= baseline)
  
-    return np.asarray(baseline, dtype=np.float64)
+    return baseline
 
 def snip_baseline(
         intensity: np.ndarray,
         m: Optional[int] = None,
-        decreasing: bool = True,
+        decreasing: bool = True
     ) -> np.ndarray:
-    """
-    Statistics-sensitive Non-linear Iterative Peak-clipping (SNIP) baseline estimation.
-
-    This implementation follows the SNIP algorithm using vectorized NumPy operations:" to accurately reflect the actual implementation language
-    - Uses a working buffer `y` and a temporary buffer `z`.
-    - For each window size `p`, updates `z[i] = min(y[i], (y[i-p] + y[i+p]) / 2)`,
-      then writes `z[i]` back to `y[i]` for indices in [p, n - p).
-    - Supports decreasing (`p = m .. 1`) or increasing (`p = 1 .. m`) iteration order.
-
-    Parameters:
-        intensity (np.ndarray): Input 1D spectrum.
-        m (Optional[int]): Window half-size. If None, auto-selects based on spectrum length.
-        decreasing (bool): If True, iterate `p` in decreasing order.
-
-    Returns:
-        np.ndarray: Estimated baseline.
-
-    Raises:
-        ValueError: If `intensity` is not a 1D array.
-    """
-    # Validate input shape and length
-    intensity = np.asarray(intensity, dtype=np.float64)
-    if intensity.ndim != 1:
-        raise ValueError("intensity must be a 1D array")
-    n = int(intensity.size)
-    if n == 0:
-        return np.array([], dtype=np.float64)
-    if n < 3:
-        # Too short to apply SNIP; return a copy as baseline
-        return np.array(intensity, dtype=np.float64, copy=True)
-
-    # Validate m when provided
-    if m is not None and not isinstance(m, (int, np.integer)):
-        logger.error("m must be an integer for SNIP baseline")
-        raise TypeError("m must be an integer for SNIP baseline")
-    if m is not None and m < 1:
-        logger.error("m must be a positive integer for SNIP baseline")
-        raise ValueError("m must be a positive integer for SNIP baseline")
-
-    # Auto-select window: 10% of length, lower-bounded by 10 and capped at 100
-    # Triple protection to keep indices valid and prevent out-of-bounds access
-    m_in = int(m) if m is not None else min(100, max(10, n // 10))
-    m_eval = max(1, min(m_in, (n - 1) // 2))
-
-    # Working buffer y and temporary buffer z
-    y = np.array(intensity, dtype=np.float64, copy=True)
-    z = np.empty_like(y)
-
-    if decreasing:
-        # Iterate p from m down to 1
-        for p in range(m_eval, 0, -1):
-            # Vectorized update for indices [p, n - p)
-            cur = y[p:n - p]
-            left = y[0:n - 2 * p]
-            right = y[2 * p:n]
-            clip_val = 0.5 * (left + right)  # arithmetic mean clipping (classic SNIP)
-            z[p:n - p] = np.minimum(cur, clip_val)
-            y[p:n - p] = z[p:n - p]
-    else:
-        # Iterate p from 1 up to m
-        for p in range(1, m_eval + 1):
-            cur = y[p:n - p]
-            left = y[0:n - 2 * p]
-            right = y[2 * p:n]
-            clip_val = 0.5 * (left + right)  # arithmetic mean clipping (classic SNIP)
-            z[p:n - p] = np.minimum(cur, clip_val)
-            y[p:n - p] = z[p:n - p]
-
-    return y
+        """
+        Statistics-sensitive Non-linear Iterative Peak-clipping (SNIP) baseline estimation.
+    
+        This implementation follows the SNIP algorithm using vectorized NumPy operations:" to accurately reflect the actual implementation language
+        - Uses a working buffer `y` and a temporary buffer `z`.
+        - For each window size `p`, updates `z[i] = min(y[i], (y[i-p] + y[i+p]) / 2)`,
+          then writes `z[i]` back to `y[i]` for indices in [p, n - p).
+        - Supports decreasing (`p = m .. 1`) or increasing (`p = 1 .. m`) iteration order.
+    
+        Parameters:
+            intensity (np.ndarray): Input 1D spectrum.
+            m (Optional[int]): Window half-size. If None, auto-selects based on spectrum length.
+            decreasing (bool): If True, iterate `p` in decreasing order.
+    
+        Returns:
+            np.ndarray: Estimated baseline.
+    
+        Raises:
+            ValueError: If `intensity` is not a 1D array.
+        """
+        # Validate input shape and length
+        if intensity.ndim != 1:
+            raise ValueError("intensity must be a 1D array")
+        n = int(intensity.size)
+        if n == 0:
+            return np.array([], dtype=np.float64)
+        if n < 3:
+            # Too short to apply SNIP; return a copy as baseline
+            return intensity.copy()
+    
+        # Validate m when provided
+        if m is not None and not isinstance(m, (int, np.integer)):
+            logger.error("m must be an integer for SNIP baseline")
+            raise TypeError("m must be an integer for SNIP baseline")
+        if m is not None and m < 1:
+            logger.error("m must be a positive integer for SNIP baseline")
+            raise ValueError("m must be a positive integer for SNIP baseline")
+    
+        # Auto-select window: 10% of length, lower-bounded by 10 and capped at 100
+        # Triple protection to keep indices valid and prevent out-of-bounds access
+        m_in = int(m) if m is not None else min(100, max(10, n // 10))
+        m_eval = max(1, min(m_in, (n - 1) // 2))
+    
+        # Working buffer baseline and temporary buffer z
+        baseline = intensity.copy()
+        z = np.empty_like(baseline)
+    
+        if decreasing:
+            # Iterate p from m down to 1
+            for p in range(m_eval, 0, -1):
+                # Vectorized update for indices [p, n - p)
+                cur = baseline[p:n - p]
+                left = baseline[0:n - 2 * p]
+                right = baseline[2 * p:n]
+                clip_val = 0.5 * (left + right)
+                z[p:n - p] = np.minimum(cur, clip_val)
+                baseline[p:n - p] = z[p:n - p]
+        else:
+            # Iterate p from 1 up to m
+            for p in range(1, m_eval + 1):
+                cur = baseline[p:n - p]
+                left = baseline[0:n - 2 * p]
+                right = baseline[2 * p:n]
+                clip_val = 0.5 * (left + right)
+                z[p:n - p] = np.minimum(cur, clip_val)
+                baseline[p:n - p] = z[p:n - p]
+    
+        return baseline
 
 def _local_extrema_mask(y: np.ndarray, width: int = 5, upper: bool = False) -> np.ndarray:
     """
-    Compute local extrema mask following the provided C algorithm.
-
     - r = |width // 2|, check window [i - r, i + r].
     - For maxima: all left neighbors strictly less; right neighbors not strictly greater.
-    - For minima: apply the same on -y (equivalent to C implementation).
+    - For minima: apply the same on -y.
     - Endpoints are excluded; caller can add them explicitly.
 
     Parameters:
@@ -183,7 +179,6 @@ def _local_extrema_mask(y: np.ndarray, width: int = 5, upper: bool = False) -> n
     Returns:
         np.ndarray: Boolean mask of local extrema (length n).
     """
-    y = np.asarray(y, dtype=np.float64)
     n = int(y.size)
     mask = np.zeros(n, dtype=bool)
     if n == 0:
@@ -199,35 +194,25 @@ def _local_extrema_mask(y: np.ndarray, width: int = 5, upper: bool = False) -> n
 
     r = abs(int(width) // 2)
     if r <= 0 or n < 2 * r + 1:
-        # Not enough points for the window; no interior extrema
+        logger.warning(
+            "Local extrema detection skipped: width=%d too large for n=%d (need at least %d).",
+            int(width), int(n), int(2 * r + 1)
+        )
         return mask
 
     # For minima, mirror the data as in R: localMaxima(-x, ...)
     x = y if upper else -y
 
-    # Helper clamp
-    def clamp(idx: int) -> int:
-        return 0 if idx < 0 else (n - 1 if idx >= n else idx)
+    # Vectorized computation using sliding_window_view
+    window = 2 * r + 1
+    win = np.lib.stride_tricks.sliding_window_view(x, window_shape=window)
+    center = win[:, r]
+    max_left = win[:, :r].max(axis=1)
+    max_right = win[:, r + 1:].max(axis=1)
+    min_window = win.min(axis=1)
 
-    for i in range(0, n):
-        mask[i] = False
-        if i < r or i > (n - r - 1):
-            continue
-        a = clamp(i - r)
-        b = clamp(i + r)
-        # Candidate: assume true then invalidate if violation found
-        is_ext = False
-        for j in range(a, b + 1):
-            if x[i] > x[j]:
-                is_ext = True
-    
-            if j < i and x[j] >= x[i]:
-                is_ext = False
-                break
-            if j > i and x[j] > x[i]:
-                is_ext = False
-                break
-        mask[i] = is_ext
+    ext = (center > min_window) & (max_left < center) & (max_right <= center)
+    mask[r:n - r] = ext
 
     return mask
 
@@ -258,12 +243,11 @@ def locmin_baseline(
     Returns:
         np.ndarray: Estimated baseline.
     """
-    y = np.asarray(intensity, dtype=np.float64)
-    n = int(y.size)
+    n = int(intensity.size)
     if n == 0:
         return np.array([], dtype=np.float64)
     if n < 3:
-        val = np.nanmax(y) if upper else np.nanmin(y)
+        val = np.nanmax(intensity) if upper else np.nanmin(intensity)
         if not np.isfinite(val):
             val = 0.0
         return np.full((n,), float(val), dtype=np.float64)
@@ -289,10 +273,10 @@ def locmin_baseline(
             raise ValueError("s must be >= 0 for spline smoothing")
 
     # Fill NaNs for robust processing
-    med = np.nanmedian(y)
+    med = np.nanmedian(intensity)
     if not np.isfinite(med):
         med = 0.0
-    y_filled = np.where(np.isfinite(y), y, med)
+    y_filled = np.where(np.isfinite(intensity), intensity, med)
 
     # Local extrema mask using window width
     mask = _local_extrema_mask(y_filled, width=width, upper=upper)
@@ -304,7 +288,7 @@ def locmin_baseline(
 
     if locs.size >= 2:
         x = np.arange(n, dtype=np.float64)
-        baseline = np.interp(x, locs.astype(np.float64), y_filled[locs].astype(np.float64))
+        baseline = np.interp(x, locs, y_filled[locs])
 
         smooth_kind = (smooth or "none").strip().lower()
         if smooth_kind == "loess":
@@ -321,7 +305,7 @@ def locmin_baseline(
         return np.asarray(baseline, dtype=np.float64)
 
     # Fallback when insufficient anchors: constant baseline
-    val = np.nanmax(y) if upper else np.nanmin(y)
+    val = np.nanmax(intensity) if upper else np.nanmin(intensity)
     if not np.isfinite(val):
         val = 0.0
     return np.full((n,), float(val), dtype=np.float64)
