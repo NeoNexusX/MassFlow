@@ -14,20 +14,25 @@ git clone https://github.com/NeoNexusX/MassFlow.git
 cd MassFlow
 ```
 
-## Quick Start
+## Quick Dev Start
 
-It is recommended to open `example.ipynb` in Jupyter, or run the following code snippet directly to verify data loading:
+It is recommended to  run the following code (main.py) directly to verify data loading:
 
-```python
-from module.ms_module import MS
-from module.ms_data_manager_imzml import MSDataManagerImzML
+```bash
+# Close conda first:
+conda deactivate
 
-FILE_PATH = "data/your_file.imzML"
-ms = MS()
-with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PATH) as manager:
-    manager.load_full_data_from_file()
-    manager.inspect_data()
-    ms.plot_ms_mask()
+# Install uv:
+# https://docs.astral.sh/uv/getting-started/installation/
+
+# For Example:
+# Linux && macOS:
+curl -LsSf https://astral.sh/uv/install.sh | sh 
+# Windows:
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Install dependencies:
+uv sync && uv pip install -e .
 ```
 
 Online Documentation: https://neonexusx.github.io/MassFlow/
