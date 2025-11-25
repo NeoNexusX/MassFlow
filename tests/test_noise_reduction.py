@@ -20,7 +20,7 @@ def pre_load_data_setup(data_file_path="data/example.imzML"):
 
         # Pre-load data
         for spectrum_data in mass_data:
-            _ = spectrum_data.mz_list
+            _ = spectrum_data.intensity
 
         logger.info("data pre-load finished!")
 
