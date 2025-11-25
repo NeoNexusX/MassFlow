@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from typing import List, Optional, Literal, Tuple, Dict
 import numpy as np
 from numpy.typing import NDArray
-from scipy import interpolate, signal, linalg
+from scipy import interpolate
 from massflow.module.ms_module import MS, SpectrumBaseModule
+from massflow.preprocess.filter_helper import smooth_signal_loess
 
 logger = get_logger("peak_alignment")
 
@@ -808,63 +809,19 @@ def peak_align(
 def _smooth_loess_tricubic(y, window=10):
     """
     Specific Loess smoothing implementation (fixed weighting 'tri-cubic').
-    Removes unused parameter `x` and fixes boundary alignment logic.
+
+    .. deprecated::
+        Use :func:`massflow.preprocess.filter_helper.smooth_signal_loess` instead.
+        This function is provided for backward compatibility only.
+
+    Parameters:
+        y (np.ndarray): 1D intensity array to be smoothed.
+        window (int): Size of the smoothing window. Default is 10.
+
+    Returns:
+        np.ndarray: Smoothed intensity array with the same length as the input.
     """
-    leny = len(y)
-    halfw = int(np.floor(window / 2.))
-    window = int(2 * halfw + 1)
-    
-    # --- 1. Core filter kernel construction ---
-    # Local coordinates: [-halfw, ..., 0, ..., halfw]
-    x1 = np.arange(1. - halfw, (halfw - 1.) + 1)
-    # Tri-cubic weighting
-    weight = (1. - np.abs(x1 / halfw) ** 3.) ** 1.5
-    
-    # Loess design matrix (Order=2)
-    # V = [weight, weight*x, weight*x^2]
-    V = np.vstack((weight, weight * x1, weight * x1 * x1)).T
-    
-    # Compute alpha via QR decomposition
-    [Q, _] = linalg.qr(V, mode='economic')
-    alpha = np.dot(Q[halfw - 1,], Q.T)
-    
-    # Apply core smoothing via filter
-    yhat = signal.lfilter(alpha * weight, 1, y)
-    # Correct phase shift (lfilter is causal; shift to center-align)
-    yhat[halfw:-halfw] = yhat[window - 2:-1]
-
-    # --- 2. Boundary handling ---
-    # Local coordinates at boundary: [1, 2, ..., window-1]
-    x1_boundary = np.arange(1., window)
-    # Boundary design matrix
-    V_boundary = np.vstack((np.ones(window - 1), x1_boundary, x1_boundary * x1_boundary)).T
-    
-    # Precompute boundary weight shape
-    W_ones = np.ones((3, 1))
-
-    # Process both ends (j from 1 to halfw)
-    for j in range(1, halfw + 1):
-        # Compute weights based on distance j
-        # Distance vector: abs([j-1, j-2, ..., 0, ..., window-1-j])
-        dist = np.abs(np.arange(1, window) - j)
-        w_j = (1. - np.divide(dist, window - j) ** 3.) ** 1.5
-        
-        # Weighted QR decomposition
-        W = (np.kron(W_ones, w_j)).T
-        [Q, _] = linalg.qr(V_boundary * W, mode='economic')
-        
-        # Compute projection coefficients
-        alpha = np.dot(Q[j - 1,], Q.T) * w_j
-        
-        # Left boundary: use the first window-1 points
-        yhat[j - 1] = np.dot(alpha, y[:window - 1])
-        
-        # Right boundary: take the last window-1 points and reverse to match left-bound distance
-        # Equivalent to: y[-(window-1):][::-1]
-        y_right_edge = y[-(window - 1):][::-1]
-        yhat[-j] = np.dot(alpha, y_right_edge)
-
-    return yhat
+    return smooth_signal_loess(y, window=window)
 
 def median_threshold(X):
     """

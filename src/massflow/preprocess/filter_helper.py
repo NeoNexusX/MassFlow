@@ -4,7 +4,7 @@ License: See LICENSE file in project root
 """
 from typing import Optional
 import numpy as np
-from scipy import stats
+from scipy import stats, signal, linalg
 from massflow.logger import get_logger
 from massflow.module.ms_module import SpectrumBaseModule
 
@@ -509,6 +509,103 @@ def smooth_ns_signal_bi(
 
     return smoothed_intensity
 
+def smooth_signal_loess(
+    intensity: np.ndarray,
+    window: int = 10,
+):
+    """
+    LOESS (Locally Estimated Scatterplot Smoothing) smoothing with tri-cubic weighting.
+
+    This function applies a local polynomial regression with tri-cubic weighting
+    kernel for signal smoothing. The algorithm fits a second-order polynomial
+    to local neighborhoods of data points, with weights decreasing according
+    to a tri-cubic function of distance.
+
+    Parameters:
+        intensity (np.ndarray): 1D intensity array to be smoothed.
+        window (int): Size of the smoothing window. Default is 10.
+            The actual window will be adjusted to 2*floor(window/2)+1 to ensure
+            an odd-length symmetric kernel.
+
+    Returns:
+        np.ndarray: Smoothed intensity array with the same length as the input.
+
+    Notes:
+        - Uses QR decomposition for numerical stability in polynomial fitting.
+        - Implements special handling for boundary regions to reduce edge effects.
+        - The tri-cubic weight function is: w(d) = (1 - |d|^3)^1.5
+    """
+    # Validate input
+    if not isinstance(intensity, np.ndarray) or intensity.ndim != 1 or intensity.size == 0:
+        logger.error("intensity must be a non-empty 1D array")
+        raise ValueError("intensity must be a non-empty 1D array")
+
+    if not isinstance(window, int) or window <= 0:
+        logger.error("window must be a positive integer")
+        raise ValueError("window must be a positive integer")
+
+    y = intensity
+    leny = len(y)
+    halfw = int(np.floor(window / 2.))
+    window = int(2 * halfw + 1)
+
+    # Handle edge case: window larger than data
+    if window >= leny:
+        logger.warning("window is larger than data length, returning original data")
+        return y.copy()
+
+    # --- 1. Core filter kernel construction ---
+    # Local coordinates: [-halfw, ..., 0, ..., halfw]
+    x1 = np.arange(1. - halfw, (halfw - 1.) + 1)
+    # Tri-cubic weighting
+    weight = (1. - np.abs(x1 / halfw) ** 3.) ** 1.5
+
+    # Loess design matrix (Order=2)
+    # V = [weight, weight*x, weight*x^2]
+    V = np.vstack((weight, weight * x1, weight * x1 * x1)).T
+
+    # Compute alpha via QR decomposition
+    [Q, _] = linalg.qr(V, mode='economic')
+    alpha = np.dot(Q[halfw - 1,], Q.T)
+
+    # Apply core smoothing via filter
+    yhat = signal.lfilter(alpha * weight, 1, y)
+    # Correct phase shift (lfilter is causal; shift to center-align)
+    yhat[halfw:-halfw] = yhat[window - 2:-1]
+
+    # --- 2. Boundary handling ---
+    # Local coordinates at boundary: [1, 2, ..., window-1]
+    x1_boundary = np.arange(1., window)
+    # Boundary design matrix
+    V_boundary = np.vstack((np.ones(window - 1), x1_boundary, x1_boundary * x1_boundary)).T
+
+    # Precompute boundary weight shape
+    W_ones = np.ones((3, 1))
+
+    # Process both ends (j from 1 to halfw)
+    for j in range(1, halfw + 1):
+        # Compute weights based on distance j
+        # Distance vector: abs([j-1, j-2, ..., 0, ..., window-1-j])
+        dist = np.abs(np.arange(1, window) - j)
+        w_j = (1. - np.divide(dist, window - j) ** 3.) ** 1.5
+
+        # Weighted QR decomposition
+        W = (np.kron(W_ones, w_j)).T
+        [Q, _] = linalg.qr(V_boundary * W, mode='economic')
+
+        # Compute projection coefficients
+        alpha = np.dot(Q[j - 1,], Q.T) * w_j
+
+        # Left boundary: use the first window-1 points
+        yhat[j - 1] = np.dot(alpha, y[:window - 1])
+
+        # Right boundary: take the last window-1 points and reverse to match left-bound distance
+        # Equivalent to: y[-(window-1):][::-1]
+        y_right_edge = y[-(window - 1):][::-1]
+        yhat[-j] = np.dot(alpha, y_right_edge)
+
+    return yhat
+
 def smooth_preprocess(data:SpectrumBaseModule):
     """
     Basic preprocessing pipeline for MS data smoothing.
@@ -546,7 +643,7 @@ def smoother(intensity:np.ndarray,
     Parameters:
         intensity (np.ndarray): 1D intensity array.
         index (Optional[np.ndarray]): 1D coordinate array aligned with `intensity` for NS methods.
-        method (str): One of {'ma','gaussian','savgol','wavelet','ma_ns','gaussian_ns','bi_ns'}.
+        method (str): One of {'ma','gaussian','savgol','wavelet','loess','ma_ns','gaussian_ns','bi_ns'}.
         window (int): Window size or neighbor count depending on method.
         sd (float, optional): Gaussian scale parameter for relevant methods.
         sd_intensity (float, optional): Intensity scale for bilateral method.
@@ -565,10 +662,10 @@ def smoother(intensity:np.ndarray,
     """
     # Normalize method and validate supported set
     method_norm = (method or "ma").strip().lower()
-    supported = {"ma", "gaussian", "savgol", "wavelet", "ma_ns", "gaussian_ns", "bi_ns"}
+    supported = {"ma", "gaussian", "savgol", "wavelet", "loess", "ma_ns", "gaussian_ns", "bi_ns"}
     if method_norm not in supported:
         logger.error(
-            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns",
+            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, loess, ma_ns, gaussian_ns, bi_ns",
             method,
         )
         raise ValueError(f"Unsupported smoothing method: {method}")
@@ -589,6 +686,10 @@ def smoother(intensity:np.ndarray,
     elif method_norm == "wavelet":
         _input_validation(intensity=intensity)
         return smooth_signal_wavelet(intensity, wavelet=wavelet, threshold_mode=threshold_mode)
+
+    elif method_norm == "loess":
+        _input_validation(intensity=intensity, window=window)
+        return smooth_signal_loess(intensity, window=window)
 
     elif method_norm == "ma_ns":
         _input_validation(intensity=intensity, index=index, k=window, p=p)
