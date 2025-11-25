@@ -292,10 +292,10 @@ def locmin_baseline(
 
         smooth_kind = (smooth or "none").strip().lower()
         if smooth_kind == "loess":
-            from .peak_align_helper import _smooth1d
+            from .peak_align_helper import _smooth_loess_tricubic
             span = float(span)
             window = int(max(5, min(n, round(span * n))))
-            baseline = _smooth1d(x, baseline, window=window, method="loess", weighting="tri-cubic")
+            baseline = _smooth_loess_tricubic(x, baseline, window=window, method="loess", weighting="tri-cubic")
         elif smooth_kind == "spline":
             from scipy.interpolate import UnivariateSpline
             s_val = float(s) if s is not None else 0.0
