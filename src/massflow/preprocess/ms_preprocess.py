@@ -1,3 +1,37 @@
+"""
+Mass Spectrometry Imaging (MSI) Preprocessing Module
+
+This module defines an abstract base class for preprocessing Mass Spectrometry Imaging (MSI) data.
+It provides a framework for implementing essential preprocessing techniques such as:
+
+- Peak picking: Identifying significant peaks in mass spectra.
+- TIC normalization: Normalizing data to account for variations in total ion intensity.
+- Peak alignment: Aligning peaks across spectra to correct for mass calibration drift.
+- Baseline correction: Removing baseline drift and background signals.
+- Noise reduction: Reducing noise while preserving spectral features.
+
+The `MSIPreprocessor` class is designed to be extended by concrete implementations that define
+specific algorithms for each preprocessing step. It supports both traditional input formats
+(e.g., mz, msroi arrays) and MSI object integration for seamless compatibility with the MSI framework.
+
+Classes:
+- MSIPreprocessor: Abstract base class for defining preprocessing workflows.
+
+Methods:
+- peak_pick: Abstract method for peak picking.
+- peak_pick_pixel: Abstract method for pixel-level peak picking.
+- tic_normalization: Abstract method for TIC-based normalization.
+- peak_alignment: Abstract method for aligning peaks across spectra.
+- baseline_correction: Abstract method for correcting baseline drift.
+- noise_reduction: Abstract method for reducing noise in mass spectra.
+- preprocess_pipeline: Abstract method for executing a complete preprocessing pipeline.
+
+This module is intended for developers extending the MSI framework with custom preprocessing
+algorithms.
+
+Author: MassFlow Development Team Bionet/NeoNexus lyk
+License: See LICENSE file in project root
+"""
 from typing import Union, Optional, Sequence
 import numpy as np
 from massflow.module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
@@ -5,7 +39,7 @@ from massflow.logger import get_logger
 from .peak_alignment import peak_matching, get_reference_mz_axis, get_reference_mz_axis2
 from .filter_helper import smoother
 from .normalizer_helper import normalizer
-from .baseline_correction_helper import asls_baseline, snip_baseline
+from .baseline_correction_helper import baseline_corrector
 from .est_noise_helper import estimator
 from .peak_pick_helper import peak_pick_fun
 
@@ -93,36 +127,31 @@ class MSIPreprocessor:
     @staticmethod
     def normalization_spectrum(
         data: Union[SpectrumBaseModule, SpectrumImzML],
-        scale_method: str = 'none',
+        scale_method: str = "none",
         method: str = "tic",
+        scale: float = 1.0
     ) -> Union[SpectrumBaseModule, SpectrumImzML]:
         """
-        Normalize a single spectrum using TIC or median, with optional scaling.
+        Normalize a single spectrum using TIC, RMS, or Median, with optional scaling.
 
         Parameters:
-            data (SpectrumBaseModule | SpectrumImzML): Input spectrum whose `intensity` will be normalized.
-            scale_method (str): Additional scaling after primary normalization:
-                - 'none': no extra scaling
-                - 'unit': min-max scaling to [0, 1]
-            method (str): Primary normalization method:
-                - 'tic': Total Ion Current normalization (sum equals 1)
-                - 'median': Median normalization (median equals 1)
+            data (SpectrumBaseModule | SpectrumImzML): Spectrum to normalize.
+            scale_method (str): 'none' or 'unit' min-max scaling.
+            method (str): One of {'tic', 'rms', 'median'}.
+            scale (float): Cardinal-like amplitude scaling factor applied after normalization.
 
         Returns:
-            SpectrumBaseModule: A new spectrum that retains the original `mz_list` and `coordinates`,
-            with `intensity` replaced by the normalized (and optionally scaled) values.
+            SpectrumBaseModule | SpectrumImzML: Spectrum with normalized intensity.
 
         Raises:
-            ValueError: If `method` is unsupported or if TIC/median is not greater than 0
-            (propagated from the lower-level normalizer).
+            ValueError: If `method` is unsupported or if TIC/RMS/Median is invalid (≤ 0) in helper functions.
         """
-        MSIPreprocessor.base_input_check(data=data)
-
         intensity = data.intensity
         norm_intensity = normalizer(
-            intensity, # type: ignore
+            intensity,
             scale_method=scale_method,
-            method=method
+            method=method,
+            scale=scale
         )
 
         return SpectrumBaseModule(
@@ -228,80 +257,81 @@ class MSIPreprocessor:
 
     @staticmethod
     def baseline_correction_spectrum(
-        data: Union[np.ndarray, SpectrumBaseModule],
+        data: Union[SpectrumBaseModule, SpectrumImzML],
         method: str = "asls",
+        smooth: str = "none",
+        span: float = 0.1,
+        s: Optional[float] = 0.0,
+        upper: bool = False,
+        width: int = 5,
         lam: float = 1e7,
         p: float = 0.01,
         niter: int = 15,
-        baseline_scale: float = 0.8,
-        m: int = 5,
+        baseline_scale: float = 1.0,
+        m: Optional[int] = None,
         decreasing: bool = True,
-        epsilon: float = 1e-3,
-    ) -> tuple[Union[np.ndarray, SpectrumBaseModule], np.ndarray]:
+    ) -> tuple[SpectrumBaseModule, np.ndarray]:
         """
-        Baseline correction using ASLS or SNIP with optional baseline scaling.
+        Baseline correction using LocMin, SNIP, or ASLS with optional baseline scaling.
 
         Parameters:
-            data (Union[np.ndarray, SpectrumBaseModule]): Input 1D intensity or spectrum.
-            method (str): 'asls' or 'snip'.
-            lam (float): ASLS smoothness parameter.
-            p (float): ASLS asymmetry parameter.
-            niter (int): ASLS iteration count.
-            baseline_scale (float): Scale factor in [0,1] applied to estimated baseline.
-            m (int): SNIP window half-size.
-            decreasing (bool): SNIP decreasing rule.
-            epsilon (float): SNIP early-stop tolerance.
+            data (SpectrumBaseModule | SpectrumImzML): Input spectrum containing 1D `intensity` and `mz_list`.
+                The corrected spectrum preserves `mz_list` and `coordinates`.
+            method (str): One of {'locmin', 'snip', 'asls'}.
+            smooth (str): LocMin smoothing method; one of {'none', 'loess', 'spline'}. Used when `method='locmin'`.
+            span (float): Loess span proportion in (0, 1]; typical 0.05–0.2. Used when `method='locmin'`.
+            s (float, optional): Spline smoothing target residual sum of squares (>= 0); `0.0` is interpolation. Used when `method='locmin'`.
+            upper (bool): If True, use local maxima as anchors (upper envelope); otherwise minima. Used when `method='locmin'`.
+            width (int): Neighborhood width (>= 3) for local extrema detection. Used when `method='locmin'`.
+            lam (float): ASLS smoothness parameter. Used when `method='asls'`.
+            p (float): ASLS asymmetry parameter in (0, 1). Used when `method='asls'`.
+            niter (int): ASLS iteration count (> 0). Used when `method='asls'`.
+            baseline_scale (float): Scale factor in (0, 1] applied to the estimated baseline prior to subtraction.
+            m (int, optional): SNIP window half-size (>= 1). Used when `method='snip'`.
+            decreasing (bool): SNIP decreasing rule; iterate from large window to small when True.
 
         Returns:
-            Tuple[Union[np.ndarray, SpectrumBaseModule], np.ndarray]:
-                - corrected data (vector or spectrum)
-                - estimated baseline (vector)
+            Tuple[SpectrumBaseModule, np.ndarray]:
+                - corrected spectrum (retains original `mz_list` and `coordinates`)
+                - scaled baseline vector
 
         Raises:
-            ValueError: If `method` is unsupported.
-            TypeError: If `data` is neither `np.ndarray` nor `SpectrumBaseModule`.
+            ValueError: Unsupported `method`.
+            TypeError: Invalid input type or non-1D arrays (propagated from helpers).
+            ValueError/ImportError: Smoothing dependency/parameter errors when `smooth in {'loess','spline'}` (propagated).
+
+        Notes:
+            - `index` is passed to the helper for validation only; current algorithms do not directly use it.
+            - Loess smoothing uses `preprocess.peak_alignment._smooth1d` and spline smoothing uses
+              `scipy.interpolate.UnivariateSpline`; ensure dependencies are installed and parameters valid.
         """
-        #模仿noise_reduction_spectrum仿写，实现分层架构，
-        #删除apply_single函数，重写一个baseline_corrector实现apply_single函数的效果，放在baseline_correction_helper里面
-        #输入检查模仿smoother的_input_validation函数，集中检查，不用在这里检查
-        #这里仅作为spectrum层级的api来处理输入的data对象
-
-        def apply_single(intensity: np.ndarray):
-            xi = np.array(intensity, dtype=np.float64, copy=True)
-            xi = np.ascontiguousarray(xi)
-            # Estimate baseline via module-level functions
-            if method == "asls":
-                baseline = asls_baseline(xi, lam=lam, p=p, niter=niter)
-            elif method == "snip":
-                baseline = snip_baseline(
-                    xi, m=m, decreasing=decreasing, epsilon=epsilon
-                )
-            else:
-                raise ValueError("Unsupported baseline method: use 'asls' or 'snip'")
-            scale = float(np.clip(baseline_scale, 0.0, 1.0))
-            scaled_baseline = scale * baseline
-            corrected = xi - scaled_baseline
-            corrected = np.maximum(corrected, 0.0)
-            return corrected, scaled_baseline
-
-        if isinstance(data, np.ndarray):
-            return apply_single(data)
-        elif isinstance(data, SpectrumBaseModule):
-            corrected_intensity, baseline = apply_single(
-                np.array(data.intensity, dtype=np.float64)
-            )
-            corrected_spectrum = SpectrumBaseModule(
-                mz_list=(
-                    np.array(data.mz_list, dtype=np.float64, copy=True)
-                    if data.mz_list is not None
-                    else None
-                ),
-                intensity=np.ascontiguousarray(corrected_intensity),
-                coordinates=data.coordinates,
-            )
-            return corrected_spectrum, baseline
-        else:
-            raise TypeError("data must be np.ndarray or SpectrumBaseModule")
+        
+        intensity = data.intensity
+        index = data.mz_list
+        
+        corrected_intensity, baseline = baseline_corrector(
+            intensity,
+            index=index,
+            method=method,
+            lam=lam,
+            p=p,
+            niter=niter,
+            baseline_scale=baseline_scale,
+            m=m,
+            decreasing=decreasing,
+            smooth=smooth,
+            span=span,
+            s=s,
+            upper=upper,
+            width=width,
+        )
+        corrected_spectrum = SpectrumBaseModule(
+            mz_list=data.mz_list,
+            intensity=corrected_intensity,
+            coordinates=data.coordinates,
+        )
+        
+        return corrected_spectrum, baseline
 
     @staticmethod
     def noise_reduction_spectrum(
