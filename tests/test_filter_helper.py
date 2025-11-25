@@ -15,8 +15,10 @@ class TestSmoothSignalLoess:
 
     def test_basic_smoothing(self):
         """Test basic smoothing functionality."""
-        y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 
-                      11.0, 12.0, 13.0, 14.0, 15.0])
+        y = np.array([
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
+            11.0, 12.0, 13.0, 14.0, 15.0
+        ])
         result = smooth_signal_loess(y, window=5)
         assert result.shape == y.shape
         assert isinstance(result, np.ndarray)
@@ -65,7 +67,9 @@ class TestSmoothSignalLoess:
 
     def test_default_window(self):
         """Test that default window of 10 works correctly."""
-        y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
-                      11.0, 12.0, 13.0, 14.0, 15.0])
+        y = np.array([
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
+            11.0, 12.0, 13.0, 14.0, 15.0
+        ])
         result = smooth_signal_loess(y)
         assert result.shape == y.shape

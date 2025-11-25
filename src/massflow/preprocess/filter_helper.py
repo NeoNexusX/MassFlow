@@ -535,14 +535,8 @@ def smooth_signal_loess(
         - Implements special handling for boundary regions to reduce edge effects.
         - The tri-cubic weight function is: w(d) = (1 - |d|^3)^1.5
     """
-    # Validate input
-    if not isinstance(intensity, np.ndarray) or intensity.ndim != 1 or intensity.size == 0:
-        logger.error("intensity must be a non-empty 1D array")
-        raise ValueError("intensity must be a non-empty 1D array")
-
-    if not isinstance(window, int) or window <= 0:
-        logger.error("window must be a positive integer")
-        raise ValueError("window must be a positive integer")
+    # Validate input using shared validation function
+    _input_validation(intensity=intensity, window=window)
 
     y = intensity
     leny = len(y)
