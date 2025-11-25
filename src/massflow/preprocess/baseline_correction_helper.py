@@ -1,6 +1,5 @@
 from typing import Optional
 import numpy as np
-from logger import get_logger
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 
@@ -293,7 +292,7 @@ def locmin_baseline(
 
         smooth_kind = (smooth or "none").strip().lower()
         if smooth_kind == "loess":
-            from .peak_alignment import _smooth1d
+            from .peak_align_helper import _smooth1d
             span = float(span)
             window = int(max(5, min(n, round(span * n))))
             baseline = _smooth1d(x, baseline, window=window, method="loess", weighting="tri-cubic")

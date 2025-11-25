@@ -36,12 +36,14 @@ from typing import Union, Optional, Sequence
 import numpy as np
 from massflow.module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
 from massflow.logger import get_logger
-from .peak_alignment import peak_matching, get_reference_mz_axis, get_reference_mz_axis2
+from .peak_align_helper import peak_align, get_reference
 from .filter_helper import smoother
 from .normalizer_helper import normalizer
 from .baseline_correction_helper import baseline_corrector
 from .est_noise_helper import estimator
 from .peak_pick_helper import peak_pick_fun
+import os
+import time
 
 logger = get_logger("ms_preprocess")
 
@@ -161,98 +163,87 @@ class MSIPreprocessor:
         )
 
     @staticmethod
-    def peak_alignment(
-            # reference_mz_axis：'mean' 或 'histogram'
-            ref_method: str = 'mean',
-            # Computes reference axis parameters (mean spectrum + local extrema) using the mean method.
-            agg: str = 'mean',
-            round_digits: int = 6,
-            half_window: int = 3,
-            findlimits: bool = False,
-            snr_threshold: Optional[float] = None,
-            min_height: Optional[float] = None,
-            min_distance_da: Optional[float] = None,
-            min_distance_factor: float = 1.0,
-            noise_method: str = 'mad',
-            # Histogram/Loess reference_axis_parameters
-            mz_res: Optional[float] = None,
-            px_perc: float = 0.01,
-            N_sample: Optional[int] = None,
-            smoothing_window: int = 11,
-            # parameters for peak alignment (intended for use in 'peak_matching')
-            n_sample: int = 2000,
-            gap_to_tol_factor: float = 0.5,
-            combiner: str = 'max',
-            unique: bool = False,
-            match_method: str = 'diff',
-            # Input and common parameters
-            ms_data: MS = None,
-            reference_mz_axis: Optional[np.ndarray] = None,
-            tolerance: Optional[float] = None,
-            units: str = 'ppm',
-    ) -> MS:
+    def peak_alignment(ms_data: MS,
+                       ref: Optional[np.ndarray] = None,
+                       units: str = 'ppm',
+                       tolerance: Optional[float] = None,
+                       binfun: str = 'median',
+                       binratio: int = 2,
+                       output_path: Optional[str]=None,
+                       ref_method: Optional[str] = None,
+                       ref_mzres: Optional[float] = None,
+                       ref_mzmaxshift: Optional[float] = None,
+                       ref_mzunits: Optional[str] = None) -> MS:
         """
-        Unified peak alignment API: selects reference axis generation method based on ref_method,
-        then aligns spectra using diff or dp method.
-
-        Parameters:
-        - ref_method: 'mean' for mean spectrum + local extrema; 'histogram' for histogram + Loess.
-        - mean parameters: agg, round_digits, half_window, findlimits, snr_threshold, min_height, min_distance_da, min_distance_factor, noise_method.
-        - Histogram/Loess reference_axis_parameters: mz_res, px_perc, N_sample, smoothing_window.
-        - peak alignment parameters: n_sample, gap_to_tol_factor, combiner('max'/'sum'/'mean'), unique, match_method('diff'/'dp').
-        - common parameters: ms_data, reference_mz_axis（若提供则跳过参考轴生成）, tolerance, units('ppm'/'da').
+        Peak alignment entry (streaming): dispatch parameters, optionally compute density-based reference,
+        delegate to streaming `peak_align`, and return the aligned MS object.
 
         Returns:
-        - MS: MS object with aligned spectra, all m/z unified to reference axis.
+            MS: Aligned collection whose spectra share the reference axis.
+
+        Raises:
+            ValueError: When input spectra are empty or density reference computation fails.
+
+        Notes:
+            Units mapping follows tolerance semantics: 'ppm'→relative, 'mz'/'absolute'→absolute (Da).
         """
-        # Parameter validation and method selection
-        if ms_data is None:
-            raise ValueError("ms_data cannot be empty")
-        ref_method = (ref_method or 'mean').lower().strip()
-        if ref_method not in ('mean', 'histogram'):
-            raise ValueError("`ref_method` must be either 'mean' or 'histogram'")
-        match_method = (match_method or 'diff').lower().strip()
-        if match_method not in ('diff', 'dp'):
-            raise ValueError("`match_method` must be either 'diff' or 'dp'")
+        logger.info(f"peak_alignment_entry: binfun={binfun}, units={units}...")
+        if output_path is None:
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            default_name = f"align_ms_{ts}.h5"
+            output_path = default_name
+            input_file = getattr(ms_data.meta, 'filepath', None) if ms_data.meta else None
+            if input_file:
+                input_dir = os.path.dirname(input_file)
+                candidate = os.path.join(input_dir, default_name)
+                try:
+                    tmp = os.path.join(input_dir, ".mf_write_test.tmp")
+                    with open(tmp, 'w'):
+                        pass
+                    os.remove(tmp)
+                    output_path = candidate
+                except(OSError, IOError, PermissionError):
+                    logger.warning(f"Cannot write to input directory {input_dir}, saving result to {output_path}")
+        
+        logger.info(f"Peak alignment output will be saved to: {output_path}")
 
-        # Reference axis generation: if not provided, generate it based on the specified method.
-        if reference_mz_axis is None:
-            if ref_method == 'mean':
-                reference_mz_axis = get_reference_mz_axis(
-                    ms_data=ms_data,
-                    agg=agg,
-                    round_digits=round_digits,
-                    half_window=half_window,
-                    findlimits=findlimits,
-                    snr_threshold=snr_threshold,
-                    noise_method=noise_method,
-                    min_height=min_height,
-                    n_sample=n_sample,
-                    min_distance_da=min_distance_da,
-                    min_distance_factor=min_distance_factor,
-                )
-            else:  # 'histogram'
-                reference_mz_axis = get_reference_mz_axis2(
-                    ms_data=ms_data,
-                    mz_res=mz_res,
-                    px_perc=px_perc,
-                    N_sample=N_sample,
-                    smoothing_window=smoothing_window,
-                )
+        # 1. Handle Density-based Reference (Special Case)
+        # If user wants density method, we calculate ref first, then pass to peak_align
+        if ref is None and (ref_method == 'density'):
+            # We still need to collect mz_list for density calculation
+            # Alternatively, peak_align could handle this if we moved get_reference logic inside
+            # But keeping it here is fine for separation of concerns
+            index_list = [s.mz_list for s in ms_data]
+            if len(index_list) == 0:
+                raise ValueError('no spectra available')
+            mz_all = np.concatenate(index_list)
+            
+            # ... (Mapping params logic keeps same) ...
+            if ref_mzunits is None: ref_mzunits = 'ppm' if units == 'ppm' else 'Da'
+            if ref_mzres is None: ref_mzres = float(tolerance) if tolerance is not None else (100.0 if ref_mzunits == 'ppm' else 0.01)
+            if ref_mzmaxshift is None: ref_mzmaxshift = float(tolerance) if tolerance is not None else (100.0 if ref_mzunits == 'ppm' else 0.05)
+            
+            ref = get_reference(mz_all, ref_mzres, ref_mzmaxshift, ref_mzunits)
+            ref = ref[np.isfinite(ref)]
+            logger.info(f"peak_alignment: density ref computed, peaks={ref.size}")
 
-        # Peak alignment: map spectra to reference axis and aggregate using combiner
-        ms_aligned = peak_matching(
-            ms_data=ms_data,
-            reference_mz_axis=reference_mz_axis,
+        # 2. Call peak_align (Now Handles Everything)
+        # Pass ms_data directly
+        res = peak_align(
+            ms_data,
+            ref=ref,
+            binfun=binfun,
+            binratio=binratio,
             tolerance=tolerance,
             units=units,
-            n_sample=n_sample,
-            gap_to_tol_factor=gap_to_tol_factor,
-            combiner=combiner,
-            unique=unique,
-            method=match_method,
+            output_path=output_path
         )
-
+        
+        # 3. Return the constructed MS object
+        ms_aligned = res.ms_aligned
+        ms_aligned.meta.processed = True
+        
+        logger.info(f"peak_alignment_entry: done, peaks={len(res.ref)}")
         return ms_aligned
 
     @staticmethod
