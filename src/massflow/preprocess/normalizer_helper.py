@@ -5,18 +5,17 @@ from typing import Optional
 logger = get_logger(__name__)
 
 
-def _input_validation(intensity: np.ndarray, index: Optional[np.ndarray] = None):
+def _input_validation(
+    intensity:np.ndarray,
+    index: Optional[np.ndarray] = None):
     """
     Validate input parameters for normalization functions.
-
+    
     Parameters:
         intensity (np.ndarray): 1D intensity array to be preprocessed.
-        index (Optional[np.ndarray]): 1D index array (e.g., m/z values). If None,
+        index (Optional[np.ndarray]): 1D index array (e.g., m/z values). If None, 
             will be generated as np.arange(len(intensity)).
 
-    Raises:
-        TypeError: If intensity is not a numpy array.
-        ValueError: If intensity is not 1D or empty.
     """
     # Validate intensity array
     if intensity is None:
@@ -31,8 +30,11 @@ def _input_validation(intensity: np.ndarray, index: Optional[np.ndarray] = None)
         logger.error("index must be a 1D array with the same length as intensity")
         raise ValueError("index must be a 1D array with the same length as intensity")
 
-
-def tic_normalize(intensity: np.ndarray, scale_method: str = "none"):
+def tic_normalize(
+        intensity: np.ndarray,
+        scale_method: str = 'none',
+        scale: float = 1.0
+):
     """
     Total Ion Current (TIC) normalization.
 
@@ -41,6 +43,7 @@ def tic_normalize(intensity: np.ndarray, scale_method: str = "none"):
         scale_method (str): Optional scaling after normalization:
             - 'none': no additional scaling
             - 'unit': min-max scale to [0, 1]
+        scale (float): Cardinal-like amplitude scaling factor applied after normalization.
 
     Returns:
         np.ndarray: TIC-normalized intensity array. Sum equals 1 when input sum > 0.
@@ -55,13 +58,56 @@ def tic_normalize(intensity: np.ndarray, scale_method: str = "none"):
     else:
         logger.error("TIC value is not greater than 0, cannot normalize data")
         raise ValueError("TIC value is not greater than 0, cannot normalize data")
+    # Apply amplitude scaling (cardinal-style)
+    norm_intensity = norm_intensity * float(scale)
     # Apply scaling method
     norm_intensity = apply_scaling(norm_intensity, scale_method)
-
+    
     return norm_intensity
 
+def rms_normalize(
+        intensity: np.ndarray,
+        scale_method: str = 'none',
+        scale: float = 1.0
+):
+    """
+    Root Mean Square (RMS) normalization.
 
-def median_normalize(intensity: np.ndarray, scale_method: str = "none"):
+    Parameters:
+        intensity (np.ndarray): Input 1D intensity array.
+        scale_method (str): Optional scaling after normalization:
+            - 'none': no additional scaling
+            - 'unit': min-max scale to [0, 1]
+        scale (float): Cardinal-like amplitude scaling factor applied after normalization.
+
+    Returns:
+        np.ndarray: RMS-normalized intensity array. RMS equals 1 when input RMS > 0.
+
+    Raises:
+        ValueError: If RMS of intensity is not greater than 0.
+
+    Notes:
+        Matches the provided R implementation: b = sqrt(mean(x^2, na.rm=TRUE));
+        if b > 0: y = scale * x / b; otherwise an error is raised.
+        Here `na.rm=TRUE` is implemented via np.nanmean.
+    """
+    # Compute RMS with NaN ignored
+    b = float(np.sqrt(np.nanmean(np.square(intensity))))
+    if not np.isfinite(b) or b <= 0.0:
+        logger.error("RMS value is not greater than 0, cannot normalize data")
+        raise ValueError("RMS value is not greater than 0, cannot normalize data")
+    norm_intensity = intensity / b
+    # Apply amplitude scaling (cardinal-style)
+    norm_intensity = norm_intensity * float(scale)
+    # Apply optional scaling
+    norm_intensity = apply_scaling(norm_intensity, scale_method)
+    return norm_intensity
+
+def median_normalize(
+        intensity: np.ndarray,
+        scale_method: str = 'none',
+        scale: float = 1.0
+):
     """
     Median normalization.
 
@@ -70,6 +116,7 @@ def median_normalize(intensity: np.ndarray, scale_method: str = "none"):
         scale_method (str): Optional scaling after normalization:
             - 'none': no additional scaling
             - 'unit': min-max scale to [0, 1]
+        scale (float): Cardinal-like amplitude scaling factor applied after normalization.
 
     Returns:
         np.ndarray: Median-normalized intensity array. Median equals 1 when input median > 0.
@@ -84,13 +131,17 @@ def median_normalize(intensity: np.ndarray, scale_method: str = "none"):
     else:
         logger.error("Median value is not greater than 0, cannot normalize data")
         raise ValueError("Median value is not greater than 0, cannot normalize data")
+    # Apply amplitude scaling (cardinal-style)
+    norm_intensity = norm_intensity * float(scale)
     # Apply scaling method
     norm_intensity = apply_scaling(norm_intensity, scale_method)
-
+    
     return norm_intensity
 
-
-def apply_scaling(intensity: np.ndarray, scale_method: str):
+def apply_scaling(
+        intensity: np.ndarray,
+        scale_method: str
+):
     """
     Apply scaling transformation to intensity data.
 
@@ -106,9 +157,10 @@ def apply_scaling(intensity: np.ndarray, scale_method: str):
     Raises:
         ValueError: If scale_method is not supported.
     """
-    if scale_method == "none":
+    method_norm = (scale_method or 'none').strip().lower()
+    if method_norm == 'none':
         return intensity
-    elif scale_method == "unit":
+    elif method_norm == 'unit':
         # Min-max scaling to [0, 1] range
         if intensity.size == 0:
             return intensity
@@ -117,21 +169,17 @@ def apply_scaling(intensity: np.ndarray, scale_method: str):
         if intensity_max - intensity_min > 0:
             return (intensity - intensity_min) / (intensity_max - intensity_min)
         else:
-            # If all values are the same, return original values
+        # If all values are the same, return original values
             return intensity
-
+        
     else:
-        logger.error(
-            f"Unsupported scale_method: {scale_method}. "
-            f"Supported methods are: 'none', 'unit'"
-        )
-        raise ValueError(
-            f"Unsupported scale_method: {scale_method}. "
-            f"Supported methods are: 'none', 'unit'"
-        )
+        logger.error(f"Unsupported scale_method: {method_norm}. Supported methods are: 'none', 'unit'")
+        raise ValueError(f"Unsupported scale_method: {method_norm}. Supported methods are: 'none', 'unit'")
 
-
-def normalizer(intensity: np.ndarray, scale_method: str = "none", method: str = "tic"):
+def normalizer(intensity: np.ndarray,
+               scale_method: str = 'none',
+               method: str = "tic",
+               scale: float = 1.0):
     """
     Unified normalization dispatcher.
 
@@ -142,7 +190,9 @@ def normalizer(intensity: np.ndarray, scale_method: str = "none", method: str = 
             - 'unit': min-max scale to [0, 1]
         method (str): Primary normalization method:
             - 'tic': Total Ion Current normalization
+            - 'rms': Root Mean Square normalization
             - 'median': Median normalization
+        scale (float): Cardinal-like amplitude scaling factor (applied after normalization).
 
     Returns:
         np.ndarray: Normalized (and optionally scaled) intensity array.
@@ -150,16 +200,23 @@ def normalizer(intensity: np.ndarray, scale_method: str = "none", method: str = 
     Raises:
         ValueError: If `method` is not supported.
     """
-    # # Basic validation
+    # Basic validation
     _input_validation(intensity)
+    if not np.isfinite(scale) or float(scale) < 0.0:
+        logger.error("scale must be a finite non-negative number")
+        raise ValueError("scale must be a finite non-negative number")
+    # Normalize and validate method
+    method_norm = (method or "tic").strip().lower()
+    scale_method_norm = (scale_method or 'none').strip().lower()
+    supported = {"tic", "rms", "median"}
+    if method_norm not in supported:
+        logger.error("Unsupported normalization method: %s. Use one of: tic, rms, median", method)
+        raise ValueError(f"Unsupported normalization method: {method}")
+
     # Choose normalization method
-    if method == "tic":
-        return tic_normalize(intensity, scale_method=scale_method)
-    elif method == "median":
-        return median_normalize(intensity, scale_method=scale_method)
-    else:
-        supported = "tic, median"
-        logger.error(
-            f"Unsupported normalization method: {method}. Use one of: {supported}."
-        )
-        raise ValueError(f"Unknown normalization method: {method}")
+    if method_norm == "tic":
+        return tic_normalize(intensity, scale_method=scale_method_norm, scale=scale)
+    elif method_norm == "rms":
+        return rms_normalize(intensity, scale_method=scale_method_norm, scale=scale)
+    else:  # method_norm == "median"
+        return median_normalize(intensity, scale_method=scale_method_norm, scale=scale)
