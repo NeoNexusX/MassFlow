@@ -32,7 +32,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 # Install dependencies:
-uv sync && uv pip install -e .
+uv sync 
+uv pip install -e .
 ```
 
 Online Documentation: https://neonexusx.github.io/MassFlow/

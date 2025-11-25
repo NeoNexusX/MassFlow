@@ -35,7 +35,9 @@ For Example :
   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 Install dependencies:
-uv sync &&  uv pip install -e .
+uv sync 
+
+uv pip install -e .
 ```
 
 ## 运行示例 和测试：
