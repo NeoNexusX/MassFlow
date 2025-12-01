@@ -14,6 +14,7 @@ def data_reading_benchmark(data_file_path="data/example.imzML"):
         ms_md.inspect_data()
         for spectrum_data in mass_data:
             _ = spectrum_data.intensity
+            spectrum_data.buffer_to_memap()
 
 class TestDataReading:
 
@@ -23,7 +24,7 @@ class TestDataReading:
         logger.info("Starting data reading benchmark")
         benchmark.pedantic(data_reading_benchmark,
                            args=(data_file_path,),
-                           rounds=10,
+                           rounds=2,
                            iterations=1,
                            warmup_rounds=1)
         logger.info("Finished data reading benchmark")

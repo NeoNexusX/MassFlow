@@ -17,6 +17,7 @@ License: See LICENSE file in project root
 from typing import List, Tuple, Union, Optional, Sequence,Literal
 import numpy as np
 import matplotlib.pyplot as plt
+import uuid
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
 from massflow.module.meta_data import MetaDataFileBase
@@ -281,6 +282,7 @@ class SpectrumBaseModule:
         intensity: Optional[np.ndarray],
         coordinates: Union[PixelCoordinates, Sequence[int]],
         sorted_by_mz_fun: bool = False,
+        buffer_folder: str = "./temp"
     ):
         """
         Initialize a mass spectrum with m/z values, intensities, and coordinates.
@@ -301,7 +303,7 @@ class SpectrumBaseModule:
 
         # Lazy loading
         self._mz_list = mz_list
-        self._intensity = intensity
+        self._intensity = intensity  
 
         # Initialize coordinates to PixelCoordinates instance
         if isinstance(coordinates, PixelCoordinates):
@@ -314,9 +316,59 @@ class SpectrumBaseModule:
                 "coordinates must be PixelCoordinates or a list/tuple of three ints."
             )
 
+        #buffer part
+        self.buffer_name = uuid.uuid4().hex
+        self.buffer_path = buffer_folder + "/" + self.buffer_name
+
+        #sort part
         self.sorted_by_mz = False
         if sorted_by_mz_fun:
             self.sort_by_mz()
+
+    def buffer_to_disk(self):
+        """
+        Save mz_list and intensity to a single compressed .npz file to save memory.
+        After saving, the in-memory arrays are set to None.
+        """
+        if self.mz_list is not None and self.intensity is not None:
+            # Save both arrays into one file with keys 'mz' and 'inten'
+            buffer_path = self.buffer_path + ".npz"
+            np.savez_compressed(buffer_path, mz=self.mz_list, inten=self.intensity)
+
+            # Release memory
+            self._mz_list = None
+            self._intensity = None
+        else:
+            logger.warning("Cannot buffer to disk: mz_list or intensity is None")
+
+    def buffer_to_memap(self):
+        """
+        Load mz_list and intensity from the compressed .npz file back into memory.
+        """
+        # create memmap
+        if self.mz_list is not None and self.intensity is not None:
+            mz_memmap_path = f"{self.buffer_path}_mz.dat"
+            int_memmap_path = f"{self.buffer_path}_int.dat"
+        
+            # Create memmap for mz_list
+            mz_shape = self.mz_list.shape
+            mz_dtype = self.mz_list.dtype
+            fp_mz = np.memmap(mz_memmap_path, dtype=mz_dtype, mode='w+', shape=mz_shape)
+            fp_mz[:] = self.mz_list[:]
+            fp_mz.flush()
+
+            # Create memmap for intensity
+            int_shape = self.intensity.shape
+            int_dtype = self.intensity.dtype
+            fp_int = np.memmap(int_memmap_path, dtype=int_dtype, mode='w+', shape=int_shape)
+            fp_int[:] = self.intensity[:]
+            fp_int.flush()
+
+            # Replace in-memory arrays with memmap objects
+            self._mz_list = fp_mz
+            self._intensity = fp_int
+        else:
+            logger.error("Cannot buffer to memmap: mz_list or intensity is None")
 
     # lazy load properties
     @property

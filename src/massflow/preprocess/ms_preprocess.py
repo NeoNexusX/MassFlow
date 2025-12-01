@@ -47,7 +47,6 @@ import time
 
 logger = get_logger("ms_preprocess")
 
-
 class MSIPreprocessor:
     """
     Abstract base class for MSI data preprocessing.
@@ -76,6 +75,7 @@ class MSIPreprocessor:
         Raises:
             ValueError: If neither msi_object nor (mz, msroi) are provided
         """
+
     @staticmethod
     def base_input_check(data):
         """
@@ -150,7 +150,7 @@ class MSIPreprocessor:
         """
         intensity = data.intensity
         norm_intensity = normalizer(
-            intensity,
+            intensity, # type: ignore
             scale_method=scale_method,
             method=method,
             scale=scale
@@ -238,12 +238,14 @@ class MSIPreprocessor:
             units=units,
             output_path=output_path
         )
-        
+
         # 3. Return the constructed MS object
         ms_aligned = res.ms_aligned
-        ms_aligned.meta.processed = True
-        
+        if ms_aligned.meta is not None and hasattr(ms_aligned.meta, 'continuous'):
+            ms_aligned.meta.continuous = True
+
         logger.info(f"peak_alignment_entry: done, peaks={len(res.ref)}")
+
         return ms_aligned
 
     @staticmethod
@@ -301,7 +303,7 @@ class MSIPreprocessor:
         index = data.mz_list
         
         corrected_intensity, baseline = baseline_corrector(
-            intensity,
+            intensity, # type: ignore
             index=index,
             method=method,
             lam=lam,
@@ -449,7 +451,7 @@ class MSIPreprocessor:
         return signal_level / noise
 
     @staticmethod
-    def preprocess_pipeline(data: SpectrumBaseModule):
+    def preprocess_pipeline():
         """
         Composite preprocessing pipeline (placeholder).
 
@@ -459,3 +461,4 @@ class MSIPreprocessor:
         Returns:
             SpectrumBaseModule: Preprocessed spectrum (implementation-defined).
         """
+
