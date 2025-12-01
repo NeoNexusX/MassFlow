@@ -21,6 +21,7 @@ import uuid
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
 from massflow.module.meta_data import MetaDataFileBase
+import os
 logger = get_logger("ms_module")
 
 
@@ -282,7 +283,8 @@ class SpectrumBaseModule:
         intensity: Optional[np.ndarray],
         coordinates: Union[PixelCoordinates, Sequence[int]],
         sorted_by_mz_fun: bool = False,
-        buffer_folder: str = "./temp"
+        buffer_folder: str = "./temp",
+        buffer_type: Literal['npz','memmap']='memmap'
     ):
         """
         Initialize a mass spectrum with m/z values, intensities, and coordinates.
@@ -319,13 +321,24 @@ class SpectrumBaseModule:
         #buffer part
         self.buffer_name = uuid.uuid4().hex
         self.buffer_path = buffer_folder + "/" + self.buffer_name
-
+        self.buffer_type = buffer_type
         #sort part
         self.sorted_by_mz = False
         if sorted_by_mz_fun:
             self.sort_by_mz()
 
-    def buffer_to_disk(self):
+    def to_disk(self):
+        """
+        Save mz_list and intensity to a single compressed .npz file to save memory.
+        After saving, the in-memory arrays are set to None.
+        """
+        if self.mz_list is not None and self.intensity is not None:
+            if self.buffer_type == 'npz':
+                self.memory_to_disk()
+            elif self.buffer_type == 'memmap':
+                self.memory_to_memap()
+
+    def memory_to_disk(self):
         """
         Save mz_list and intensity to a single compressed .npz file to save memory.
         After saving, the in-memory arrays are set to None.
@@ -341,7 +354,7 @@ class SpectrumBaseModule:
         else:
             logger.warning("Cannot buffer to disk: mz_list or intensity is None")
 
-    def buffer_to_memap(self):
+    def memory_to_memap(self):
         """
         Load mz_list and intensity from the compressed .npz file back into memory.
         """
@@ -355,20 +368,67 @@ class SpectrumBaseModule:
             mz_dtype = self.mz_list.dtype
             fp_mz = np.memmap(mz_memmap_path, dtype=mz_dtype, mode='w+', shape=mz_shape)
             fp_mz[:] = self.mz_list[:]
-            fp_mz.flush()
+            # fp_mz.flush()
 
             # Create memmap for intensity
             int_shape = self.intensity.shape
             int_dtype = self.intensity.dtype
             fp_int = np.memmap(int_memmap_path, dtype=int_dtype, mode='w+', shape=int_shape)
             fp_int[:] = self.intensity[:]
-            fp_int.flush()
+            # fp_int.flush()
 
             # Replace in-memory arrays with memmap objects
             self._mz_list = fp_mz
             self._intensity = fp_int
         else:
-            logger.error("Cannot buffer to memmap: mz_list or intensity is None")
+            logger.warning("Cannot buffer to memmap: mz_list or intensity is None")
+
+    def delete_buffer_files(self, remove_type: Literal['npz','memmap']='memmap'):
+        """
+        Remove buffer files created by `memory_to_disk`/`memory_to_memap` and close memmap objects.
+
+        - Flushes and deletes memmap-backed arrays if present.
+        - Removes the `*.npz` file created by `memory_to_disk` when `remove_npz` is True.
+        - Removes the `*_mz.dat` and `*_int.dat` files when `remove_memmap` is True.
+
+        This does not raise if files are already removed; errors are logged.
+        """
+        # Close and delete memmap objects if present
+        self._mz_list = None
+        self._intensity = None
+
+        # Remove files on disk
+        try:
+            if remove_type == 'memmap':
+                mz_memmap_path = f"{self.buffer_path}_mz.dat"
+                int_memmap_path = f"{self.buffer_path}_int.dat"
+                for p in (mz_memmap_path, int_memmap_path):
+                    if os.path.exists(p):
+                        try:
+                            os.remove(p)
+                        except Exception as e:
+                            logger.warning(f"Failed to remove memmap file {p}: {e}")
+
+            if remove_type == 'npz':
+                npz_path = f"{self.buffer_path}.npz"
+                if os.path.exists(npz_path):
+                    try:
+                        os.remove(npz_path)
+                    except Exception as e:
+                        logger.warning(f"Failed to remove npz file {npz_path}: {e}")
+
+        except Exception as exc:
+            logger.warning(f"Error while removing buffer files: {exc}")
+
+    def __del__(self):
+        """
+        Destructor attempts to clean up buffer files created for this object.
+
+        Wrapped in try/except to avoid raising during GC.
+        """
+        # best-effort cleanup; don't remove npz by default in destructor to avoid
+        # accidentally deleting shared files unless explicitly desired.
+        self.delete_buffer_files(remove_type=self.buffer_type)
 
     # lazy load properties
     @property
