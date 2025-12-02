@@ -60,6 +60,16 @@ class MSDataManagerImzML(MSDataManager):
         if self.ms.meta.parser is None: #type: ignore
             self.ms.meta.parser = self.parser #type: ignore
 
+        #multi-threading safety support
+        ibd_path = self.filepath[:-5] + "ibd"
+        logger.info(f"Looking for corresponding .ibd file at {ibd_path}...")
+        if os.path.exists(ibd_path):
+            self.ibd_path = ibd_path
+            self.reader = self.parser.portable_spectrum_reader()
+        else:
+            logger.error(f"Error: Corresponding .ibd file for {self.filepath} does not exist.")
+            raise FileNotFoundError(f"Error: Corresponding .ibd file for {self.filepath} does not exist.")
+
     def load_full_data_from_file(self):
         """
         Lazy-load spectra from .imzML:
@@ -81,7 +91,7 @@ class MSDataManagerImzML(MSDataManager):
             # meta data load part
             self.pre_load_meta()
             # data load part
-            logger.info(f"Loading data from {self.filepath}...")
+            logger.info(f"Finished loading meta data from {self.filepath}...")
 
             # spectrum data load part
             # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
@@ -90,7 +100,8 @@ class MSDataManagerImzML(MSDataManager):
                 x, y, z = c
                 c1, c2 = self.target_locs if self.target_locs is not None else ([0,0],[999,999])
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
-                    spectrum = SpectrumImzML(parser=self.parser,
+                    spectrum = SpectrumImzML(reader=self.reader,
+                                             ibd_path=self.ibd_path,
                                              index=i,
                                              coordinates=[x, y, z])
 

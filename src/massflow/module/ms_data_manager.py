@@ -9,11 +9,25 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 from abc import ABC, abstractmethod
+from typing import Iterable, Tuple
 import numpy as np
 from massflow.logger import get_logger
 from massflow.module.ms_module import MS
+from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor
 
 logger = get_logger("ms_data_manager")
+
+def _read_spectrum_raw(args: Tuple[str, object, int]) -> Tuple[int, np.ndarray, np.ndarray]:
+    """
+    子进程执行：根据 ibd_path + index 读取一个 spectrum 的 (mz, intensity)。
+
+    返回:
+        (index, mz, intensity)
+    """
+    ibd_path, reader, index = args
+    with open(ibd_path, "rb") as f:
+        mz, intensity = reader.read_spectrum_from_file(f, index)
+    return index, mz, intensity
 
 class MSDataManager(ABC):
     """
@@ -117,6 +131,85 @@ class MSDataManager(ABC):
             pointer4num += 1
         logger.info(base_info)
 
+    def get_batch_generator(self, batch_size: int = 32, max_workers: int = 32):
+        total_length = len(self.ms)
+
+        def _load_slice(slice_data):
+            for sp in slice_data:
+                _ = sp.intensity
+
+        for i in range(0, total_length, batch_size):
+            batch = self.ms[i: i + batch_size]
+            batch_len = len(batch)
+            if batch_len <= 1 or max_workers <= 1:
+                for sp in batch:
+                    _ = sp.intensity #type: ignore
+                yield batch
+                continue
+
+            slice_size = max(1, (batch_len + max_workers - 1) // max_workers)
+            with ThreadPoolExecutor(max_workers=min(max_workers, batch_len)) as executor:
+                futures = []
+                for start in range(0, batch_len, slice_size):
+                    end = min(start + slice_size, batch_len)
+                    futures.append(executor.submit(_load_slice, batch[start:end]))
+                for f in futures:
+                    f.result()
+            yield batch
+
+    def get_multiprocess_batch_generator(self, batch_size: int = 512, max_workers: int = 4):
+        """
+        使用多进程按 batch 预加载 spectra 的 mz_list 和 intensity，并按 batch 返回。
+
+        每个 batch 的流程:
+            - 根据 batch 的索引范围 [start, end) 构造参数列表；
+            - ProcessPoolExecutor 并行调用 _read_spectrum_raw；
+            - 主进程根据返回的 index 把 mz/intensity 写回 self.ms[index]；
+            - 收集该 batch 对应的 Spectrum 对象列表并 yield。
+
+        Args:
+            batch_size (int): 每个 batch 的谱条数。
+            max_workers (int): 进程池最大进程数。
+
+        Yields:
+            list[SpectrumBaseModule]: 当前 batch 的光谱对象列表（已完成预加载）。
+        """
+        total = len(self.ms)
+        if total == 0:
+            logger.info("No spectra to preload in batches.")
+            return
+
+        # 假定所有 spectrum 共享同一个 reader / ibd_path（与 preload_all_spectra_multiprocess 相同）
+        sample_sp = self.ms[0]
+        ibd_path = sample_sp._ibd_path # type: ignore
+        reader = sample_sp._reader # type: ignore
+
+        logger.info(
+            f"Start multiprocess batch preload: total={total}, "
+            f"batch_size={batch_size}, max_workers={max_workers}"
+        )
+
+        # 这里选择“每个 batch 建一个进程池”，避免单个长生命周期 executor 里任务过多导致调度不均
+        for start in range(0, total, batch_size):
+            end = min(start + batch_size, total)
+            batch_indices = list(range(start, end))
+
+            # 构造本 batch 的参数
+            args_iter = ((ibd_path, reader, idx) for idx in batch_indices)
+
+            # 预加载当前 batch
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                for idx, mz, inten in executor.map(_read_spectrum_raw, args_iter):
+                    sp = self.ms[idx]
+                    sp.mz_list = mz.copy() # type: ignore
+                    sp.intensity = inten.copy() # type: ignore
+
+            # 预加载完成后，构造并返回本 batch 的 spectrum 列表
+            batch = [self.ms[idx] for idx in batch_indices]
+            yield batch
+
+        logger.info("Finished multiprocess batch preload for all spectra.")
+
     def create_ms_meta_mask(self):
         """
         Create a binary occupancy mask for all available spectra coordinates.
@@ -156,7 +249,7 @@ class MSDataManager(ABC):
 
         # Cache mask in metadata and return
         self.ms.meta.mask = mask
-
+    
     @abstractmethod
     def pre_load_meta(self,*args, **kwargs):
         """

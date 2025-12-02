@@ -21,7 +21,6 @@ import uuid
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
 from massflow.module.meta_data import MetaDataFileBase
-import os
 logger = get_logger("ms_module")
 
 
@@ -327,109 +326,6 @@ class SpectrumBaseModule:
         if sorted_by_mz_fun:
             self.sort_by_mz()
 
-    def to_disk(self):
-        """
-        Save mz_list and intensity to a single compressed .npz file to save memory.
-        After saving, the in-memory arrays are set to None.
-        """
-        if self.mz_list is not None and self.intensity is not None:
-            if self.buffer_type == 'npz':
-                self.memory_to_disk()
-            elif self.buffer_type == 'memmap':
-                self.memory_to_memap()
-
-    def memory_to_disk(self):
-        """
-        Save mz_list and intensity to a single compressed .npz file to save memory.
-        After saving, the in-memory arrays are set to None.
-        """
-        if self.mz_list is not None and self.intensity is not None:
-            # Save both arrays into one file with keys 'mz' and 'inten'
-            buffer_path = self.buffer_path + ".npz"
-            np.savez_compressed(buffer_path, mz=self.mz_list, inten=self.intensity)
-
-            # Release memory
-            self._mz_list = None
-            self._intensity = None
-        else:
-            logger.warning("Cannot buffer to disk: mz_list or intensity is None")
-
-    def memory_to_memap(self):
-        """
-        Load mz_list and intensity from the compressed .npz file back into memory.
-        """
-        # create memmap
-        if self.mz_list is not None and self.intensity is not None:
-            mz_memmap_path = f"{self.buffer_path}_mz.dat"
-            int_memmap_path = f"{self.buffer_path}_int.dat"
-        
-            # Create memmap for mz_list
-            mz_shape = self.mz_list.shape
-            mz_dtype = self.mz_list.dtype
-            fp_mz = np.memmap(mz_memmap_path, dtype=mz_dtype, mode='w+', shape=mz_shape)
-            fp_mz[:] = self.mz_list[:]
-            # fp_mz.flush()
-
-            # Create memmap for intensity
-            int_shape = self.intensity.shape
-            int_dtype = self.intensity.dtype
-            fp_int = np.memmap(int_memmap_path, dtype=int_dtype, mode='w+', shape=int_shape)
-            fp_int[:] = self.intensity[:]
-            # fp_int.flush()
-
-            # Replace in-memory arrays with memmap objects
-            self._mz_list = fp_mz
-            self._intensity = fp_int
-        else:
-            logger.warning("Cannot buffer to memmap: mz_list or intensity is None")
-
-    def delete_buffer_files(self, remove_type: Literal['npz','memmap']='memmap'):
-        """
-        Remove buffer files created by `memory_to_disk`/`memory_to_memap` and close memmap objects.
-
-        - Flushes and deletes memmap-backed arrays if present.
-        - Removes the `*.npz` file created by `memory_to_disk` when `remove_npz` is True.
-        - Removes the `*_mz.dat` and `*_int.dat` files when `remove_memmap` is True.
-
-        This does not raise if files are already removed; errors are logged.
-        """
-        # Close and delete memmap objects if present
-        self._mz_list = None
-        self._intensity = None
-
-        # Remove files on disk
-        try:
-            if remove_type == 'memmap':
-                mz_memmap_path = f"{self.buffer_path}_mz.dat"
-                int_memmap_path = f"{self.buffer_path}_int.dat"
-                for p in (mz_memmap_path, int_memmap_path):
-                    if os.path.exists(p):
-                        try:
-                            os.remove(p)
-                        except Exception as e:
-                            logger.warning(f"Failed to remove memmap file {p}: {e}")
-
-            if remove_type == 'npz':
-                npz_path = f"{self.buffer_path}.npz"
-                if os.path.exists(npz_path):
-                    try:
-                        os.remove(npz_path)
-                    except Exception as e:
-                        logger.warning(f"Failed to remove npz file {npz_path}: {e}")
-
-        except Exception as exc:
-            logger.warning(f"Error while removing buffer files: {exc}")
-
-    def __del__(self):
-        """
-        Destructor attempts to clean up buffer files created for this object.
-
-        Wrapped in try/except to avoid raising during GC.
-        """
-        # best-effort cleanup; don't remove npz by default in destructor to avoid
-        # accidentally deleting shared files unless explicitly desired.
-        self.delete_buffer_files(remove_type=self.buffer_type)
-
     # lazy load properties
     @property
     def mz_list(self):
@@ -480,6 +376,8 @@ class SpectrumBaseModule:
         """
         if self.mz_list is not None:
             return len(self.mz_list)
+        else:
+            return 0
 
     def __eq__(self, other):
         """
@@ -671,10 +569,11 @@ class SpectrumImzML(SpectrumBaseModule):
         - Inherits all visualization and manipulation methods from SpectrumBaseModule
     """
 
-    def __init__(self, parser: ImzMLParser, index: int, coordinates,mz_list=None,intensity=None):
+    def __init__(self, reader ,ibd_path, index: int, coordinates,mz_list=None,intensity=None):
 
         super().__init__(mz_list=mz_list, intensity=intensity, coordinates=coordinates)
-        self._parser = parser
+        self._reader = reader
+        self._ibd_path = ibd_path
         self._index = int(index)
 
     @property
@@ -710,11 +609,12 @@ class SpectrumImzML(SpectrumBaseModule):
               so both arrays remain synchronized.
         """
         if self._intensity is None:
-            mz, intensity = self._parser.getspectrum(self._index)
-            self._intensity = intensity
+            with open(self._ibd_path, 'rb') as f:
+                mz, intensity = self._reader.read_spectrum_from_file(f, self._index)
+            self._intensity = intensity.copy()
 
             if self._mz_list is None:
-                self._mz_list = mz
+                self._mz_list = mz.copy()
 
         return self._intensity
 
