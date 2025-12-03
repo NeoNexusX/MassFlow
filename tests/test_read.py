@@ -23,14 +23,6 @@ def data_batch_reading_benchmark(data_file_path="data/example.imzML", batch_size
         for batch in batch_generator:
             pass
 
-def data_preload_benchmark(data_file_path="data/example.imzML", max_workers=4):
-    mass_data = MS()
-    with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
-        ms_md.load_full_data_from_file()
-        ms_md.inspect_data()
-        batch_generator = ms_md.get_multiprocess_batch_generator_hybrid(batch_size=512, process_workers=max_workers)
-        for batch in batch_generator:
-            pass
 
 class TestDataReading:
 
