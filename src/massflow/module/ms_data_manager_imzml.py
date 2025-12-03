@@ -30,7 +30,8 @@ class MSDataManagerImzML(MSDataManager):
                  ms: MS,
                  target_locs=None,
                  filepath=None,
-                 coordinates_zero_based: bool = True):
+                 coordinates_zero_based: bool = True,
+                 max_threads: int = 10):
         """
         Initialize the ImzML data manager.
         Args:
@@ -39,7 +40,11 @@ class MSDataManagerImzML(MSDataManager):
             target_locs (list[tuple], optional): List of (x,y) or (x,y,z) coordinates to load.
             filepath (str, optional): Path to the .imzML file.
         """
-        super().__init__(ms, None, target_locs, filepath)
+        super().__init__(ms, 
+                         None, 
+                         target_locs, 
+                         filepath, 
+                         max_threads=max_threads)
 
         if not self.filepath or not os.path.exists(self.filepath):
             logger.error(f"Error: File {self.filepath} does not exist.")
@@ -212,35 +217,10 @@ class MSDataManagerImzML(MSDataManager):
                     m.close()
                 except Exception as e:
                     logger.warning(f"Failed to close memory-mapped handle: {e}")
+        super().close()
 
     def __enter__(self):
-        """
-        Enter the context manager for MSDataManagerImzML.
-
-        Parameters:
-            None
-
-        Returns:
-            MSDataManagerImzML: The current instance for chained operations.
-
-        Raises:
-            None
-        """
-        return self
+        return super().__enter__()  # father class
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        Exit the context manager and ensure resources are closed.
-
-        Parameters:
-            exc_type (type | None): Exception type, if any occurred in context.
-            exc_val (BaseException | None): Exception instance, if any.
-            exc_tb (TracebackType | None): Traceback, if any.
-
-        Returns:
-            None
-
-        Raises:
-            None. This method does not suppress exceptions; it only closes resources.
-        """
         self.close()

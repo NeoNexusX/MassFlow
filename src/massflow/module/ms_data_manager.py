@@ -9,12 +9,10 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 from abc import ABC, abstractmethod
-from typing import Tuple
 import numpy as np
 from massflow.logger import get_logger
 from massflow.module.ms_module import MS
-from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor
-import math
+from concurrent.futures import ThreadPoolExecutor
 logger = get_logger("ms_data_manager")
 
 
@@ -26,7 +24,8 @@ class MSDataManager(ABC):
                  ms: MS,
                  target_mz_range=None,
                  target_locs=None,
-                 filepath=None):
+                 filepath=None,
+                 max_threads: int = 10):
         """
         Initialize the MS data manager.
 
@@ -38,6 +37,10 @@ class MSDataManager(ABC):
         """
         self._ms = ms
         self.target_mz_range = target_mz_range
+
+        # Multi-threading control part
+        self.max_threads = max_threads
+        self._threads_executor = None
 
         # target_locs input verification
         if target_locs is not None:
@@ -53,6 +56,19 @@ class MSDataManager(ABC):
         self.target_locs = target_locs
         self.filepath = filepath
         self.current_spectrum_num = 0
+
+    @property
+    def threads_executor(self) -> ThreadPoolExecutor:
+        """lazy load for thread pool executor"""
+        if self._threads_executor is None:
+            self._threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
+        return self._threads_executor
+
+    @threads_executor.setter
+    def threads_executor(self, executor: ThreadPoolExecutor):
+        """set thread pool executor"""
+        self._threads_executor = executor
+        
 
     @property
     def ms(self) -> MS:
@@ -120,30 +136,28 @@ class MSDataManager(ABC):
             pointer4num += 1
         logger.info(base_info)
 
-    def get_batch_generator(self, batch_size: int = 32, max_workers: int = 32):
+    def get_batch_generator(self, batch_size: int = 256, max_threads: int = -1):
+
+        # update max_threads if needed
+        if max_threads != -1 and max_threads != self.max_threads:
+            self.max_threads = max_threads
+            #reload thread pool executor
+            self._threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
+        else:
+            max_threads = self.max_threads
+
         total_length = len(self.ms)
 
-        def _load_slice(slice_data):
-            for sp in slice_data:
-                _ = sp.intensity
+        # define the spectrum loading function
+        def _load_spectrum(sp):
+            _ = sp.intensity
 
+        # 3. Batch processing loop
         for i in range(0, total_length, batch_size):
             batch = self.ms[i: i + batch_size]
-            batch_len = len(batch)
-            if batch_len <= 1 or max_workers <= 1:
-                for sp in batch:
-                    _ = sp.intensity #type: ignore
-                yield batch
-                continue
 
-            slice_size = max(1, (batch_len + max_workers - 1) // max_workers)
-            with ThreadPoolExecutor(max_workers=min(max_workers, batch_len)) as executor:
-                futures = []
-                for start in range(0, batch_len, slice_size):
-                    end = min(start + slice_size, batch_len)
-                    futures.append(executor.submit(_load_slice, batch[start:end]))
-                for f in futures:
-                    f.result()
+            self._threads_executor.map(_load_spectrum, batch) #type: ignore
+
             yield batch
 
     def create_ms_meta_mask(self):
@@ -233,3 +247,17 @@ class MSDataManager(ABC):
         """
         logger.info("creating ms mask.")
         self.create_ms_meta_mask()
+
+    def close(self):
+        """
+        Close any resources held by the data manager.
+        """
+        if self._threads_executor is not None:
+            self._threads_executor.shutdown(wait=True)
+            self._threads_executor = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()

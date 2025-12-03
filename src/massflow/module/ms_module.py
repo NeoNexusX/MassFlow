@@ -18,7 +18,6 @@ from typing import List, Tuple, Union, Optional, Sequence,Literal
 import numpy as np
 import matplotlib.pyplot as plt
 import uuid
-from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
 from massflow.module.meta_data import MetaDataFileBase
 logger = get_logger("ms_module")
