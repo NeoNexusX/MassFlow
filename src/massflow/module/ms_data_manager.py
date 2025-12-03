@@ -9,12 +9,12 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 from abc import ABC, abstractmethod
-from typing import Iterable, Tuple
+from typing import Tuple
 import numpy as np
 from massflow.logger import get_logger
 from massflow.module.ms_module import MS
 from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor
-
+import math
 logger = get_logger("ms_data_manager")
 
 def _read_spectrum_raw(args: Tuple[str, object, int]) -> Tuple[int, np.ndarray, np.ndarray]:
@@ -28,6 +28,32 @@ def _read_spectrum_raw(args: Tuple[str, object, int]) -> Tuple[int, np.ndarray, 
     with open(ibd_path, "rb") as f:
         mz, intensity = reader.read_spectrum_from_file(f, index)
     return index, mz, intensity
+
+def _process_indices_in_threads(args: Tuple[str, object, list[int], int]):
+    """
+    子进程内部使用多线程读取一批索引。
+
+    Args:
+        ibd_path (str)
+        reader (object)
+        indices (list[int])
+        thread_workers (int)
+
+    Returns:
+        list[tuple[int, np.ndarray, np.ndarray]]
+    """
+    ibd_path, reader, indices, thread_workers = args
+
+    def _read_one(idx: int):
+        return _read_spectrum_raw((ibd_path, reader, idx))
+
+    results: list[tuple[int, np.ndarray, np.ndarray]] = []
+    # 线程数不要超过索引数
+    n_threads = min(thread_workers, max(1, len(indices)))
+    with ThreadPoolExecutor(max_workers=n_threads) as executor:
+        for res in executor.map(_read_one, indices):
+            results.append(res)
+    return results
 
 class MSDataManager(ABC):
     """
@@ -209,6 +235,85 @@ class MSDataManager(ABC):
             yield batch
 
         logger.info("Finished multiprocess batch preload for all spectra.")
+
+    def get_multiprocess_batch_generator_hybrid(
+            self,
+            batch_size: int = 512,
+            process_workers: int = 4,
+            thread_workers_per_process: int = 64,
+    ):
+        """
+        混合模式：多进程 + 每进程多线程 预加载 spectra 的 mz_list 和 intensity。
+
+        每个 batch 的流程:
+            - 将 batch 内的索引平均切成 process_workers 份；
+            - 为每一份启动一个进程；
+            - 每个进程内部再用 ThreadPoolExecutor 读取该子集索引；
+            - 主进程将所有返回结果写回 self.ms，并按顺序 yield batch。
+
+        Args:
+            batch_size (int): 每个 batch 的谱条数。
+            process_workers (int): 进程池最大进程数。
+            thread_workers_per_process (int): 每个进程内部的最大线程数。
+
+        Yields:
+            list[SpectrumBaseModule]: 当前 batch 的光谱对象列表（已完成预加载）。
+        """
+        total = len(self.ms)
+        if total == 0:
+            logger.info("No spectra to preload in batches (hybrid).")
+            return
+
+        sample_sp = self.ms[0]
+        ibd_path = sample_sp._ibd_path  # type: ignore
+        reader = sample_sp._reader      # type: ignore
+
+        logger.info(
+            f"Start HYBRID multiprocess batch preload: total={total}, "
+            f"batch_size={batch_size}, process_workers={process_workers}, "
+            f"threads_per_proc={thread_workers_per_process}"
+        )
+
+        for start in range(0, total, batch_size):
+            end = min(start + batch_size, total)
+            batch_indices = list(range(start, end))
+            batch_len = len(batch_indices)
+            if batch_len == 0:
+                continue
+
+            # 按进程数切分索引
+            n_procs = min(process_workers, batch_len)
+            chunk_size = math.ceil(batch_len / n_procs)
+            index_chunks: list[list[int]] = [
+                batch_indices[i:i + chunk_size]
+                for i in range(0, batch_len, chunk_size)
+            ]
+
+            # 为每个 chunk 构造参数：在子进程里再用多线程读这一块
+            proc_args = [
+                (ibd_path, reader, idx_chunk, thread_workers_per_process)
+                for idx_chunk in index_chunks
+            ]
+
+            results: list[tuple[int, np.ndarray, np.ndarray]] = []
+            # 多进程：每个进程内部再用多线程
+            with ProcessPoolExecutor(max_workers=n_procs) as proc_pool:
+                for chunk_result in proc_pool.map(_process_indices_in_threads, proc_args):
+                    # chunk_result 是当前子进程返回的一批 (idx, mz, inten)
+                    results.extend(chunk_result)
+
+            # 为了安全起见，对结果按 index 排序再写回（避免乱序）
+            results.sort(key=lambda x: x[0])
+
+            for idx, mz, inten in results:
+                sp = self.ms[idx]
+                sp.mz_list = mz.copy()      # type: ignore
+                sp.intensity = inten.copy() # type: ignore
+
+            batch = [self.ms[idx] for idx in batch_indices]
+            yield batch
+
+        logger.info("Finished HYBRID multiprocess batch preload for all spectra.")
 
     def create_ms_meta_mask(self):
         """

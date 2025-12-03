@@ -29,7 +29,7 @@ def data_preload_benchmark(data_file_path="data/example.imzML", max_workers=4):
     with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
         ms_md.load_full_data_from_file()
         ms_md.inspect_data()
-        batch_generator = ms_md.get_multiprocess_batch_generator(max_workers=max_workers)
+        batch_generator = ms_md.get_multiprocess_batch_generator_hybrid(batch_size=512, process_workers=max_workers)
         for batch in batch_generator:
             pass
 
@@ -68,14 +68,8 @@ class TestDataReading:
                            warmup_rounds=1)
         logger.info("Finished data batch reading benchmark")
 
-    @pytest.mark.parametrize(
-    "data_file_path,batch_size,max_workers",
-        [
-            ("data/example.imzML", 256, 10),
-            ("data/example.imzML", 32, 12),
-        ]
-    )
-    def test_batch_multiprocess_reading_benchmark(self, benchmark,data_file_path,batch_size,max_workers):
+    @pytest.mark.parametrize("data_file_path",["data/example.imzML"])
+    def test_batch_multiprocess_reading_benchmark(self, benchmark,data_file_path,batch_size=1024,max_workers=10):
         logger.info("Starting data batch reading benchmark")
         benchmark.pedantic(data_batch_reading_benchmark,
                             args=(data_file_path,batch_size,max_workers),
