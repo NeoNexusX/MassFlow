@@ -1,8 +1,6 @@
 import time
 import pytest
-import sys, os
-# sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
 from massflow.module.ms_module import SpectrumBaseModule, MS
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
@@ -105,4 +103,5 @@ class TestNormalization:
         logger.info(
             f"unit-scale corr={corr:.6f} min={np.min(y):.6f} max={np.max(y):.6f}"
         )
+
 

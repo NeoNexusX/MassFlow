@@ -55,21 +55,16 @@ def replace_baseline_data(mass_spectrum: MS, method="asls"):
         assert y.shape == mz_list.shape
         assert np.all(y >= 0.0)
 
-
-    
-
 class TestAllBaseline:
     @pytest.mark.parametrize("method", ["locmin", "snip"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_all_baseline_methods_replace_data_benchmark(self, benchmark, method):
 
         logger.info(f"Testing baseline correction with method: {method}")
-        benchmark.pedantic(partial(replace_baseline_data,method=method),
+        benchmark.pedantic(partial(replace_baseline_data, method=method),
                            rounds=1,
                            setup=pre_load_data_setup,
                            iterations=1,
                            warmup_rounds=0)
 
         logger.info(f"Finished baseline correction with method: {method}")
-      
-    

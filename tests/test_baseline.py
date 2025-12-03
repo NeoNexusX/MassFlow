@@ -1,7 +1,5 @@
 import time
 import pytest
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 from massflow.module.ms_module import MS, SpectrumBaseModule
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML

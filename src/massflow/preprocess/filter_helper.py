@@ -554,42 +554,30 @@ def smooth_signal_loess(intensity: np.ndarray, window: int = 11):
     y = np.asarray(intensity, dtype=np.float64)
     leny = y.size
 
-    halfw = window // 2
-    # Symmetric positions around the center
-    x1 = np.arange(-halfw, halfw + 1, dtype=np.float64)
+    halfw = np.floor((window / 2.)).astype(int)
+    window = int(2. * halfw + 1.)
+    x1 = np.arange(1. - halfw, (halfw - 1.) + 1)
 
-    # Tri-cubic weights
-    denom = halfw if halfw > 0 else 1
-    weight = (1.0 - (np.abs(x1) / denom) ** 3.0) ** 1.5
-    weight = np.where(weight < 0.0, 0.0, weight)
-
-    # Weighted design matrix for quadratic fit
-    V = np.vstack((weight, weight * x1, weight * x1 * x1)).T
+    weight = (1. - np.divide(np.abs(x1), halfw) ** 3.) ** 1.5
+    V = (np.vstack((np.hstack(weight), np.hstack(weight * x1), np.hstack(weight * x1 * x1)))).transpose()
     Q, _ = linalg.qr(V, mode='economic')
 
-    # Center row selection (fixed off-by-one)
-    alpha = Q[halfw,] @ Q.T
-
-    # Apply center filter via lfilter
+    alpha = np.dot(Q[halfw - 1,], Q.transpose())
     yhat = signal.lfilter(alpha * weight, 1, y)
+    yhat[int(halfw + 1) - 1:-halfw] = yhat[int(window - 1) - 1:-1]
 
-    # Center correction alignment (fixed off-by-one)
-    yhat[halfw:leny - halfw] = yhat[window - 1:leny]
+    x1 = np.arange(1., (window - 1.) + 1)
+    V = (np.vstack((np.hstack(np.ones([1, window - 1])), np.hstack(x1), np.hstack(x1 * x1)))).transpose()
 
-    # Boundary handling using position-specific QR
-    xb = np.arange(1., (window - 1.) + 1)
-    Vb = np.vstack((np.ones([1, window - 1]), xb, xb * xb)).T
+    for j in np.arange(1, (halfw) + 1):
+        weight = (1. - np.divide(np.abs((np.arange(1, window) - j)), window - j) ** 3.) ** 1.5
+        W = (np.kron(np.ones((3, 1)), weight)).transpose()
+        Q, _ = linalg.qr(V * W, mode='economic')
 
-    for j in np.arange(1, halfw + 1):
-        wj = (1. - np.abs((np.arange(1, window) - j)) / (window - j)) ** 3.
-        wj = wj ** 1.5
-        W = (np.kron(np.ones((3, 1)), wj)).transpose()
-        Qb, _ = linalg.qr(Vb * W, mode='economic')
-
-        alphab = Qb[j - 1,] @ Qb.T
-        alphab = alphab * wj
-        yhat[int(j) - 1] = np.dot(alphab, y[:window - 1])
-        yhat[int(-j)] = np.dot(alphab, y[np.arange(leny - 1, leny - window, -1, dtype=int)])
+        alpha = np.dot(Q[j - 1,], Q.transpose())
+        alpha = alpha * weight
+        yhat[int(j) - 1] = np.dot(alpha, y[:int(window) - 1])
+        yhat[int(-j)] = np.dot(alpha, y[np.arange(leny - 1, leny - window, -1, dtype=int)])
 
     return yhat
 
