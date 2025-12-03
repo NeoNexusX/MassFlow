@@ -211,61 +211,6 @@ def smooth_signal_savgol(
     # Apply Savitzky-Golay filter
     return savgol_filter(intensity, window, polyorder, deriv=derive, delta=delta)
 
-def smooth_signal_wavelet(
-        intensity:np.ndarray,
-        wavelet: str = 'db4',
-        threshold_mode: str = 'soft'
-):
-    """
-    Wavelet-based denoising for 1D intensity smoothing.
-
-    Parameters:
-        intensity (np.ndarray): 1D intensity array to be denoised.
-        wavelet (str): Wavelet family (e.g., 'db4', 'haar').
-        threshold_mode (str): Thresholding mode, 'soft' or 'hard'.
-
-    Returns:
-        np.ndarray: Denoised intensity array with the same length as input.
-
-    Raises:
-        ImportError: If `pywt` is not available.
-    """
-    import pywt
-
-    # Validate threshold mode
-    if threshold_mode not in {"soft", "hard"}:
-        logger.error("threshold_mode must be 'soft' or 'hard' for wavelet denoising")
-        raise ValueError("threshold_mode must be 'soft' or 'hard' for wavelet denoising")
-
-    original_length = len(intensity)
-
-    # Perform wavelet decomposition
-    coeffs = pywt.wavedec(intensity, wavelet, mode='symmetric')
-
-    # Estimate noise standard deviation using the finest detail coefficients
-    sigma = np.median(np.abs(coeffs[-1])) / 0.6745
-
-    # Calculate threshold using Donoho-Johnstone threshold
-    threshold = sigma * np.sqrt(2 * np.log(len(intensity)))
-
-    # Apply thresholding to all detail coefficients
-    coeffs_thresh = list(coeffs)
-    coeffs_thresh[1:] = [pywt.threshold(detail, threshold, mode=threshold_mode)
-                        for detail in coeffs[1:]]
-
-    # Reconstruct the signal
-    reconstructed = pywt.waverec(coeffs_thresh, wavelet, mode='symmetric')
-
-    # Match output length exactly to input
-    if len(reconstructed) != original_length:
-        if len(reconstructed) > original_length:
-            reconstructed = reconstructed[:original_length]
-        else:
-            pad_length = original_length - len(reconstructed)
-            reconstructed = np.pad(reconstructed, (0, pad_length), mode='edge')
-
-    return reconstructed
-
 def smooth_ns_signal_pre(
     intensity: np.ndarray,
     index: np.ndarray,
@@ -525,6 +470,73 @@ def smooth_preprocess(data:SpectrumBaseModule):
 
     data.intensity = intensity
     return data
+
+def smooth_signal_loess(intensity: np.ndarray, window: int = 11):
+    """
+    Loess smoothing (quadratic) with tri-cubic weighting only.
+
+    Parameters:
+        intensity (np.ndarray): 1D intensity array to be smoothed.
+        window (int): Local regression window size (odd, >=3). Auto-adjusted if too small/large.
+
+    Returns:
+        np.ndarray: Smoothed intensity array with the same length as input.
+    """
+    _input_validation(intensity=intensity, window=window)
+
+    if window < 3:
+        window = 3
+    if window % 2 == 0:
+        window += 1
+
+    n = len(intensity)
+    if window > n:
+        adj = n if (n % 2 == 1) else max(3, n - 1)
+        window = adj
+
+    from scipy import signal, linalg
+
+    y = np.asarray(intensity, dtype=np.float64)
+    leny = y.size
+
+    halfw = window // 2
+    # Symmetric positions around the center
+    x1 = np.arange(-halfw, halfw + 1, dtype=np.float64)
+
+    # Tri-cubic weights
+    denom = halfw if halfw > 0 else 1
+    weight = (1.0 - (np.abs(x1) / denom) ** 3.0) ** 1.5
+    weight = np.where(weight < 0.0, 0.0, weight)
+
+    # Weighted design matrix for quadratic fit
+    V = np.vstack((weight, weight * x1, weight * x1 * x1)).T
+    Q, _ = linalg.qr(V, mode='economic')
+
+    # Center row selection (fixed off-by-one)
+    alpha = Q[halfw,] @ Q.T
+
+    # Apply center filter via lfilter
+    yhat = signal.lfilter(alpha * weight, 1, y)
+
+    # Center correction alignment (fixed off-by-one)
+    yhat[halfw:leny - halfw] = yhat[window - 1:leny]
+
+    # Boundary handling using position-specific QR
+    xb = np.arange(1., (window - 1.) + 1)
+    Vb = np.vstack((np.ones([1, window - 1]), xb, xb * xb)).T
+
+    for j in np.arange(1, halfw + 1):
+        wj = (1. - np.abs((np.arange(1, window) - j)) / (window - j)) ** 3.
+        wj = wj ** 1.5
+        W = (np.kron(np.ones((3, 1)), wj)).transpose()
+        Qb, _ = linalg.qr(Vb * W, mode='economic')
+
+        alphab = Qb[j - 1,] @ Qb.T
+        alphab = alphab * wj
+        yhat[int(j) - 1] = np.dot(alphab, y[:window - 1])
+        yhat[int(-j)] = np.dot(alphab, y[np.arange(leny - 1, leny - window, -1, dtype=int)])
+
+    return yhat
 
 def smoother(intensity:np.ndarray,
             index:Optional[np.ndarray]=None,
