@@ -211,6 +211,61 @@ def smooth_signal_savgol(
     # Apply Savitzky-Golay filter
     return savgol_filter(intensity, window, polyorder, deriv=derive, delta=delta)
 
+def smooth_signal_wavelet(
+        intensity:np.ndarray,
+        wavelet: str = 'db4',
+        threshold_mode: str = 'soft'
+):
+    """
+    Wavelet-based denoising for 1D intensity smoothing.
+
+    Parameters:
+        intensity (np.ndarray): 1D intensity array to be denoised.
+        wavelet (str): Wavelet family (e.g., 'db4', 'haar').
+        threshold_mode (str): Thresholding mode, 'soft' or 'hard'.
+
+    Returns:
+        np.ndarray: Denoised intensity array with the same length as input.
+
+    Raises:
+        ImportError: If `pywt` is not available.
+    """
+    import pywt
+
+    # Validate threshold mode
+    if threshold_mode not in {"soft", "hard"}:
+        logger.error("threshold_mode must be 'soft' or 'hard' for wavelet denoising")
+        raise ValueError("threshold_mode must be 'soft' or 'hard' for wavelet denoising")
+
+    original_length = len(intensity)
+
+    # Perform wavelet decomposition
+    coeffs = pywt.wavedec(intensity, wavelet, mode='symmetric')
+
+    # Estimate noise standard deviation using the finest detail coefficients
+    sigma = np.median(np.abs(coeffs[-1])) / 0.6745
+
+    # Calculate threshold using Donoho-Johnstone threshold
+    threshold = sigma * np.sqrt(2 * np.log(len(intensity)))
+
+    # Apply thresholding to all detail coefficients
+    coeffs_thresh = list(coeffs)
+    coeffs_thresh[1:] = [pywt.threshold(detail, threshold, mode=threshold_mode)
+                        for detail in coeffs[1:]]
+
+    # Reconstruct the signal
+    reconstructed = pywt.waverec(coeffs_thresh, wavelet, mode='symmetric')
+
+    # Match output length exactly to input
+    if len(reconstructed) != original_length:
+        if len(reconstructed) > original_length:
+            reconstructed = reconstructed[:original_length]
+        else:
+            pad_length = original_length - len(reconstructed)
+            reconstructed = np.pad(reconstructed, (0, pad_length), mode='edge')
+
+    return reconstructed
+
 def smooth_ns_signal_pre(
     intensity: np.ndarray,
     index: np.ndarray,
