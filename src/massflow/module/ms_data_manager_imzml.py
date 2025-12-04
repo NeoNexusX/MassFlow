@@ -2,7 +2,7 @@
 MSI Data Manager for imzML format.
 
 Handles reading .imzML files and loading data into the MSI domain model.
-Supports filtering by m/z range and efficient ion image extraction.
+Supports coordinate-based sub-region loading and shared m/z list for continuous data.
 
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
@@ -22,8 +22,9 @@ class MSDataManagerImzML(MSDataManager):
     """
     MSI Data Manager for .imzML files.
 
-    Handles reading .imzML files, filtering by m/z range,
-    and loading data into the MSI domain model.
+    Handles reading .imzML files, building MS objects with lazily-loaded
+    spectra, optional spatial sub-region selection via `target_locs`, and
+    metadata extraction into `ImzMlMetaData`.
     """
 
     def __init__(self,
@@ -34,11 +35,16 @@ class MSDataManagerImzML(MSDataManager):
                  max_threads: int = 10):
         """
         Initialize the ImzML data manager.
+
         Args:
             ms (MS): Mass-spectrometry domain model instance.
-            target_mz_range (tuple[float, float], optional): (min_mz, max_mz) to filter peaks.
-            target_locs (list[tuple], optional): List of (x,y) or (x,y,z) coordinates to load.
-            filepath (str, optional): Path to the .imzML file.
+            target_locs (list[tuple], optional): Spatial window [[x1, y1], [x2, y2]] or
+                list of (x, y) / (x, y, z) coordinates to load; when None, load all.
+            filepath (str, optional): Path to the .imzML file (XML header; paired .ibd is
+                resolved automatically).
+            coordinates_zero_based (bool): Whether coordinates exposed in metadata/MS
+                are treated as zero-based.
+            max_threads (int): Maximum worker threads for batch loading utilities.
         """
         super().__init__(ms, 
                          None, 
@@ -62,10 +68,10 @@ class MSDataManagerImzML(MSDataManager):
         if self.ms.meta is None:
             self.ms.meta = ImzMlMetaData(parser=self.parser, coordinates_zero_based=coordinates_zero_based)
 
-        if self.ms.meta.parser is None: #type: ignore
-            self.ms.meta.parser = self.parser #type: ignore
+        if self.ms.meta.parser is None: # type: ignore
+            self.ms.meta.parser = self.parser # type: ignore
 
-        #multi-threading safety support
+        # multi-threading safety support
         ibd_path = self.filepath[:-5] + "ibd"
         logger.info(f"Looking for corresponding .ibd file at {ibd_path}...")
         if os.path.exists(ibd_path):
@@ -95,20 +101,20 @@ class MSDataManagerImzML(MSDataManager):
 
             # meta data load part
             self.pre_load_meta()
-            # data load part
-            logger.info(f"Finished loading meta data from {self.filepath}...")
-
-            # spectrum data load part
-            # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
-            coords = self.parser.coordinates  # list of tuples
+            # list of coords
+            coords = self.parser.coordinates
+            # spectrum  meta data load and create part
             for i, c in enumerate(coords):
                 x, y, z = c
                 c1, c2 = self.target_locs if self.target_locs is not None else ([0,0],[999,999])
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
-                    spectrum = SpectrumImzML(reader=self.reader,
-                                             ibd_path=self.ibd_path,
-                                             index=i,
-                                             coordinates=[x, y, z])
+                    # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
+                    spectrum = SpectrumImzML(
+                        reader=self.reader,
+                        ibd_path=self.ibd_path,
+                        index=i,
+                        coordinates=[x, y, z]
+                    )
 
                     #judge mz_list is used or not
                     spectrum.mz_list = self.ms.shared_mz_list 
@@ -122,7 +128,7 @@ class MSDataManagerImzML(MSDataManager):
             self.loaded_meta()
 
     def pre_load_meta(self,*args, **kwargs):
-        """Pre-load metadata before loading spectra."""
+        """Pre-load and populate metadata from the ImzML parser before loading spectra."""
         self.extract_metadata()
 
     def extract_metadata(self):
@@ -165,7 +171,7 @@ class MSDataManagerImzML(MSDataManager):
         return None
 
     def _search_in_area(self, area, accession_id):
-        """Search a single parameter area for the given accession identifier."""
+        """Search a single parameter area (ParamGroup or dict) for the given accession identifier."""
         if isinstance(area, ParamGroup):
             if accession_id in area:
                 return area[accession_id]
@@ -178,7 +184,7 @@ class MSDataManagerImzML(MSDataManager):
         return None
 
     def loading_meta(self,*args, **kwargs):
-        """update loading metadata before loading spectra."""
+        """Update metadata during spectrum streaming (continuous mode + min pixel tracking)."""
 
         if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None: #type: ignore
             logger.info("Assigning mz_list for continuous data. use shared mz_list. please watchout!")

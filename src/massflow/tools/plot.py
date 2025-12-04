@@ -50,7 +50,16 @@ def plot_spectrum(
     logger.info(f"Plotting spectrum with plot_mode={plot_mode},"
                 "line_width={line_width}, mz_range={mz_range}, intensity_range={intensity_range},"
                 "metrics_box={metrics_box}, title_suffix={title_suffix}, overlay={overlay}")
+
     figsize=figsize if overlay or target is None else (figsize[0], figsize[1] * 2)
+
+    if base is None and target is None:
+        logger.warning("No spectrum data provided for plotting.")
+        raise ValueError("At least one of 'base' or 'target' spectrum must be provided.")
+    elif target and base is None:
+        logger.info("Only target spectrum provided; plotting single spectrum.")
+        base = target
+        target = None
 
     if target is None:
         plot_single(
@@ -254,7 +263,8 @@ def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
         plt.setp(m2, markersize=3, color=color[1], alpha=0.8)
         plt.setp(b2, linewidth=0.5, color='gray', alpha=0.6)
 
-    orig_c = base.crop_range(mz_range)
+    #TODO:This part should update
+    orig_c = base.crop_range(mz_range) 
     now_c = target.crop_range(mz_range)
 
     # Axis range settings (combined)

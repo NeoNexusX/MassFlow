@@ -1,9 +1,9 @@
 """
 MS Data Management Module
 
-Provides functions for reading/writing MS data, memory statistics, and visualization.
-Supports .h5/.msi files and batch import from directories, filters by m/z range,
-and generates merged or split outputs.
+Provides abstract interfaces and common utilities for managing MS/MSI data,
+including metadata inspection, batch spectrum loading, and occupancy mask
+creation over spatial coordinates.
 
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
@@ -12,7 +12,9 @@ from abc import ABC, abstractmethod
 import numpy as np
 from massflow.logger import get_logger
 from massflow.module.ms_module import MS
+import random
 from concurrent.futures import ThreadPoolExecutor
+
 logger = get_logger("ms_data_manager")
 
 
@@ -92,11 +94,11 @@ class MSDataManager(ABC):
 
     @abstractmethod
     def load_full_data_from_file(self):
-        """
-        Load metadata from a file.
+        """Load data (and usually metadata) from the configured input file path.
 
-        Args:
-            filepath (str): Path to the input file.
+        Concrete subclasses must implement the actual backend-specific loading
+        logic (e.g., ImzML, HDF5) and use :attr:`self.filepath` and
+        :attr:`self.target_locs` / :attr:`self.target_mz_range` as needed.
         """
 
     def inspect_data(self,inpect_num=2):
@@ -141,24 +143,35 @@ class MSDataManager(ABC):
         # update max_threads if needed
         if max_threads != -1 and max_threads != self.max_threads:
             self.max_threads = max_threads
-            #reload thread pool executor
+            # reload thread pool executor
+            if self._threads_executor is not None:
+                self._threads_executor.shutdown(wait=True)
             self._threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
-        else:
-            max_threads = self.max_threads
 
         total_length = len(self.ms)
 
         # define the spectrum loading function
-        def _load_spectrum(sp):
+        def _trigger_for_load_spectrum(sp):
             _ = sp.intensity
 
         # 3. Batch processing loop
         for i in range(0, total_length, batch_size):
             batch = self.ms[i: i + batch_size]
-
-            self._threads_executor.map(_load_spectrum, batch) #type: ignore
-
+            if self._threads_executor is not None:
+                self._threads_executor.map(_trigger_for_load_spectrum, batch)
             yield batch
+
+    def detect_sorted(self):
+
+        total_length = len(self.ms)
+        check_num = random.randint(0,total_length)
+        check_rsult = self.ms[check_num].is_sorted()
+        if not check_rsult:
+            logger.info("Detected unsorted m/z data in the MS object.")
+            for spectrum in self.ms:
+                spectrum.sort_by_mz = False
+        else:
+            logger.info("random test m/z data in the MS object are sorted.")
 
     def create_ms_meta_mask(self):
         """
@@ -182,6 +195,7 @@ class MSDataManager(ABC):
             logger.error("Image dimensions missing in meta data.")
             raise ValueError("Image dimensions missing in meta data.")
 
+        # Get image dimensions
         width = int(self.ms.meta.max_count_of_pixels_x)
         height = int(self.ms.meta.max_count_of_pixels_y)
 
@@ -203,50 +217,31 @@ class MSDataManager(ABC):
     @abstractmethod
     def pre_load_meta(self,*args, **kwargs):
         """
-        Pre-load metadata before loading full data.
+        Hook for pre-loading or preparing metadata before full data loading.
 
-        This method should be called before `load_full_data_from_file` to ensure
-        that the necessary metadata is available for data loading.
-
-        Args:
-            None
-
-        Returns:
-            None
+        Typically used to populate `ms.meta` (e.g., image size, instrument
+        information) prior to streaming spectra.
         """
         pass
 
     @abstractmethod
     def loading_meta(self,*args, **kwargs):
         """
-        Pre-load metadata before loading full data.
-
-        This method should be called before `load_full_data_from_file` to ensure
-        that the necessary metadata is available for data loading.
-
-        Args:
-            None
-
-        Returns:
-            None
+        Hook invoked while spectra are being loaded, to update metadata
+        incrementally (e.g., min/max coordinates, shared m/z list).
         """
         pass
 
     def loaded_meta(self,*args, **kwargs):
         """
-        Pre-load metadata before loading full data.
+        Finalize metadata after loading spectra.
 
-        This method should be called before `load_full_data_from_file` to ensure
-        that the necessary metadata is available for data loading.
-
-        Args:
-            None
-
-        Returns:
-            None
+        Default implementation computes and stores a spatial occupancy mask
+        in `ms.meta.mask` based on the current `ms.coordinate_index`.
         """
         logger.info("creating ms mask.")
         self.create_ms_meta_mask()
+        self.detect_sorted()
 
     def close(self):
         """
