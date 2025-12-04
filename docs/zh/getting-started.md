@@ -1,6 +1,7 @@
 # 快速开始
 
-MassFlow 是一个面向质谱成像（MSI）与质谱（MS）数据的模块化框架，提供高效的数据读取、预处理（去噪/平滑）与基础数据管理能力。
+MassFlow 是一个面向质谱成像（MSI）与质谱（MS）数据的模块化计算框架，提供高效的数据读取、预处理，与管理功能。
+注意：本项目还在开发中，请以dev分支的代码注释为准，技术文档仅作参考。
 
 ## 前置条件
 - uv  python项目管理软件
@@ -53,13 +54,13 @@ uv run pytest
 运行某一个测试：
 
 ```python
-uv run pytest tests/test_read.py::TestDataReading
+uv run pytest tests/test_read.py
 ```
 
 如果已经启动了由uv管理的虚拟环境则可以省略uv run：
 
 ```python
-pytest tests/test_read.py::TestDataReading
+pytest tests/test_read.py
 ```
 
 测试样例代码：
@@ -80,13 +81,9 @@ with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PAT
 上述代码演示 MSI/MS 数据读取与基础可视化。日志输出到 `logs/`。
 
 ## 常用命令
-- 构建静态站点：`npm run docs:build`
-- 预览已构建站点：`npm run docs:preview`
-
-## 故障排查
-- 确认 Python 版本（`python3 --version`）以及虚拟环境激活状态（`which python`）。
-- 若 `pip` 受网络或 SSL 影响，可尝试 `pip install -r requirements.txt --no-cache-dir` 或设置可信镜像。
-- Apple Silicon（M1/M2/M3）建议使用 Python 3.11+ 与原生轮子；先升级 pip：`python -m pip install --upgrade pip`。
+文档构建命令：
+  - 构建静态站点：`npm run docs:build`
+  - 预览已构建站点：`npm run docs:preview`
 
 ## 下一步
 - 贡献说明：`/zh/contribution`
@@ -95,3 +92,4 @@ with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PAT
 - 噪声抑制：`/zh/noise_reduction`
 - 基线校正：`/zh/baseline_correction`
 - 协作指南：`/zh/collaboration_guide`
+- 等等文档

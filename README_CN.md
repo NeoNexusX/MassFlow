@@ -2,11 +2,9 @@
 
 [English](README.md) | 简体中文
 
-MassFlow 是一个用于质谱成像 (MSI) 和质谱 (MS) 数据的模块化预处理和数据管理框架。目前支持：
+MassFlow 是一个用于质谱成像 (MSI) 和质谱 (MS) 数据的模块化预处理和数据管理框架。
 
-## 安装
-
-要求：Python >= 3.12（推荐使用 3.12 版本）
+## 获取代码
 
 ```bash
 # 克隆仓库
@@ -14,28 +12,7 @@ git clone https://github.com/NeoNexusX/MassFlow.git
 cd MassFlow
 ```
 
-## 快速开发入门
-
-建议直接运行以下代码 (main.py) 来验证数据加载：
-
-```bash
-# 首先关闭 conda：
-conda deactivate
-
-# 安装 uv：
-# https://docs.astral.sh/uv/getting-started/installation/
-
-# 例如：
-# Linux && macOS:
-curl -LsSf https://astral.sh/uv/install.sh | sh 
-# Windows:
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# 安装依赖：
-uv sync 
-
-uv pip install -e .
-```
+## 在线文档
 
 在线文档：https://neonexusx.github.io/MassFlow/
 
@@ -69,12 +46,35 @@ MassFlow/
 
 ## 开发与贡献
 
-- 贡献指南：`docs/en/contribution.md` 和 `docs/zh/contribution.md`
+### 快速开发入门
+
+建议直接运行以下代码 (main.py) 来验证数据加载：
+
+```bash
+# 首先关闭 conda：
+conda deactivate
+
+# 安装 uv：
+# 请参考：https://docs.astral.sh/uv/getting-started/installation/
+
+# 例如：
+# Linux && macOS:
+curl -LsSf https://astral.sh/uv/install.sh | sh 
+# Windows:
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 安装依赖：
+uv sync 
+uv pip install -e .
+
+# 运行代码
+uv run python main.py
+```
+
+- 请先阅读贡献指南：`docs/en/contribution.md` 和 `docs/zh/contribution.md`
 - 命名规范：`docs/en/naming-conventions.md` 和 `docs/zh/naming-conventions.md`
-- Issue 模板：`.github/ISSUE_TEMPLATE/feature_en.md`, `bug_en.md`, `feature.md`, `bug.md`
-- 本地检查：`ruff .`, `black .`, `isort .`, `pylint module/`
 - 提交规范：Conventional Commits (例如：`feat:`, `fix:`, `docs:`, `refactor:`, `test:`)
-- 推荐扩展：Python, Pylance, Ruff, Black, isort, Pylint, Markdownlint, GitLens, H5Web
+- 推荐扩展：Python, Pylance, Pylint, H5Web
 
 ## 许可证
 
@@ -82,9 +82,16 @@ MassFlow/
 
 ## 参考资料
 
-- Cardinal MSI: https://cardinalmsi.org/
 - MATLAB Mass Spectrometry Preprocessing: https://www.mathworks.com/help/bioinfo/ug/preprocessing-raw-mass-spectrometry-data.html
+- Cardinal MSI: https://cardinalmsi.org/
+  - Cardinal 指南：https://bioconductor.org/packages/devel/bioc/vignettes/Cardinal/inst/doc/Cardinal3-guide.html
+  - Cardinal Github：https://github.com/kuwisdelu/Cardinal
+  - Matter Github：https://github.com/kuwisdelu/matter
 - PyOpenMS: https://pyopenms.readthedocs.io/
+  - github：https://github.com/OpenMS/OpenMS
+  - docs：https://github.com/OpenMS/OpenMS-docs
+  - 贡献库：https://github.com/OpenMS/contrib
+  - Flash APP：https://github.com/OpenMS/FLASHApp
 
 ## 反馈
 

@@ -2,11 +2,9 @@
 
 English | [简体中文](README_CN.md)
 
-MassFlow is a modular preprocessing and data management framework for Mass Spectrometry Imaging (MSI) and Mass Spectrometry (MS) data. Currently supports:
+MassFlow is a modular preprocessing and data management framework for Mass Spectrometry Imaging (MSI) data.
 
-## Installation
-
-Requirements: Python >= 3.12 (Version 3.12 is recommended)
+## Get the code
 
 ```bash
 # Clone the repository
@@ -14,27 +12,7 @@ git clone https://github.com/NeoNexusX/MassFlow.git
 cd MassFlow
 ```
 
-## Quick Dev Start
-
-It is recommended to  run the following code (main.py) directly to verify data loading:
-
-```bash
-# Close conda first:
-conda deactivate
-
-# Install uv:
-# https://docs.astral.sh/uv/getting-started/installation/
-
-# For Example:
-# Linux && macOS:
-curl -LsSf https://astral.sh/uv/install.sh | sh 
-# Windows:
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# Install dependencies:
-uv sync 
-uv pip install -e .
-```
+## Online Documentation
 
 Online Documentation: https://neonexusx.github.io/MassFlow/
 
@@ -68,12 +46,35 @@ MassFlow/
 
 ## Development & Contribution
 
-- Contribution Guide: `docs/en/contribution.md` and `docs/zh/contribution.md`
+### Quick Dev Start
+
+It is recommended to  run the following code (main.py) directly to verify data loading:
+
+```bash
+# Close conda first:
+conda deactivate
+
+# Install uv:
+please follow :https://docs.astral.sh/uv/getting-started/installation/
+
+# For Example:
+# Linux && macOS:
+curl -LsSf https://astral.sh/uv/install.sh | sh 
+# Windows:
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Install dependencies:
+uv sync 
+uv pip install -e .
+
+#run the code
+uv run python main.py
+```
+
+- please read Contribution Guide: `docs/en/contribution.md` and `docs/zh/contribution.md`  first 
 - Naming Conventions: `docs/en/naming-conventions.md` and `docs/zh/naming-conventions.md`
-- Issue Templates: `.github/ISSUE_TEMPLATE/feature_en.md`, `bug_en.md`, `feature.md`, `bug.md`
-- Local Checks: `ruff .`, `black .`, `isort .`, `pylint module/`
 - Commit Convention: Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `refactor:`, `test:`)
-- Recommended Extensions: Python, Pylance, Ruff, Black, isort, Pylint, Markdownlint, GitLens, H5Web
+- Recommended Extensions: Python, Pylance, Pylint, H5Web
 
 ## License
 
@@ -81,9 +82,16 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## References
 
-- Cardinal MSI: https://cardinalmsi.org/
 - MATLAB Mass Spectrometry Preprocessing: https://www.mathworks.com/help/bioinfo/ug/preprocessing-raw-mass-spectrometry-data.html
+- Cardinal MSI: https://cardinalmsi.org/
+  - Cardinal  Guide Book;https://bioconductor.org/packages/devel/bioc/vignettes/Cardinal/inst/doc/Cardinal3-guide.html
+  - Cardinal  Github：https://github.com/kuwisdelu/Cardinal
+  - Matter Github：https://github.com/kuwisdelu/matter
 - PyOpenMS: https://pyopenms.readthedocs.io/
+  - github：https://github.com/OpenMS/OpenMS
+  - docs：https://github.com/OpenMS/OpenMS-docs
+  - contributing libraries ：https://github.com/OpenMS/contrib
+  - Flash APP ：https://github.com/OpenMS/FLASHApp
 
 ## Feedback
 

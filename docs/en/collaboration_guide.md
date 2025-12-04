@@ -64,30 +64,6 @@ You can choose any course, but it should at least cover the following:
   - `with` statement (context manager)
   - Reading/writing text and binary files
 
-
-
-## Backend:
-
-FastAPI Tutorial:
-
-https://www.bilibili.com/video/BV1Ya4y1D7et
-
-https://www.bilibili.com/video/BV1yw4m1S7Be
-
-Database and Storage:
-
-Raw data storage - Relational database or:
-
-https://www.bilibili.com/video/BV1AX4y147tA/
-
-Cache Redis:
-
-https://www.bilibili.com/video/BV1a1sgzfE5d/
-
-Distributed storage (scalable):
-
-MinIO, HDFS
-
 ## Mass Spectrometry Algorithms:
 
 https://pubmed.ncbi.nlm.nih.gov/39221961/

@@ -4,7 +4,8 @@ title: Getting Started
 
 # Getting Started
 
-MassFlow is a modular framework for Mass Spectrometry Imaging (MSI) and Mass Spectrometry (MS) data, providing efficient data reading, preprocessing (denoising/smoothing), and basic data management capabilities.
+MassFlow is a modular computational framework for Mass Spectrometry Imaging (MSI) and Mass Spectrometry (MS) data, providing efficient data reading, preprocessing, and management capabilities.
+Note: This project is still under development. Please refer to the code comments in the dev branch. Technical documentation is for reference only.
 
 ## Prerequisites
 - uv (Python project management tool)
@@ -26,20 +27,20 @@ It is recommended to obtain the repository via:
 ## Set up Python Environment
 
 ```bash
-# Close conda first:
-conda deactivate
+close conda first:
+  conda deactivate
 
-# Install uv:
-# https://docs.astral.sh/uv/getting-started/installation/
+uv install part:
+  https://docs.astral.sh/uv/getting-started/installation/
 
-# For Example:
-# Linux && macOS:
-curl -LsSf https://astral.sh/uv/install.sh | sh 
-# Windows:
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+For Example :
+  Linux && Macos :
+  curl -LsSf https://astral.sh/uv/install.sh | sh 
+  Windows:
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# Install dependencies:
-uv sync
+Install dependencies:
+uv sync 
 
 uv pip install -e .
 ```
@@ -57,13 +58,13 @@ uv run pytest
 Run a specific test:
 
 ```bash
-uv run pytest tests/test_read.py::TestDataReading
+uv run pytest tests/test_read.py
 ```
 
 If the virtual environment managed by uv is already activated, you can omit `uv run`:
 
 ```bash
-pytest tests/test_read.py::TestDataReading
+pytest tests/test_read.py
 ```
 
 Example Code Snippet:
@@ -84,13 +85,9 @@ with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PAT
 The code above demonstrates MSI/MS data reading and basic visualization. Logs are output to `logs/`.
 
 ## Common Commands
-- Build static site: `npm run docs:build`
-- Preview built site: `npm run docs:preview`
-
-## Troubleshooting
-- Check Python version (`python3 --version`) and virtual environment activation status (`which python`).
-- If `pip` is affected by network or SSL issues, try `pip install -r requirements.txt --no-cache-dir` or set a trusted mirror.
-- For Apple Silicon (M1/M2/M3), Python 3.11+ and native wheels are recommended; upgrade pip first: `python -m pip install --upgrade pip`.
+Documentation build commands:
+  - Build static site: `npm run docs:build`
+  - Preview built site: `npm run docs:preview`
 
 ## Next Steps
 - Contribution Guide: `/en/contribution`
@@ -99,3 +96,4 @@ The code above demonstrates MSI/MS data reading and basic visualization. Logs ar
 - Noise Reduction: `/en/noise_reduction`
 - Baseline Correction: `/en/baseline_correction`
 - Collaboration Guide: `/en/collaboration_guide`
+- More documents...

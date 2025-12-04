@@ -64,29 +64,6 @@ https://www.bilibili.com/video/BV1Jgf6YvE8e/
   - `with` 语句（上下文管理器）
   - 读写文本和二进制文件
 
-
-## 后端：
-
-FastAPI教程：
-
-https://www.bilibili.com/video/BV1Ya4y1D7et
-
-https://www.bilibili.com/video/BV1yw4m1S7Be
-
-数据库与存储：
-
-原数据存储 关系数据库或着：
-
-https://www.bilibili.com/video/BV1AX4y147tA/
-
-Cache Redis：
-
-https://www.bilibili.com/video/BV1a1sgzfE5d/
-
-分布式存储可扩展：
-
-MinIO、HDFS
-
 ## 质谱算法：
 
 https://pubmed.ncbi.nlm.nih.gov/39221961/

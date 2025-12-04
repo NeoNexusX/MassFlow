@@ -3,7 +3,7 @@
 欢迎为 MassFlow 做出贡献！本文档为多人协作提供统一的流程与质量规范，确保分工有序、代码稳定、发布可控。
 
 ## 快速开始
-- Fork 仓库首先切换到远程的 dev 分支，创建你的工作分支（推荐分支命名见下文）。
+- Fork 仓库后，首先切换到远程的 dev 分支，创建你的工作分支（分支命名规则见下文）。
 - 在本地安装推荐的 Cursor/Trae/VSCode 插件（见 README 与 `.vscode/extensions.json`）。Pycharm 可以略过
 - 安装依赖与开发环境：
   ```bash
@@ -14,20 +14,20 @@
 - 完成任务后提交 PR，按照评审清单自检并请求评审。
 
 ## 分支策略
-- `dev`：主要开发分支，用于日常开发工作。
-- `main`：受保护分支，仅通过评审的 PR 合入；保持稳定可发布。
+- `dev`：主要开发分支，用于日常开发工作，通过指定人员评审后合并。
   - 功能：`feature/<topic>`（例：`feature/imzml-import`）
+
+- `main`：受保护分支，仅通过管理员评审的 PR 合入；保持稳定可发布。
 - 合并策略：优先使用 squash merge 保持提交历史简洁；必要时 rebase 清理提交记录。
 
 ## 提交流程（Issue → 分支 → PR）
-1. 创建 Issue：描述背景、目标与验收标准（DoD）
-2. 认领与拆解：确认标签（如 `type/feature`, `area/data-manager`, `priority/high`）。
-3. 开发与自检：遵循代码规范，运行本地检查与必要测试。
+1. 认领 Issue：每次开始新的issue前要将前一个仓库删除【包括本地和线上内容】
+3. 开发与自检：遵循代码规范，运行本地检查编写必要的测试【可以先提交PR按照评审人要求再编写测试代码】。
 4. 提交 PR：
    - 标题精炼（建议遵循 Conventional Commits）：例如 `feat(msi): add HDF5 group writer`
-   - 描述完整：关键改动、影响范围、测试要点（`Closes #<id>`）
+   - 描述完整：关键改动、影响范围、测试要点（`Closes #<id>`）推荐使用AI生成
    - 请求评审：指定模块负责人或代码所有者
-5. 评审与合并：修复评论项 → CI 通过 → 满足评审清单 → 合并至 `main`。
+5. 评审与合并：AI初步审核 →修复评论项 → 负责人审核→ 满足评审清单 → 合并至 `dev`。
 
 ## 提交信息规范（Commit Messages）
 - 推荐使用 Conventional Commits：
@@ -42,11 +42,9 @@
 - 遵循 `NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`：
   - 类：`PascalCase`，领域缩写保持大写（如 `MSIDataManager`）
   - 函数/变量/文件：`snake_case`（如 `load_full_data_from_file`）
-  - 元数据：私有 `_meta_*` 与公开 `meta_*` 属性映射（通过 `@property`）
-  - HDF5：组名 `mz_{:.5f}`；数据集 `mz`、`msroi`；元数据数据集 `meta_*`
+  - 属性：私有 `_meta_*` 与公开 `meta_*` 属性映射（通过 `@property`）
 - 统一风格与静态检查：
-  - 运行 `ruff`、`pylint`（遵循 `.pylintrc`）、`black`、`isort`
-  - 断言与错误信息明确：`assert condition, "message"`
+  - 运行 `pylint`（遵循 `.pylintrc`）、`black`、`isort`
 
 ## 编辑器与工具
 - Cursor/Trae/VSCode：
@@ -63,7 +61,7 @@
   uv run pytest
   ```
 - 本地检查（建议作为提交前步骤）：
-  - 无报错
+  - 无报错，10轮次运行通过
 
 ## PR 评审检查清单（Checklist）
 - 命名风格与模块边界一致，接口与数据约定符合规范
@@ -72,20 +70,6 @@
 - 文档更新（README/中文文档/示例）到位
 - 通过本地与 CI 检查；新增/更新测试覆盖关键逻辑
 - 变更说明清晰
-
-## Issue 模板与自动化（建议）
-- 模板：
-  - `ISSUE_TEMPLATE/feature.md`（背景、方案、验收标准）
-  - `ISSUE_TEMPLATE/bug.md`（复现步骤、预期/实际、环境信息）
-  -  可以直接选用对应模板使用
-- 自动评审指派：通过 `CODEOWNERS` 指定模块负责人
-- 本地钩子：配置 `pre-commit` 在提交前自动进行格式化与 lint
-- CI：在 PR 上运行 `ruff/pylint/black/isort` 与测试
-
-## 发布与版本管理
-- 语义化版本：`MAJOR.MINOR.PATCH`；对外接口与数据格式变更提升 `MAJOR`
-- 变更日志：维护 `CHANGELOG.md`，记录功能、修复、破坏性变更
-- Release 流程：PR合并到dev →dev合并到 main → 打 Tag → 产出 Release Notes → 同步文档
 
 ## 联系方式
 - 如有问题与支持需求，请在仓库提交 Issue；或在 PR 中 @负责人 进行讨论。
