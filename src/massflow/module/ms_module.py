@@ -14,10 +14,10 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 
-from typing import List, Tuple, Union, Optional, Sequence,Literal
+from typing import List, Tuple, Union, Optional, Sequence,Literal,overload
 import numpy as np
 import matplotlib.pyplot as plt
-from pyimzml.ImzMLParser import ImzMLParser
+import uuid
 from massflow.logger import get_logger
 from massflow.module.meta_data import MetaDataFileBase
 logger = get_logger("ms_module")
@@ -263,7 +263,7 @@ class SpectrumBaseModule:
         x (int): X coordinate
         y (int): Y coordinate
         z (int): Z coordinate
-        sorted_by_mz (bool): Flag indicating if data is sorted by m/z values
+        sort_by_mz (bool): Flag indicating if data is sorted by m/z values
 
     Properties:
         mz_list (np.ndarray): Array of m/z values
@@ -280,7 +280,7 @@ class SpectrumBaseModule:
         mz_list: Optional[np.ndarray],
         intensity: Optional[np.ndarray],
         coordinates: Union[PixelCoordinates, Sequence[int]],
-        sorted_by_mz_fun: bool = False,
+        sort_by_mz: bool = True,
     ):
         """
         Initialize a mass spectrum with m/z values, intensities, and coordinates.
@@ -290,7 +290,7 @@ class SpectrumBaseModule:
             intensity (Optional[np.ndarray]): Array of intensity values. Can be None for lazy loading.
             coordinates (Union[PixelCoordinates, List[int], Tuple[int,int,int]]): Spatial coordinates;
                 if a list/tuple is provided, it will be converted to a PixelCoordinates object.
-            sorted_by_mz_fun (bool, optional): Whether the data is already sorted by m/z. Defaults to False.
+            sort_by_mz (bool, optional): Whether the data is already sorted by m/z. Defaults to False.
 
         Raises:
             AssertionError: If `coordinates` does not have length 3.
@@ -301,7 +301,7 @@ class SpectrumBaseModule:
 
         # Lazy loading
         self._mz_list = mz_list
-        self._intensity = intensity
+        self._intensity = intensity  
 
         # Initialize coordinates to PixelCoordinates instance
         if isinstance(coordinates, PixelCoordinates):
@@ -314,9 +314,9 @@ class SpectrumBaseModule:
                 "coordinates must be PixelCoordinates or a list/tuple of three ints."
             )
 
-        self.sorted_by_mz = False
-        if sorted_by_mz_fun:
-            self.sort_by_mz()
+        # sort part
+        # do not use sort_by_mz
+        self._sort_by_mz = sort_by_mz
 
     # lazy load properties
     @property
@@ -347,6 +347,28 @@ class SpectrumBaseModule:
     def intensity(self, value):
         self._intensity = value
 
+    @property
+    def sort_by_mz(self):
+        return self._sort_by_mz
+
+    @sort_by_mz.setter
+    def sort_by_mz(self, value: bool = True):
+        if value :
+            # make sure both mz_list and intensity are not None
+            if self._sort_by_mz is False and self.mz_list is not None and self.intensity is not None:
+                sorted_indices = np.argsort(self.mz_list)
+                self._mz_list = self.mz_list[sorted_indices]
+                self._intensity = self.intensity[sorted_indices]
+                self._sort_by_mz = value
+
+            elif self._sort_by_mz is True:
+                logger.info("Data is already sorted by mz.")
+
+            elif self.mz_list is None or self.intensity is None:
+                logger.warning("mz_list or intensity is None, can not sort by mz.")
+        else:
+            self._sort_by_mz = value
+
     def get_coordinates(self) -> PixelCoordinates:
         """
         Get the coordinates of the MSI data.
@@ -368,6 +390,8 @@ class SpectrumBaseModule:
         """
         if self.mz_list is not None:
             return len(self.mz_list)
+        else:
+            return 0
 
     def __eq__(self, other):
         """
@@ -403,29 +427,6 @@ class SpectrumBaseModule:
             raise IndexError("mz_list or intensity is None, can not get item.")
         return self.mz_list[index], self.intensity[index]
 
-    def sort_by_mz(self):
-        """
-        Sort the mz_list and intensity arrays by m/z values in ascending order.
-
-        This method sorts both arrays simultaneously to maintain correspondence
-        between m/z values and their intensities. The operation is performed
-        in-place and updates the `sorted_by_mz` flag.
-
-        Note:
-            - Only sorts if data is not already sorted (`sorted_by_mz` is False)
-            - Logs a warning if mz_list or intensity is None
-            - After sorting, `sorted_by_mz` flag is set to True
-        """
-        if (self.sorted_by_mz is False and self.mz_list is not None and self.intensity is not None):
-
-            sorted_indices = np.argsort(self.mz_list)
-            self._mz_list = self.mz_list[sorted_indices]
-            self._intensity = self.intensity[sorted_indices]
-            self.sorted_by_mz = True
-
-        elif self.mz_list is None or self.intensity is None:
-            logger.warning("mz_list or intensity is None, can not sort by mz.")
-
     def crop_range(
         self,
         xr: Optional[Sequence[float]] = None,
@@ -444,15 +445,18 @@ class SpectrumBaseModule:
         Raises:
             ValueError: If `mz_list` is None or `xr` is invalid.
         """
+        #make sure mz_list and intensity are not None
         if self.mz_list is not None and self.intensity is not None:
+            #make sure xr is valid
             if xr is not None and len(xr) == 2:
                 mz_c = None
                 inten_c = None
+                
                 # without sort and dont want to sort
-                if not self.sorted_by_mz and not sort_by_mz:
+                if not self._sort_by_mz and not sort_by_mz:
                     mask_xr = np.ones_like(self.mz_list, dtype=bool)
 
-                    if xr is not None and self.mz_list is not None:
+                    if self.mz_list is not None:
                         mask_xr &= (self.mz_list >= xr[0]) & (self.mz_list <= xr[1])
                     else:
                         logger.error("xr or mz_list is None, can not crop by mz.")
@@ -463,8 +467,10 @@ class SpectrumBaseModule:
 
                 # with sort and want to sort  or want sort but no sort
                 elif sort_by_mz:
-                    if not self.sorted_by_mz:
-                        self.sort_by_mz()
+
+                    if not self.sort_by_mz:
+                        self.sort_by_mz = True
+
                     start_index = np.searchsorted(self.mz_list, xr[0], side="left")
                     end_index = np.searchsorted(self.mz_list, xr[1], side="right")
 
@@ -488,6 +494,12 @@ class SpectrumBaseModule:
         new_obj.mz_list = mz_c
         new_obj.intensity = inten_c
         return new_obj
+
+    def is_sorted(self):
+        # Check if the mz_list is sorted in ascending order.
+        if self.mz_list is not None and self.intensity is not None:
+            return np.all(self.mz_list[:-1] <= self.mz_list[1:])
+        return False
 
     @property
     def x(self):
@@ -537,17 +549,18 @@ class SpectrumImzML(SpectrumBaseModule):
     Spectrometry Markup Language) format data. It implements lazy loading to minimize
     memory usage by loading spectrum data only when accessed.
 
-    The class holds a reference to an ImzMLParser and an index, loading the actual
+    The class holds a reference to a portable spectrum reader and an index, loading the actual
     m/z and intensity data on-demand when the properties are first accessed.
 
     Attributes:
-        _parser (ImzMLParser): Parser instance for reading ImzML data
-        _index (int): Index of the spectrum within the ImzML file
+        _reader: Portable spectrum reader bound to the underlying ImzMLParser.
+        _ibd_path (str): Path to the corresponding binary .ibd file.
+        _index (int): Index of the spectrum within the ImzML file.
 
     Inherited Attributes:
         coordinates (List[int]): 3D coordinates [x, y, z] of the spectrum
         x, y, z (int): Individual coordinate components
-        sorted_by_mz_fun (bool): Flag indicating if data is sorted by m/z values
+        sort_by_mz (bool): Flag inherited from base indicating if data is sorted by m/z values.
 
     Properties:
         mz_list (np.ndarray): Lazily loaded array of m/z values
@@ -559,11 +572,23 @@ class SpectrumImzML(SpectrumBaseModule):
         - Inherits all visualization and manipulation methods from SpectrumBaseModule
     """
 
-    def __init__(self, parser: ImzMLParser, index: int, coordinates,mz_list=None,intensity=None):
+    def __init__(self,
+                 reader ,
+                 ibd_path, 
+                 index: int, 
+                 coordinates,
+                 mz_list=None,
+                 intensity=None,
+                 sort_by_mz: bool = True):
 
-        super().__init__(mz_list=mz_list, intensity=intensity, coordinates=coordinates)
-        self._parser = parser
+        self._reader = reader
+        self._ibd_path = ibd_path
         self._index = int(index)
+
+        super().__init__(mz_list=mz_list, 
+                    intensity=intensity, 
+                    coordinates=coordinates,
+                    sort_by_mz=sort_by_mz)
 
     @property
     def mz_list(self):
@@ -574,7 +599,7 @@ class SpectrumImzML(SpectrumBaseModule):
             np.ndarray: Array of m/z values.
 
         Notes:
-            - Triggers loading from the underlying ImzML parser on first access.
+            - Triggers loading from the .ibd file via the portable spectrum reader on first access.
             - Also initializes `self._intensity` to keep arrays in sync.
         """
         if self._mz_list is None:
@@ -594,15 +619,16 @@ class SpectrumImzML(SpectrumBaseModule):
             np.ndarray: Array of intensity values.
 
         Notes:
-            - Accessing this property ensures m/z values are loaded first,
+            - Accessing this property triggers loading of both m/z and intensity values from the .ibd file,
               so both arrays remain synchronized.
         """
         if self._intensity is None:
-            mz, intensity = self._parser.getspectrum(self._index)
-            self._intensity = intensity
+            with open(self._ibd_path, 'rb') as f:
+                mz, intensity = self._reader.read_spectrum_from_file(f, self._index)
+            self._intensity = intensity.copy()
 
             if self._mz_list is None:
-                self._mz_list = mz
+                self._mz_list = mz.copy()
 
         return self._intensity
 
@@ -811,6 +837,15 @@ class MS:
         else:
             logger.warning(f"Index {index} out of range {len(self._queue)}. Update spectrum with coordinates.")
             self.update_spectrum_with_coord(spectrum = spectrum)
+
+    @overload
+    def __getitem__(self, key: int) -> SpectrumBaseModule: ...
+    @overload
+    def __getitem__(self, key: Tuple[int, int]) -> SpectrumBaseModule: ...
+    @overload
+    def __getitem__(self, key: Tuple[int, int, int]) -> SpectrumBaseModule: ...
+    @overload
+    def __getitem__(self, key: slice) -> List[SpectrumBaseModule]: ...
 
     def __getitem__(self,
                     key: Union[int,Tuple[int, int, int], Tuple[int, int], slice]
