@@ -292,10 +292,12 @@ def locmin_baseline(
 
         smooth_kind = (smooth or "none").strip().lower()
         if smooth_kind == "loess":
-            from .peak_align_helper import _smooth_loess_tricubic
+            from massflow.preprocess.filter_helper import smooth_signal_loess
             span = float(span)
             window = int(max(5, min(n, round(span * n))))
-            baseline = _smooth_loess_tricubic(x, baseline, window=window, method="loess", weighting="tri-cubic")
+            if window % 2 == 0:
+                window += 1
+            baseline = smooth_signal_loess(baseline, window=window)
         elif smooth_kind == "spline":
             from scipy.interpolate import UnivariateSpline
             s_val = float(s) if s is not None else 0.0

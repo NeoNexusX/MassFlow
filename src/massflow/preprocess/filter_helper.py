@@ -526,6 +526,61 @@ def smooth_preprocess(data:SpectrumBaseModule):
     data.intensity = intensity
     return data
 
+def smooth_signal_loess(intensity: np.ndarray, window: int = 11):
+    """
+    Loess smoothing (quadratic) with tri-cubic weighting only.
+
+    Parameters:
+        intensity (np.ndarray): 1D intensity array to be smoothed.
+        window (int): Local regression window size (odd, >=3). Auto-adjusted if too small/large.
+
+    Returns:
+        np.ndarray: Smoothed intensity array with the same length as input.
+    """
+    _input_validation(intensity=intensity, window=window)
+
+    if window < 3:
+        window = 3
+    if window % 2 == 0:
+        window += 1
+
+    n = len(intensity)
+    if window > n:
+        adj = n if (n % 2 == 1) else max(3, n - 1)
+        window = adj
+
+    from scipy import signal, linalg
+
+    y = np.asarray(intensity, dtype=np.float64)
+    leny = y.size
+
+    halfw = np.floor((window / 2.)).astype(int)
+    window = int(2. * halfw + 1.)
+    x1 = np.arange(1. - halfw, (halfw - 1.) + 1)
+
+    weight = (1. - np.divide(np.abs(x1), halfw) ** 3.) ** 1.5
+    V = (np.vstack((np.hstack(weight), np.hstack(weight * x1), np.hstack(weight * x1 * x1)))).transpose()
+    Q, _ = linalg.qr(V, mode='economic')
+
+    alpha = np.dot(Q[halfw - 1,], Q.transpose())
+    yhat = signal.lfilter(alpha * weight, 1, y)
+    yhat[int(halfw + 1) - 1:-halfw] = yhat[int(window - 1) - 1:-1]
+
+    x1 = np.arange(1., (window - 1.) + 1)
+    V = (np.vstack((np.hstack(np.ones([1, window - 1])), np.hstack(x1), np.hstack(x1 * x1)))).transpose()
+
+    for j in np.arange(1, (halfw) + 1):
+        weight = (1. - np.divide(np.abs((np.arange(1, window) - j)), window - j) ** 3.) ** 1.5
+        W = (np.kron(np.ones((3, 1)), weight)).transpose()
+        Q, _ = linalg.qr(V * W, mode='economic')
+
+        alpha = np.dot(Q[j - 1,], Q.transpose())
+        alpha = alpha * weight
+        yhat[int(j) - 1] = np.dot(alpha, y[:int(window) - 1])
+        yhat[int(-j)] = np.dot(alpha, y[np.arange(leny - 1, leny - window, -1, dtype=int)])
+
+    return yhat
+
 def smoother(intensity:np.ndarray,
             index:Optional[np.ndarray]=None,
             method: str = "ma",
