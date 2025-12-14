@@ -7,16 +7,18 @@ Supports coordinate-based sub-region loading and shared m/z list for continuous 
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
+
 import os
 import warnings
 from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
-from .ms_data_manager import MSDataManager
-from .ms_module import MS,SpectrumImzML
-from .meta_data import ImzMlMetaData
+from massflow.module.ms_data_manager import MSDataManager
+from massflow.module.ms_module import MS, SpectrumImzML
+from massflow.module.meta_data import ImzMlMetaData
 
 logger = get_logger("ms_data_manager_imzml")
+
 
 class MSDataManagerImzML(MSDataManager):
     """
@@ -27,12 +29,14 @@ class MSDataManagerImzML(MSDataManager):
     metadata extraction into `ImzMlMetaData`.
     """
 
-    def __init__(self,
-                 ms: MS,
-                 target_locs=None,
-                 filepath=None,
-                 coordinates_zero_based: bool = True,
-                 max_threads: int = 10):
+    def __init__(
+        self,
+        ms: MS,
+        target_locs=None,
+        filepath=None,
+        coordinates_zero_based: bool = True,
+        max_threads: int = 10,
+    ):
         """
         Initialize the ImzML data manager.
 
@@ -46,11 +50,7 @@ class MSDataManagerImzML(MSDataManager):
                 are treated as zero-based.
             max_threads (int): Maximum worker threads for batch loading utilities.
         """
-        super().__init__(ms, 
-                         None, 
-                         target_locs, 
-                         filepath, 
-                         max_threads=max_threads)
+        super().__init__(ms, None, target_locs, filepath, max_threads=max_threads)
 
         if not self.filepath or not os.path.exists(self.filepath):
             logger.error(f"Error: File {self.filepath} does not exist.")
@@ -60,16 +60,18 @@ class MSDataManagerImzML(MSDataManager):
             warnings.simplefilter("always")
             self.parser = ImzMLParser(self.filepath)
 
-            combined_message = "\r\n".join([ f"{wm.message}"for wm in w])
+            combined_message = "\r\n".join([f"{wm.message}" for wm in w])
             if len(combined_message) > 0:
                 logger.warning(f"{combined_message}")
 
         # meta data protection and read meta data
         if self.ms.meta is None:
-            self.ms.meta = ImzMlMetaData(parser=self.parser, coordinates_zero_based=coordinates_zero_based)
+            self.ms.meta = ImzMlMetaData(
+                parser=self.parser, coordinates_zero_based=coordinates_zero_based
+            )
 
-        if self.ms.meta.parser is None: # type: ignore
-            self.ms.meta.parser = self.parser # type: ignore
+        if self.ms.meta.parser is None:  # type: ignore
+            self.ms.meta.parser = self.parser  # type: ignore
 
         # multi-threading safety support
         ibd_path = self.filepath[:-5] + "ibd"
@@ -78,8 +80,12 @@ class MSDataManagerImzML(MSDataManager):
             self.ibd_path = ibd_path
             self.reader = self.parser.portable_spectrum_reader()
         else:
-            logger.error(f"Error: Corresponding .ibd file for {self.filepath} does not exist.")
-            raise FileNotFoundError(f"Error: Corresponding .ibd file for {self.filepath} does not exist.")
+            logger.error(
+                f"Error: Corresponding .ibd file for {self.filepath} does not exist."
+            )
+            raise FileNotFoundError(
+                f"Error: Corresponding .ibd file for {self.filepath} does not exist."
+            )
 
     def load_full_data_from_file(self):
         """
@@ -89,13 +95,13 @@ class MSDataManagerImzML(MSDataManager):
         """
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            
-            #regular checks
+
+            # regular checks
             if not self.filepath or not os.path.exists(self.filepath):
                 logger.error(f"Error: File {self.filepath} does not exist.")
                 raise FileNotFoundError(f"Error: File {self.filepath} does not exist.")
 
-            if not self.filepath.lower().endswith('.imzml'):
+            if not self.filepath.lower().endswith(".imzml"):
                 logger.error(f"Error: {self.filepath} is not an .imzML file.")
                 raise ValueError(f"Error: {self.filepath} is not an .imzML file.")
 
@@ -106,28 +112,34 @@ class MSDataManagerImzML(MSDataManager):
             # spectrum  meta data load and create part
             for i, c in enumerate(coords):
                 x, y, z = c
-                c1, c2 = self.target_locs if self.target_locs is not None else ([0,0],[999,999])
+                c1, c2 = (
+                    self.target_locs
+                    if self.target_locs is not None
+                    else ([0, 0], [999, 999])
+                )
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
                     # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
                     spectrum = SpectrumImzML(
                         reader=self.reader,
                         ibd_path=self.ibd_path,
                         index=i,
-                        coordinates=[x, y, z]
+                        coordinates=[x, y, z],
                     )
 
-                    #judge mz_list is used or not
-                    spectrum.mz_list = self.ms.shared_mz_list 
+                    # judge mz_list is used or not
+                    spectrum.mz_list = self.ms.shared_mz_list
                     self.ms.add_spectrum(spectrum)
-                    self.loading_meta(x=spectrum.coordinates.x, y=spectrum.coordinates.y,index=i)
+                    self.loading_meta(
+                        x=spectrum.coordinates.x, y=spectrum.coordinates.y, index=i
+                    )
                     self.current_spectrum_num += 1
 
-            combined_message = "\r\n".join([ f"{wm.message}"for wm in w])
+            combined_message = "\r\n".join([f"{wm.message}" for wm in w])
             if len(combined_message) > 0:
                 logger.warning(f"{combined_message}")
             self.loaded_meta()
 
-    def pre_load_meta(self,*args, **kwargs):
+    def pre_load_meta(self, *args, **kwargs):
         """Pre-load and populate metadata from the ImzML parser before loading spectra."""
         self.extract_metadata()
 
@@ -136,18 +148,24 @@ class MSDataManagerImzML(MSDataManager):
 
         logger.info("Extracting metadata...")
 
-        if self.ms.meta.parser is None: #type: ignore
-            logger.error("Parser is not initialized. Please set parser or filepath first.")
-            raise ValueError("Parser is not initialized. Please set parser or filepath first.")
+        if self.ms.meta.parser is None:  # type: ignore
+            logger.error(
+                "Parser is not initialized. Please set parser or filepath first."
+            )
+            raise ValueError(
+                "Parser is not initialized. Please set parser or filepath first."
+            )
 
-        for accession_id, prop_name in self.ms.meta.meta_index.items(): #type: ignore
+        for accession_id, prop_name in self.ms.meta.meta_index.items():  # type: ignore
             param_value = self.find_meta_by_accession_id(accession_id)
             if param_value is not None:
                 setattr(self.ms.meta, prop_name, param_value)
 
         logger.info("Metadata extraction completed.")
 
-    def find_meta_by_accession_id(self, accession_id: str): # Use pyimzML.ImzMLParser to fetch metadata
+    def find_meta_by_accession_id(
+        self, accession_id: str
+    ):  # Use pyimzML.ImzMLParser to fetch metadata
         """Search the predefined metadata areas for the given accession identifier."""
 
         search_areas = [
@@ -183,17 +201,19 @@ class MSDataManagerImzML(MSDataManager):
 
         return None
 
-    def loading_meta(self,*args, **kwargs):
+    def loading_meta(self, *args, **kwargs):
         """Update metadata during spectrum streaming (continuous mode + min pixel tracking)."""
 
-        if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None: #type: ignore
-            logger.info("Assigning mz_list for continuous data. use shared mz_list. please watchout!")
-            self.ms.shared_mz_list , _ = self.parser.getspectrum(kwargs['index'])
+        if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None:  # type: ignore
+            logger.info(
+                "Assigning mz_list for continuous data. use shared mz_list. please watchout!"
+            )
+            self.ms.shared_mz_list, _ = self.parser.getspectrum(kwargs["index"])
 
-        #update min   pixel x,y
+        # update min   pixel x,y
         if isinstance(self.ms.meta, ImzMlMetaData):
-            self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs['x'])
-            self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs['y'])
+            self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs["x"])
+            self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs["y"])
 
     def close(self):
         """
@@ -214,11 +234,11 @@ class MSDataManagerImzML(MSDataManager):
             - After closing, it clears local and metadata references to the parser to
               avoid accidental reuse of invalid handles.
         """
-        
+
         if self.parser is not None:
             # Try closing memory-mapped handle if present
-            m = getattr(self.parser, 'm', None)
-            if m is not None and hasattr(m, 'close'):
+            m = getattr(self.parser, "m", None)
+            if m is not None and hasattr(m, "close"):
                 try:
                     m.close()
                 except Exception as e:

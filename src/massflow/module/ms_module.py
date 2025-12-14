@@ -14,11 +14,12 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 
+
 from typing import List, Tuple, Union, Optional, Sequence,Literal,overload
 import numpy as np
 import matplotlib.pyplot as plt
-import uuid
 from massflow.logger import get_logger
+from massflow.module.ms_swaper_binary import SpectrumSwaperBinary
 from massflow.module.meta_data import MetaDataFileBase
 logger = get_logger("ms_module")
 
@@ -281,6 +282,7 @@ class SpectrumBaseModule:
         intensity: Optional[np.ndarray],
         coordinates: Union[PixelCoordinates, Sequence[int]],
         sort_by_mz: bool = True,
+        swap_file_path: Optional[str] = None,
     ):
         """
         Initialize a mass spectrum with m/z values, intensities, and coordinates.
@@ -301,9 +303,10 @@ class SpectrumBaseModule:
 
         # Lazy loading
         self._mz_list = mz_list
-        self._intensity = intensity  
+        self._intensity = intensity
 
         # Initialize coordinates to PixelCoordinates instance
+        # need to update
         if isinstance(coordinates, PixelCoordinates):
             self.coordinates = coordinates
         elif isinstance(coordinates, (list, tuple)) and len(coordinates) == 3:
@@ -314,11 +317,22 @@ class SpectrumBaseModule:
                 "coordinates must be PixelCoordinates or a list/tuple of three ints."
             )
 
-        # sort part
-        # do not use sort_by_mz
+        #swap part
+        self.swap_file_path = swap_file_path
+        self.swaper = SpectrumSwaperBinary(swap_file_path,)
+
+        # sort part , do not use _sort_by_mz
         self._sort_by_mz = sort_by_mz
 
-    # lazy load properties
+    def _resolve_data(self):
+        """
+        Internal hook to resolve/load data.
+        Base implementation handles loading from swap file if available.
+        """
+        if self._mz_list is None and self.swap_file_path:
+            pass
+
+     # lazy load properties
     @property
     def mz_list(self):
         """
@@ -327,6 +341,9 @@ class SpectrumBaseModule:
         Returns:
             np.ndarray: An array of mz values.
         """
+        if self._mz_list is None:
+            self._resolve_data()
+
         return self._mz_list
 
     @mz_list.setter
@@ -341,6 +358,9 @@ class SpectrumBaseModule:
         Returns:
             np.ndarray: An array of intensity values.
         """
+        if self._intensity is None:
+            self._resolve_data()
+            
         return self._intensity
 
     @intensity.setter
@@ -579,7 +599,8 @@ class SpectrumImzML(SpectrumBaseModule):
                  coordinates,
                  mz_list=None,
                  intensity=None,
-                 sort_by_mz: bool = True):
+                 sort_by_mz: bool = True,
+                 swap_file_path: Optional[str] = None): # 1. 添加参数定义
 
         self._reader = reader
         self._ibd_path = ibd_path
@@ -588,7 +609,8 @@ class SpectrumImzML(SpectrumBaseModule):
         super().__init__(mz_list=mz_list, 
                     intensity=intensity, 
                     coordinates=coordinates,
-                    sort_by_mz=sort_by_mz)
+                    sort_by_mz=sort_by_mz,
+                    swap_file_path=swap_file_path)
 
     @property
     def mz_list(self):
