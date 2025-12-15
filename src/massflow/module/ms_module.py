@@ -16,6 +16,7 @@ License: See LICENSE file in project root
 
 
 from typing import List, Tuple, Union, Optional, Sequence,Literal,overload
+from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from massflow.logger import get_logger
@@ -282,7 +283,7 @@ class SpectrumBaseModule:
         intensity: Optional[np.ndarray],
         coordinates: Union[PixelCoordinates, Sequence[int]],
         sort_by_mz: bool = True,
-        swap_file_path: Optional[str] = None,
+        swap_file_path: Optional[Path] = None,
     ):
         """
         Initialize a mass spectrum with m/z values, intensities, and coordinates.
@@ -317,9 +318,10 @@ class SpectrumBaseModule:
                 "coordinates must be PixelCoordinates or a list/tuple of three ints."
             )
 
-        #swap part
+        # swap part
+        # must set filepath first
         self.swap_file_path = swap_file_path
-        self.swaper = SpectrumSwaperBinary(swap_file_path,)
+        self.swaper = SpectrumSwaperBinary(spectrum=self)
 
         # sort part , do not use _sort_by_mz
         self._sort_by_mz = sort_by_mz
@@ -329,10 +331,10 @@ class SpectrumBaseModule:
         Internal hook to resolve/load data.
         Base implementation handles loading from swap file if available.
         """
-        if self._mz_list is None and self.swap_file_path:
-            pass
+        if self._mz_list is None and self.swaper.offset >= 0:
+            self.swaper.read_block()
 
-     # lazy load properties
+    # lazy load properties
     @property
     def mz_list(self):
         """
@@ -360,7 +362,7 @@ class SpectrumBaseModule:
         """
         if self._intensity is None:
             self._resolve_data()
-            
+
         return self._intensity
 
     @intensity.setter
@@ -593,71 +595,47 @@ class SpectrumImzML(SpectrumBaseModule):
     """
 
     def __init__(self,
-                 reader ,
+                 reader,
                  ibd_path, 
                  index: int, 
                  coordinates,
                  mz_list=None,
                  intensity=None,
                  sort_by_mz: bool = True,
-                 swap_file_path: Optional[str] = None): # 1. 添加参数定义
+                 swap_file_path: Optional[Path] = None):
 
+        #imzml reader part
         self._reader = reader
         self._ibd_path = ibd_path
         self._index = int(index)
 
-        super().__init__(mz_list=mz_list, 
-                    intensity=intensity, 
-                    coordinates=coordinates,
-                    sort_by_mz=sort_by_mz,
-                    swap_file_path=swap_file_path)
+        #super init part
+        super().__init__(mz_list=mz_list,
+                         intensity=intensity,
+                         coordinates=coordinates,
+                         sort_by_mz=sort_by_mz,
+                         swap_file_path=swap_file_path)
 
-    @property
-    def mz_list(self):
+    def _resolve_data(self):
         """
-        Lazily load and return m/z values for the spectrum.
-
-        Returns:
-            np.ndarray: Array of m/z values.
-
-        Notes:
-            - Triggers loading from the .ibd file via the portable spectrum reader on first access.
-            - Also initializes `self._intensity` to keep arrays in sync.
+        Internal hook to resolve/load data.
+        Base implementation handles loading from swap file if available.
         """
-        if self._mz_list is None:
-            _ = self.intensity  # Trigger loading of both mz and intensity
-        return self._mz_list
+        # first try swaper
+        if self.swaper.offset >= 0:
+            self.swaper.read_block()
 
-    @mz_list.setter
-    def mz_list(self, value):
-        self._mz_list = value
-
-    @property
-    def intensity(self):
-        """
-        Lazily load and return intensity values for the spectrum.
-
-        Returns:
-            np.ndarray: Array of intensity values.
-
-        Notes:
-            - Accessing this property triggers loading of both m/z and intensity values from the .ibd file,
-              so both arrays remain synchronized.
-        """
-        if self._intensity is None:
+        # then try imzml reader
+        elif self._ibd_path is not None:
             with open(self._ibd_path, 'rb') as f:
                 mz, intensity = self._reader.read_spectrum_from_file(f, self._index)
-            self._intensity = intensity.copy()
-
-            if self._mz_list is None:
                 self._mz_list = mz.copy()
+                self._intensity = intensity.copy()
 
-        return self._intensity
-
-    @intensity.setter
-    def intensity(self, value):
-        self._intensity = value
-
+        # finally error
+        else:
+            logger.error("mz_list is None, can not resolve data.")
+            raise ValueError("mz_list is None, can not resolve data.")
 
 class MS:
     """
@@ -1041,13 +1019,15 @@ class MS:
 
         # If flag changed, update all coordinates and rebuild index
         if prev_flag != new_flag:
+
             # Update metadata flag
             self.meta.coordinates_zero_based = new_flag
             self.meta.update_meta()
+
             # Rebuild coordinate index (clear in-place to avoid stale external references)
             self._coordinate_index.clear()
-            # update min/max pixel values in metadata
 
+            # update min/max pixel values in metadata
             for spectrum in self._queue:
                 spectrum.coordinates.zero_based = new_flag
                 x, y, z = spectrum.x, spectrum.y, spectrum.z

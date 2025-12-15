@@ -8,12 +8,13 @@ creation over spatial coordinates.
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
-
+import os
 from abc import ABC, abstractmethod
 import random
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
-import uuid
+import tempfile
 from massflow.logger import get_logger
 from massflow.module.ms_module import MS
 
@@ -32,6 +33,7 @@ class MSDataManager(ABC):
         target_locs=None,
         filepath=None,
         max_threads: int = 10,
+        temp_dir = None,
     ):
         """
         Initialize the MS data manager.
@@ -42,6 +44,7 @@ class MSDataManager(ABC):
             target_locs (list[tuple], optional): List of (x,y) or (x,y,z) coordinates to load.
             filepath (str, optional): Path to the input file.
         """
+
         self._ms = ms
         self.target_mz_range = target_mz_range
 
@@ -49,8 +52,15 @@ class MSDataManager(ABC):
         self.max_threads = max_threads
         self._threads_executor = None
 
-        #swap method for data
-        self.swap_file_path = f"/tmp/massflow_swap_{uuid.uuid4().hex}.tmp"
+        # swap method for data
+        self.swap_fd, swap_file_path = tempfile.mkstemp(
+            dir=temp_dir,
+            prefix="massflow_swap_",
+            suffix=".bin"
+        )
+        self.swap_file_path = Path(swap_file_path)
+
+        logger.info(f"swap file path: {self.swap_file_path}")
 
         # target_locs input verification
         if target_locs is not None:
@@ -285,6 +295,23 @@ class MSDataManager(ABC):
         if self._threads_executor is not None:
             self._threads_executor.shutdown(wait=True)
             self._threads_executor = None
+
+        # file will deleted in final
+        try:
+            if self.swap_fd is not None:
+                os.close(self.swap_fd)
+                self.swap_fd = None
+        except FileExistsError:
+            logger.error(f"swap file already removed: {self.swap_file_path}")
+
+        finally:
+            if self.swap_file_path is not None:
+                try:
+                    Path(self.swap_file_path).unlink(missing_ok=True)
+                except Exception:
+                    # 不让删除失败影响主流程
+                    logger.warning(f"failed to remove swap file: {self.swap_file_path}")
+
 
     def __enter__(self):
         return self

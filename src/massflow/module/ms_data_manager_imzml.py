@@ -124,6 +124,7 @@ class MSDataManagerImzML(MSDataManager):
                         ibd_path=self.ibd_path,
                         index=i,
                         coordinates=[x, y, z],
+                        swap_file_path=self.swap_file_path,
                     )
 
                     # judge mz_list is used or not
