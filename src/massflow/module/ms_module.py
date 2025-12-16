@@ -14,7 +14,6 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 
-
 from typing import List, Tuple, Union, Optional, Sequence,Literal,overload
 from pathlib import Path
 import numpy as np
@@ -636,6 +635,7 @@ class SpectrumImzML(SpectrumBaseModule):
         else:
             logger.error("mz_list is None, can not resolve data.")
             raise ValueError("mz_list is None, can not resolve data.")
+
 
 class MS:
     """

@@ -292,6 +292,7 @@ class MSDataManager(ABC):
         """
         Close any resources held by the data manager.
         """
+        #thread pool delete
         if self._threads_executor is not None:
             self._threads_executor.shutdown(wait=True)
             self._threads_executor = None
@@ -300,21 +301,18 @@ class MSDataManager(ABC):
         try:
             if self.swap_fd is not None:
                 os.close(self.swap_fd)
-                self.swap_fd = None
-        except FileExistsError:
-            logger.error(f"swap file already removed: {self.swap_file_path}")
-
+        except OSError as e:
+            logger.error(f"{e}")
         finally:
+            self.swap_fd = None
             if self.swap_file_path is not None:
-                try:
-                    Path(self.swap_file_path).unlink(missing_ok=True)
-                except Exception:
-                    # 不让删除失败影响主流程
-                    logger.warning(f"failed to remove swap file: {self.swap_file_path}")
-
+                Path(self.swap_file_path).unlink(missing_ok=True)
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __del__(self):
         self.close()

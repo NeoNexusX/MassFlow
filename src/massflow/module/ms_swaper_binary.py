@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from venv import logger
+import os
 import numpy as np
 from massflow.module.ms_swaper_base import SpectrumSwaperBase
 from massflow.logger import get_logger
@@ -82,35 +82,71 @@ class SpectrumSwaperBinary(SpectrumSwaperBase):
     #     )
     #     return mz, intensity
 
-    def swap_out2disk(self,  file_obj):
-        """
-        Write block (file write position controlled by external file_obj, append or specific seek)
-        Update offset and length after writing
+    def swap_out2disk(self, fd: int):
+        """Write spectrum block to disk using a raw file descriptor.
+
+        The caller controls the lifetime and open mode of the fd. This method
+        only performs low-level seeks and writes of raw bytes.
         """
 
-        #pre check for data consistency
-        if self.spectrum is not None and self.spectrum.mz_list is not None and self.spectrum.intensity is not None:
-            assert len(self.spectrum.mz_list) == len(self.spectrum.intensity)
-            mz_dtype = self.spectrum.mz_list.dtype
-            intensity_dtype = self.spectrum.intensity.dtype
-
-        else:
+        # pre check for data consistency
+        if (
+            self.spectrum is None
+            or self.spectrum.mz_list is None
+            or self.spectrum.intensity is None
+        ):
             logger.error("Both spectrum mz_list and intensity cannot be None")
+            raise ValueError("Both spectrum mz_list and intensity cannot be None")
 
-        # Determine the start point for block writing
-        self.offset = file_obj.tell()
+        assert len(self.spectrum.mz_list) == self.length
 
-        # Write mz
-        f_mz = np.asarray(self.spectrum.mz_list, dtype=mz_dtype).tobytes()
-        file_obj.write(f_mz)
+        # Determine the start point for block writing (current file position of fd)
+        self.offset = os.lseek(fd, 0, os.SEEK_CUR)
 
-        # Write intensity
-        f_int = np.asarray(self.spectrum.intensity, dtype=intensity_dtype).tobytes()
-        file_obj.write(f_int)
+        logger.debug(
+            f"Swapping out spectrum to disk at offset: {self.offset}, length: {self.length}"
+        )
 
-        # make sure data is written to disk 
-        file_obj.flush()
+        # Prepare bytes
+        f_mz = np.asarray(self.spectrum.mz_list, dtype=self.mz_dtype).tobytes()
+        f_int = np.asarray(self.spectrum.intensity, dtype=self.intensity_dtype).tobytes()
+
+        # Write mz and intensity using os.write
+        os.write(fd, f_mz)
+        os.write(fd, f_int)
 
         # free memory
         self.spectrum.mz_list = None  # free memory
         self.spectrum.intensity = None  # free memory
+
+    # def swap_out2disk(self,  file_obj):
+    #     """
+    #     Write block (file write position controlled by external file_obj, append or specific seek)
+    #     Update offset and length after writing
+    #     """
+
+    #     #pre check for data consistency
+    #     if self.spectrum is not None and self.spectrum.mz_list is not None and self.spectrum.intensity is not None:
+    #         assert len(self.spectrum.mz_list) == self.length
+    #     else:
+    #         logger.error("Both spectrum mz_list and intensity cannot be None")
+
+    #     # Determine the start point for block writing
+    #     self.offset = file_obj.tell()
+
+    #     logger.debug(f"Swapping out spectrum to disk at offset: {self.offset}, length: {self.length}")
+
+    #     # Write mz
+    #     f_mz = np.asarray(self.spectrum.mz_list, dtype=self.mz_dtype).tobytes()
+    #     file_obj.write(f_mz)
+
+    #     # Write intensity
+    #     f_int = np.asarray(self.spectrum.intensity, dtype=self.intensity_dtype).tobytes()
+    #     file_obj.write(f_int)
+
+    #     # make sure data is written to disk 
+    #     file_obj.flush()
+
+    #     # free memory
+    #     self.spectrum.mz_list = None  # free memory
+    #     self.spectrum.intensity = None  # free memory

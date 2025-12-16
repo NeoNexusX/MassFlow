@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class SpectrumSwaperBase(ABC):
     spectrum: "SpectrumBaseModule"
     offset: int = -1
-    _length: int = -1  # dynamic length
+    _length: int = -1
     _mz_dtype: Optional[np.dtype] = None
     _intensity_dtype: Optional[np.dtype] = None
 
@@ -34,7 +34,7 @@ class SpectrumSwaperBase(ABC):
             mz = getattr(self.spectrum, "mz_list", None)
             self._mz_dtype = None if mz is None else mz.dtype
         return self._mz_dtype
-
+    
     @property
     def intensity_dtype(self) -> Optional[np.dtype]:
         if self._intensity_dtype is None:
@@ -47,5 +47,10 @@ class SpectrumSwaperBase(ABC):
         pass
 
     @abstractmethod
-    def swap_out2disk(self, file_obj):
+    def swap_out2disk(self, fd: int):
+        """Swap spectrum data out to disk using a raw file descriptor.
+
+        Implementations should use low-level OS APIs (e.g. os.lseek/os.write)
+        and operate on bytes only.
+        """
         pass
