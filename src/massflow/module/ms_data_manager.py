@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import tempfile
 from massflow.logger import get_logger
-from massflow.module.ms_module import MS
+from massflow.module.mass_spectrum_set import MassSpectrumSet
 
 logger = get_logger("ms_data_manager")
 
@@ -28,7 +28,7 @@ class MSDataManager(ABC):
 
     def __init__(
         self,
-        ms: MS,
+        ms: MassSpectrumSet,
         target_mz_range=None,
         target_locs=None,
         filepath=None,
@@ -56,7 +56,7 @@ class MSDataManager(ABC):
         self.swap_fd, swap_file_path = tempfile.mkstemp(
             dir=temp_dir,
             prefix="massflow_swap_",
-            suffix=".bin"
+            suffix=".ibd"
         )
         self.swap_file_path = Path(swap_file_path)
 
@@ -68,10 +68,7 @@ class MSDataManager(ABC):
             if len(target_locs) <= 1:
                 logger.error("target_locs must be non-empty")
                 raise ValueError("target_locs must be non-empty")
-            elif (
-                target_locs[0][0] > target_locs[1][0]
-                or target_locs[0][1] > target_locs[1][1]
-            ):
+            elif (target_locs[0][0] > target_locs[1][0]or target_locs[0][1] > target_locs[1][1]):
                 logger.error("locs must x1<x2,y1<y2")
                 raise ValueError("locs must x1<x2,y1<y2")
 
@@ -93,7 +90,7 @@ class MSDataManager(ABC):
         self._threads_executor = executor
 
     @property
-    def ms(self) -> MS:
+    def ms(self) -> MassSpectrumSet:
         """
         Get the MS object.
 
@@ -103,7 +100,7 @@ class MSDataManager(ABC):
         return self._ms
 
     @ms.setter
-    def ms(self, ms: MS):
+    def ms(self, ms: MassSpectrumSet):
         """
         Set the MS object.
 
@@ -121,7 +118,7 @@ class MSDataManager(ABC):
         :attr:`self.target_locs` / :attr:`self.target_mz_range` as needed.
         """
 
-    def inspect_data(self, inpect_num=2):
+    def inspect_data(self, inspect_num=2):
         """
         Inspect the data structure of the MSI object.
 
@@ -148,7 +145,7 @@ class MSDataManager(ABC):
         base_info = "MS  information:\r\n"
         pointer4num = 0
         for spectrum in self._ms:
-            if pointer4num >= inpect_num:
+            if pointer4num >= inspect_num:
                 break
             base_info += (
                 f"  MS len: {len(spectrum)}\r\n"
@@ -269,6 +266,7 @@ class MSDataManager(ABC):
         Typically used to populate `ms.meta` (e.g., image size, instrument
         information) prior to streaming spectra.
         """
+
 
     @abstractmethod
     def loading_meta(self, *args, **kwargs):

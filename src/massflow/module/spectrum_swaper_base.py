@@ -5,11 +5,11 @@ from typing import Optional,TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from massflow.module.ms_module import SpectrumBaseModule
+    from massflow.module.spectrum import Spectrum
 
 @dataclass
 class SpectrumSwaperBase(ABC):
-    spectrum: "SpectrumBaseModule"
+    spectrum: "Spectrum"
     offset: int = -1
     _length: int = -1
     _mz_dtype: Optional[np.dtype] = None
@@ -20,8 +20,6 @@ class SpectrumSwaperBase(ABC):
         return getattr(self.spectrum, "swap_file_path")
 
     @property
-    # design target:
-    # 1.dynamic length not bind with spectrum data, only get first time when length <=0
     def length(self) -> int:
         if self._length <= 0:
             mz = getattr(self.spectrum, "mz_list", None)

@@ -2,7 +2,7 @@ import numpy as np
 from massflow.logger import get_logger
 from typing import Optional
 
-logger = get_logger(__name__)
+logger = get_logger("preprocesss")
 
 
 def _input_validation(
@@ -13,8 +13,7 @@ def _input_validation(
     
     Parameters:
         intensity (np.ndarray): 1D intensity array to be preprocessed.
-        index (Optional[np.ndarray]): 1D index array (e.g., m/z values). If None, 
-            will be generated as np.arange(len(intensity)).
+        index (Optional[np.ndarray]): 1D index array (e.g., m/z values).
 
     """
     # Validate intensity array
@@ -46,7 +45,7 @@ def tic_normalize(
         scale (float): Cardinal-like amplitude scaling factor applied after normalization.
 
     Returns:
-        np.ndarray: TIC-normalized intensity array. Sum equals 1 when input sum > 0.
+        np.ndarray: TIC-normalized intensity array. Sum equals `scale` (if scale_method='none').
 
     Raises:
         ValueError: If TIC (sum of intensity) is not greater than 0.
@@ -81,7 +80,7 @@ def rms_normalize(
         scale (float): Cardinal-like amplitude scaling factor applied after normalization.
 
     Returns:
-        np.ndarray: RMS-normalized intensity array. RMS equals 1 when input RMS > 0.
+        np.ndarray: RMS-normalized intensity array. RMS equals `scale` (if scale_method='none').
 
     Raises:
         ValueError: If RMS of intensity is not greater than 0.
@@ -119,7 +118,7 @@ def median_normalize(
         scale (float): Cardinal-like amplitude scaling factor applied after normalization.
 
     Returns:
-        np.ndarray: Median-normalized intensity array. Median equals 1 when input median > 0.
+        np.ndarray: Median-normalized intensity array. Median equals `scale` (if scale_method='none').
 
     Raises:
         ValueError: If median of intensity is not greater than 0.

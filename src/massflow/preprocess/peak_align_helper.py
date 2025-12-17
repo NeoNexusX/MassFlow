@@ -1,6 +1,6 @@
 from __future__ import annotations
 import h5py
-import os
+
 import gc
 from massflow.logger import get_logger
 import copy
@@ -9,9 +9,10 @@ from typing import List, Optional, Literal, Tuple, Dict
 import numpy as np
 from numpy.typing import NDArray
 from scipy import interpolate, signal, linalg
-from massflow.module.ms_module import MS, SpectrumBaseModule
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.spectrum import Spectrum
 
-logger = get_logger("peak_alignment")
+logger = get_logger("preprocesss")
 
 @dataclass
 class PeakBins:
@@ -42,7 +43,7 @@ class AlignResult:
     - freq: hit frequency (count/nspec)
     - tolerance/units/binfun/binratio: parameter echo for auditing and reproducibility
     """
-    ms_aligned: MS
+    ms_aligned: MassSpectrumSet
     ref: NDArray[np.float64]
     count: NDArray[np.int64]
     freq: NDArray[np.float64]
@@ -51,7 +52,7 @@ class AlignResult:
     binfun: Literal["median", "min", "max", "mean"]
     binratio: int
 
-class SpectrumHDF5Lazy(SpectrumBaseModule):
+class SpectrumHDF5Lazy(Spectrum):
     """
     HDF5-backed spectrum that loads data only when accessed.
     Compatible with SpectrumBaseModule interface.
@@ -631,7 +632,7 @@ def _estimate_tolerance(
 
 # [Refactor] `peak_align` now accepts `MS` and returns `AlignResult` with `MS` object
 def peak_align(
-        ms_data: MS,
+        ms_data: MassSpectrumSet,
         ref: Optional[NDArray[np.float64]] = None,
         binfun: Literal["median", "min", "max", "mean"] = "min",
         binratio: int = 2,
@@ -740,7 +741,7 @@ def peak_align(
     # 3. Stream Alignment and MS Construction (The Optimization)
     logger.info(f"peak_align: ref built ({len(ref_vec)} peaks). Starting stream alignment...")
     
-    ms_aligned = MS()
+    ms_aligned = MassSpectrumSet()
     if ms_data.meta:
         new_meta = copy.copy(ms_data.meta)
         if hasattr(new_meta, 'parser'):

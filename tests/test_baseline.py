@@ -1,22 +1,23 @@
 import time
 import pytest
 import numpy as np
-from massflow.module.ms_module import MS, SpectrumBaseModule
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.spectrum import Spectrum
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.preprocess.ms_preprocess import MSIPreprocessor
+from massflow.preprocess.spectrum_preprocess import SpectrumPreprocess
 from massflow.logger import get_logger
 
 logger = get_logger("test_baseline")
 
 
 @pytest.fixture(scope="session")
-def denoised_spec() -> SpectrumBaseModule:
-    ms = MS()
+def denoised_spec() -> Spectrum:
+    ms = MassSpectrumSet()
     with MSDataManagerImzML(ms, filepath="data/neg-gz4.imzML") as ms_md:
         ms_md.load_full_data_from_file()
         ms_md.inspect_data()
         sp = ms[0]
-        denoised = MSIPreprocessor.noise_reduction_spectrum(
+        denoised = SpectrumPreprocess.noise_reduction_spectrum(
             data=sp,
             method="gaussian",
             window=11,
@@ -24,9 +25,9 @@ def denoised_spec() -> SpectrumBaseModule:
     return denoised
 
 
-def _baseline_once(spectrum: SpectrumBaseModule, method: str):
+def _baseline_once(spectrum: Spectrum, method: str):
     if method == "asls":
-        corrected, baseline = MSIPreprocessor.baseline_correction_spectrum(
+        corrected, baseline = SpectrumPreprocess.baseline_correction_spectrum(
             data=spectrum,
             method="asls",
             lam=1e7,
@@ -35,17 +36,17 @@ def _baseline_once(spectrum: SpectrumBaseModule, method: str):
             baseline_scale=1.0,
         )
     elif method == "locmin":
-        corrected, baseline = MSIPreprocessor.baseline_correction_spectrum(
+        corrected, baseline = SpectrumPreprocess.baseline_correction_spectrum(
             data=spectrum,
             method="locmin",
             smooth="none",
-            span=None,
+            span=None, #type: ignore
             upper=False,
             width=11,
             baseline_scale=1.0,
         )
     else:
-        corrected, baseline = MSIPreprocessor.baseline_correction_spectrum(
+        corrected, baseline = SpectrumPreprocess.baseline_correction_spectrum(
             data=spectrum,
             method="snip",
             m=50,
