@@ -2,11 +2,15 @@
 Author: MassFlow Development Team Bionet/NeoNexus lyk
 License: See LICENSE file in project root
 """
-from typing import Optional
+import pywt
 import numpy as np
+from typing import Optional
 from scipy import stats
 from massflow.logger import get_logger
-from massflow.module.ms_module import SpectrumBaseModule
+from massflow.module.spectrum_base import SpectrumBaseModule
+from scipy.signal import savgol_filter
+from scipy.spatial import cKDTree
+from scipy import signal, linalg
 
 logger = get_logger(__name__)
 
@@ -179,22 +183,24 @@ def smooth_signal_savgol(
     """
     Savitzky-Golay filter for signal smoothing.
     
-    The Savitzky-Golay filter fits successive sub-sets of adjacent data points
-    with a low-degree polynomial by linear least squares.
+    The Savitzky-Golay filter fits successive subsets of adjacent samples with
+    a low-degree polynomial via least squares.
     
     Args:
-        intensity : np.ndarray
-            Input signal
-        window : int
-            Window size (must be a positive integer and greater than polyorder; SciPy requires odd window length).
-        polyorder : int
-            Polynomial order (must be less than window)
-            
+        intensity (np.ndarray): Input 1D signal.
+        window (int): Window size; must be positive and greater than `polyorder`.
+            SciPy requires an odd window length; this function auto-adjusts.
+        polyorder (int): Polynomial order; must be less than `window`.
+        derive (int): Derivative order for Savitzky-Golay (SciPy `deriv`).
+            0 returns the smoothed signal (no derivative), 1 returns first
+            derivative, etc.; must be in [0, polyorder].
+        delta (float): Sample spacing (SciPy `delta`) used to scale derivatives.
+            Must be > 0; set to the spacing of your x-axis (e.g., m/z step).
+            For pure smoothing (`derive=0`), `delta` is not used.
+    
     Returns:
-        np.ndarray
-            Smoothed signal
+        np.ndarray: Smoothed signal (or its derivative if `derive>0`).
     """
-    from scipy.signal import savgol_filter
 
     if window < 3:
         window = 3
@@ -207,6 +213,14 @@ def smooth_signal_savgol(
     if polyorder >= window:
         logger.error("polyorder must be less than window")
         raise ValueError("polyorder must be less than window")
+
+    # Validate derivative order and delta
+    if not isinstance(derive, int) or derive < 0 or derive > polyorder:
+        logger.error("derive must be an integer in [0, polyorder]")
+        raise ValueError("derive must be an integer in [0, polyorder]")
+    if delta <= 0:
+        logger.error("delta must be a positive float representing sample spacing")
+        raise ValueError("delta must be a positive float representing sample spacing")
 
     # Apply Savitzky-Golay filter
     return savgol_filter(intensity, window, polyorder, deriv=derive, delta=delta)
@@ -230,7 +244,6 @@ def smooth_signal_wavelet(
     Raises:
         ImportError: If `pywt` is not available.
     """
-    import pywt
 
     # Validate threshold mode
     if threshold_mode not in {"soft", "hard"}:
@@ -312,7 +325,6 @@ def smooth_ns_signal_pre(
         logger.error("p must be an integer")
         raise ValueError("p must be an integer")
     
-    from scipy.spatial import cKDTree
 
     tree = cKDTree(index.reshape(-1, 1))
 
@@ -549,7 +561,6 @@ def smooth_signal_loess(intensity: np.ndarray, window: int = 11):
         adj = n if (n % 2 == 1) else max(3, n - 1)
         window = adj
 
-    from scipy import signal, linalg
 
     y = np.asarray(intensity, dtype=np.float64)
     leny = y.size
@@ -607,7 +618,10 @@ def smoother(intensity:np.ndarray,
         sd_intensity (float, optional): Intensity scale for bilateral method.
         p (int): Minkowski metric for NS queries.
         coef (np.ndarray, optional): Custom kernel for moving-average.
-        polyorder (int): Polynomial order for Savitzky-Golay.
+        polyorder (int): Polynomial order for Savitzky-Golay; must be < `window`.
+        derive (int): Derivative order for Savitzky-Golay (`savgol_filter` `deriv`),
+            0 for smoothing; must be in [0, polyorder].
+        delta (float): Sample spacing used by Savitzky-Golay for derivative scaling; must be > 0.
         wavelet (str): Wavelet family for wavelet denoising.
         threshold_mode (str): 'soft' or 'hard' for wavelet thresholding.
 
@@ -639,7 +653,7 @@ def smoother(intensity:np.ndarray,
 
     elif method_norm == "savgol":
         _input_validation(intensity=intensity, window=window)
-        return smooth_signal_savgol(intensity, window=window, polyorder=polyorder)
+        return smooth_signal_savgol(intensity, window=window, polyorder=polyorder, derive=derive, delta=delta)
 
     elif method_norm == "wavelet":
         _input_validation(intensity=intensity)

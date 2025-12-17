@@ -89,9 +89,16 @@ class MetaDataFileBase:
     @mask.setter
     def mask(self, mask: Optional[np.ndarray]):
         """Set the mask of the data model."""
-        if mask is not None and len(mask.shape) == 2:
-            self._mask = mask
-            self._set('mask', mask)
+        if mask is None:
+            return
+        if not isinstance(mask, np.ndarray):
+            logger.error("mask must be a numpy.ndarray")
+            raise TypeError("mask must be a numpy.ndarray")
+        if mask.ndim != 2:
+            logger.error(f"mask must be 2D, got shape {mask.shape}")
+            raise TypeError("mask must be a 2D array")
+        self._mask = mask
+        self._set('mask', mask)
     #Metadata properties with auto-sync
     @property
     def name(self):
@@ -112,7 +119,8 @@ class MetaDataFileBase:
     @version.setter
     def version(self, version):
         if version is not None:
-            assert version > 0, "Version must be positive"
+            if version <= 0:
+                raise ValueError("Version must be positive")
             self._version = version
             self._set('version', version)
 
@@ -276,7 +284,10 @@ class MetaDataFileBase:
     @property
     def coordinates_zero_based(self)-> bool:
         """
-        Flag indicating whether coordinates are zero-based.
+        Returns True if coordinates use zero-based indexing.
+    
+        Raises:
+            ValueError: If the coordinate system has not been properly initialized.
         """
         if self._coordinates_zero_based is not None:
             return self._coordinates_zero_based

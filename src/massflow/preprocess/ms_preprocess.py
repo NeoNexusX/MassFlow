@@ -34,14 +34,16 @@ License: See LICENSE file in project root
 """
 from typing import Union, Optional, Sequence
 import numpy as np
-from massflow.module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
+from massflow.module.spectrum_base import SpectrumBaseModule
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.logger import get_logger
-from .peak_align_helper import peak_align, get_reference
-from .filter_helper import smoother
-from .normalizer_helper import normalizer
-from .baseline_correction_helper import baseline_corrector
-from .est_noise_helper import estimator
-from .peak_pick_helper import peak_pick_fun
+from massflow.preprocess.peak_align_helper import peak_align, get_reference
+from massflow.preprocess.filter_helper import smoother
+from massflow.preprocess.normalizer_helper import normalizer
+from massflow.preprocess.baseline_correction_helper import baseline_corrector
+from massflow.preprocess.est_noise_helper import estimator
+from massflow.preprocess.peak_pick_helper import peak_pick_fun
 import os
 import time
 
@@ -163,7 +165,7 @@ class MSIPreprocessor:
         )
 
     @staticmethod
-    def peak_alignment(ms_data: MS,
+    def peak_alignment(ms_data: MassSpectrumSet,
                        ref: Optional[np.ndarray] = None,
                        units: str = 'ppm',
                        tolerance: Optional[float] = None,
@@ -173,13 +175,13 @@ class MSIPreprocessor:
                        ref_method: Optional[str] = None,
                        ref_mzres: Optional[float] = None,
                        ref_mzmaxshift: Optional[float] = None,
-                       ref_mzunits: Optional[str] = None) -> MS:
+                       ref_mzunits: Optional[str] = None) -> MassSpectrumSet:
         """
         Peak alignment entry (streaming): dispatch parameters, optionally compute density-based reference,
-        delegate to streaming `peak_align`, and return the aligned MS object.
+        delegate to streaming `peak_align`, and return the aligned MassSpectrumSet object.
 
         Returns:
-            MS: Aligned collection whose spectra share the reference axis.
+            MassSpectrumSet: Aligned collection whose spectra share the reference axis.
 
         Raises:
             ValueError: When input spectra are empty or density reference computation fails.
@@ -382,7 +384,7 @@ class MSIPreprocessor:
             wavelet=wavelet,
             threshold_mode=threshold_mode,
         )
-
+       
         return SpectrumBaseModule(
             mz_list=data.mz_list,
             intensity=smoothed_intensity,

@@ -2,7 +2,7 @@ from typing import Sequence, Tuple, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 from massflow.preprocess.ms_preprocess import MSIPreprocessor
-from massflow.module.ms_module import SpectrumBaseModule
+from massflow.module.spectrum_base import SpectrumBaseModule
 from massflow.logger import get_logger
 
 logger = get_logger("tools.plot")
@@ -242,7 +242,7 @@ def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
     """
 
     _, ax = plt.subplots(1, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 6))
-    color = ['#5d7db3', '#d2c3d5'] if color is None else color
+    color = ['#5d7db3', '#f01919'] if color is None else color
     line_width = [1, 1] if line_width is None else line_width
     plot_mode = ["line","line"] if plot_mode is None else plot_mode
 
@@ -326,7 +326,7 @@ def plot_two_individual(target: SpectrumBaseModule,
     """
     # get two subplots
     _, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
-    color = ['#5d7db3', '#d2c3d5'] if color is None else color
+    color = ['#5d7db3', "#f01919"] if color is None else color
     line_width = [1, 1] if line_width is None else line_width
     plot_mode = ["line","line"] if plot_mode is None else plot_mode
 

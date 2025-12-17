@@ -11,8 +11,8 @@ License: See LICENSE file in project root
 from typing import Optional
 import h5py
 import numpy as np
-from .msi_data_manager_base import MSIDataManagerBase
-from .msi_module import MSIBaseModule
+from massflow.module.msi_data_manager_base import MSIDataManagerBase
+from massflow.module.msi_module import MSIBaseModule
 
 
 class MSIDataManagerZYS(MSIDataManagerBase):

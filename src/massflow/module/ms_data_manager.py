@@ -11,7 +11,7 @@ License: See LICENSE file in project root
 from abc import ABC, abstractmethod
 import numpy as np
 from massflow.logger import get_logger
-from massflow.module.ms_module import MS
+from massflow.module.mass_spectrum_set import MassSpectrumSet
 import random
 from concurrent.futures import ThreadPoolExecutor
 
@@ -23,7 +23,7 @@ class MSDataManager(ABC):
     Abstract base class for MS Data Manager.
     """
     def __init__(self,
-                 ms: MS,
+                 ms: MassSpectrumSet,
                  target_mz_range=None,
                  target_locs=None,
                  filepath=None,
@@ -32,7 +32,7 @@ class MSDataManager(ABC):
         Initialize the MS data manager.
 
         Args:
-            ms (MS): Mass-spectrometry domain model instance.
+            ms (MassSpectrumSet): Mass-spectrometry domain model instance.
             target_mz_range (tuple[float, float], optional): (min_mz, max_mz) to filter peaks.
             target_locs (list[tuple], optional): List of (x,y) or (x,y,z) coordinates to load.
             filepath (str, optional): Path to the input file.
@@ -73,7 +73,7 @@ class MSDataManager(ABC):
         
 
     @property
-    def ms(self) -> MS:
+    def ms(self) -> MassSpectrumSet:
         """
         Get the MS object.
 
@@ -83,12 +83,12 @@ class MSDataManager(ABC):
         return self._ms
 
     @ms.setter
-    def ms(self, ms: MS):
+    def ms(self, ms: MassSpectrumSet):
         """
         Set the MS object.
 
         Args:
-            ms (MS): Mass-spectrometry domain model instance.
+            ms (MassSpectrumSet): Mass-spectrometry domain model instance.
         """
         self._ms = ms
 
@@ -101,7 +101,7 @@ class MSDataManager(ABC):
         :attr:`self.target_locs` / :attr:`self.target_mz_range` as needed.
         """
 
-    def inspect_data(self,inpect_num=2):
+    def inspect_data(self,inspect_num=2):
         """
         Inspect the data structure of the MSI object.
 
@@ -125,15 +125,14 @@ class MSDataManager(ABC):
             logger.info(meta_info)
 
         # get base info
-        base_info = "MS  information:\r\n"
+        base_info = "MS information:\r\n"
         pointer4num = 0
         for spectrum in self._ms:
-            if pointer4num >= inpect_num:
+            if pointer4num >= inspect_num:
                 break
             base_info+=(f"  MS len: {len(spectrum)}\r\n"
                         f"  MS range: {min(spectrum.mz_list)} - {max(spectrum.mz_list)}\r\n"
                         f"  MS coord: {spectrum.coordinates}\r\n"
-                        f"  max and min mz_list: {max(spectrum.mz_list)} - {min(spectrum.mz_list)}\r\n"
                         f"  max intensity: {max(spectrum.intensity)}\r\n\r\n")
             pointer4num += 1
         logger.info(base_info)
@@ -256,3 +255,66 @@ class MSDataManager(ABC):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    def update_target_mz(self,
+                         mz_range,
+                         sort_by_mz: bool = True,
+                         batch_size: int = 256,
+                         max_threads: int = -1,
+                         mode: str = 'update'):
+        if mz_range is None or not isinstance(mz_range, (tuple, list)) or len(mz_range) != 2:
+            logger.error("mz_range must be a tuple/list of two numbers")
+            raise ValueError("mz_range must be a tuple/list of two numbers")
+        try:
+            low = float(mz_range[0])
+            high = float(mz_range[1])
+        except Exception:
+            logger.error("mz_range elements must be numbers")
+            raise ValueError("mz_range elements must be numbers")
+        if not low < high:
+            logger.error("mz_range[0] should be less than mz_range[1]")
+            raise ValueError("mz_range[0] should be less than mz_range[1]")
+
+        self.target_mz_range = (low, high)
+
+        mode_norm = (mode or 'update').strip().lower()
+        if mode_norm not in ('update', 'new'):
+            logger.error("Unsupported mode")
+            raise ValueError("Unsupported mode")
+
+        invalid_coords = []
+
+        if mode_norm == 'update':
+            def _crop_update(sp):
+                _ = sp.intensity
+                sp.crop_range(xr=(low, high), sort_by_mz=sort_by_mz, mode='update')
+                is_invalid = getattr(sp, '_crop_invalid', False)
+                return sp.coordinates if is_invalid else None
+            for batch in self.get_batch_generator(batch_size=batch_size, max_threads=max_threads):
+                results = list(self.threads_executor.map(_crop_update, batch))
+                for c in results:
+                    if c is not None:
+                        invalid_coords.append(c)
+            logger.info(f"invalid spectra in range {(low, high)} count={len(invalid_coords)} at {invalid_coords}")
+            return
+
+        elif mode_norm == 'new':
+            new_ms = MassSpectrumSet()
+            if self.ms.meta:
+                new_ms.meta = self.ms.meta
+
+            def _crop_new(sp):
+                _ = sp.intensity
+                new_sp = sp.crop_range(xr=(low, high), sort_by_mz=sort_by_mz, mode='new')
+                is_invalid = getattr(new_sp, '_crop_invalid', False)
+                return (new_sp, new_sp.coordinates if is_invalid else None)
+
+            for batch in self.get_batch_generator(batch_size=batch_size, max_threads=max_threads):
+                results = list(self.threads_executor.map(_crop_new, batch))
+                for new_sp, coord in results:
+                    new_ms.update_spectrum_with_coord(new_sp)
+                    if coord is not None:
+                        invalid_coords.append(coord)
+
+            logger.info(f"invalid spectra in range {(low, high)} count={len(invalid_coords)} at {invalid_coords}")
+            return new_ms

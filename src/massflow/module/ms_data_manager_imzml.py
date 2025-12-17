@@ -12,9 +12,10 @@ import warnings
 from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
-from .ms_data_manager import MSDataManager
-from .ms_module import MS,SpectrumImzML
-from .meta_data import ImzMlMetaData
+from massflow.module.ms_data_manager import MSDataManager
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.spectrum_imzml import SpectrumImzML
+from massflow.module.meta_data import ImzMlMetaData
 
 logger = get_logger("ms_data_manager_imzml")
 
@@ -28,7 +29,7 @@ class MSDataManagerImzML(MSDataManager):
     """
 
     def __init__(self,
-                 ms: MS,
+                 ms: MassSpectrumSet,
                  target_locs=None,
                  filepath=None,
                  coordinates_zero_based: bool = True,
@@ -37,9 +38,8 @@ class MSDataManagerImzML(MSDataManager):
         Initialize the ImzML data manager.
 
         Args:
-            ms (MS): Mass-spectrometry domain model instance.
-            target_locs (list[tuple], optional): Spatial window [[x1, y1], [x2, y2]] or
-                list of (x, y) / (x, y, z) coordinates to load; when None, load all.
+            ms (MassSpectrumSet): Mass-spectrometry domain model instance.
+            target_locs (list[tuple], optional): Spatial window [[x1, y1], [x2, y2]] when None, load all.
             filepath (str, optional): Path to the .imzML file (XML header; paired .ibd is
                 resolved automatically).
             coordinates_zero_based (bool): Whether coordinates exposed in metadata/MS
@@ -187,7 +187,7 @@ class MSDataManagerImzML(MSDataManager):
         """Update metadata during spectrum streaming (continuous mode + min pixel tracking)."""
 
         if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None: #type: ignore
-            logger.info("Assigning mz_list for continuous data. use shared mz_list. please watchout!")
+            logger.info("Assigning mz_list for continuous data, use shared mz_list. please watchout!")
             self.ms.shared_mz_list , _ = self.parser.getspectrum(kwargs['index'])
 
         #update min   pixel x,y

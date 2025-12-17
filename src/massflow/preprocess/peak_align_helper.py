@@ -9,7 +9,8 @@ from typing import List, Optional, Literal, Tuple, Dict
 import numpy as np
 from numpy.typing import NDArray
 from scipy import interpolate, signal, linalg
-from massflow.module.ms_module import MS, SpectrumBaseModule
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.spectrum_base import SpectrumBaseModule
 
 logger = get_logger("peak_alignment")
 
@@ -42,7 +43,7 @@ class AlignResult:
     - freq: hit frequency (count/nspec)
     - tolerance/units/binfun/binratio: parameter echo for auditing and reproducibility
     """
-    ms_aligned: MS
+    ms_aligned: MassSpectrumSet
     ref: NDArray[np.float64]
     count: NDArray[np.int64]
     freq: NDArray[np.float64]
@@ -629,9 +630,9 @@ def _estimate_tolerance(
         return round(2.0 * tol, 6) * 0.5
     return round(tol, 4)
 
-# [Refactor] `peak_align` now accepts `MS` and returns `AlignResult` with `MS` object
+# [Refactor] `peak_align` now accepts `MassSpectrumSet` and returns `AlignResult` with `MassSpectrumSet` object
 def peak_align(
-        ms_data: MS,
+        ms_data: MassSpectrumSet,
         ref: Optional[NDArray[np.float64]] = None,
         binfun: Literal["median", "min", "max", "mean"] = "min",
         binratio: int = 2,
@@ -645,7 +646,7 @@ def peak_align(
     Behavior:
     1) Extract peak lists for domain estimation.
     2) Build reference axis (ref) and resolve tolerance.
-    3) Stream through `ms_data`, align each spectrum, and build a new `MS`.
+    3) Stream through `ms_data`, align each spectrum, and build a new `MassSpectrumSet`.
 
     Returns:
         AlignResult: Contains `ms_aligned`, `ref`, `count`, `freq`, `tolerance`, `units`, `binfun`, `binratio`.
@@ -740,7 +741,7 @@ def peak_align(
     # 3. Stream Alignment and MS Construction (The Optimization)
     logger.info(f"peak_align: ref built ({len(ref_vec)} peaks). Starting stream alignment...")
     
-    ms_aligned = MS()
+    ms_aligned = MassSpectrumSet()
     if ms_data.meta:
         new_meta = copy.copy(ms_data.meta)
         if hasattr(new_meta, 'parser'):

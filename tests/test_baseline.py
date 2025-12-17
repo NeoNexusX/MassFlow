@@ -1,7 +1,8 @@
 import time
 import pytest
 import numpy as np
-from massflow.module.ms_module import MS, SpectrumBaseModule
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.spectrum_base import SpectrumBaseModule
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.preprocess.ms_preprocess import MSIPreprocessor
 from massflow.logger import get_logger
@@ -11,7 +12,7 @@ logger = get_logger("test_baseline")
 
 @pytest.fixture(scope="session")
 def denoised_spec() -> SpectrumBaseModule:
-    ms = MS()
+    ms = MassSpectrumSet()
     with MSDataManagerImzML(ms, filepath="data/neg-gz4.imzML") as ms_md:
         ms_md.load_full_data_from_file()
         ms_md.inspect_data()

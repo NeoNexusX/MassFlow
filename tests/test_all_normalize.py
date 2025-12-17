@@ -2,7 +2,7 @@ import numpy as np
 import time
 from functools import partial
 import pytest
-from massflow.module.ms_module import MS
+from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.preprocess.ms_preprocess import MSIPreprocessor
 from massflow.logger import get_logger
@@ -10,7 +10,7 @@ from massflow.logger import get_logger
 logger = get_logger("test_all_normalize")
 
 def pre_load_data_setup(data_file_path="data/neg-gz4.imzML"):
-    mass_data = MS()
+    mass_data = MassSpectrumSet()
 
     with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
         ms_md.load_full_data_from_file()
@@ -25,7 +25,7 @@ def pre_load_data_setup(data_file_path="data/neg-gz4.imzML"):
     return (mass_data,), {}
 
 
-def replace_normalization_data(mass_spectrum: MS, method="tic", scale_method="none", scale=1.0):
+def replace_normalization_data(mass_spectrum: MassSpectrumSet, method="tic", scale_method="none", scale=1.0):
     for spectrum in mass_spectrum:
         spectrum_new = MSIPreprocessor.normalization_spectrum(
             spectrum, method=method, scale_method=scale_method, scale=scale

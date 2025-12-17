@@ -5,7 +5,7 @@ License: See LICENSE file in project root
 import numpy as np
 from matplotlib import pyplot as plt
 from massflow.logger import get_logger
-from .meta_data import MSIMetaData
+from massflow.module.meta_data import MSIMetaData
 
 logger = get_logger("msi_module")
 
