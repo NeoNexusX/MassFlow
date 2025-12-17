@@ -17,7 +17,7 @@ import numpy as np
 import tempfile
 from massflow.logger import get_logger
 from massflow.module.ms_module import MS
-
+from pyimzml.ImzMLParser import ImzMLWriter
 logger = get_logger("ms_data_manager")
 
 
@@ -56,9 +56,13 @@ class MSDataManager(ABC):
         self.swap_fd, swap_file_path = tempfile.mkstemp(
             dir=temp_dir,
             prefix="massflow_swap_",
-            suffix=".bin"
+            suffix=".imzML"
         )
+        os.close(self.swap_fd)
+        self.swap_fd = None
         self.swap_file_path = Path(swap_file_path)
+        self.writer = ImzMLWriter(str(self.swap_file_path))
+        self._ms._swap_file_path = self.swap_file_path
 
         logger.info(f"swap file path: {self.swap_file_path}")
 
@@ -111,6 +115,13 @@ class MSDataManager(ABC):
             ms (MS): Mass-spectrometry domain model instance.
         """
         self._ms = ms
+
+    @property
+    def swap_writer(self):
+        """
+        返回writer。
+        """
+        return self.writer
 
     @abstractmethod
     def load_full_data_from_file(self):
@@ -297,6 +308,9 @@ class MSDataManager(ABC):
             self._threads_executor.shutdown(wait=True)
             self._threads_executor = None
 
+        if hasattr(self, "writer") and self.writer is not None:
+            self.writer.close()
+
         # file will deleted in final
         try:
             if self.swap_fd is not None:
@@ -307,6 +321,7 @@ class MSDataManager(ABC):
             self.swap_fd = None
             if self.swap_file_path is not None:
                 Path(self.swap_file_path).unlink(missing_ok=True)
+                Path(self.swap_file_path).with_suffix(".ibd").unlink(missing_ok=True)
 
     def __enter__(self):
         return self

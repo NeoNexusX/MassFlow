@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional,TYPE_CHECKING
 import numpy as np
+from pyimzml.ImzMLWriter import ImzMLWriter
 
 if TYPE_CHECKING:
     from massflow.module.ms_module import SpectrumBaseModule
@@ -10,7 +11,9 @@ if TYPE_CHECKING:
 @dataclass
 class SpectrumSwaperBase(ABC):
     spectrum: "SpectrumBaseModule"
-    offset: int = -1
+    # continuous 数据下考虑，还是每个spectrum单独存储mz/int的offset更合理
+    mz_offset: int = -1
+    int_offset: int = -1
     _length: int = -1
     _mz_dtype: Optional[np.dtype] = None
     _intensity_dtype: Optional[np.dtype] = None
@@ -27,7 +30,11 @@ class SpectrumSwaperBase(ABC):
             mz = getattr(self.spectrum, "mz_list", None)
             self._length = 0 if mz is None else len(mz)
         return  self._length
-
+    
+    @length.setter
+    def length(self, value):
+        self._length = value
+    
     @property
     def mz_dtype(self) -> Optional[np.dtype]:
         if self._mz_dtype is None:
@@ -47,7 +54,7 @@ class SpectrumSwaperBase(ABC):
         pass
 
     @abstractmethod
-    def swap_out2disk(self, fd: int):
+    def swap_out2disk(self, writer: ImzMLWriter):
         """Swap spectrum data out to disk using a raw file descriptor.
 
         Implementations should use low-level OS APIs (e.g. os.lseek/os.write)

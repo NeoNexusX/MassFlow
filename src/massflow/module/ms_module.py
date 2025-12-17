@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 from massflow.logger import get_logger
 from massflow.module.ms_swaper_binary import SpectrumSwaperBinary
 from massflow.module.meta_data import MetaDataFileBase
+from pyimzml.ImzMLWriter import ImzMLWriter
 logger = get_logger("ms_module")
 
 
@@ -668,7 +669,7 @@ class MS:
         - Thread-safe for read operations
     """
 
-    def __init__(self):
+    def __init__(self, swap_file_path: Optional[Path] = None):
         """
         Initialize an empty MS collection.
 
@@ -679,6 +680,7 @@ class MS:
         self._queue = []
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
         self._shared_mz_list = None
+        self._swap_file_path = swap_file_path
 
     @property
     def shared_mz_list(self):
@@ -727,7 +729,7 @@ class MS:
             - Creates nested dictionary structure if coordinates don't exist.
             - Updates the existing spectrum in place when coordinates already exist.
         """
-        self.update_spectrum_with_coord(spectrum = spectrum)
+        self.update_spectrum_with_coord(spectrum = spectrum, swap_file_path=self._swap_file_path)
 
     def get_spectrum(self, x: int, y: int, z: int = 0) -> SpectrumBaseModule:
         """
@@ -757,7 +759,8 @@ class MS:
             raise KeyError(f"No spectrum found at coordinates ({x}, {y}, {z})")
         return self._coordinate_index[z][x][y]
 
-    def update_spectrum_with_coord(self,spectrum: SpectrumBaseModule,x=-1,y=-1,z=-1):
+    def update_spectrum_with_coord(self,spectrum: SpectrumBaseModule,x=-1,y=-1,z=-1,
+                                   swap_file_path: Optional[Path] = None):
         """
         Add or replace a spectrum in the coordinate index and queue.
 
@@ -776,6 +779,8 @@ class MS:
         # Sync zero_based setting if meta is available
         if self.meta :
             spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
+
+        spectrum.swap_file_path = swap_file_path
 
         # get locations
         x = spectrum.x if x == -1 else x
