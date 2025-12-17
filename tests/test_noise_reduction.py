@@ -2,17 +2,17 @@ import time
 from functools import partial
 
 import pytest
-from massflow.module.ms_module import MS
+from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.logger import get_logger
-from massflow.preprocess.ms_preprocess import MSIPreprocessor
+from massflow.preprocess.spectrum_preprocess import SpectrumPreprocess
 
 logger = get_logger("test_noise_reduction")
 
 # @pytest.fixture(scope="function")
 def pre_load_data_setup(data_file_path="data/example.imzML"):
     #pre load data
-    mass_data = MS()
+    mass_data = MassSpectrumSet()
 
     with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
         ms_md.load_full_data_from_file()
@@ -26,14 +26,14 @@ def pre_load_data_setup(data_file_path="data/example.imzML"):
 
     return (mass_data,), {}
 
-def replace_spectrum(mass_spectrum: MS, method="bi_ns"):
+def replace_spectrum(mass_spectrum: MassSpectrumSet, method="bi_ns"):
     for i, spectrum in enumerate(mass_spectrum):
-        mass_spectrum[i] = MSIPreprocessor.noise_reduction_spectrum(spectrum, method=method)
+        mass_spectrum[i] = SpectrumPreprocess.noise_reduction_spectrum(spectrum, method=method)
 
 
-def replace_spectrum_data(mass_spectrum: MS, method="bi_ns"):
+def replace_spectrum_data(mass_spectrum: MassSpectrumSet, method="bi_ns"):
     for i, spectrum in enumerate(mass_spectrum):
-        spectrum_new = MSIPreprocessor.noise_reduction_spectrum(spectrum, method=method)
+        spectrum_new = SpectrumPreprocess.noise_reduction_spectrum(spectrum, method=method)
         mass_spectrum[i].mz_list = spectrum_new.mz_list
         mass_spectrum[i].intensity = spectrum_new.intensity
 

@@ -9,9 +9,9 @@ import numpy as np
 from scipy import stats
 from scipy.interpolate import InterpolatedUnivariateSpline
 from massflow.logger import get_logger
-from .filter_helper import smoother
+from massflow.preprocess.filter_helper import smoother
 
-logger = get_logger(__name__)
+logger = get_logger("preprocesss")
 
 def _input_validation(intensity,index,nbins,overlap):
 

@@ -4,7 +4,8 @@ from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 
 from massflow.logger import get_logger
-logger = get_logger("ms_preprocess")
+
+logger = get_logger("preprocesss")
 
 def _input_validation(
     intensity:np.ndarray,

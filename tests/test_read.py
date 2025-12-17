@@ -1,14 +1,14 @@
 import time
 import pytest
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.module.ms_module import MS
+from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.logger import get_logger
 logger = get_logger("test_read")
 
 ROUND = 1
 
 def data_reading_benchmark(data_file_path="data/example.imzML"):
-    mass_data = MS()
+    mass_data = MassSpectrumSet()
     with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
         ms_md.load_full_data_from_file()
         ms_md.inspect_data()
@@ -16,7 +16,7 @@ def data_reading_benchmark(data_file_path="data/example.imzML"):
             _ = spectrum_data.intensity
 
 def data_batch_reading_benchmark(data_file_path="data/example.imzML", batch_size=1024, max_workers=2):
-    mass_data = MS()
+    mass_data = MassSpectrumSet()
     with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
         ms_md.load_full_data_from_file()
         ms_md.inspect_data()

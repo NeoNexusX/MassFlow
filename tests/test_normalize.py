@@ -2,22 +2,23 @@ import time
 import pytest
 
 import numpy as np
-from massflow.module.ms_module import SpectrumBaseModule, MS
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.spectrum import Spectrum
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.preprocess.ms_preprocess import MSIPreprocessor
+from massflow.preprocess.spectrum_preprocess import SpectrumPreprocess
 from massflow.logger import get_logger
 
 logger = get_logger("test_normalize")
 
 
 @pytest.fixture(scope="session")
-def denoised_spec() -> SpectrumBaseModule:
-    ms = MS()
+def denoised_spec() -> Spectrum:
+    ms = MassSpectrumSet()
     with MSDataManagerImzML(ms, filepath="data/neg-gz4.imzML") as ms_md:
         ms_md.load_full_data_from_file()
         ms_md.inspect_data()
         sp = ms[0]
-        denoised = MSIPreprocessor.noise_reduction_spectrum(
+        denoised = SpectrumPreprocess.noise_reduction_spectrum(
             data=sp,
             method="gaussian",
             window=11,
@@ -25,8 +26,8 @@ def denoised_spec() -> SpectrumBaseModule:
     return denoised
 
 
-def _normalize_once(spectrum: SpectrumBaseModule, method: str = "tic", scale_method: str = "none", scale: float = 1.0):
-    out = MSIPreprocessor.normalization_spectrum(spectrum, method=method, scale_method=scale_method, scale=scale)
+def _normalize_once(spectrum: Spectrum, method: str = "tic", scale_method: str = "none", scale: float = 1.0):
+    out = SpectrumPreprocess.normalization_spectrum(spectrum, method=method, scale_method=scale_method, scale=scale)
     return out
 
 

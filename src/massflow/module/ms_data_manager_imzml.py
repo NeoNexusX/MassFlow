@@ -2,7 +2,8 @@
 MSI Data Manager for imzML format.
 
 Handles reading .imzML files and loading data into the MSI domain model.
-Supports coordinate-based sub-region loading and shared m/z list for continuous data.
+Supports coordinate-based sub-region loading and a shared m/z list (shared m/z axis) for
+continuous data.
 
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
@@ -14,8 +15,9 @@ from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
 from massflow.module.ms_data_manager import MSDataManager
-from massflow.module.ms_module import MS, SpectrumImzML
-from massflow.module.meta_data import ImzMlMetaData
+from massflow.module.spectrum_imzml import SpectrumImzML
+from massflow.module.ms_meta_data import ImzMlMetaData
+from massflow.module.mass_spectrum_set import MassSpectrumSet
 
 logger = get_logger("ms_data_manager_imzml")
 
@@ -31,7 +33,7 @@ class MSDataManagerImzML(MSDataManager):
 
     def __init__(
         self,
-        ms: MS,
+        ms: MassSpectrumSet,
         target_locs=None,
         filepath=None,
         coordinates_zero_based: bool = True,
@@ -41,9 +43,9 @@ class MSDataManagerImzML(MSDataManager):
         Initialize the ImzML data manager.
 
         Args:
-            ms (MS): Mass-spectrometry domain model instance.
-            target_locs (list[tuple], optional): Spatial window [[x1, y1], [x2, y2]] or
-                list of (x, y) / (x, y, z) coordinates to load; when None, load all.
+            ms (MassSpectrumSet): Mass-spectrometry domain model instance.
+            target_locs (optional): Spatial window for sub-region loading.
+                Expected shape: ([x1, y1], [x2, y2]) (inclusive bounds). When None, load all.
             filepath (str, optional): Path to the .imzML file (XML header; paired .ibd is
                 resolved automatically).
             coordinates_zero_based (bool): Whether coordinates exposed in metadata/MS
@@ -89,9 +91,13 @@ class MSDataManagerImzML(MSDataManager):
 
     def load_full_data_from_file(self):
         """
-        Lazy-load spectra from .imzML:
-        - Build coordinate->index map
-        - Add MSImzML placeholders into MS
+                Stream spectra from .imzML and add lazy SpectrumImzML placeholders into `ms`.
+
+                Behavior:
+                        - Iterates over `parser.coordinates` and creates a `SpectrumImzML` placeholder per pixel.
+                        - If `target_locs` is provided, only pixels within the inclusive window are added.
+                        - For continuous data, `ms.shared_mz_list` is populated once (on first seen spectrum)
+                            and each placeholder gets `spectrum.mz_list = ms.shared_mz_list`.
         """
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
@@ -145,7 +151,7 @@ class MSDataManagerImzML(MSDataManager):
         self.extract_metadata()
 
     def extract_metadata(self):
-        """Iterate _meta_index and populate matching attributes from the parser."""
+        """Iterate `meta_index` and populate matching attributes from the parser."""
 
         logger.info("Extracting metadata...")
 
@@ -166,7 +172,7 @@ class MSDataManagerImzML(MSDataManager):
 
     def find_meta_by_accession_id(
         self, accession_id: str
-    ):  # Use pyimzML.ImzMLParser to fetch metadata
+    ):
         """Search the predefined metadata areas for the given accession identifier."""
 
         search_areas = [
@@ -207,11 +213,11 @@ class MSDataManagerImzML(MSDataManager):
 
         if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None:  # type: ignore
             logger.info(
-                "Assigning mz_list for continuous data. use shared mz_list. please watchout!"
+                "Assigning shared mz_list for continuous data; subsequent spectra will reuse it."
             )
             self.ms.shared_mz_list, _ = self.parser.getspectrum(kwargs["index"])
 
-        # update min   pixel x,y
+        # update min pixel x,y
         if isinstance(self.ms.meta, ImzMlMetaData):
             self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs["x"])
             self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs["y"])

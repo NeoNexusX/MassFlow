@@ -6,12 +6,11 @@ import numpy as np
 from pyimzml.ImzMLWriter import ImzMLWriter
 
 if TYPE_CHECKING:
-    from massflow.module.ms_module import SpectrumBaseModule
+    from massflow.module.spectrum import Spectrum
 
 @dataclass
 class SpectrumSwaperBase(ABC):
-    spectrum: "SpectrumBaseModule"
-    # continuous 数据下考虑，还是每个spectrum单独存储mz/int的offset更合理
+    spectrum: "Spectrum"
     mz_offset: int = -1
     int_offset: int = -1
     _length: int = -1
@@ -23,8 +22,6 @@ class SpectrumSwaperBase(ABC):
         return getattr(self.spectrum, "swap_file_path")
 
     @property
-    # design target:
-    # 1.dynamic length not bind with spectrum data, only get first time when length <=0
     def length(self) -> int:
         if self._length <= 0:
             mz = getattr(self.spectrum, "mz_list", None)

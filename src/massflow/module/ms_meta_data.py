@@ -1,4 +1,4 @@
-# module/msi_meta_data.py
+# module/ms_meta_data.py
 """
 Author: MassFlow Development Team Bionet/dre,NeoNeuxs
 License: See LICENSE file in project root
@@ -26,7 +26,7 @@ meta_index = {
     "MS:1000580": "msn_spectrum"# MSn spectrum
 }
 
-class MetaDataFileBase:
+class MetaDataBase:
     """
     Abstract base class for MSI data models.
 
@@ -46,7 +46,7 @@ class MetaDataFileBase:
                 pixel_size_x: Optional[float] = None,
                 pixel_size_y: Optional[float] = None,
                 mask: Optional[np.ndarray] = None,
-                coordinates_zero_based: bool = True): # [新增参数]
+                coordinates_zero_based: bool = True): # [new parameter added]
 
         self._meta = {}
         # Initialize all metadata fields via properties to trigger auto-sync
@@ -64,7 +64,7 @@ class MetaDataFileBase:
         self._profile_spectrum = None
         self._peakpick = None
         self._mask = None
-        self._coordinates_zero_based = None # [新增初始化]
+        self._coordinates_zero_based = None # [added initialization]
 
         #set actual values through properties
         self.name = name
@@ -76,7 +76,7 @@ class MetaDataFileBase:
         self.pixel_size_x = pixel_size_x
         self.pixel_size_y = pixel_size_y
         self.mask = mask
-        self.coordinates_zero_based = coordinates_zero_based # [新增赋值]
+        self.coordinates_zero_based = coordinates_zero_based # [set value]
 
     def _set(self, key, value):
         self._meta[key] = value
@@ -89,9 +89,17 @@ class MetaDataFileBase:
     @mask.setter
     def mask(self, mask: Optional[np.ndarray]):
         """Set the mask of the data model."""
-        if mask is not None and len(mask.shape) == 2:
-            self._mask = mask
-            self._set('mask', mask)
+        if mask is None:
+            return
+        if not isinstance(mask, np.ndarray):
+            logger.error("mask must be a numpy.ndarray")
+            raise TypeError("mask must be a numpy.ndarray")
+        if mask.ndim != 2:
+            logger.error(f"mask must be 2D, got shape {mask.shape}")
+            raise TypeError("mask must be a 2D array")
+        self._mask = mask
+        self._set('mask', mask)
+
     #Metadata properties with auto-sync
     @property
     def name(self):
@@ -112,6 +120,10 @@ class MetaDataFileBase:
     @version.setter
     def version(self, version):
         if version is not None:
+            if version <= 0:
+                logger.error("Version must be positive")
+                raise ValueError("Version must be positive")
+
             assert version > 0, "Version must be positive"
             self._version = version
             self._set('version', version)
@@ -276,7 +288,10 @@ class MetaDataFileBase:
     @property
     def coordinates_zero_based(self)-> bool:
         """
-        Flag indicating whether coordinates are zero-based.
+        Returns True if coordinates use zero-based indexing.
+    
+        Raises:
+            ValueError: If the coordinate system has not been properly initialized.
         """
         if self._coordinates_zero_based is not None:
             return self._coordinates_zero_based
@@ -292,7 +307,7 @@ class MetaDataFileBase:
         self._coordinates_zero_based = value
         self._set('coordinates_zero_based', self._coordinates_zero_based)
 
-class MSIMetaData(MetaDataFileBase):
+class MSIMetaData(MetaDataBase):
     """
     Metadata class for MSI image-matrix data.
 
@@ -400,7 +415,7 @@ class MSIMetaData(MetaDataFileBase):
             self._mz_num = int(mz_num)
             self._set('mz_num', self._mz_num)
 
-class ImzMlMetaData(MetaDataFileBase):
+class ImzMlMetaData(MetaDataBase):
 
     """ImzML metadata wrapper that loads and caches frequently used fields."""
 
@@ -428,7 +443,7 @@ class ImzMlMetaData(MetaDataFileBase):
                  coordinates_zero_based: bool = True):
 
         """Initialize the metadata object with either a parser or a file path."""
-        # [修改] 将 coordinates_zero_based 传递给父类
+        # [modified] pass `coordinates_zero_based` to the base class
         super().__init__(name=name, 
                          version=version, 
                          storage_mode=storage_mode, 
