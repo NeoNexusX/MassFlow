@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from massflow.logger import get_logger
 from massflow.module.ms_meta_data import MetaDataBase
 from massflow.module.spectrum import Spectrum
+from pyimzml.ImzMLWriter import ImzMLWriter
 
 logger = get_logger("ms_module")
 
@@ -52,7 +53,7 @@ class MassSpectrumSet:
                     z-key in `self._coordinate_index` and will raise if the index is empty.
     """
 
-    def __init__(self):
+    def __init__(self, swap_file_path: Optional[Path] = None):
         """
         Initialize an empty MS collection.
 
@@ -63,6 +64,7 @@ class MassSpectrumSet:
         self._queue = []
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
         self._shared_mz_list = None
+        self._swap_file_path = swap_file_path
 
     @property
     def shared_mz_list(self):
@@ -174,6 +176,7 @@ class MassSpectrumSet:
         if self.meta :
             spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
 
+        spectrum.swap_file_path = self._swap_file_path        
         # get locations
         x = spectrum.x if x == -1 else x
         y = spectrum.y if y == -1 else y
