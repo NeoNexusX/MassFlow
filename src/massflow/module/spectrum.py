@@ -1,7 +1,6 @@
-from massflow.module.spectrum_swaper_binary import SpectrumSwaperBinary
 import numpy as np
 from typing import Union,Optional, Sequence
-from pathlib import Path
+from pyimzml.ImzMLWriter import ImzMLWriter
 from massflow.logger import get_logger
 
 logger = get_logger("ms_module")
@@ -264,7 +263,6 @@ class Spectrum:
         intensity: Optional[np.ndarray],
         coordinates: Union[PixelCoordinates, Sequence[int]],
         sort_by_mz: bool = True,
-        swap_file_path: Optional[Path] = None,
     ):
         """
         Initialize a mass spectrum with m/z values, intensities, and coordinates.
@@ -299,10 +297,6 @@ class Spectrum:
                 "coordinates must be PixelCoordinates or a list/tuple of three ints."
             )
 
-        # swap part
-        # must set filepath first
-        self.swap_file_path = swap_file_path
-        self.swaper = SpectrumSwaperBinary(spectrum=self)
 
         # sort part , do not use _sort_by_mz
         self._sort_by_mz = sort_by_mz
@@ -312,8 +306,7 @@ class Spectrum:
         Internal hook to resolve/load data.
         Base implementation handles loading from swap file if available.
         """
-        if self._mz_list is None and self.swaper.offset >= 0:
-            self.swaper.read_block()
+        pass
 
     # lazy load properties
     @property
@@ -542,3 +535,6 @@ class Spectrum:
             AttributeError: If 'coordinates' is not initialized.
         """
         return self.coordinates.z
+    
+    def swap_out2disk(self, writer: ImzMLWriter):
+        pass

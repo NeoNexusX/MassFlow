@@ -11,6 +11,7 @@ License: See LICENSE file in project root
 
 import os
 import warnings
+import numpy as np
 from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
@@ -33,11 +34,14 @@ class MSDataManagerImzML(MSDataManager):
 
     def __init__(
         self,
-        ms: MassSpectrumSet,
+        ms: MassSpectrumSet = None,
         target_locs=None,
         filepath=None,
         coordinates_zero_based: bool = True,
         max_threads: int = 10,
+        temp_dir = None,
+        mz_dtype = np.float64,
+        intensity_dtype =  np.float32,
     ):
         """
         Initialize the ImzML data manager.
@@ -52,32 +56,33 @@ class MSDataManagerImzML(MSDataManager):
                 are treated as zero-based.
             max_threads (int): Maximum worker threads for batch loading utilities.
         """
-        super().__init__(ms, None, target_locs, filepath, max_threads=max_threads)
+        super().__init__(ms, None, target_locs, filepath, max_threads=max_threads, mz_dtype=mz_dtype, intensity_dtype=intensity_dtype, temp_dir=temp_dir)
 
-        if not self.filepath or not os.path.exists(self.filepath):
-            logger.error(f"Error: File {self.filepath} does not exist.")
-            raise FileNotFoundError(f"Error: File {self.filepath} does not exist.")
+        self.coordinates_zero_based = coordinates_zero_based
+        self.parser = None
+        self.reader = None
+        self.ibd_path = None
 
+        if os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0:
+            self._init_reader_and_parser()
+        else:
+            logger.info(f"File {self.filepath} is new or empty. Skipping initial parsing.")
+            if self.ms.meta is None:
+                self.ms.meta = ImzMlMetaData(parser=None, filepath=self.filepath, coordinates_zero_based=self.coordinates_zero_based)
+
+    def _init_reader_and_parser(self):
+        """Initialize the ImzML parser and spectrum reader."""
+        
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             self.parser = ImzMLParser(self.filepath)
-
-            combined_message = "\r\n".join([f"{wm.message}" for wm in w])
-            if len(combined_message) > 0:
-                logger.warning(f"{combined_message}")
-
-        # meta data protection and read meta data
+        
         if self.ms.meta is None:
-            self.ms.meta = ImzMlMetaData(
-                parser=self.parser, coordinates_zero_based=coordinates_zero_based
-            )
+            self.ms.meta = ImzMlMetaData(parser=self.parser, filepath=self.filepath, coordinates_zero_based=self.coordinates_zero_based)
+        else:
+            self.ms.meta.parser = self.parser
 
-        if self.ms.meta.parser is None:  # type: ignore
-            self.ms.meta.parser = self.parser  # type: ignore
-
-        # multi-threading safety support
         ibd_path = self.filepath[:-5] + "ibd"
-        logger.info(f"Looking for corresponding .ibd file at {ibd_path}...")
         if os.path.exists(ibd_path):
             self.ibd_path = ibd_path
             self.reader = self.parser.portable_spectrum_reader()
@@ -99,6 +104,12 @@ class MSDataManagerImzML(MSDataManager):
                         - For continuous data, `ms.shared_mz_list` is populated once (on first seen spectrum)
                             and each placeholder gets `spectrum.mz_list = ms.shared_mz_list`.
         """
+        if self.parser is None:
+            if os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0:
+                self._init_reader_and_parser()
+            else:
+                raise ValueError("Cannot load data: File is empty or does not exist.")
+            
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
 
@@ -130,7 +141,6 @@ class MSDataManagerImzML(MSDataManager):
                         ibd_path=self.ibd_path,
                         index=i,
                         coordinates=[x, y, z],
-                        swap_file_path=self.swap_file_path,
                     )
 
                     # judge mz_list is used or not

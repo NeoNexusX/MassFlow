@@ -13,9 +13,8 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 
-from pathlib import Path
 from massflow.module.spectrum import Spectrum
-from typing import Optional
+from pyimzml.ImzMLWriter import ImzMLWriter
 from massflow.logger import get_logger
 logger = get_logger("ms_module")
 
@@ -51,14 +50,13 @@ class SpectrumImzML(Spectrum):
     """
 
     def __init__(self,
-                 reader,
-                 ibd_path, 
                  index: int, 
                  coordinates,
+                 reader=None,
+                 ibd_path=None, 
                  mz_list=None,
                  intensity=None,
-                 sort_by_mz: bool = True,
-                 swap_file_path: Optional[Path] = None):
+                 sort_by_mz: bool = True,):
 
         # ImzML reader part
         self._reader = reader
@@ -69,20 +67,16 @@ class SpectrumImzML(Spectrum):
         super().__init__(mz_list=mz_list,
                          intensity=intensity,
                          coordinates=coordinates,
-                         sort_by_mz=sort_by_mz,
-                         swap_file_path=swap_file_path)
+                         sort_by_mz=sort_by_mz,)
 
     def _resolve_data(self):
         """
         Internal hook to resolve/load data.
         Base implementation handles loading from swap file if available.
         """
-        # first try swaper
-        if self.swaper.offset >= 0:
-            self.swaper.read_block()
 
         # then try imzml reader
-        elif self._ibd_path is not None:
+        if self._ibd_path is not None:
             with open(self._ibd_path, 'rb') as f:
                 mz, intensity = self._reader.read_spectrum_from_file(f, self._index)
                 self._mz_list = mz.copy()
@@ -92,3 +86,25 @@ class SpectrumImzML(Spectrum):
         else:
             logger.error("mz_list is None, can not resolve data.")
             raise ValueError("mz_list is None, can not resolve data.")
+        
+    def swap_out2disk(self, writer: ImzMLWriter):
+        """Write spectrum data to disk using ImzMLWriter."""
+
+        if self._reader is None:
+
+            if self.mz_list is None or self.intensity is None:
+                logger.error("Both mz_list and intensity cannot be None")
+                raise ValueError("Both mz_list and intensity cannot be None")
+
+            assert len(self.mz_list) == len(self.intensity)
+
+            f_mz = self.mz_list
+            f_intensity = self.intensity
+
+            coords_tuple = (self.x, self.y, self.z)
+
+            writer.addSpectrum(f_mz, f_intensity, coords_tuple)
+
+        else:
+            self._mz_list = None
+            self._intensity = None

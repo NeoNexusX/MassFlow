@@ -17,7 +17,9 @@ import numpy as np
 import tempfile
 from massflow.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
-from pyimzml.ImzMLParser import ImzMLWriter
+from pyimzml.ImzMLWriter import ImzMLWriter
+import uuid
+import shutil
 logger = get_logger("ms_data_manager")
 
 
@@ -28,12 +30,15 @@ class MSDataManager(ABC):
 
     def __init__(
         self,
-        ms: MassSpectrumSet,
+        ms: MassSpectrumSet = None,
         target_mz_range=None,
         target_locs=None,
         filepath=None,
         max_threads: int = 10,
         temp_dir = None,
+        mode = "auto",
+        mz_dtype = np.float64,
+        intensity_dtype = np.float32,
     ):
         """
         Initialize the MS data manager.
@@ -45,26 +50,35 @@ class MSDataManager(ABC):
             filepath (str, optional): Path to the input file.
         """
 
-        self._ms = ms
+        self._ms = MassSpectrumSet() if ms is None else ms
         self.target_mz_range = target_mz_range
 
         # Multi-threading control part
         self.max_threads = max_threads
         self._threads_executor = None
 
-        # swap method for data
-        self.swap_fd, swap_file_path = tempfile.mkstemp(
-            dir=temp_dir,
-            prefix="massflow_swap_",
-            suffix=".imzML"
-        )
-        os.close(self.swap_fd)
-        self.swap_fd = None
-        self.swap_file_path = Path(swap_file_path)
-        self.writer = ImzMLWriter(str(self.swap_file_path))
-        self._ms._swap_file_path = self.swap_file_path
+        if filepath is None:
+            if temp_dir is not None:
+                self._temp_dir = temp_dir
+                os.makedirs(self._temp_dir, exist_ok=True)
+            else:
+                self._temp_dir = tempfile.mkdtemp(prefix="massflow_imzml_")
+            temp_filename = f"temp_imzml_{uuid.uuid4().hex}.imzml"
+            self.filepath = os.path.join(self._temp_dir, temp_filename)
+            
+            logger.info(f"filepath：{self.filepath}")
+        else:
+            if not filepath.lower().endswith(".imzml"):
+                self.filepath = filepath + ".imzml"
+            else:
+                self.filepath = filepath
 
-        logger.info(f"swap file path: {self.swap_file_path}")
+        self.mz_dtype = mz_dtype
+        self.intensity_dtype = intensity_dtype
+        self.mode = mode
+        
+        self._writer = None
+            
 
         # target_locs input verification
         if target_locs is not None:
@@ -78,7 +92,6 @@ class MSDataManager(ABC):
 
         # update target_locs
         self.target_locs = target_locs
-        self.filepath = filepath
         self.current_spectrum_num = 0
 
     @property
@@ -92,6 +105,59 @@ class MSDataManager(ABC):
     def threads_executor(self, executor: ThreadPoolExecutor):
         """set thread pool executor"""
         self._threads_executor = executor
+
+    @property
+    def writer(self) -> ImzMLWriter:
+        """return writer."""
+
+        if self._writer is None:
+
+            spec_type = "centroid" if self.ms.meta.centroid_spectrum is not None else "centroid"
+            scan_direction = self.ms.meta.scan_direction if self.ms.meta.scan_direction is not None else "top_down"
+            line_scan_direction = self.ms.meta.line_scan_direction if self.ms.meta.line_scan_direction is not None else "line_left_right"
+            scan_pattern = self.ms.meta.scan_pattern if self.ms.meta.scan_pattern is not None else "one_way"
+            scan_type = self.ms.meta.scan_type if self.ms.meta.scan_type is not None else "horizontal_line"
+            if self.ms.meta.continuous is not None:
+                self.mode = "continuous"
+            elif self.ms.meta.processed is not None:
+                self.mode = "processed"
+            else:
+                self.mode = "auto"
+
+            self._writer = ImzMLWriter(str(self.filepath),
+                                        mz_dtype=self.mz_dtype, 
+                                        intensity_dtype=self.intensity_dtype,
+                                        mode=self.mode,
+                                        spec_type=spec_type,
+                                        scan_direction=scan_direction,
+                                        line_scan_direction=line_scan_direction,
+                                        scan_pattern=scan_pattern,
+                                        scan_type=scan_type,
+                                        )
+
+        return self._writer
+
+    def copy_meta(self, source_ms:MassSpectrumSet):
+        """copy metadata from source MS to self MS object."""
+    
+        if source_ms.meta is None:
+            logger.warning("Source MS has no metadata to copy.")
+            return
+        
+        source_meta_dict = source_ms.meta.to_dict()
+
+        exclude_keys = {'mask', 'parser', 'filepath', 'spectrum_count_num', 'continuous', 'processed'}
+        
+        for key, value in source_meta_dict.items():
+            if key not in exclude_keys and hasattr(self._ms.meta, key):
+                try:
+                    setattr(self._ms.meta, key, value)
+                except Exception as e:
+                    logger.warning(f"Failed to copy meta field {key}: {e}")
+
+        self._ms.meta.coordinates_zero_based = source_ms.meta.coordinates_zero_based
+
+        logger.info("Metadata copy completed.")
 
     @property
     def ms(self) -> MassSpectrumSet:
@@ -306,20 +372,16 @@ class MSDataManager(ABC):
             self._threads_executor.shutdown(wait=True)
             self._threads_executor = None
 
+        if hasattr(self, "_temp_dir") and self._temp_dir is not None:
+            if Path(self._temp_dir).exists():
+                shutil.rmtree(self._temp_dir)
+                self._temp_dir = None
+                self.filepath = None
+
+    def close_writer(self):
+        """close ImzMLWriter."""
         if hasattr(self, "writer") and self.writer is not None:
             self.writer.close()
-
-        # file will deleted in final
-        try:
-            if self.swap_fd is not None:
-                os.close(self.swap_fd)
-        except OSError as e:
-            logger.error(f"{e}")
-        finally:
-            self.swap_fd = None
-            if self.swap_file_path is not None:
-                Path(self.swap_file_path).unlink(missing_ok=True)
-                Path(self.swap_file_path).with_suffix(".ibd").unlink(missing_ok=True)
 
     def __enter__(self):
         return self

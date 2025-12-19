@@ -11,19 +11,30 @@ from massflow.logger import get_logger
 logger = get_logger("meta_data")
 
 meta_index = {
+    # --- Image Size and Coordinates ---
     "IMS:1000042": "max_count_of_pixels_x", # Image width (pixel count)
     "IMS:1000043": "max_count_of_pixels_y",# Image height (pixel count)
     "IMS:1000046": "pixel_size_x",# Pixel width (µm)
     "IMS:1000047": "pixel_size_y",# Pixel height (µm)
     "IMS:1000053": "absolute_position_offset_x",# X-axis position offset
     "IMS:1000054": "absolute_position_offset_y",# Y-axis position offset
+
+    # --- Files and Data Formats ---
     "IMS:1000030": "continuous",# Continuous data
     "IMS:1000031": "processed",# Whether the data is processed
+
+    #--- Acquisition Parameters (Imaging MS Ontology) ---
+    "IMS:1000041": "scan_type",
+    "IMS:1000048": "scan_direction",
+    "IMS:1000049": "line_scan_direction",
+    "IMS:1000050": "scan_pattern",
+
+    # --- Mass Spectrometers and Spectral Information (PSI-MS Ontology) ---
     "MS:1000031": "instrument_model",# Instrument model
     "MS:1000127": "centroid_spectrum",# Mass spectrum in centroid mode
     "MS:1000128": "profile_spectrum",# Mass spectrum in profile mode
     "MS:1000579": "ms1_spectrum",# MS1 spectrum
-    "MS:1000580": "msn_spectrum"# MSn spectrum
+    "MS:1000580": "msn_spectrum",# MSn spectrum
 }
 
 class MetaDataBase:
@@ -65,6 +76,10 @@ class MetaDataBase:
         self._peakpick = None
         self._mask = None
         self._coordinates_zero_based = None # [added initialization]
+        self._scan_direction = None
+        self._line_scan_direction = None
+        self._scan_pattern = None
+        self._scan_type = None
 
         #set actual values through properties
         self.name = name
@@ -242,6 +257,47 @@ class MetaDataBase:
         """Set whether profile spectra are present."""
         self._profile_spectrum = profile_spectrum
         self._set('profile_spectrum', profile_spectrum)
+
+    @property
+    def scan_direction(self):
+        """Return the scan direction."""
+        return self._scan_direction
+    
+    @scan_direction.setter
+    def scan_direction(self, scan_direction):
+        """Set the scan direction."""
+        self._scan_direction = scan_direction
+        self._set('scan_direction', scan_direction)
+
+    @property
+    def line_scan_direction(self):
+        """Return the line scan direction."""
+        return self._line_scan_direction
+    @line_scan_direction.setter
+    def line_scan_direction(self, line_scan_direction):
+        """Set the line scan direction."""
+        self._line_scan_direction = line_scan_direction
+        self._set('line_scan_direction', line_scan_direction)
+    
+    @property
+    def scan_pattern(self):
+        """Return the scan pattern."""
+        return self._scan_pattern
+    @scan_pattern.setter
+    def scan_pattern(self, scan_pattern):
+        """Set the scan pattern."""
+        self._scan_pattern = scan_pattern
+        self._set('scan_pattern', scan_pattern)
+    
+    @property
+    def scan_type(self):
+        """Return the scan type."""
+        return self._scan_type
+    @scan_type.setter
+    def scan_type(self, scan_type):
+        """Set the scan type."""
+        self._scan_type = scan_type
+        self._set('scan_type', scan_type)
 
     def __getitem__(self, key):
         return self._meta[key]
@@ -493,12 +549,22 @@ class ImzMlMetaData(MetaDataBase):
 
     @filepath.setter
     def filepath(self, filepath: str):
-        """Set the imzML file path and initialize the parser if needed."""
-        if not filepath or not os.path.exists(filepath):
-            raise FileNotFoundError(f"File not found: {filepath}")
+        """Set the imzML file path and initialize parser if file exists."""
+
+        if not filepath:
+            logger.error("Filepath cannot be empty.")
+            raise ValueError("Filepath cannot be empty.")
+            
         self._filepath = filepath
-        if self.parser is None:
-            self.parser = ImzMLParser(filepath)
+
+        # Only initialize parser if file exists and is not empty
+        if self.parser is None and os.path.exists(filepath):
+            if os.path.getsize(filepath) > 0:
+                self.parser = ImzMLParser(filepath)
+            else:
+                logger.info(f"File {filepath} is empty (swap mode). Skipping parser initialization.")
+        else:
+            logger.info(f"Filepath {filepath} registered. Awaiting data write.")
 
     @property
     def parser(self):
