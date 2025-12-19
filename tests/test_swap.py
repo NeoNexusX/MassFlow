@@ -8,7 +8,31 @@ from massflow.logger import get_logger
 
 logger = get_logger("test_swap")
 
-ROUND = 5
+ROUND = 1
+
+def data_swap_out_direct(ms_raw, limit=-1):
+    """
+    测试：内存数据 -> 磁盘写入 (Swap Out), 直接使用 writer
+    """
+
+    limit = len(ms_raw) if limit == -1 else limit
+
+    ms_swap = MassSpectrumSet()
+    dm_swap = MSDataManagerImzML(ms_swap)
+    dm_swap.copy_meta(ms_raw)
+    writer = dm_swap.writer
+    
+    for i, spec in enumerate(ms_raw):
+        if i >= limit:
+            break
+        spec_processed = spec
+
+        writer.addSpectrum(spec_processed.mz_list, 
+                           spec_processed.intensity, 
+                           spec_processed.coordinates.get_tuple())
+
+    dm_swap.close_writer()
+    return dm_swap
 
 def data_swap_out_object(ms_raw, limit=-1):
     """
@@ -42,10 +66,12 @@ def data_swap_in_benchmark(dm_swap):
     """
     测试：磁盘文件 -> 内存加载与访问 (Swap In)
     """
-    
-    for spec in dm_swap.ms:
-        _ = spec.intensity
 
+    dm_swap.load_full_data_from_file()
+    
+    batch_generator = dm_swap.get_batch_generator()
+    for batch in batch_generator:
+        pass
 
 class TestDataSwap:
     """
@@ -53,26 +79,31 @@ class TestDataSwap:
     """
     
     @pytest.fixture(scope="class")
+
     def ms_raw_data(self):
         """
         固件：加载原始数据，供所有测试用例共享
         """
-        filepath = r"C:\Users\dre\Desktop\data\Row\Row01.imzml"
+        filepath = r"./data/example.imzml"
+
         if not os.path.exists(filepath):
             pytest.skip(f"Original data not found at {filepath}")
             
         ms_raw = MassSpectrumSet()
         dm_raw = MSDataManagerImzML(ms_raw, filepath=filepath)
         dm_raw.load_full_data_from_file()
-
-        for spec in dm_raw.ms:
-            _ = spec.intensity
-
         ms_raw.set_coordinates_zero_based(False)
+        batch_generator = dm_raw.get_batch_generator()
+        for batch in batch_generator:
+            pass
+
         return ms_raw
     
 
     @pytest.mark.parametrize("limit", [-1])
+
+    @pytest.mark.parametrize("limit", [10000])
+    @pytest.mark.parametrize("method", ["direct"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_swap_out_performance(self, benchmark, ms_raw_data, limit):
         """
@@ -90,6 +121,7 @@ class TestDataSwap:
         dm_result.close()
         logger.info("Finished Swap Out benchmark")
 
+    @pytest.mark.parametrize("limit", [-1])
     @pytest.mark.parametrize("limit", [-1])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_swap_in_performance(self, benchmark, ms_raw_data, limit):

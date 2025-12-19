@@ -128,6 +128,19 @@ class PixelCoordinates:
         """
         self._zero_based = bool(value)
 
+    def get_tuple(self) -> Optional[tuple]:
+        """
+        Get coordinates as a tuple.
+
+        Returns:
+            tuple: (x, y, z) coordinates, adjusted by `-1` if `zero_based` is True.
+        """
+        if self.x is not None and self.y is not None and self.z is not None:
+            return (self.x, self.y, self.z)
+        else:
+            logger.error("One or more coordinates are not set.")
+            return None
+
     def __eq__(self, other: object) -> bool:
         """
         Compare equality based on adjusted coordinates.

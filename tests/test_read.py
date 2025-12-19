@@ -5,7 +5,7 @@ from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.logger import get_logger
 logger = get_logger("test_read")
 
-ROUND = 1
+ROUND = 10
 
 def data_reading_benchmark(data_file_path="data/example.imzML"):
     mass_data = MassSpectrumSet()

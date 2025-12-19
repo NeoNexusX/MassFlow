@@ -30,13 +30,12 @@ class MSDataManager(ABC):
 
     def __init__(
         self,
-        ms: MassSpectrumSet = None,
+        ms = None,
         target_mz_range=None,
         target_locs=None,
         filepath=None,
+        temp_dir=None,
         max_threads: int = 10,
-        temp_dir = None,
-        mode = "auto",
         mz_dtype = np.float64,
         intensity_dtype = np.float32,
     ):
@@ -49,7 +48,7 @@ class MSDataManager(ABC):
             target_locs (list[tuple], optional): List of (x,y) or (x,y,z) coordinates to load.
             filepath (str, optional): Path to the input file.
         """
-
+        # create MassSpectrumSet object if not provided
         self._ms = MassSpectrumSet() if ms is None else ms
         self.target_mz_range = target_mz_range
 
@@ -57,38 +56,26 @@ class MSDataManager(ABC):
         self.max_threads = max_threads
         self._threads_executor = None
 
-        if filepath is None:
-            if temp_dir is not None:
-                self._temp_dir = temp_dir
-                os.makedirs(self._temp_dir, exist_ok=True)
-            else:
-                self._temp_dir = tempfile.mkdtemp(prefix="massflow_imzml_")
-            temp_filename = f"temp_imzml_{uuid.uuid4().hex}.imzml"
-            self.filepath = os.path.join(self._temp_dir, temp_filename)
-            
-            logger.info(f"filepath：{self.filepath}")
-        else:
-            if not filepath.lower().endswith(".imzml"):
-                self.filepath = filepath + ".imzml"
-            else:
-                self.filepath = filepath
-
+        # data type part
         self.mz_dtype = mz_dtype
         self.intensity_dtype = intensity_dtype
-        self.mode = mode
-        
+
+        # swap part
+        if filepath is None:
+            base_dir = temp_dir if temp_dir is not None else tempfile.gettempdir()
+            self.filepath = os.path.join(base_dir, f"temp_{uuid.uuid4().hex}.imzML")
+            self.swap_filepath = self.filepath
+        else:
+            self.filepath = filepath
+
         self._writer = None
-            
 
         # target_locs input verification
         if target_locs is not None:
             # target locs input
-            if len(target_locs) <= 1:
-                logger.error("target_locs must be non-empty")
-                raise ValueError("target_locs must be non-empty")
-            elif (target_locs[0][0] > target_locs[1][0]or target_locs[0][1] > target_locs[1][1]):
-                logger.error("locs must x1<x2,y1<y2")
-                raise ValueError("locs must x1<x2,y1<y2")
+            if len(target_locs) <= 1 or (target_locs[0][0] > target_locs[1][0]or target_locs[0][1] > target_locs[1][1]):
+                logger.error("target_locs must be non-empty or locs must x1<x2,y1<y2")
+                raise ValueError("target_locs must be non-empty or locs must x1<x2,y1<y2")
 
         # update target_locs
         self.target_locs = target_locs
@@ -107,35 +94,41 @@ class MSDataManager(ABC):
         self._threads_executor = executor
 
     @property
-    def writer(self) -> ImzMLWriter:
+    def writer(self):
         """return writer."""
 
-        if self._writer is None:
+        if self.ms.meta is not None:
+            if self._writer is None:
 
-            spec_type = "centroid" if self.ms.meta.centroid_spectrum is not None else "centroid"
-            scan_direction = self.ms.meta.scan_direction if self.ms.meta.scan_direction is not None else "top_down"
-            line_scan_direction = self.ms.meta.line_scan_direction if self.ms.meta.line_scan_direction is not None else "line_left_right"
-            scan_pattern = self.ms.meta.scan_pattern if self.ms.meta.scan_pattern is not None else "one_way"
-            scan_type = self.ms.meta.scan_type if self.ms.meta.scan_type is not None else "horizontal_line"
-            if self.ms.meta.continuous is not None:
-                self.mode = "continuous"
-            elif self.ms.meta.processed is not None:
-                self.mode = "processed"
-            else:
-                self.mode = "auto"
+                spec_type = "centroid" if self.ms.meta.centroid_spectrum is not None else "centroid"
+                scan_direction = self.ms.meta.scan_direction if self.ms.meta.scan_direction is not None else "top_down"
+                line_scan_direction = self.ms.meta.line_scan_direction if self.ms.meta.line_scan_direction is not None else "line_left_right"
+                scan_pattern = self.ms.meta.scan_pattern if self.ms.meta.scan_pattern is not None else "one_way"
+                scan_type = self.ms.meta.scan_type if self.ms.meta.scan_type is not None else "horizontal_line"
 
-            self._writer = ImzMLWriter(str(self.filepath),
-                                        mz_dtype=self.mz_dtype, 
-                                        intensity_dtype=self.intensity_dtype,
-                                        mode=self.mode,
-                                        spec_type=spec_type,
-                                        scan_direction=scan_direction,
-                                        line_scan_direction=line_scan_direction,
-                                        scan_pattern=scan_pattern,
-                                        scan_type=scan_type,
-                                        )
+                if self.ms.meta.continuous is not None:
+                    self.mode = "continuous"
+                elif self.ms.meta.processed is not None:
+                    self.mode = "processed"
+                else:
+                    self.mode = "auto"
 
-        return self._writer
+                self._writer = ImzMLWriter(str(self.filepath),
+                                            mz_dtype=self.mz_dtype, 
+                                            intensity_dtype=self.intensity_dtype,
+                                            mode=self.mode,
+                                            spec_type=spec_type,
+                                            scan_direction=scan_direction,
+                                            line_scan_direction=line_scan_direction,
+                                            scan_pattern=scan_pattern,
+                                            scan_type=scan_type,
+                                            )
+            return self._writer
+
+        else:
+            logger.error("MS meta data is None. Please load or copy[use copy_meta method] meta data first.")
+            raise ValueError("MS meta data is None. Please load or copy meta data first.")
+
 
     def copy_meta(self, source_ms:MassSpectrumSet):
         """copy metadata from source MS to self MS object."""
@@ -155,7 +148,7 @@ class MSDataManager(ABC):
                 except Exception as e:
                     logger.warning(f"Failed to copy meta field {key}: {e}")
 
-        self._ms.meta.coordinates_zero_based = source_ms.meta.coordinates_zero_based
+        self._ms.set_coordinates_zero_based (source_ms.meta.coordinates_zero_based)
 
         logger.info("Metadata copy completed.")
 
@@ -344,7 +337,6 @@ class MSDataManager(ABC):
         information) prior to streaming spectra.
         """
 
-
     @abstractmethod
     def loading_meta(self, *args, **kwargs):
         """
@@ -372,11 +364,11 @@ class MSDataManager(ABC):
             self._threads_executor.shutdown(wait=True)
             self._threads_executor = None
 
-        if hasattr(self, "_temp_dir") and self._temp_dir is not None:
-            if Path(self._temp_dir).exists():
-                shutil.rmtree(self._temp_dir)
-                self._temp_dir = None
-                self.filepath = None
+        # temporary directory delete
+        if getattr(self, "swap_filepath", None) is not None:
+            if os.path.exists(self.swap_filepath):
+                os.remove(self.swap_filepath)
+                logger.info(f"Temporary swap file {self.swap_filepath} removed.")
 
     def close_writer(self):
         """close ImzMLWriter."""

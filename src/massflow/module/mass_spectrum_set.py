@@ -452,3 +452,6 @@ class MassSpectrumSet:
                 if x not in self._coordinate_index[z]:
                     self._coordinate_index[z][x] = {}
                 self._coordinate_index[z][x][y] = spectrum
+
+        else:
+            logger.info("Coordinates zero_based flag is already set to the desired value; no changes made.")

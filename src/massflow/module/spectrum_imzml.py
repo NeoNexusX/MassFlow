@@ -105,6 +105,6 @@ class SpectrumImzML(Spectrum):
 
             writer.addSpectrum(f_mz, f_intensity, coords_tuple)
 
-        else:
-            self._mz_list = None
-            self._intensity = None
+        # clear loaded data to save memory
+        self._mz_list = None
+        self._intensity = None
