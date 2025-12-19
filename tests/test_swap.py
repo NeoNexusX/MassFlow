@@ -67,8 +67,6 @@ def data_swap_in_benchmark(dm_swap):
     测试：磁盘文件 -> 内存加载与访问 (Swap In)
     """
 
-    dm_swap.load_full_data_from_file()
-    
     batch_generator = dm_swap.get_batch_generator()
     for batch in batch_generator:
         pass
@@ -92,7 +90,6 @@ class TestDataSwap:
         ms_raw = MassSpectrumSet()
         dm_raw = MSDataManagerImzML(ms_raw, filepath=filepath)
         dm_raw.load_full_data_from_file()
-        ms_raw.set_coordinates_zero_based(False)
         batch_generator = dm_raw.get_batch_generator()
         for batch in batch_generator:
             pass
@@ -101,9 +98,6 @@ class TestDataSwap:
     
 
     @pytest.mark.parametrize("limit", [-1])
-
-    @pytest.mark.parametrize("limit", [10000])
-    @pytest.mark.parametrize("method", ["direct"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_swap_out_performance(self, benchmark, ms_raw_data, limit):
         """
@@ -122,7 +116,6 @@ class TestDataSwap:
         logger.info("Finished Swap Out benchmark")
 
     @pytest.mark.parametrize("limit", [-1])
-    @pytest.mark.parametrize("limit", [-1])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_swap_in_performance(self, benchmark, ms_raw_data, limit):
         """
@@ -140,10 +133,10 @@ class TestDataSwap:
 
         benchmark.pedantic(
             data_swap_in_benchmark,
-            setup=set_up_swap_data, # <--- 关键！把准备工作挂载在这里
+            setup=set_up_swap_data,
             rounds=ROUND,
             iterations=1,
             warmup_rounds=1
         )
-            
+
         logger.info("Finished Swap In benchmark")

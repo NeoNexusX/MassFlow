@@ -34,10 +34,10 @@ class MSDataManagerImzML(MSDataManager):
 
     def __init__(
         self,
-        ms: MassSpectrumSet = None,
+        ms=None,
         target_locs=None,
         filepath=None,
-        coordinates_zero_based: bool = True,
+        coordinates_zero_based: bool = False,
         max_threads: int = 10,
         temp_dir = None,
         mz_dtype = np.float64,
