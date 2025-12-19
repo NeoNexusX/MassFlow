@@ -39,7 +39,7 @@ def data_swap_out_object(ms_raw, limit=-1):
     测试：内存数据 -> 磁盘写入 (Swap Out), 使用 SpectrumImzML 对象方法
     """
     ms_swap = MassSpectrumSet()
-    dm_swap = MSDataManagerImzML(ms_swap)
+    dm_swap = MSDataManagerImzML(ms_swap,temp_dir="./temp_swap")
     dm_swap.copy_meta(ms_raw)
     writer = dm_swap.writer
 

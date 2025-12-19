@@ -19,7 +19,6 @@ from massflow.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from pyimzml.ImzMLWriter import ImzMLWriter
 import uuid
-import shutil
 logger = get_logger("ms_data_manager")
 
 
@@ -63,6 +62,8 @@ class MSDataManager(ABC):
         # swap part
         if filepath is None:
             base_dir = temp_dir if temp_dir is not None else tempfile.gettempdir()
+            if not os.path.exists(base_dir):
+                os.makedirs(base_dir)
             self.filepath = os.path.join(base_dir, f"temp_{uuid.uuid4().hex}.imzML")
             self.swap_filepath = self.filepath
         else:
