@@ -2,7 +2,10 @@
 
 This document describes the core data structures used in MassFlow for mass spectrometry (MS) workflows, with focus on loading and organizing spectra from ImzML. It covers the following modules and their relationships:
 
-- `module/ms_module.py`
+- `module/spectrum.py`
+- `module/spectrum_imzml.py`
+- `module/mass_spectrum_set.py`
+- `module/ms_meta_data.py`
 - `module/ms_data_manager.py`
 - `module/ms_data_manager_imzml.py`
 
@@ -13,34 +16,34 @@ The intent is to present implementation-focused details about classes, attribute
 MassFlow separates domain models (data structures) from data managers (I/O and orchestration):
 
 - Domain model
-  - `SpectrumBaseModule`: Represents a single spectrum with spatial coordinates.
-  - `SpectrumImzML`: Specialized spectrum class for lazy-loading data from ImzML.
-  - `MS`: Collection of spectra with efficient coordinate-based indexing.
+  - `Spectrum`: Represents a single spectrum with spatial coordinates.
+  - `SpectrumImzML` : Specialized spectrum class for lazy-loading data directly from ImzML (`.imzML` + `.ibd`).
+  - `MassSpectrumSet` : Collection of spectra with efficient coordinate-based indexing and metadata attachment.
 - Data manager
-  - `MSDataManager`: Abstract base class defining common options and interface.
-  - `MSDataManagerImzML`: Concrete manager that reads `.imzML` files and populates `MS`.
+  - `MSDataManager` : Abstract base class defining common options and interface for loading MS/MSI data.
+  - `MSDataManagerImzML`: Concrete manager that reads `.imzML` files and populates a `MassSpectrumSet` with lazily-loaded spectra.
 
-Metadata is handled separately (see `module/meta_data.py`) and attached to managers/models as needed.
+Metadata is handled separately (see `module/ms_meta_data.py`) and attached to managers/models as needed.
 
 
 ### Class Diagram (Inheritance)
 
-The following diagram shows the inheritance relationships among the core classes described above. `SpectrumImzML` extends `SpectrumBaseModule`, and `MSDataManagerImzML` extends `MSDataManager`. `MS` is a standalone container class with no inheritance.
+The following diagram shows the inheritance relationships among the core classes described above. `SpectrumImzML` extends `Spectrum`, and `MSDataManagerImzML` extends `MSDataManager`. `MassSpectrumSet` is a standalone container class with no inheritance.
 
-The `MSDataManager` and its concrete implementations (like `MSDataManagerImzML`) are responsible for populating the `MS` container with spectrum data. The manager holds a reference to an `MS` instance and loads spectra into it through the `load_full_data_from_file()` method. The `MS` container holds multiple `SpectrumBaseModule` instances (or its subclasses like `SpectrumImzML`), organizing them by spatial coordinates for efficient access.
+The `MSDataManager` and its concrete implementations (like `MSDataManagerImzML`) are responsible for populating the `MassSpectrumSet` container with spectrum data. The manager holds a reference to an `MassSpectrumSet` instance and loads spectra into it through the `load_full_data_from_file()` method. The `MS` container holds multiple `Spectrum` instances (or its subclasses like `SpectrumImzML`), organizing them by spatial coordinates for efficient access.
 
 ```mermaid
 classDiagram
-    SpectrumBaseModule <|-- SpectrumImzML
+    Spectrum <|-- SpectrumImzML
     MSDataManager <|-- MSDataManagerImzML
-    MSDataManager --> MS : populates
-    MS o-- SpectrumBaseModule : contains
+    MSDataManager --> MassSpectrumSet : populates
+    MassSpectrumSet o-- Spectrum : contains
     
-    class MS {
+    class MassSpectrumSet {
         <<container>>
     }
     
-    class SpectrumBaseModule {
+    class Spectrum {
         <<base class>>
     }
 
@@ -61,10 +64,10 @@ classDiagram
 
 ## Core Types
 
-### *SpectrumBaseModule* Class
+### *Spectrum* Class
 
 ```python
-class module.ms_module.SpectrumBaseModule(mz_list, intensity, coordinates, sorted_by_mz_fun=False)
+class module.spectrum.Spectrum(mz_list, intensity, coordinates, sorted_by_mz_fun=False)
 ```
 
 Represents a single mass spectrum bound to spatial coordinates. Key characteristics:
@@ -72,23 +75,25 @@ Represents a single mass spectrum bound to spatial coordinates. Key characterist
 - Parameters
   - `mz_list` (*Optional[np.ndarray]*) — Array of m/z values. Can be `None` for lazy loading.
   - `intensity` (*Optional[np.ndarray]*) — Array of intensity values. Can be `None` for lazy loading.
-  - `coordinates` (*List[int]*) — List of three integers `[x, y, z]` representing spatial coordinates.
-  - `sorted_by_mz_fun` (*bool, optional*) — Whether the data is already sorted by m/z. Defaults to `False`.
+  - `coordinates` (*PixelCoordinates | Sequence[int]*) ) — List of three integers `[x, y, z]` representing spatial coordinates.
+  - `sorted_by_mz` (*bool, optional*) — Whether the data is already sorted by m/z. Defaults to `True`.
 - Properties
   - `mz_list: np.ndarray` — getter/setter; may be `None` until loaded or set.
   - `intensity: np.ndarray` — getter/setter; may be `None` until loaded or set.
+  - `x`, `y`, `z` (*int*) — Pixel coordinates, derived from the underlying `PixelCoordinates` object.
 - Utilities
   - `sort_by_mz()` — optional in-place sorting of spectrum by m/z.
-  - `plot(...)` — convenience plotting with `line` or `stem` modes.
+  - `crop_range(xr)` — returns a shallow copy of the spectrum cropped to a given m/z interval `[min_mz, max_mz]`.
+  - `is_sorted()` — checks whether `mz_list` is in ascending order.
+  - `__getitem__(index)` — returns a `(mz, intensity)` pair at the given peak index.
 - Invariants and notes
   - `coordinates` must be a list of exactly 3 integers; indexing assumes `[x, y, z]` order.
   - `mz_list` and `intensity` must be same length when both are present.
   - Lazy loading is supported via `None` initialization, deferring data acquisition.
-
 - Example
 
 ```python
->>> from tools.plot import plot_spectrum
+>>> from msssflow.tools.plot import plot_spectrum
 >>> spectrum = ms[0] or ms.get_spectrum(0, 0, 0)
 >>> mz_list = spectrum.mz_list
 >>> print(mz_list)
@@ -102,11 +107,11 @@ output:
 
 ```python
 if __name__ == "__main__":
-    from module.ms_data_manager_imzml import MSDataManagerImzML
-    from module.ms_module import MS
-    from tools.plot import plot_spectrum
+    from msssflow.module.ms_data_manager_imzml import MSDataManagerImzML
+    from msssflow.module.mass_spectrum_set import MassSpectrumSet
+    from msssflow.tools.plot import plot_spectrum
     FILE_PATH = "data/example.imzML"
-    ms = MS()
+    ms = MassSpectrumSet()
     # Create MS collection and manager
     # Auto-created from parser
     with MSDataManagerImzML(ms=ms,target_locs=[(1, 1), (50, 50)],filepath=FILE_PATH) as manager:
@@ -124,35 +129,34 @@ output:
 ### *SpectrumImzML* Class
 
 ```python
-class module.ms_module.SpectrumImzML(parser, index, coordinates)
+class module.spectrum_imzml.SpectrumImzML(parser, index, coordinates)
 ```
 
-Specialized mass spectrum class for ImzML format with lazy loading capabilities. This class extends `SpectrumBaseModule` to provide efficient handling of ImzML (Imaging Mass Spectrometry Markup Language) format data by implementing lazy loading to minimize memory usage.
+Specialized mass spectrum class for ImzML format with lazy loading capabilities. This class extends `Spectrum` to provide efficient handling of ImzML (Imaging Mass Spectrometry Markup Language) format data by implementing lazy loading to minimize memory usage.
 
 Note: use [MSDataManagerImzML](#msdatamanagerimzml-class) to automatically create and manage [SpectrumImzML](#spectrumimzml-class).
 
 - Parameters
-  - `parser` (*ImzMLParser*) — ImzML parser instance for reading spectrum data from the file.
+  - `reader` (*pyimzml portable spectrum reader*) — Reader bound to the underlying `ImzMLParser`, used to read spectra from the `.ibd` file.
+  - `ibd_path` (*str*) — Path to the corresponding binary `.ibd` file.
   - `index` (*int*) — Index of the spectrum within the ImzML file.
   - `coordinates` (*List[int]*) — List of three integers `[x, y, z]` representing spatial coordinates of the spectrum location.
+
 - Inherited Attributes
-  - `coordinates` (*List[int]*) — 3D coordinates `[x, y, z]` of the spectrum.
-  - `x`, `y`, `z` (*int*) — Individual coordinate components.
-  - `sorted_by_mz_fun` (*bool*) — Flag indicating if data is sorted by m/z values.
-- Properties
-  - `mz_list: np.ndarray` — Lazily loaded array of m/z values; triggers data loading on first access.
-  - `intensity: np.ndarray` — Lazily loaded array of intensity values; ensures data is loaded when accessed.
+  - All fields and methods from `Spectrum`, including `mz_list`, `intensity`, coordinate accessors, and cropping utilities.
+
 - Lazy loading behavior
-  - On first `mz_list` access, calls `parser.getspectrum(index)` to load both m/z and intensity data together.
-  - `intensity` access triggers `mz_list` loading if intensity is not yet available, ensuring data consistency.
-  - Data loading is deferred until first property access to minimize memory footprint.
-- Invariants and notes
+  - On first access to `mz_list` or `intensity`, `SpectrumImzML` uses `reader.read_spectrum_from_file(open(ibd_path, "rb"), index)` to retrieve both arrays from the `.ibd` file.
+  - For continuous data, `MSDataManagerImzML` can assign a shared m/z axis (`MassSpectrumSet.shared_mz_list`), in which case only intensity may be read on demand per spectrum.
+
+- Notes
   - The actual m/z and intensity data are not loaded during initialization.
   - Both `mz_list` and `intensity` are loaded together for efficiency when either is first accessed.
-  - Inherits all visualization and manipulation methods from `SpectrumBaseModule`.
-- Example
+
+  Example
 
 ```python
+>>> from massflow.module.spectrum_imzml import SpectrumImzML
 >>> # Create SpectrumImzML instance (data not yet loaded)
 >>> spectrum = SpectrumImzML(parser, index=0, coordinates=[0, 0, 0])
 >>> # First access triggers lazy loading
@@ -165,24 +169,29 @@ output:
 ### *MS* Class
 
 ```python
-class module.ms_module.MS()
+class module.mass_spectrum_set.MassSpectrumSet()
 ```
 
-Collection class for managing multiple mass spectra with coordinate-based indexing. This class serves as a container and manager for multiple `SpectrumBaseModule` instances, providing efficient storage, retrieval, and manipulation of mass spectrometry data organized by 3D spatial coordinates.
+Collection class for managing multiple mass spectra with coordinate-based indexing. This class serves as a container and manager for multiple `Spectrum` instances, providing efficient storage, retrieval, and manipulation of mass spectrometry data organized by 3D spatial coordinates.
 
 - Parameters
-  - No parameters required for initialization.
+  - - No parameters required for initialization.
 - Attributes
-  - `meta` (*Optional*) — Metadata object associated with the spectrum collection.
+  - `meta` (*Optional[MetaDataBase]*) — Metadata object associated with the spectrum collection (often an `ImzMlMetaData` instance).
+  - `_queue` (*List[Spectrum]*) — Sequential list of all spectra.
+  - `_coordinate_index` (*dict*) — Nested dictionary mapping coordinates to spectra. Structure: `{z: {x: {y: Spectrum}}}`.
+  - `_shared_mz_list` (*Optional[np.ndarray]*) — Shared m/z axis for continuous data; only set when `meta.continuous is True`.
 - Methods
-  - `add_spectrum(spectrum)` — Add a mass spectrum to the collection with automatic coordinate indexing.
-  - `get_spectrum(x, y, z=0)` — Retrieve a mass spectrum by its 3D coordinates.
-  - `plot_ms(x, y, z, save_path, figsize, dpi, color, plot_mode)` — Plot a mass spectrum at specified coordinates.
+  - `add_spectrum(spectrum)` — Add or update a spectrum with automatic coordinate indexing.
+  - `get_spectrum(x, y, z=0)` — Retrieve a spectrum by its 3D coordinates; raises `KeyError` if missing.
+  - `plot_ms_mask(...)` — Visualize the occupancy mask stored in `meta.mask`.
+  - `set_coordinates_zero_based(zero_based: bool)` — Synchronize the coordinate base (0-based vs 1-based) across metadata and all spectra, rebuilding the internal index.
 - Indexing patterns
   - `ms[index]` — Sequential access by integer index into `_queue`.
-  - `ms[x, y]` — 2D coordinate access (z defaults to 0).
+  - `ms[x, y]` — 2D coordinate access (z defaults to `0` when present; otherwise the first available z-key).
   - `ms[x, y, z]` — Full 3D coordinate access.
-  - `ms[x, y, z] = spectrum` — Direct assignment with automatic indexing.
+  - `ms[x, y, z] = spectrum` — Direct assignment with automatic index synchronization.
+  - `ms[a:b:c]` — Slice access over the internal `_queue`, returning a list of spectra.
 - Special methods
   - `__len__()` — Returns the total number of spectra in the collection.
   - `__iter__()` — Returns an iterator over all spectra in insertion order.
@@ -196,8 +205,9 @@ Collection class for managing multiple mass spectra with coordinate-based indexi
 - Example
 
 ```python
+>>> from massflow.module.mass_spectrum_set import MassSpectrumSet
 >>> # Create MS collection
->>> ms = MS()
+>>> ms = MassSpectrumSet()
 >>> # Add spectra (user should not load by yourself, use data managers first)
 >>> ms.add_spectrum(spectrum1)
 >>> # Access by index
@@ -232,20 +242,25 @@ Since the coordinates may be non-contiguous, it is recommended to check the avai
 ### *MSDataManager* Class (Abstract)
 
 ```python
-class module.ms_data_manager.MSDataManager(ms, target_mz_range, target_locs, filepath)
+class module.ms_data_manager.MSDataManager(ms, target_mz_range, target_locs, filepath, max_threads, temp_dir)
 ```
 
 Abstract base class that defines common configuration and the contract for loading mass spectrometry data into an `MS` model. This class provides the foundation for concrete data manager implementations that handle different file formats.
 
 - Parameters
-  - `ms` (*MS*) — The target `MS` domain model instance to populate with spectra.
-  - `target_mz_range` (*Optional[Tuple[float, float]]*) — Inclusive range `(min_mz, max_mz)` to filter peaks. Can be `None` to load all m/z values.
-  - `target_locs` (*Optional[List[Tuple[int, int] | Tuple[int, int, int]]]*) — A bounding region defined by two coordinates `[(x1, y1), (x2, y2)]` or 3D equivalents; used to limit loaded spectra. Can be `None` to load all locations.
+  - `ms` (*MassSpectrumSet*) — The target domain model instance to populate with spectra.
+  - `target_mz_range` (*Optional[Tuple[float, float]]*) — Inclusive range `(min_mz, max_mz)` to filter peaks. May be `None` to load all m/z values.
+  - `target_locs` (*Optional[List[Tuple[int, int] | Tuple[int, int, int]]]*) — A bounding region defined by two coordinates `[(x1, y1), (x2, y2)]` (or 3D equivalents) used to limit loaded spectra.
   - `filepath` (*Optional[str]*) — Path to the input data file.
+  - `max_threads` (*int*) — Maximum number of worker threads for batch loading utilities.
+  - `temp_dir` (*Optional[str | pathlib.Path]*) — Directory in which to create the temporary swap file.
 - Methods
-  - `get_ms()` — Returns the internal `MS` instance.
-  - `load_full_data_from_file()` — Abstract method; must be implemented by concrete managers to load data.
-  - `inspect_data(inpect_num=10)` — Logs dataset information including count, sample spectra lengths and ranges.
+  - `load_full_data_from_file()` — Abstract method; concrete subclasses must implement backend-specific loading logic.
+  - `inspect_data(inspect_num=10)` — Logs dataset information, metadata, and statistics for a sample of spectra.
+  - `get_batch_generator(batch_size=256, max_threads=-1)` — Yields batches of spectra and optionally preloads intensities via a thread pool.
+  - `detect_sorted()` — Randomly samples a spectrum to check if m/z values are sorted; if not, marks all spectra as potentially unsorted.
+  - `create_ms_meta_mask()` — Builds a binary occupancy mask (`ms.meta.mask`) based on `ms.coordinate_index`.
+  - `close()` — Releases resources, closes the swap writer, thread pool, and deletes temporary swap files (both `.imzML` and `.ibd`).
 - Validation
   - Ensures `target_locs` contains at least two coordinate points when provided.
   - Validates that `x1 < x2` and `y1 < y2` for bounding box coordinates.
@@ -261,10 +276,10 @@ Abstract base class that defines common configuration and the contract for loadi
 # Cannot instantiate abstract class directly
 # Use concrete implementations like MSDataManagerImzML
 if __name__ == "__main__":
-    from module.ms_data_manager_imzml import MSDataManagerImzML
-    from module.ms_module import MS
+    from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+    from massflow.module.mass_spectrum_set import MassSpectrumSet
     FILE_PATH = "data/example.imzML"
-    ms = MS()
+    ms = MassSpectrumSet()
     # Create MS collection and manager
     # Auto-created from parser
     with MSDataManagerImzML(ms=ms,target_locs=[(1, 1), (50, 50)],filepath=FILE_PATH) as manager:
@@ -287,16 +302,18 @@ class module.ms_data_manager_imzml.MSDataManagerImzML(ms, ms_meta, target_mz_ran
 Concrete data manager for `.imzML` files. This class extends `MSDataManager` to handle ImzML format mass spectrometry imaging data, managing metadata initialization and lazy population of the `MS` collection with `SpectrumImzML` placeholders.
 
 - Parameters
-  - `ms` (*MS*) — The target `MS` domain model instance to populate with spectra.
-  - `ms_meta` (*Optional[MetaDataImzMl | MetaDataBase]*) — Metadata wrapper object. If `None`, will be created automatically from the parser.
-  - `target_mz_range` (*Optional[Tuple[float, float]]*) — Inclusive range `(min_mz, max_mz)` to filter peaks. Can be `None`.
-  - `target_locs` (*Optional[List[Tuple[int, int] | Tuple[int, int, int]]]*) — Bounding region for spatial filtering. Can be `None`.
-  - `filepath` (*str*) — Path to the `.imzML` file to load.
+  - `ms` (*MassSpectrumSet*) — The target domain model instance to populate with spectra.
+  - `target_locs` (*Optional[List[Tuple[int, int] | Tuple[int, int, int]]]*) — Spatial window for sub-region loading; expected shape: `[(x1, y1), (x2, y2)]` (inclusive bounds). When `None`, all coordinates are considered.
+  - `filepath` (*str*) — Path to the `.imzML` file (XML header; the paired `.ibd` is resolved automatically).
+  - `coordinates_zero_based` (*bool*) — Whether coordinates exposed in metadata and `MassSpectrumSet` should be treated as zero-based.
+  - `max_threads` (*int*) — Maximum worker threads for batch loading utilities.
 - Attributes
-  - `parser` (*ImzMLParser*) — ImzML parser instance created from `filepath` for reading spectrum data.
-  - `meta` (*MetaDataImzMl | MetaDataBase*) — Metadata wrapper bound to the parser, caching commonly used fields like image dimensions and instrument information.
+  - `parser` (*ImzMLParser*) — ImzML parser instance created from `filepath` for reading spectrum metadata.
+  - `ibd_path` (*str*) — Resolved path to the corresponding `.ibd` file.
+  - `reader` — Portable spectrum reader returned by `parser.portable_spectrum_reader()`.
+  - `ms.meta` (*ImzMlMetaData*) — Metadata wrapper bound to the parser, caching commonly used fields like image dimensions and instrument information.
 - Inherited Attributes
-  - `_ms` (*MS*) — The target domain model to populate.
+  - `_ms` (*MassSpectrumSet*) — The target domain model to populate.
   - `target_mz_range`, `target_locs`, `filepath`, `current_spectrum_num` — From `MSDataManager`.
 - Methods
   - `load_full_data_from_file()` — Implements the abstract method to load ImzML data with lazy-loading spectra.
@@ -307,6 +324,16 @@ Concrete data manager for `.imzML` files. This class extends `MSDataManager` to 
   - If `ms_meta` is not provided, creates `MetaDataImzMl(parser=parser)` automatically.
   - If `ms_meta` is provided but without a parser, injects the parser into the metadata object.
   - Otherwise uses the provided metadata as-is.
+
+- Loading behavior
+  - load_full_data_from_file():
+    - Validates the `.imzML` path and extension.
+    - Calls `pre_load_meta()` (which in turn calls `extract_metadata()`) to populate `ImzMlMetaData` fields via the `meta_index` CV mapping.
+    - Iterates over `parser.coordinates` and, for each pixel within `target_locs`, creates a `SpectrumImzML` placeholder bound to the `.ibd` reader.
+    - For continuous data, assigns a shared m/z axis once (`ms.shared_mz_list`) and reuses it across spectra.
+    - Updates metadata during streaming via `loading_meta(...)` (e.g., `min_pixel_x/min_pixel_y` and shared m/z).
+    - Calls `loaded_meta()` to finalize metadata, create the occupancy mask, and detect m/z sorting.
+
 - Invariants and notes
   - Only supports `.imzML` file format; raises error for other extensions.
   - Uses lazy loading to minimize memory usage—actual spectrum data is not loaded until accessed.
@@ -315,14 +342,14 @@ Concrete data manager for `.imzML` files. This class extends `MSDataManager` to 
 - Example
 
 ```python
-from module.ms_module import MS
-from module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 
 # Run examples when executing this file directly
 if __name__ == "__main__":
 
     FILE_PATH = "data/example.imzML"
-    ms = MS()
+    ms = MassSpectrumSet()
     # Create MS collection and manager
     # Auto-created from parser
     with MSDataManagerImzML(ms=ms,target_locs=[(1, 1), (50, 50)],filepath=FILE_PATH) as manager:
@@ -397,7 +424,7 @@ INFO:     25-11-10 19:34 115 ms_data_manager - MS  information:
 
 ## Metadata Dependencies
 
-While not part of the three focus modules, `MetaDataImzMl` (in `module/meta_data.py`) is tightly coupled to `MSDataManagerImzML`:
+While not part of the three focus modules, `ImzMlMetaData` (in `module/ms_meta_data.py`) is tightly coupled to `MSDataManagerImzML`:
 
 - It stores and exposes commonly used fields (e.g., image dimensions, pixel sizes, instrument model) and computes `spectrum_count_num` from `parser.coordinates`.
 - It can be initialized with either a parser or a file path and will extract metadata via `pyimzml`.

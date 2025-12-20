@@ -1,11 +1,11 @@
 # MassFlow Metadata Module
 
-This document describes the metadata subsystem in MassFlow, focusing on the three classes defined in `module/meta_data.py`: `MetaDataFileBase`, `MSIMetaData`, and `ImzMlMetaData`. It covers their fields, properties, typical usage, and key considerations.
+This document describes the metadata subsystem in MassFlow, focusing on the three classes defined in `module/ms_meta_data.py`: `MetaDataBase`, `MSIMetaData`, and `ImzMlMetaData`. It covers their fields, properties, typical usage, and key considerations.
 
 ## Overview
 
 - Design
-  - Metadata (dataset info, instrument, coordinates, pixel sizes) is modeled as an object independent of the spectrum container `MS`. Data managers (e.g., `MSDataManagerImzML`) attach or update it while reading.
+  - Metadata (dataset info, instrument, coordinates, pixel sizes) is modeled as an object independent of the spectrum container `MassSpectrumSet`. Data managers (e.g., `MSDataManagerImzML`) attach or update it while reading.
   - All attributes exposed via properties automatically synchronize to the internal dictionary `_meta`, enabling serialization and dict-like access.
 - Capabilities
   - Record image size (number of pixels) and physical pixel size (µm).
@@ -18,8 +18,8 @@ This document describes the metadata subsystem in MassFlow, focusing on the thre
 
 ```mermaid
 classDiagram
-    MetaDataFileBase <|-- MSIMetaData
-    MetaDataFileBase <|-- ImzMlMetaData
+    MetaDataBase <|-- MSIMetaData
+    MetaDataBase <|-- ImzMlMetaData
 
     class MetaDataFileBase {
         <<abstract base>>
@@ -36,10 +36,10 @@ classDiagram
 
 ## Core Types
 
-### MetaDataFileBase (abstract)
+### MetaDataBase (abstract)
 
 ```python
-class module.meta_data.MetaDataFileBase(name, version, storage_mode, ...)
+class module.ms_meta_data.MetaDataBase(name, version, storage_mode, ...)
 ```
 
 - Purpose
@@ -49,16 +49,19 @@ class module.meta_data.MetaDataFileBase(name, version, storage_mode, ...)
   - `max_count_of_pixels_x`, `max_count_of_pixels_y` (pixel count)
   - `pixel_size_x`, `pixel_size_y` (µm)
   - `processed`, `peakpick`
+  - `continuous` (continuous vs processed data)
   - `centroid_spectrum`, `profile_spectrum`
   - `mask` (2D array; shape must be `(max_count_of_pixels_y, max_count_of_pixels_x)`)
-  - `meta_index` (CV mapping; used for extraction)
+  - `coordinates_zero_based` (bool): whether coordinates are interpreted as 0-based.
+  - `meta_index` (CV mapping; used by `ImzMlMetaData` + `MSDataManagerImzML.extract_metadata()` to map CV accessions to attributes)
 - Access
   - Dict-like: `__getitem__`, `keys()`, `items()`, `values()`, `get()`, `to_dict()`.
+  - update_meta()` refreshes `_meta` from the current attribute values, ensuring the dict view stays in sync after bulk updates (e.g., changing `coordinates_zero_based`).
 
 ### MSIMetaData (matrix MSI)
 
 ```python
-class module.meta_data.MSIMetaData(mask, need_base_mask, mz_num, ...)
+class module.ms_meta_data.MSIMetaData(mask, need_base_mask, mz_num, ...)
 ```
 
 - Extra fields
@@ -72,7 +75,7 @@ class module.meta_data.MSIMetaData(mask, need_base_mask, mz_num, ...)
 ### ImzMlMetaData (imzML)
 
 ```python
-class module.meta_data.ImzMlMetaData(parser, filepath, coordinates_zero_based, ...)
+class module.ms_meta_data.ImzMlMetaData(parser, filepath, coordinates_zero_based, ...)
 ```
 
 - Initialization
@@ -86,6 +89,10 @@ class module.meta_data.ImzMlMetaData(parser, filepath, coordinates_zero_based, .
 - Validation/sync
   - `filepath` must exist; if `parser` is missing it will be created.
   - `min_pixel_x/min_pixel_y` must satisfy `0 ≤ value ≤ max_count_of_pixels_*`.
+  - When `coordinates_zero_based` is `True`, the `min_pixel_x`/`min_pixel_y` getters apply a `-1` offset so that returned values match the 0-based coordinate system used in `MassSpectrumSet`.
+- CV mapping
+  - The `meta_index` dictionary maps ImzML CV accessions to attribute names (e.g., `IMS:1000042 -> max_count_of_pixels_x`).
+  - `MSDataManagerImzML.extract_metadata()` iterates this mapping and uses `find_meta_by_accession_id()` to extract values from `ImzMLParser.metadata`, then sets the corresponding attributes on `ImzMlMetaData`.
 
 ## Usage Examples
 
@@ -93,7 +100,7 @@ class module.meta_data.ImzMlMetaData(parser, filepath, coordinates_zero_based, .
 
 ```python
 >>> from module.msi_module import MSI
->>> from module.meta_data import MSIMetaData
+>>> from module.ms_meta_data import MSIMetaData
 >>> import numpy as np
 >>>
 >>> # 1. Create metadata object
@@ -117,10 +124,10 @@ test_dataset
 
 ```python
 >>> from pyimzml.ImzMLParser import ImzMLParser
->>> from module.ms_module import MS
+>>> from module.mass_spectrum_set import MassSpectrumSet
 >>> from module.ms_data_manager_imzml import MSDataManagerImzML
 
->>> ms = MS() 
+>>> ms = MassSpectrumSet()
 >>> ms_dm = MSDataManagerImzML(ms, filepath="data/example.imzML", coordinates_zero_based=True)
 
 >>> # Load spectra and extract metadata
@@ -136,7 +143,7 @@ Does the coordinate system start from 0: True
 ```
 
 ## Relation to Data Managers
-- `MSDataManagerImzML` constructs and maintains `ImzMlMetaData` while reading, and attaches it to `MS` for subsequent analysis/plotting.
+- `MSDataManagerImzML` constructs and maintains `ImzMlMetaData` while reading, and attaches it to `MassSpectrumSet` for subsequent analysis/plotting.
 - For coordinate filtering or visualization, read `mask` and pixel size from metadata.
 
 ## Notes & Recommendations
