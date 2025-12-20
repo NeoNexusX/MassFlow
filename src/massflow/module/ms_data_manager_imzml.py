@@ -137,6 +137,7 @@ class MSDataManagerImzML(MSDataManager):
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
                     # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
                     spectrum = SpectrumImzML(
+                        parser=self.parser,
                         reader=self.reader,
                         ibd_path=self.ibd_path,
                         index=i,

@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Union,Optional, Sequence
-from pyimzml.ImzMLWriter import ImzMLWriter
+from massflow.tools.stream_imzml_writer import ImzMLWriter
 from massflow.logger import get_logger
 
 logger = get_logger("ms_module")

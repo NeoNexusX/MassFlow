@@ -17,7 +17,7 @@ import numpy as np
 import tempfile
 from massflow.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
-from pyimzml.ImzMLWriter import ImzMLWriter
+from massflow.tools.stream_imzml_writer import ImzMLWriter
 import uuid
 logger = get_logger("ms_data_manager")
 
@@ -368,8 +368,10 @@ class MSDataManager(ABC):
         # temporary directory delete
         if getattr(self, "swap_filepath", None) is not None:
             if os.path.exists(self.swap_filepath):
+                ibd_filepath = self.swap_filepath.replace('.imzML', '.ibd')
                 os.remove(self.swap_filepath)
-                logger.info(f"Temporary swap file {self.swap_filepath} removed.")
+                os.remove(ibd_filepath)
+                logger.info(f"Temporary swap file {self.swap_filepath}, {ibd_filepath} removed.")
 
     def close_writer(self):
         """close ImzMLWriter."""

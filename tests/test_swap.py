@@ -8,7 +8,7 @@ from massflow.logger import get_logger
 
 logger = get_logger("test_swap")
 
-ROUND = 1
+ROUND = 10
 
 def data_swap_out_direct(ms_raw, limit=-1):
     """
@@ -66,10 +66,13 @@ def data_swap_in_benchmark(dm_swap):
     """
     测试：磁盘文件 -> 内存加载与访问 (Swap In)
     """
-
+    dm_swap.load_full_data_from_file()
+    
     batch_generator = dm_swap.get_batch_generator()
     for batch in batch_generator:
-        pass
+        for spec in batch:
+            _ = spec.mz_list
+            _ = spec.intensity
 
 class TestDataSwap:
     """
@@ -77,7 +80,6 @@ class TestDataSwap:
     """
     
     @pytest.fixture(scope="class")
-
     def ms_raw_data(self):
         """
         固件：加载原始数据，供所有测试用例共享
@@ -92,24 +94,32 @@ class TestDataSwap:
         dm_raw.load_full_data_from_file()
         batch_generator = dm_raw.get_batch_generator()
         for batch in batch_generator:
-            pass
+            for spec in batch:
+                # 强制触发懒加载并验证数据有效
+                _ = spec.mz_list
+                _ = spec.intensity
 
-        return ms_raw
+        return ms_raw, dm_raw
     
 
     @pytest.mark.parametrize("limit", [-1])
+    @pytest.mark.parametrize("method",['object','direct'])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_swap_out_performance(self, benchmark, ms_raw_data, limit):
+    def test_swap_out_performance(self, benchmark, ms_raw_data, limit, method):
         """
         性能测试：数据写入磁盘的速率
         """
+        out_func = data_swap_out_direct if method == "direct" else data_swap_out_object
+        ms_raw, dm_raw = ms_raw_data
+
         logger.info(f"Starting Swap Out benchmark for {limit} spectra")
 
         dm_result = benchmark.pedantic(
-            data_swap_out_object,
-            args=(ms_raw_data, limit),
+            out_func,
+            args=(ms_raw, limit),
             rounds=ROUND,
-            iterations=1
+            iterations=1,
+            warmup_rounds=1
         )
 
         dm_result.close()
@@ -121,12 +131,10 @@ class TestDataSwap:
         """
         性能测试：数据从磁盘回读的速率
         """
+        ms_raw, dm_raw = ms_raw_data  # Unpack the tuple
 
         def set_up_swap_data():
-            
-            dm_swap_new = data_swap_out_object(ms_raw_data, limit=limit)
-            dm_swap_new.load_full_data_from_file()
-            
+            dm_swap_new = data_swap_out_direct(ms_raw, limit=limit)
             return (dm_swap_new, ), {}
 
         logger.info(f"Starting Swap In benchmark for {limit} spectra")
