@@ -89,11 +89,13 @@ def data_swap_in_benchmark(dm_swap):
     测试：磁盘文件 -> 内存加载与访问 (Swap In)
     """
     with dm_swap as dm:
+        dm_swap = dm
         dm.load_full_data_from_file()
         batch_generator = dm.get_batch_generator(batch_size=256, max_threads=8)
 
         for batch in batch_generator:
             assert len(batch[1]) >0
+        logger.info("Completed loading and accessing swapped data.")
 
 class TestDataSwap:
     """

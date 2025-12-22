@@ -12,6 +12,7 @@ License: See LICENSE file in project root
 import os
 import warnings
 import numpy as np
+import time
 from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
@@ -232,22 +233,8 @@ class MSDataManagerImzML(MSDataManager):
     def close(self):
         """
         Safely close underlying resources associated with the ImzML parser.
-
-        Parameters:
-            None
-
-        Returns:
-            None
-
-        Raises:
-            None directly. Any errors during closing are caught and logged as warnings.
-
-        Notes:
-            - This attempts to close common handles exposed by pyimzml.ImzMLParser,
-              including the memory-mapped object and any file-like objects.
-            - After closing, it clears local and metadata references to the parser to
-              avoid accidental reuse of invalid handles.
         """
+        t0 = time.perf_counter()
 
         if self.parser is not None:
             # Try closing memory-mapped handle if present
@@ -257,7 +244,11 @@ class MSDataManagerImzML(MSDataManager):
                     m.close()
                 except Exception as e:
                     logger.warning(f"Failed to close memory-mapped handle: {e}")
+
         super().close()
+
+        t_total = time.perf_counter() - t0
+        logger.info(f"MSDataManagerImzML.close timing: total={t_total:.6f}s")
 
     def __enter__(self):
         return super().__enter__()  # father class
