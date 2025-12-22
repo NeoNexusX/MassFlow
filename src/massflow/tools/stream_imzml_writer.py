@@ -16,7 +16,7 @@ from collections import namedtuple, OrderedDict
 from typing import Optional, List, Tuple, Union, Any
 
 from wheezy.template import Engine, CoreExtension, DictLoader
-from pyimzml.compression import NoCompression, ZlibCompression
+from pyimzml.compression import NoCompression
 
 _Spectrum = namedtuple(
     '_Spectrum', 
@@ -178,8 +178,8 @@ class ImzMLWriter:
     def __init__(
         self, 
         output_filename: str,
-        mz_dtype: np.dtype = np.float64, 
-        intensity_dtype: np.dtype = np.float32, 
+        mz_dtype: np.dtype = np.float64, #type: ignore
+        intensity_dtype: np.dtype = np.float32, #type: ignore
         mode: str = "auto", 
         spec_type: str = "centroid",
         scan_direction: str = "top_down", 

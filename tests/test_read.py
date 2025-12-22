@@ -5,7 +5,7 @@ from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.logger import get_logger
 logger = get_logger("test_read")
 
-ROUND = 10
+ROUND = 3
 
 def data_reading_benchmark(data_file_path="data/example.imzML"):
     mass_data = MassSpectrumSet()
@@ -15,7 +15,14 @@ def data_reading_benchmark(data_file_path="data/example.imzML"):
         for  spectrum_data in mass_data:
             _ = spectrum_data.intensity
 
-def data_batch_reading_benchmark(data_file_path="data/example.imzML", batch_size=1024, max_workers=2):
+def data_batch_reading_benchmark(ms_md, batch_size=1024, max_workers=2):
+    ms_md.inspect_data()
+    batch_generator = ms_md.get_batch_generator(batch_size=batch_size, max_threads=max_workers)
+    for batch in batch_generator:
+        assert len(batch[1]) >0
+        print(f"Processed batch with \r\n{batch[1][:10]} \r\nspectra")
+
+def data_batch_reading_full_benchmark(data_file_path="data/example.imzML", batch_size=1024, max_workers=2):
     mass_data = MassSpectrumSet()
     with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
         ms_md.load_full_data_from_file()
@@ -26,7 +33,7 @@ def data_batch_reading_benchmark(data_file_path="data/example.imzML", batch_size
 
 class TestDataReading:
 
-    @pytest.mark.parametrize("data_file_path", ["data/example.imzML"])
+    @pytest.mark.parametrize("data_file_path", ["temp_swap/temp_74dbbcc8e601435b97513d68e3400c2b.imzML"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_data_reading_benchmark(self, benchmark,data_file_path):
         logger.info("Starting data reading benchmark")
@@ -68,7 +75,7 @@ class TestDataReading:
             ("data/example.imzML", 256, 32),
             ("data/example.imzML", 256, 64),
 
-            # batch_size = 512
+            #batch_size = 512
             ("data/example.imzML", 512, 1),
             ("data/example.imzML", 512, 2),
             ("data/example.imzML", 512, 8),

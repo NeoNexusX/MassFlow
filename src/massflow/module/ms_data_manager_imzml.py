@@ -87,12 +87,8 @@ class MSDataManagerImzML(MSDataManager):
             self.ibd_path = ibd_path
             self.reader = self.parser.portable_spectrum_reader()
         else:
-            logger.error(
-                f"Error: Corresponding .ibd file for {self.filepath} does not exist."
-            )
-            raise FileNotFoundError(
-                f"Error: Corresponding .ibd file for {self.filepath} does not exist."
-            )
+            logger.error(f"Error: Corresponding .ibd file for {self.filepath} does not exist.")
+            raise FileNotFoundError(f"Error: Corresponding .ibd file for {self.filepath} does not exist.")
 
     def load_full_data_from_file(self):
         """

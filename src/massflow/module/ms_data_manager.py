@@ -122,14 +122,12 @@ class MSDataManager(ABC):
                                             scan_direction=scan_direction,
                                             line_scan_direction=line_scan_direction,
                                             scan_pattern=scan_pattern,
-                                            scan_type=scan_type,
-                                            )
+                                            scan_type=scan_type,)
             return self._writer
 
         else:
             logger.error("MS meta data is None. Please load or copy[use copy_meta method] meta data first.")
             raise ValueError("MS meta data is None. Please load or copy meta data first.")
-
 
     def copy_meta(self, source_ms:MassSpectrumSet):
         """copy metadata from source MS to self MS object."""
@@ -140,16 +138,17 @@ class MSDataManager(ABC):
         
         source_meta_dict = source_ms.meta.to_dict()
 
-        exclude_keys = {'mask', 'parser', 'filepath', 'spectrum_count_num', 'continuous', 'processed'}
+        exclude_keys = {'mask', 'parser', 'filepath', 'spectrum_count_num', 'continuous', 'processed','queue'}
         
         for key, value in source_meta_dict.items():
             if key not in exclude_keys and hasattr(self._ms.meta, key):
                 try:
                     setattr(self._ms.meta, key, value)
+                    logger.debug(f"Copied meta field {key},{value}.")
                 except Exception as e:
                     logger.warning(f"Failed to copy meta field {key}: {e}")
 
-        self._ms.set_coordinates_zero_based (source_ms.meta.coordinates_zero_based)
+        self._ms.set_coordinates_zero_based(source_ms.meta.coordinates_zero_based)
 
         logger.info("Metadata copy completed.")
 
@@ -259,6 +258,7 @@ class MSDataManager(ABC):
         def _trigger_for_load_spectrum(sp):
             _ = sp.intensity
 
+
         # 3. Batch processing loop
         for i in range(0, total_length, batch_size):
             batch = self.ms[i : i + batch_size]
@@ -355,6 +355,7 @@ class MSDataManager(ABC):
         logger.info("creating ms mask.")
         self.create_ms_meta_mask()
         self.detect_sorted()
+
 
     def close(self):
         """
