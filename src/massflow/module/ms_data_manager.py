@@ -33,7 +33,7 @@ class MSDataManager(ABC):
         target_locs=None,
         filepath=None,
         temp_dir=None,
-        max_threads: int = 10,
+        max_threads: int = 8,
         mz_dtype = np.float64,
         intensity_dtype = np.float32,
     ):
@@ -144,7 +144,6 @@ class MSDataManager(ABC):
             if key not in exclude_keys and hasattr(self._ms.meta, key):
                 try:
                     setattr(self._ms.meta, key, value)
-                    logger.debug(f"Copied meta field {key},{value}.")
                 except Exception as e:
                     logger.warning(f"Failed to copy meta field {key}: {e}")
 

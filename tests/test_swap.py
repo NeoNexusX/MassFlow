@@ -5,10 +5,10 @@ from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.logger import get_logger
-
+from tests.test_tools import time_calculator
 logger = get_logger("test_swap")
 
-ROUND = 1
+ROUND = 5
 
 def data_swap_out_direct(ms_raw, limit=-1):
     """
@@ -88,21 +88,12 @@ def data_swap_in_benchmark(dm_swap):
     """
     测试：磁盘文件 -> 内存加载与访问 (Swap In)
     """
+    with dm_swap as dm:
+        dm.load_full_data_from_file()
+        batch_generator = dm.get_batch_generator(batch_size=256, max_threads=8)
 
-    # new_ms = MassSpectrumSet()
-    # new_dm = MSDataManagerImzML(new_ms, filepath=dm_swap.filepath)
-    # new_dm.load_full_data_from_file()
-    # batch_generator = new_dm.get_batch_generator(max_threads=8)
-    dm_swap.load_full_data_from_file()
-    batch_generator = dm_swap.get_batch_generator(max_threads=16)
-
-    for batch in batch_generator:
-        assert len(batch[1]) >0
-
-    # ms = new_dm.ms
-    # for spec in ms:
-    #     _ = spec.mz_list
-    #     _ = spec.intensity
+        for batch in batch_generator:
+            assert len(batch[1]) >0
 
 class TestDataSwap:
     """

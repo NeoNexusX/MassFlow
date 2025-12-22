@@ -38,7 +38,7 @@ class MSDataManagerImzML(MSDataManager):
         target_locs=None,
         filepath=None,
         coordinates_zero_based: bool = False,
-        max_threads: int = 10,
+        max_threads: int = 8,
         temp_dir = None,
         mz_dtype = np.float64,
         intensity_dtype =  np.float32,

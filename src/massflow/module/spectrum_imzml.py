@@ -82,7 +82,7 @@ class SpectrumImzML(Spectrum):
         # this part cant use logger because it may be called x10000
         # then try imzml reade
         if self._reader is not None and self._intensity is None:
-
+            # logger.debug(f"Lazy loading spectrum index {self._index} from ImzML file")
             with open(self._ibd_path, 'rb') as f:
                 mz, intensity = self._reader.read_spectrum_from_file(f, self._index)
                 if self._mz_list is None:
