@@ -11,7 +11,6 @@ License: See LICENSE file in project root
 import os
 from abc import ABC, abstractmethod
 import random
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import tempfile
@@ -86,6 +85,7 @@ class MSDataManager(ABC):
     def threads_executor(self) -> ThreadPoolExecutor:
         """lazy load for thread pool executor"""
         if self._threads_executor is None:
+            logger.info(f"Creating ThreadPoolExecutor with max_workers={self.max_threads}")
             self._threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
         return self._threads_executor
 
@@ -248,9 +248,9 @@ class MSDataManager(ABC):
         if max_threads != -1 and max_threads != self.max_threads:
             self.max_threads = max_threads
             # reload thread pool executor
-            if self._threads_executor is not None:
-                self._threads_executor.shutdown(wait=True)
-            self._threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
+            if self.threads_executor is not None:
+                self.threads_executor.shutdown(wait=True)
+            self.threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
 
         total_length = len(self.ms)
 
@@ -258,12 +258,11 @@ class MSDataManager(ABC):
         def _trigger_for_load_spectrum(sp):
             _ = sp.intensity
 
-
         # 3. Batch processing loop
         for i in range(0, total_length, batch_size):
             batch = self.ms[i : i + batch_size]
-            if self._threads_executor is not None:
-                self._threads_executor.map(_trigger_for_load_spectrum, batch)
+            if self.threads_executor is not None:
+                self.threads_executor.map(_trigger_for_load_spectrum, batch)
             yield batch
 
     def detect_sorted(self):

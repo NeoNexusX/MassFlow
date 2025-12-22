@@ -38,7 +38,7 @@ def ms_raw_data():
         """
         固件：加载原始数据，供所有测试用例共享
         """
-        filepath = r"./data/example.imzml"
+        filepath = r"./data/example.imzML"
 
         if not os.path.exists(filepath):
             pytest.skip(f"Original data not found at {filepath}")
@@ -50,7 +50,6 @@ def ms_raw_data():
         for batch in batch_generator:
             pass
         
-        input("Original data loaded. Press Enter to continue...")
         return ms_raw, dm_raw
     
 def data_swap_out_object(ms_raw, limit=-1):
@@ -63,7 +62,6 @@ def data_swap_out_object(ms_raw, limit=-1):
     ms_swap = MassSpectrumSet()
     dm_swap = MSDataManagerImzML(ms_swap,temp_dir="./temp_swap")
     dm_swap.copy_meta(ms_raw)
-    input("input to continue...")
     writer = dm_swap.writer
 
     for i, spec in enumerate(ms_raw):
@@ -96,11 +94,11 @@ def data_swap_in_benchmark(dm_swap):
     # new_dm.load_full_data_from_file()
     # batch_generator = new_dm.get_batch_generator(max_threads=8)
     dm_swap.load_full_data_from_file()
-    batch_generator = dm_swap.get_batch_generator()
+    batch_generator = dm_swap.get_batch_generator(max_threads=16)
 
     for batch in batch_generator:
         assert len(batch[1]) >0
-        print(f"Processed batch with \r\n{batch[1][:10]} \r\nspectra")
+
     # ms = new_dm.ms
     # for spec in ms:
     #     _ = spec.mz_list
@@ -136,9 +134,8 @@ class TestDataSwap:
         """
 
         def set_up_swap_data():
-            ms_raw, dm_raw = ms_raw_data()  # Unpack the tuple
+            ms_raw, _ = ms_raw_data()  # Unpack the tuple
             dm_swap_new = data_swap_out_object(ms_raw, limit=limit)
-            input("input to continue...")
             return (dm_swap_new, ), {}
 
         logger.info(f"Starting Swap In benchmark for {limit} spectra")

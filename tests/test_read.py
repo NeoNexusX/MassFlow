@@ -33,7 +33,7 @@ def data_batch_reading_full_benchmark(data_file_path="data/example.imzML", batch
 
 class TestDataReading:
 
-    @pytest.mark.parametrize("data_file_path", ["temp_swap/temp_74dbbcc8e601435b97513d68e3400c2b.imzML"])
+    @pytest.mark.parametrize("data_file_path", ["./data/example.imzML"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_data_reading_benchmark(self, benchmark,data_file_path):
         logger.info("Starting data reading benchmark")
