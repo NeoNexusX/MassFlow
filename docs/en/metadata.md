@@ -56,7 +56,7 @@ class module.ms_meta_data.MetaDataBase(name, version, storage_mode, ...)
   - `meta_index` (CV mapping; used by `ImzMlMetaData` + `MSDataManagerImzML.extract_metadata()` to map CV accessions to attributes)
 - Access
   - Dict-like: `__getitem__`, `keys()`, `items()`, `values()`, `get()`, `to_dict()`.
-  - update_meta()` refreshes `_meta` from the current attribute values, ensuring the dict view stays in sync after bulk updates (e.g., changing `coordinates_zero_based`).
+  - `update_meta()` refreshes `_meta` from the current attribute values, ensuring the dict view stays in sync after bulk updates (e.g., changing `coordinates_zero_based`).
 
 ### MSIMetaData (matrix MSI)
 

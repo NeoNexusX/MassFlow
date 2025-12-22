@@ -30,7 +30,7 @@ Metadata is handled separately (see `module/ms_meta_data.py`) and attached to ma
 
 The following diagram shows the inheritance relationships among the core classes described above. `SpectrumImzML` extends `Spectrum`, and `MSDataManagerImzML` extends `MSDataManager`. `MassSpectrumSet` is a standalone container class with no inheritance.
 
-The `MSDataManager` and its concrete implementations (like `MSDataManagerImzML`) are responsible for populating the `MassSpectrumSet` container with spectrum data. The manager holds a reference to an `MassSpectrumSet` instance and loads spectra into it through the `load_full_data_from_file()` method. The `MS` container holds multiple `Spectrum` instances (or its subclasses like `SpectrumImzML`), organizing them by spatial coordinates for efficient access.
+The `MSDataManager` and its concrete implementations (like `MSDataManagerImzML`) are responsible for populating the `MassSpectrumSet` container with spectrum data. The manager holds a reference to a `MassSpectrumSet` instance and loads spectra into it through the `load_full_data_from_file()` method. The `MassSpectrumSet` container holds multiple `Spectrum` instances (or its subclasses like `SpectrumImzML`), organizing them by spatial coordinates for efficient access.
 
 ```mermaid
 classDiagram
@@ -75,7 +75,7 @@ Represents a single mass spectrum bound to spatial coordinates. Key characterist
 - Parameters
   - `mz_list` (*Optional[np.ndarray]*) — Array of m/z values. Can be `None` for lazy loading.
   - `intensity` (*Optional[np.ndarray]*) — Array of intensity values. Can be `None` for lazy loading.
-  - `coordinates` (*PixelCoordinates | Sequence[int]*) ) — List of three integers `[x, y, z]` representing spatial coordinates.
+  - `coordinates` (*PixelCoordinates | Sequence[int]*) — Pixel coordinates as a `PixelCoordinates` object or list of three integers `[x, y, z]`.
   - `sorted_by_mz` (*bool, optional*) — Whether the data is already sorted by m/z. Defaults to `True`.
 - Properties
   - `mz_list: np.ndarray` — getter/setter; may be `None` until loaded or set.
@@ -93,7 +93,7 @@ Represents a single mass spectrum bound to spatial coordinates. Key characterist
 - Example
 
 ```python
->>> from msssflow.tools.plot import plot_spectrum
+>>> from massflow.tools.plot import plot_spectrum
 >>> spectrum = ms[0] or ms.get_spectrum(0, 0, 0)
 >>> mz_list = spectrum.mz_list
 >>> print(mz_list)
@@ -107,12 +107,12 @@ output:
 
 ```python
 if __name__ == "__main__":
-    from msssflow.module.ms_data_manager_imzml import MSDataManagerImzML
-    from msssflow.module.mass_spectrum_set import MassSpectrumSet
-    from msssflow.tools.plot import plot_spectrum
+    from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+    from massflow.module.mass_spectrum_set import MassSpectrumSet
+    from massflow.tools.plot import plot_spectrum
     FILE_PATH = "data/example.imzML"
     ms = MassSpectrumSet()
-    # Create MS collection and manager
+    # Create MassSpectrumSet collection and manager
     # Auto-created from parser
     with MSDataManagerImzML(ms=ms,target_locs=[(1, 1), (50, 50)],filepath=FILE_PATH) as manager:
 
@@ -175,7 +175,7 @@ class module.mass_spectrum_set.MassSpectrumSet()
 Collection class for managing multiple mass spectra with coordinate-based indexing. This class serves as a container and manager for multiple `Spectrum` instances, providing efficient storage, retrieval, and manipulation of mass spectrometry data organized by 3D spatial coordinates.
 
 - Parameters
-  - - No parameters required for initialization.
+  - No parameters required for initialization.
 - Attributes
   - `meta` (*Optional[MetaDataBase]*) — Metadata object associated with the spectrum collection (often an `ImzMlMetaData` instance).
   - `_queue` (*List[Spectrum]*) — Sequential list of all spectra.
@@ -366,7 +366,7 @@ if __name__ == "__main__":
 
 inspect_data output:
 INFO:     25-11-10 19:34 202 ms_data_manager - creating ms mask.
-INFO:     25-11-10 19:34 102 ms_data_manager - MS meta data:
+INFO:     25-11-10 19:34 102 ms_data_manager - MassSpectrumSet meta data:
                                                  target_mz_range: None
                                                  target_locs: [(1, 1), (50, 50)]
                                                  filepath: data/example.imzML
@@ -387,34 +387,34 @@ INFO:     25-11-10 19:34 102 ms_data_manager - MS meta data:
                                                  meta_min_pixel_y: 2
                                                  meta_mask: (93, 227)
                                                
-INFO:     25-11-10 19:34 115 ms_data_manager - MS  information:
-                                                 MS len: 74749
-                                                 MS range: 400.0 - 1000.0
-                                                 MS coord: (0, 38, 0)
+INFO:     25-11-10 19:34 115 ms_data_manager - MassSpectrumSet  information:
+                                                 MassSpectrumSet len: 74749
+                                                 MassSpectrumSet range: 400.0 - 1000.0
+                                                 MassSpectrumSet coord: (0, 38, 0)
                                                  max and min mz_list: 1000.0 - 400.0
                                                  max intensity: 16.307722091674805
                                                
-                                                 MS len: 74749
-                                                 MS range: 400.0 - 1000.0
-                                                 MS coord: (0, 39, 0)
+                                                 MassSpectrumSet len: 74749
+                                                 MassSpectrumSet range: 400.0 - 1000.0
+                                                 MassSpectrumSet coord: (0, 39, 0)
                                                  max and min mz_list: 1000.0 - 400.0
                                                  max intensity: 17.022132873535156
                                                
-                                                 MS len: 74749
-                                                 MS range: 400.0 - 1000.0
-                                                 MS coord: (0, 40, 0)
+                                                 MassSpectrumSet len: 74749
+                                                 MassSpectrumSet range: 400.0 - 1000.0
+                                                 MassSpectrumSet coord: (0, 40, 0)
                                                  max and min mz_list: 1000.0 - 400.0
                                                  max intensity: 16.470420837402344
                                                
-                                                 MS len: 74749
-                                                 MS range: 400.0 - 1000.0
-                                                 MS coord: (0, 41, 0)
+                                                 MassSpectrumSet len: 74749
+                                                 MassSpectrumSet range: 400.0 - 1000.0
+                                                 MassSpectrumSet coord: (0, 41, 0)
                                                  max and min mz_list: 1000.0 - 400.0
                                                  max intensity: 19.481334686279297
                                                
-                                                 MS len: 74749
-                                                 MS range: 400.0 - 1000.0
-                                                 MS coord: (0, 42, 0)
+                                                 MassSpectrumSet len: 74749
+                                                 MassSpectrumSet range: 400.0 - 1000.0
+                                                 MassSpectrumSet coord: (0, 42, 0)
                                                  max and min mz_list: 1000.0 - 400.0
                                                  max intensity: 18.155176162719727
                                                
@@ -431,16 +431,16 @@ While not part of the three focus modules, `ImzMlMetaData` (in `module/ms_meta_d
 
 ## Data Flow Summary
 
-1. Create an empty `MS` collection.
-2. Initialize `MSDataManagerImzML` with the `MS`, optional `target_locs`/`target_mz_range`, and `filepath`.
-3. Call `load_full_data_from_file()` to populate `MS` with `SpectrumImzML` placeholders for spectra within the target region.
+1. Create an empty `MassSpectrumSet` collection.
+2. Initialize `MSDataManagerImzML` with the `MassSpectrumSet`, optional `target_locs`/`target_mz_range`, and `filepath`.
+3. Call `load_full_data_from_file()` to populate `MassSpectrumSet` with `SpectrumImzML` placeholders for spectra within the target region.
 4. When accessing `mz_list` or `intensity` on a `SpectrumImzML` spectrum, lazy loading fetches the data from the ImzML file via the parser.
 5. Metadata remains available through `meta` for consumers that need image dimensions, pixel sizes, instrument model, etc.
 
 ## Extensibility Notes
 
 - New managers can subclass `MSDataManager` to support additional formats; adhere to the `load_full_data_from_file()` contract and, if practical, use lazy-loading spectra like `SpectrumImzML`.
-- Coordinate normalization (e.g., zero-based offsets) should be consistent across managers to keep `MS` utilities predictable.
+- Coordinate normalization (e.g., zero-based offsets) should be consistent across managers to keep `MassSpectrumSet` utilities predictable.
 - Consider using `target_mz_range` during load to prefilter peaks for large datasets, or leave it for downstream processing depending on performance needs.
 
 ## Glossary
