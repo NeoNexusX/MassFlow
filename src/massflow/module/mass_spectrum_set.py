@@ -167,16 +167,7 @@ class MassSpectrumSet:
 
         Raises:
             ValueError: If updating an existing spectrum fails to synchronize in the queue.
-
-        Notes:
-            - If `self.meta` is present, the spectrum's `coordinates.zero_based` flag is
-              synchronized to `self.meta.coordinates_zero_based` before indexing.
         """
-        # Sync zero_based setting if meta is available
-        if self.meta :
-            spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
-
-
         # get locations
         x = spectrum.x if x == -1 else x
         y = spectrum.y if y == -1 else y
@@ -228,10 +219,6 @@ class MassSpectrumSet:
             raise IndexError(f"Index {index} out of range.")
 
         elif index >=0 and index < len(self._queue):
-            # Sync zero_based setting if meta is available
-            if self.meta:
-                spectrum.coordinates.zero_based = self.meta.coordinates_zero_based
-
             # check if coordinates match
             if self._queue[index] == spectrum:
                 #update queue
@@ -411,47 +398,4 @@ class MassSpectrumSet:
         else:
             plt.show()
 
-    def set_coordinates_zero_based(self, zero_based: bool):
-        """
-        Synchronize zero-based coordinate setting across metadata and all spectra, rebuilding index.
 
-        Args:
-            zero_based (bool): True to use zero-based coordinates; False for one-based.
-
-        Raises:
-            ValueError: If metadata is missing on the MS instance.
-
-        Notes:
-            - Updates `self.meta.coordinates_zero_based` and toggles each spectrum's
-              `PixelCoordinates.zero_based` property.
-            - Rebuilds the coordinate index to reflect new x/y/z values under the flag.
-        """
-        if self.meta is None:
-            logger.error("MS meta data is required to synchronize coordinates.")
-            raise ValueError("MS meta data is required to synchronize coordinates.")
-
-        prev_flag = self.meta.coordinates_zero_based
-        new_flag = zero_based
-
-        # If flag changed, update all coordinates and rebuild index
-        if prev_flag != new_flag:
-
-            # Update metadata flag
-            self.meta.coordinates_zero_based = new_flag
-            self.meta.update_meta()
-
-            # Rebuild coordinate index (clear in-place to avoid stale external references)
-            self._coordinate_index.clear()
-
-            # update min/max pixel values in metadata
-            for spectrum in self._queue:
-                spectrum.coordinates.zero_based = new_flag
-                x, y, z = spectrum.x, spectrum.y, spectrum.z
-                if z not in self._coordinate_index:
-                    self._coordinate_index[z] = {}
-                if x not in self._coordinate_index[z]:
-                    self._coordinate_index[z][x] = {}
-                self._coordinate_index[z][x][y] = spectrum
-
-        else:
-            logger.info("Coordinates zero_based flag is already set to the desired value; no changes made.")

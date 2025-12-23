@@ -5,14 +5,14 @@ from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.logger import get_logger
-from tests.test_tools import time_calculator
+
 logger = get_logger("test_swap")
 
-ROUND = 10
+ROUND = 1
 
 def ms_raw_data():
     """
-    Fixture: Load raw data, shared for all test cases
+    create data
     """
     filepath = r"./data/example.imzML"
 
@@ -21,12 +21,19 @@ def ms_raw_data():
         
     ms_raw = MassSpectrumSet()
     dm_raw = MSDataManagerImzML(ms_raw, filepath=filepath)
+
+    return ms_raw, dm_raw
+
+def ms_raw_data_readin(dm_raw):
+    """
+    Fixture: Load raw data, shared for all test cases
+    """
     dm_raw.load_full_data_from_file()
     batch_generator = dm_raw.get_batch_generator()
     for batch in batch_generator:
         pass
-    
-    return ms_raw, dm_raw
+
+    return dm_raw
 
 def data_swap_out_direct(ms_raw, limit=-1):
     """
@@ -39,16 +46,16 @@ def data_swap_out_direct(ms_raw, limit=-1):
     dm_swap = MSDataManagerImzML(ms_swap,temp_dir="./temp_swap")
     dm_swap.copy_meta(ms_raw)
     writer = dm_swap.writer
-    
-    for i, old_spec in enumerate(ms_raw):
+
+    for i, spec_raw in enumerate(ms_raw):
         if i >= limit:
             break
 
-        writer.addSpectrum(old_spec.mz_list, 
-                           old_spec.intensity, 
-                           old_spec.coordinates.get_tuple())
+        writer.addSpectrum(spec_raw.mz_list, 
+                           spec_raw.intensity, 
+                           spec_raw.coordinates.get_tuple())
         #clean old memory
-        old_spec.clear_data()
+        spec_raw.clear_data()
 
     dm_swap.close_writer()
     return dm_swap
@@ -76,7 +83,7 @@ def data_swap_out_object(ms_raw, limit=-1):
 
         spec_processed_imzml.swap_out2disk(writer)
 
-        #clean old data:
+        #clean raw data:
         old_spec.clear_data()
 
     dm_swap.close_writer()
@@ -94,16 +101,26 @@ def data_swap_in_benchmark(dm_swap):
         assert len(batch[1]) >0
     logger.info("Completed loading and accessing swapped data.")
 
+    # input("stage 4: load swap data")
+
     # Cleanup to release memory
     for spec in dm.ms:
         spec.clear_data()
 
+    # input("stage 5: clean swap data")
+
 def set_up_swap_data():
-    ms_raw, _ = ms_raw_data()  # Unpack the tuple
-    input(":")
+    ms_raw, dm_raw = ms_raw_data()  # Unpack the tuple
+    # input("stage 1: load raw meta data")
+    ms_raw_data_readin(dm_raw) # load data into ms_raw
+    # input("stage 2: load raw data")
     dm_swap_new = data_swap_out_direct(ms_raw, limit=-1)
+    # input("stage 3: write swap data to disk, raw data + ")
 
     return (dm_swap_new, ), {}
+
+def pipeline_swap_data():
+    pass
 
 class TestDataSwap:
     """
@@ -158,6 +175,6 @@ class TestDataSwap:
                            setup=set_up_swap_data,
                            rounds=ROUND,
                            iterations=1,
-                           warmup_rounds=1)
+                           warmup_rounds=0)
 
         logger.info("Finished Swap In benchmark")

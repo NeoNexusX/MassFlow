@@ -9,7 +9,7 @@ This document describes the metadata subsystem in MassFlow, focusing on the thre
   - All attributes exposed via properties automatically synchronize to the internal dictionary `_meta`, enabling serialization and dict-like access.
 - Capabilities
   - Record image size (number of pixels) and physical pixel size (µm).
-  - Store occupancy mask (`mask`) and coordinate base (`coordinates_zero_based`).
+  - Store occupancy mask (`mask`).
   - Cache common imzML metadata (spectrum count, instrument model, centroid/profile mode, etc.).
 - Core classes
   - `MetaDataFileBase`: abstract base providing auto-sync and dict interfaces.
@@ -72,7 +72,7 @@ class module.meta_data.MSIMetaData(mask, need_base_mask, mz_num, ...)
 ### ImzMlMetaData (imzML)
 
 ```python
-class module.meta_data.ImzMlMetaData(parser, filepath, coordinates_zero_based, ...)
+class module.meta_data.ImzMlMetaData(parser, filepath, ...)
 ```
 
 - Initialization
@@ -82,7 +82,6 @@ class module.meta_data.ImzMlMetaData(parser, filepath, coordinates_zero_based, .
   - `absolute_position_offset_x`, `absolute_position_offset_y`
   - `instrument_model`, `ms1_spectrum`, `msn_spectrum`
   - `min_pixel_x`, `min_pixel_y`
-  - `coordinates_zero_based`
 - Validation/sync
   - `filepath` must exist; if `parser` is missing it will be created.
   - `min_pixel_x/min_pixel_y` must satisfy `0 ≤ value ≤ max_count_of_pixels_*`.
@@ -121,7 +120,7 @@ test_dataset
 >>> from module.ms_data_manager_imzml import MSDataManagerImzML
 
 >>> ms = MS() 
->>> ms_dm = MSDataManagerImzML(ms, filepath="data/example.imzML", coordinates_zero_based=True)
+>>> ms_dm = MSDataManagerImzML(ms, filepath="data/example.imzML")
 
 >>> # Load spectra and extract metadata
 >>> ms_dm.load_full_data_from_file()
@@ -131,8 +130,8 @@ test_dataset
 X-axis pixels: [X value from example.imzML]
 >>> print(f"Y-axis pixels: {ms.meta.max_count_of_pixels_y}")
 Y-axis pixels: [Y value from example.imzML]
->>> print(f"Does the coordinate system start from 0: {ms.meta.coordinates_zero_based}")
-Does the coordinate system start from 0: True
+>>> print(f"Min pixel x: {ms.meta.min_pixel_x}")
+Min pixel x: 0
 ```
 
 ## Relation to Data Managers
@@ -144,4 +143,3 @@ Does the coordinate system start from 0: True
 - `filepath` must exist; for `ImzMlMetaData`, provide at least one of `parser` or `filepath`.
 - `mask` shape must be `(max_count_of_pixels_y, max_count_of_pixels_x)`.
 - Initialize `max_count_of_pixels_*` before setting `min_pixel_*` to pass bounds checks.
-- Keep `coordinates_zero_based` consistent with the manager configuration (`MSDataManagerImzML.coordinates_zero_based`).

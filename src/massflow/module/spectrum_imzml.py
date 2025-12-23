@@ -80,7 +80,7 @@ class SpectrumImzML(Spectrum):
         Base implementation handles loading from swap file if available.
         """
         # this part cant use logger because it may be called x10000
-        if self._reader is not None and (self._intensity is None or self._mz_list is None):
+        if self._reader is not None and self._intensity is None:
             # logger.debug(f"Lazy loading spectrum index {self._index} from ImzML file")
             with open(self._ibd_path, 'rb') as f:
                 mz_list, intensity = self._reader.read_spectrum_from_file(f, self._index)

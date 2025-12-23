@@ -310,7 +310,6 @@ Concrete data manager for `.imzML` files. This class extends `MSDataManager` to 
 - Invariants and notes
   - Only supports `.imzML` file format; raises error for other extensions.
   - Uses lazy loading to minimize memory usage—actual spectrum data is not loaded until accessed.
-  - Coordinate conversion from 1-based (ImzML standard) to 0-based (Python indexing) is handled automatically.
   - Metadata is tightly coupled and provides essential information for downstream processing.
 - Example
 
@@ -349,7 +348,6 @@ INFO:     25-11-10 19:34 102 ms_data_manager - MS meta data:
                                                  meta_storage_mode: split
                                                  meta_centroid_spectrum: None
                                                  meta_profile_spectrum: True
-                                                 meta_coordinates_zero_based: True
                                                  meta_max_count_of_pixels_x: 227
                                                  meta_max_count_of_pixels_y: 93
                                                  meta_pixel_size_x: 100.0
@@ -413,7 +411,6 @@ While not part of the three focus modules, `MetaDataImzMl` (in `module/meta_data
 ## Extensibility Notes
 
 - New managers can subclass `MSDataManager` to support additional formats; adhere to the `load_full_data_from_file()` contract and, if practical, use lazy-loading spectra like `SpectrumImzML`.
-- Coordinate normalization (e.g., zero-based offsets) should be consistent across managers to keep `MS` utilities predictable.
 - Consider using `target_mz_range` during load to prefilter peaks for large datasets, or leave it for downstream processing depending on performance needs.
 
 ## Glossary

@@ -1,33 +1,28 @@
-from typing import Optional
+from typing import Optional,Union,Sequence
 from massflow.logger import get_logger
 
 logger = get_logger("ms_module")
 
 class PixelCoordinates:
     """
-    Coordinate holder for MSI pixels with optional zero-based view.
+    Coordinate holder for MSI pixels.
 
-    This class stores raw `x`, `y`, `z` coordinates and provides a `zero_based`
-    switch that, when enabled, makes the public getters return values offset by `-1`
-    (useful when converting 1-based coordinates to 0-based indices).
+    This class stores raw `x`, `y`, `z` coordinates without automatic base adjustment.
 
     Attributes:
-        x (int): X coordinate (getter returns adjusted value if `zero_based` is True).
-        y (int): Y coordinate (getter returns adjusted value if `zero_based` is True).
-        z (int): Z coordinate (getter returns adjusted value if `zero_based` is True).
-        zero_based (bool): Whether to expose coordinates in zero-based form.
+        x (int): X coordinate.
+        y (int): Y coordinate.
+        z (int): Z coordinate.
     """
-
-    def __init__(self, x: int, y: int, z: int, zero_based: bool = False):
+    
+    def __init__(self, x: Union[int,Sequence[int],"PixelCoordinates"], y: int=0, z: int=0):
         """
-        Initialize pixel coordinates with optional zero-based adjustment.
+        Initialize pixel coordinates.
 
         Args:
             x (int): X coordinate value.
             y (int): Y coordinate value.
             z (int): Z coordinate value.
-            zero_based (bool): If True, getters will return (value - 1)
-                to convert 1-based coordinates to 0-based.
 
         Returns:
             None
@@ -37,16 +32,25 @@ class PixelCoordinates:
         """
 
         # internal storage
-        self._zero_based = None
-        # Store raw coordinates internally; getters apply adjustment when required.
+        # Store raw coordinates internally.
         self._x : Optional[int] = None
         self._y : Optional[int] = None
         self._z : Optional[int] = None
 
-        self.x = x
-        self.y = y
-        self.z = z
-        self.zero_based = zero_based
+        if isinstance(x, (list, tuple)):
+            if len(x) == 3:
+                self.x, self.y, self.z = x
+            else:
+                logger.error("List x must have exactly three elements with x, y, z coordinates.")
+                raise ValueError("List x must have exactly three elements with x, y, z coordinates..")
+        elif isinstance(x, PixelCoordinates):
+            self.x = x.x # type: ignore
+            self.y = x.y # type: ignore
+            self.z = x.z # type: ignore
+        else:
+            self.x = x # type: ignore
+            self.y = y
+            self.z = z
 
     @property
     def x(self) -> Optional[int]:
@@ -54,10 +58,10 @@ class PixelCoordinates:
         Get the X coordinate.
 
         Returns:
-            int: X coordinate, adjusted by `-1` when `zero_based` is True.
+            int: X coordinate.
         """
         if self._x is not None:
-            return self._x - 1 if self.zero_based else self._x
+            return self._x
         else:
             logger.error("X coordinate is not set.")
             return None
@@ -72,10 +76,10 @@ class PixelCoordinates:
         Get the Y coordinate.
 
         Returns:
-            int: Y coordinate, adjusted by `-1` when `zero_based` is True.
+            int: Y coordinate.
         """
         if self._y is  not None:
-            return self._y - 1 if self.zero_based else self._y
+            return self._y
         else:
             logger.error("Y coordinate is not set.")
             return None
@@ -90,10 +94,10 @@ class PixelCoordinates:
         Get the Z coordinate.
 
         Returns:
-            int: Z coordinate, adjusted by `-1` when `zero_based` is True.
+            int: Z coordinate.
         """
         if self._z is not None:
-            return self._z - 1 if self.zero_based else self._z
+            return self._z
         else:
             logger.error("Z coordinate is not set.")
             return None
@@ -102,36 +106,12 @@ class PixelCoordinates:
     def z(self, value: int):
         self._z = value
 
-    @property
-    def zero_based(self) -> Optional[bool]:
-        """
-        Flag indicating whether getters return zero-based coordinates.
-
-        Returns:
-            bool: True if coordinates are zero-based; False otherwise.
-        """
-        if self._zero_based is not None:
-            return self._zero_based
-        else:
-            logger.error("zero_based flag is not set.")
-            return None
-
-    @zero_based.setter
-    def zero_based(self, value: bool):
-        """
-        Set the flag controlling zero-based view of coordinates.
-
-        Args:
-            value (bool): True for zero-based; False for one-based.
-        """
-        self._zero_based = bool(value)
-
     def get_tuple(self) -> Optional[tuple]:
         """
         Get coordinates as a tuple.
 
         Returns:
-            tuple: (x, y, z) coordinates, adjusted by `-1` if `zero_based` is True.
+            tuple: (x, y, z) coordinates.
         """
         if self.x is not None and self.y is not None and self.z is not None:
             return (self.x, self.y, self.z)

@@ -56,8 +56,7 @@ class MetaDataBase:
                 max_count_of_pixels_y: Optional[int] = None,
                 pixel_size_x: Optional[float] = None,
                 pixel_size_y: Optional[float] = None,
-                mask: Optional[np.ndarray] = None,
-                coordinates_zero_based: bool = True): # [new parameter added]
+                mask: Optional[np.ndarray] = None):
 
         self._meta = {}
         # Initialize all metadata fields via properties to trigger auto-sync
@@ -75,7 +74,6 @@ class MetaDataBase:
         self._profile_spectrum = None
         self._peakpick = None
         self._mask = None
-        self._coordinates_zero_based = None # [added initialization]
         self._scan_direction = None
         self._line_scan_direction = None
         self._scan_pattern = None
@@ -91,7 +89,6 @@ class MetaDataBase:
         self.pixel_size_x = pixel_size_x
         self.pixel_size_y = pixel_size_y
         self.mask = mask
-        self.coordinates_zero_based = coordinates_zero_based # [set value]
 
     def _set(self, key, value):
         self._meta[key] = value
@@ -341,28 +338,6 @@ class MetaDataBase:
         for meta_key in self._meta:
             self._meta[meta_key] = getattr(self, meta_key, None)
 
-    @property
-    def coordinates_zero_based(self)-> bool:
-        """
-        Returns True if coordinates use zero-based indexing.
-    
-        Raises:
-            ValueError: If the coordinate system has not been properly initialized.
-        """
-        if self._coordinates_zero_based is not None:
-            return self._coordinates_zero_based
-        else:
-            logger.error("coordinates_zero_based is None, returning default False.")
-            raise ValueError("coordinates_zero_based is None.")
-
-    @coordinates_zero_based.setter
-    def coordinates_zero_based(self, value: bool):
-        """
-        Set the zero-based coordinate flag and persist in metadata.
-        """
-        self._coordinates_zero_based = value
-        self._set('coordinates_zero_based', self._coordinates_zero_based)
-
 class MSIMetaData(MetaDataBase):
     """
     Metadata class for MSI image-matrix data.
@@ -495,19 +470,16 @@ class ImzMlMetaData(MetaDataBase):
                  pixel_size_x=None,
                  pixel_size_y=None,
                  max_count_of_pixels_x=None,
-                 max_count_of_pixels_y=None,
-                 coordinates_zero_based: bool = True):
+                 max_count_of_pixels_y=None):
 
         """Initialize the metadata object with either a parser or a file path."""
-        # [modified] pass `coordinates_zero_based` to the base class
         super().__init__(name=name, 
                          version=version, 
                          storage_mode=storage_mode, 
                          mask=mask,pixel_size_x=pixel_size_x,
                          pixel_size_y=pixel_size_y,
                          max_count_of_pixels_x=max_count_of_pixels_x,
-                         max_count_of_pixels_y=max_count_of_pixels_y,
-                         coordinates_zero_based=coordinates_zero_based)
+                         max_count_of_pixels_y=max_count_of_pixels_y)
 
         self._filepath = None
         self._parser = None
@@ -539,7 +511,6 @@ class ImzMlMetaData(MetaDataBase):
         self.spectrum_count_num = spectrum_count_num
         self.min_pixel_x = min_pixel_x
         self.min_pixel_y = min_pixel_y
-        self.coordinates_zero_based = coordinates_zero_based
 
 
     @property
@@ -652,7 +623,7 @@ class ImzMlMetaData(MetaDataBase):
     @property
     def min_pixel_x(self):
         """Return the minimum pixel X coordinate."""
-        return self._min_pixel_x-1 if self.coordinates_zero_based else self._min_pixel_x
+        return self._min_pixel_x
 
     @min_pixel_x.setter
     def min_pixel_x(self, min_pixel_x):
@@ -664,7 +635,7 @@ class ImzMlMetaData(MetaDataBase):
     @property
     def min_pixel_y(self):
         """Return the minimum pixel Y coordinate."""
-        return self._min_pixel_y-1 if self.coordinates_zero_based else self._min_pixel_y
+        return self._min_pixel_y
 
     @min_pixel_y.setter
     def min_pixel_y(self, min_pixel_y):

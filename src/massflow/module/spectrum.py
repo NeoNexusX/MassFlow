@@ -61,13 +61,7 @@ class Spectrum:
 
         # Initialize coordinates to PixelCoordinates instance
         # need to update
-        if isinstance(coordinates, PixelCoordinates):
-            self.coordinates = coordinates
-        elif isinstance(coordinates, (list, tuple)) and len(coordinates) == 3:
-            x, y, z = coordinates
-            self.coordinates = PixelCoordinates(int(x), int(y), int(z))
-        else:
-            raise TypeError("coordinates must be PixelCoordinates or a list/tuple of three ints.")
+        self.coordinates = PixelCoordinates(coordinates)
 
         # sort part , do not use _sort_by_mz
         self._sort_by_mz = sort_by_mz
@@ -89,7 +83,7 @@ class Spectrum:
             np.ndarray: An array of mz values.
         """
         if self._mz_list is None:
-            self._resolve_data()
+            _ = self.intensity  # trigger data load
 
         return self._mz_list
 
@@ -123,6 +117,7 @@ class Spectrum:
         if value :
             # make sure both mz_list and intensity are not None
             if self._sort_by_mz is False and self.mz_list is not None and self.intensity is not None:
+                # sort the data by mz
                 sorted_indices = np.argsort(self.mz_list)
                 self._mz_list = self.mz_list[sorted_indices]
                 self._intensity = self.intensity[sorted_indices]
@@ -136,15 +131,12 @@ class Spectrum:
         else:
             self._sort_by_mz = value
 
-    def get_coordinates(self) -> PixelCoordinates:
+    def get_coordinates(self):
         """
         Get the coordinates of the MSI data.
 
         Returns:
             PixelCoordinates: Object containing x, y, and z coordinates.
-
-        Raises:
-            None
         """
         return self.coordinates
 
@@ -248,12 +240,8 @@ class Spectrum:
                 logger.info("xr is empty, can not crop by mz. use full mz range")
                 return self
         else:
-            logger.error(
-                "mz_list is None, can not crop by mz. xr must be a tuple of two float numbers."
-            )
-            raise ValueError(
-                "mz_list is None, can not crop by mz. xr must be a tuple of two float numbers."
-            )
+            logger.error("mz_list is None, can not crop by mz. xr must be a tuple of two float numbers.")
+            raise ValueError("mz_list is None, can not crop by mz. xr must be a tuple of two float numbers.")
 
         # ---build a new object ：same class、copy attributes ---
         new_obj = self.__class__.__new__(self.__class__)
@@ -287,6 +275,8 @@ class Spectrum:
         Raises:
             AttributeError: If 'coordinates' is not initialized.
         """
+        if self.coordinates is None:
+            raise AttributeError("coordinates is not initialized.")
         return self.coordinates.x
 
     @property
@@ -300,6 +290,8 @@ class Spectrum:
         Raises:
             AttributeError: If 'coordinates' is not initialized.
         """
+        if self.coordinates is None:
+            raise AttributeError("coordinates is not initialized.")
         return self.coordinates.y
 
     @property
@@ -313,6 +305,8 @@ class Spectrum:
         Raises:
             AttributeError: If 'coordinates' is not initialized.
         """
+        if self.coordinates is None:
+            raise AttributeError("coordinates is not initialized.")
         return self.coordinates.z
     
     def swap_out2disk(self, writer: ImzMLWriter):

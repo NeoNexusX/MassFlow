@@ -99,8 +99,8 @@ class MSDataManager(ABC):
         """return writer."""
 
         if self.ms.meta is not None:
-            if self._writer is None:
 
+            if self._writer is None:
                 spec_type = "centroid" if self.ms.meta.centroid_spectrum is not None else "centroid"
                 scan_direction = self.ms.meta.scan_direction if self.ms.meta.scan_direction is not None else "top_down"
                 line_scan_direction = self.ms.meta.line_scan_direction if self.ms.meta.line_scan_direction is not None else "line_left_right"
@@ -113,7 +113,7 @@ class MSDataManager(ABC):
                     self.mode = "processed"
                 else:
                     self.mode = "auto"
-
+                logger.info(f"Creating ImzMLWriter with mode={self.mode}, spec_type={spec_type}")
                 self._writer = ImzMLWriter(str(self.filepath),
                                             mz_dtype=self.mz_dtype, 
                                             intensity_dtype=self.intensity_dtype,
@@ -146,8 +146,6 @@ class MSDataManager(ABC):
                     setattr(self._ms.meta, key, value)
                 except Exception as e:
                     logger.warning(f"Failed to copy meta field {key}: {e}")
-
-        self._ms.set_coordinates_zero_based(source_ms.meta.coordinates_zero_based)
 
         logger.info("Metadata copy completed.")
 

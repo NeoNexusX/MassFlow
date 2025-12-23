@@ -12,14 +12,12 @@ License: See LICENSE file in project root
 import os
 import warnings
 import numpy as np
-import time
 from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
 from massflow.module.ms_data_manager import MSDataManager
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_meta_data import ImzMlMetaData
-from massflow.module.mass_spectrum_set import MassSpectrumSet
 
 logger = get_logger("ms_data_manager_imzml")
 
@@ -38,7 +36,6 @@ class MSDataManagerImzML(MSDataManager):
         ms=None,
         target_locs=None,
         filepath=None,
-        coordinates_zero_based: bool = False,
         max_threads: int = 8,
         temp_dir = None,
         mz_dtype = np.float64,
@@ -53,13 +50,10 @@ class MSDataManagerImzML(MSDataManager):
                 Expected shape: ([x1, y1], [x2, y2]) (inclusive bounds). When None, load all.
             filepath (str, optional): Path to the .imzML file (XML header; paired .ibd is
                 resolved automatically).
-            coordinates_zero_based (bool): Whether coordinates exposed in metadata/MS
-                are treated as zero-based.
             max_threads (int): Maximum worker threads for batch loading utilities.
         """
         super().__init__(ms, None, target_locs, filepath, max_threads=max_threads, mz_dtype=mz_dtype, intensity_dtype=intensity_dtype, temp_dir=temp_dir)
 
-        self.coordinates_zero_based = coordinates_zero_based
         self.parser = None
         self.reader = None
         self.ibd_path = None
@@ -69,7 +63,7 @@ class MSDataManagerImzML(MSDataManager):
         else:
             logger.info(f"File {self.filepath} is new or empty. Skipping initial parsing.")
             if self.ms.meta is None:
-                self.ms.meta = ImzMlMetaData(parser=None, filepath=self.filepath, coordinates_zero_based=self.coordinates_zero_based)
+                self.ms.meta = ImzMlMetaData(parser=None, filepath=self.filepath)
 
     def _init_reader_and_parser(self):
         """Initialize the ImzML parser and spectrum reader."""
@@ -79,7 +73,7 @@ class MSDataManagerImzML(MSDataManager):
             self.parser = ImzMLParser(self.filepath)
         
         if self.ms.meta is None:
-            self.ms.meta = ImzMlMetaData(parser=self.parser, filepath=self.filepath, coordinates_zero_based=self.coordinates_zero_based)
+            self.ms.meta = ImzMlMetaData(parser=self.parser, filepath=self.filepath)
         else:
             self.ms.meta.parser = self.parser
 
@@ -93,14 +87,15 @@ class MSDataManagerImzML(MSDataManager):
 
     def load_full_data_from_file(self):
         """
-                Stream spectra from .imzML and add lazy SpectrumImzML placeholders into `ms`.
+            Stream spectra from .imzML and add lazy SpectrumImzML placeholders into `ms`.
 
-                Behavior:
-                        - Iterates over `parser.coordinates` and creates a `SpectrumImzML` placeholder per pixel.
-                        - If `target_locs` is provided, only pixels within the inclusive window are added.
-                        - For continuous data, `ms.shared_mz_list` is populated once (on first seen spectrum)
-                            and each placeholder gets `spectrum.mz_list = ms.shared_mz_list`.
-        """
+            Behavior:
+                    - Iterates over `parser.coordinates` and creates a `SpectrumImzML` placeholder per pixel.
+                    - If `target_locs` is provided, only pixels within the inclusive window are added.
+                    - For continuous data, `ms.shared_mz_list` is populated once (on first seen spectrum)
+                        and each placeholder gets `spectrum.mz_list = ms.shared_mz_list`.
+         """
+
         if self.parser is None:
             if os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0:
                 self._init_reader_and_parser()
@@ -115,10 +110,6 @@ class MSDataManagerImzML(MSDataManager):
                 logger.error(f"Error: File {self.filepath} does not exist.")
                 raise FileNotFoundError(f"Error: File {self.filepath} does not exist.")
 
-            if not self.filepath.lower().endswith(".imzml"):
-                logger.error(f"Error: {self.filepath} is not an .imzML file.")
-                raise ValueError(f"Error: {self.filepath} is not an .imzML file.")
-
             # meta data load part
             self.pre_load_meta()
             # list of coords
@@ -126,11 +117,7 @@ class MSDataManagerImzML(MSDataManager):
             # spectrum  meta data load and create part
             for i, c in enumerate(coords):
                 x, y, z = c
-                c1, c2 = (
-                    self.target_locs
-                    if self.target_locs is not None
-                    else ([0, 0], [999, 999])
-                )
+                c1, c2 = (self.target_locs if self.target_locs is not None else ([0, 0], [999, 999]))
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
                     # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
                     spectrum = SpectrumImzML(
@@ -145,8 +132,9 @@ class MSDataManagerImzML(MSDataManager):
                     spectrum.mz_list = self.ms.shared_mz_list
                     self.ms.add_spectrum(spectrum)
                     self.loading_meta(
-                        x=spectrum.coordinates.x, y=spectrum.coordinates.y, index=i
-                    )
+                        x=spectrum.coordinates.x, 
+                        y=spectrum.coordinates.y, 
+                        index=i)
                     self.current_spectrum_num += 1
 
             combined_message = "\r\n".join([f"{wm.message}" for wm in w])
@@ -220,9 +208,7 @@ class MSDataManagerImzML(MSDataManager):
         """Update metadata during spectrum streaming (continuous mode + min pixel tracking)."""
 
         if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None:  # type: ignore
-            logger.info(
-                "Assigning shared mz_list for continuous data; subsequent spectra will reuse it."
-            )
+            logger.info("Assigning shared mz_list for continuous data; subsequent spectra will reuse it.")
             self.ms.shared_mz_list, _ = self.parser.getspectrum(kwargs["index"])
 
         # update min pixel x,y
