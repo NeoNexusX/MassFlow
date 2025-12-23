@@ -268,6 +268,14 @@ class Spectrum:
             return np.all(self.mz_list[:-1] <= self.mz_list[1:])
         return False
 
+    def clear_data(self):
+        """
+        Clear the loaded m/z and intensity data to free memory.
+        """
+        self._mz_list = None
+        self._intensity = None
+        self.coordinates = None
+
     @property
     def x(self):
         """

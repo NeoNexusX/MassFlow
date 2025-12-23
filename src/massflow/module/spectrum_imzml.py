@@ -80,13 +80,12 @@ class SpectrumImzML(Spectrum):
         Base implementation handles loading from swap file if available.
         """
         # this part cant use logger because it may be called x10000
-        # then try imzml reade
-        if self._reader is not None and self._intensity is None:
+        if self._reader is not None and (self._intensity is None or self._mz_list is None):
             # logger.debug(f"Lazy loading spectrum index {self._index} from ImzML file")
             with open(self._ibd_path, 'rb') as f:
-                mz, intensity = self._reader.read_spectrum_from_file(f, self._index)
+                mz_list, intensity = self._reader.read_spectrum_from_file(f, self._index)
                 if self._mz_list is None:
-                    self._mz_list = mz.copy()
+                    self._mz_list = mz_list.copy()
                 self._intensity = intensity.copy()
 
     def swap_out2disk(self, writer: ImzMLWriter):
@@ -98,13 +97,8 @@ class SpectrumImzML(Spectrum):
                 logger.error("Both mz_list and intensity cannot be None")
                 raise ValueError("Both mz_list and intensity cannot be None")
 
-            assert len(self.mz_list) == len(self.intensity)
-
-            f_mz = self.mz_list
-            f_intensity = self.intensity
-
-            writer.addSpectrum(f_mz, f_intensity, (self.x, self.y, self.z))
+            # add spectrum to writer
+            writer.addSpectrum(self.mz_list, self.intensity, self.coordinates.get_tuple())
 
         # clear loaded data to save memory
-        self._mz_list = None
-        self._intensity = None
+        self.clear_data()

@@ -234,21 +234,13 @@ class MSDataManagerImzML(MSDataManager):
         """
         Safely close underlying resources associated with the ImzML parser.
         """
-        t0 = time.perf_counter()
-
         if self.parser is not None:
             # Try closing memory-mapped handle if present
             m = getattr(self.parser, "m", None)
             if m is not None and hasattr(m, "close"):
-                try:
-                    m.close()
-                except Exception as e:
-                    logger.warning(f"Failed to close memory-mapped handle: {e}")
+                m.close()
 
         super().close()
-
-        t_total = time.perf_counter() - t0
-        logger.info(f"MSDataManagerImzML.close timing: total={t_total:.6f}s")
 
     def __enter__(self):
         return super().__enter__()  # father class
