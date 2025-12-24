@@ -259,13 +259,8 @@ class MSDataManager(ABC):
         for i in range(0, total_length, batch_size):
             batch = self.ms[i : i + batch_size]
             if self.threads_executor is not None:
-                futures = []
-                for item in batch:
-                    future = self.threads_executor.submit(_trigger_for_load_spectrum, item)
-                    futures.append(future)
-
-                for future in as_completed(futures):
-                    future.result()  # wait for all to complete
+                # 使用 list() 强制迭代，阻塞直到该批次所有谱图加载任务完成
+                list(self.threads_executor.map(_trigger_for_load_spectrum, batch))
 
             yield batch
 

@@ -29,9 +29,9 @@ def ms_raw_data_readin(dm_raw):
     Fixture: Load raw data, shared for all test cases
     """
     dm_raw.load_full_data_from_file()
-    for spec in dm_raw.ms:
-        assert spec.intensity is not None
-
+    batch_generator = dm_raw.get_batch_generator(batch_size=32, max_threads=4)
+    for batch in batch_generator:
+        assert len(batch[1]) >0
 
     return dm_raw
 
@@ -104,6 +104,9 @@ def data_swap_in_multithread_benchmark(dm_swap):
 
     logger.info("Completed loading and accessing swapped data.")
 
+    for spec in dm.ms:
+        spec.clear_data()
+
 def data_swap_in_benchmark(dm_swap):
     """
     Test: Disk file -> Load and access in memory (Swap In)
@@ -116,6 +119,9 @@ def data_swap_in_benchmark(dm_swap):
         assert spec.intensity is not None
 
     logger.info("Completed loading and accessing swapped data.")
+
+    for spec in dm.ms:
+        spec.clear_data()
 
 def set_up_swap_data():
     ms_raw, dm_raw = ms_raw_data()  # Unpack the tuple
@@ -169,17 +175,19 @@ class TestDataSwap:
         logger.info("Finished Swap Out benchmark")
 
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_swap_in_performance(self, benchmark, limit=-1):
+    @pytest.mark.parametrize("mode", ["normal", "multithread"])
+    def test_swap_in_performance(self, benchmark, mode,limit=-1):
         """
         Performance test: Data read speed from disk
         """
-
+        mode_fun  = data_swap_in_multithread_benchmark  if mode != "normal" else data_swap_in_benchmark
         logger.info(f"Starting Swap In benchmark for {limit} spectra")
 
-        benchmark.pedantic(data_swap_in_benchmark,
+        benchmark.pedantic(mode_fun,
                            setup=set_up_swap_data,
                            rounds=ROUND,
                            iterations=1,
-                           warmup_rounds=0)
+                           warmup_rounds=1)
 
         logger.info("Finished Swap In benchmark")
+
