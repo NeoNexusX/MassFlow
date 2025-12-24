@@ -52,7 +52,14 @@ class MSDataManagerImzML(MSDataManager):
                 resolved automatically).
             max_threads (int): Maximum worker threads for batch loading utilities.
         """
-        super().__init__(ms, None, target_locs, filepath, max_threads=max_threads, mz_dtype=mz_dtype, intensity_dtype=intensity_dtype, temp_dir=temp_dir)
+        super().__init__(ms=ms,
+                         target_mz_range=None, 
+                         target_locs=target_locs, 
+                         filepath=filepath, 
+                         max_threads=max_threads, 
+                         mz_dtype=mz_dtype, 
+                         intensity_dtype=intensity_dtype, 
+                         temp_dir=temp_dir)
 
         self.parser = None
         self.reader = None
@@ -105,16 +112,13 @@ class MSDataManagerImzML(MSDataManager):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
 
-            # regular checks
-            if not self.filepath or not os.path.exists(self.filepath):
-                logger.error(f"Error: File {self.filepath} does not exist.")
-                raise FileNotFoundError(f"Error: File {self.filepath} does not exist.")
-
             # meta data load part
             self.pre_load_meta()
+
             # list of coords
             coords = self.parser.coordinates
-            # spectrum  meta data load and create part
+
+            # spectrum data load and create part
             for i, c in enumerate(coords):
                 x, y, z = c
                 c1, c2 = (self.target_locs if self.target_locs is not None else ([0, 0], [999, 999]))
@@ -128,18 +132,20 @@ class MSDataManagerImzML(MSDataManager):
                         coordinates=[x, y, z],
                     )
 
+                    self.loading_meta(x=spectrum.coordinates.x, 
+                                      y=spectrum.coordinates.y, 
+                                      index=i)
+
                     # judge mz_list is used or not
                     spectrum.mz_list = self.ms.shared_mz_list
                     self.ms.add_spectrum(spectrum)
-                    self.loading_meta(
-                        x=spectrum.coordinates.x, 
-                        y=spectrum.coordinates.y, 
-                        index=i)
                     self.current_spectrum_num += 1
 
+            # log warnings if any
             combined_message = "\r\n".join([f"{wm.message}" for wm in w])
             if len(combined_message) > 0:
                 logger.warning(f"{combined_message}")
+
             self.loaded_meta()
 
     def pre_load_meta(self, *args, **kwargs):
@@ -152,12 +158,8 @@ class MSDataManagerImzML(MSDataManager):
         logger.info("Extracting metadata...")
 
         if self.ms.meta.parser is None:  # type: ignore
-            logger.error(
-                "Parser is not initialized. Please set parser or filepath first."
-            )
-            raise ValueError(
-                "Parser is not initialized. Please set parser or filepath first."
-            )
+            logger.error("Parser is not initialized. Please set parser or filepath first.")
+            raise ValueError("Parser is not initialized. Please set parser or filepath first.")
 
         for accession_id, prop_name in self.ms.meta.meta_index.items():  # type: ignore
             param_value = self.find_meta_by_accession_id(accession_id)
@@ -208,10 +210,11 @@ class MSDataManagerImzML(MSDataManager):
         """Update metadata during spectrum streaming (continuous mode + min pixel tracking)."""
 
         if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None:  # type: ignore
-            logger.info("Assigning shared mz_list for continuous data; subsequent spectra will reuse it.")
             self.ms.shared_mz_list, _ = self.parser.getspectrum(kwargs["index"])
+            logger.info(f"Assigning shared mz_list for continuous data; len is {len(self.ms.shared_mz_list)} subsequent spectra will reuse it.")
 
         # update min pixel x,y
+        # need to judge meta is ImzMlMetaData
         if isinstance(self.ms.meta, ImzMlMetaData):
             self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs["x"])
             self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs["y"])

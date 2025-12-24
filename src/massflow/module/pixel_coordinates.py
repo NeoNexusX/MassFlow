@@ -68,7 +68,7 @@ class PixelCoordinates:
 
     @x.setter
     def x(self, value: int):
-        self._x = value
+        self._x = int(value)
 
     @property
     def y(self) -> Optional[int]:
@@ -86,7 +86,7 @@ class PixelCoordinates:
 
     @y.setter
     def y(self, value: int):
-        self._y = value
+        self._y = int(value)
 
     @property
     def z(self) -> Optional[int]:
@@ -104,7 +104,7 @@ class PixelCoordinates:
 
     @z.setter
     def z(self, value: int):
-        self._z = value
+        self._z = int(value)
 
     def get_tuple(self) -> Optional[tuple]:
         """

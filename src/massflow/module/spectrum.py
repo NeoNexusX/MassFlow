@@ -89,7 +89,8 @@ class Spectrum:
 
     @mz_list.setter
     def mz_list(self, value):
-        self._mz_list = value
+        if value is None or isinstance(value, np.ndarray):
+            self._mz_list = value
 
     @property
     def intensity(self):
@@ -184,84 +185,95 @@ class Spectrum:
         if self.mz_list is None or self.intensity is None:
             logger.error("mz_list or intensity is None, can not get item.")
             raise IndexError("mz_list or intensity is None, can not get item.")
+
         return self.mz_list[index], self.intensity[index]
 
-    def crop_range(
-        self,
-        xr: Optional[Sequence[float]] = None,
-        sort_by_mz: bool = True,
-    ):
+    def crop_range(self,
+                   x_range: Sequence[float],
+                   sort_by_mz: bool = True,
+                   mode: str = "new",):
         """
         Crop spectrum within a given m/z range and return a shallow copy.
 
         Args:
             xr (Optional[Tuple[float, float] | List[float]]): Lower and upper m/z bounds.
             sort_by_mz (bool): Whether to sort by m/z prior to range search.
-
-        Returns:
-            SpectrumBaseModule: New spectrum object sharing attributes with sliced arrays.
-
-        Raises:
-            ValueError: If `mz_list` is None or `xr` is invalid.
         """
+
         #make sure mz_list and intensity are not None
         if self.mz_list is not None and self.intensity is not None:
-            #make sure xr is valid
-            if xr is not None and len(xr) == 2:
-                mz_c = None
-                inten_c = None
-                
-                # without sort and dont want to sort
-                if not self._sort_by_mz and not sort_by_mz:
-                    mask_xr = np.ones_like(self.mz_list, dtype=bool)
 
-                    if self.mz_list is not None:
-                        mask_xr &= (self.mz_list >= xr[0]) & (self.mz_list <= xr[1])
-                    else:
-                        logger.error("xr or mz_list is None, can not crop by mz.")
-                        raise ValueError("xr or mz_list is None, can not crop by mz.")
+            # valid test
+            min_mz = np.min(self.mz_list)
+            max_mz = np.max(self.mz_list)
+            if x_range[0] < min_mz or x_range[1] > max_mz:
 
-                    mz_c = self.mz_list[mask_xr]
-                    inten_c = self.intensity[mask_xr]
+                #make sure x_range is valid
+                if x_range is not None and len(x_range) == 2:
+                    mz_c = None
+                    inten_c = None
+                    
+                    # without sort and dont want to sort
+                    if not sort_by_mz and not self._sort_by_mz:
+                        mask_xr = np.ones_like(self.mz_list, dtype=bool)
+                        mask_xr &= (self.mz_list >= x_range[0]) & (self.mz_list <= x_range[1])
 
-                # with sort and want to sort  or want sort but no sort
-                elif sort_by_mz:
+                        mz_c = self.mz_list[mask_xr]
+                        inten_c = self.intensity[mask_xr]
 
-                    if not self.sort_by_mz:
+                    # with sort and want to sort  or want sort but no sort
+                    elif sort_by_mz:
+                        # always set sort to true
                         self.sort_by_mz = True
+                        # use searchsorted to find the indices
+                        start_index = np.searchsorted(self.mz_list, x_range[0], side="left")
+                        end_index = np.searchsorted(self.mz_list, x_range[1], side="right")
 
-                    start_index = np.searchsorted(self.mz_list, xr[0], side="left")
-                    end_index = np.searchsorted(self.mz_list, xr[1], side="right")
-
-                    # build the data
-                    mz_c = self.mz_list[start_index:end_index]
-                    inten_c = self.intensity[start_index:end_index]
+                        # build the data
+                        mz_c = self.mz_list[start_index:end_index]
+                        inten_c = self.intensity[start_index:end_index]
+                else:
+                    logger.info("xr is empty, can not crop by mz. use full mz range")
+                    return self
             else:
-                logger.info("xr is empty, can not crop by mz. use full mz range")
-                return self
+                mz_c = np.array([-1])
+                inten_c = np.array([-1])
         else:
             logger.error("mz_list is None, can not crop by mz. xr must be a tuple of two float numbers.")
             raise ValueError("mz_list is None, can not crop by mz. xr must be a tuple of two float numbers.")
 
-        # ---build a new object ：same class、copy attributes ---
-        new_obj = self.__class__.__new__(self.__class__)
-        new_obj.__dict__.update(self.__dict__)  # Copy all attributes
-        new_obj.mz_list = mz_c
-        new_obj.intensity = inten_c
-        return new_obj
+        # cut part
+        if mode == "new":
+            # ---build a new object ：same class、copy attributes ---
+            new_obj = self.__class__.__new__(self.__class__)
+            new_obj.__dict__.update(self.__dict__)  # Copy all attributes
+            new_obj.mz_list = mz_c
+            new_obj.intensity = inten_c
+
+            return new_obj
+
+        elif mode == "update":
+            self.mz_list = mz_c
+            self.intensity = inten_c
+            return self
+
+        else:
+            logger.error(f"mode {mode} is not supported. use 'new' or 'update'")
+            raise ValueError(f"mode {mode} is not supported. use 'new' or 'update'")
 
     def is_sorted(self):
         # Check if the mz_list is sorted in ascending order.
         if self.mz_list is not None and self.intensity is not None:
             return np.all(self.mz_list[:-1] <= self.mz_list[1:])
+
         return False
 
     def clear_data(self):
         """
         Clear the loaded m/z and intensity data to free memory.
         """
-        self._mz_list = None
-        self._intensity = None
+        self.mz_list = None
+        self.intensity = None
         self.coordinates = None
 
     @property

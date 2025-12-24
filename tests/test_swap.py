@@ -8,7 +8,7 @@ from massflow.logger import get_logger
 
 logger = get_logger("test_swap")
 
-ROUND = 1
+ROUND = 10
 
 def ms_raw_data():
     """
@@ -29,9 +29,9 @@ def ms_raw_data_readin(dm_raw):
     Fixture: Load raw data, shared for all test cases
     """
     dm_raw.load_full_data_from_file()
-    batch_generator = dm_raw.get_batch_generator()
-    for batch in batch_generator:
-        pass
+    for spec in dm_raw.ms:
+        assert spec.intensity is not None
+
 
     return dm_raw
 
@@ -89,33 +89,38 @@ def data_swap_out_object(ms_raw, limit=-1):
     dm_swap.close_writer()
     return dm_swap
 
+def data_swap_in_multithread_benchmark(dm_swap):
+    """
+    Test: Disk file -> Load and access in memory (Swap In)
+    """
+    dm = dm_swap
+    dm.load_full_data_from_file()
+    dm.inspect_data()
+
+    batch_generator = dm.get_batch_generator(batch_size=256, max_threads=64)
+
+    for batch in batch_generator:
+        assert len(batch[1]) > 0
+
+    logger.info("Completed loading and accessing swapped data.")
+
 def data_swap_in_benchmark(dm_swap):
     """
     Test: Disk file -> Load and access in memory (Swap In)
     """
     dm = dm_swap
     dm.load_full_data_from_file()
-    batch_generator = dm.get_batch_generator(batch_size=256, max_threads=8)
+    dm.inspect_data()
 
-    for batch in batch_generator:
-        assert len(batch[1]) >0
-    logger.info("Completed loading and accessing swapped data.")
-
-    # input("stage 4: load swap data")
-
-    # Cleanup to release memory
     for spec in dm.ms:
-        spec.clear_data()
+        assert spec.intensity is not None
 
-    # input("stage 5: clean swap data")
+    logger.info("Completed loading and accessing swapped data.")
 
 def set_up_swap_data():
     ms_raw, dm_raw = ms_raw_data()  # Unpack the tuple
-    # input("stage 1: load raw meta data")
     ms_raw_data_readin(dm_raw) # load data into ms_raw
-    # input("stage 2: load raw data")
     dm_swap_new = data_swap_out_direct(ms_raw, limit=-1)
-    # input("stage 3: write swap data to disk, raw data + ")
 
     return (dm_swap_new, ), {}
 

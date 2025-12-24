@@ -11,7 +11,7 @@ License: See LICENSE file in project root
 import os
 from abc import ABC, abstractmethod
 import random
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor,as_completed
 import numpy as np
 import tempfile
 from massflow.logger import get_logger
@@ -73,7 +73,7 @@ class MSDataManager(ABC):
         # target_locs input verification
         if target_locs is not None:
             # target locs input
-            if len(target_locs) <= 1 or (target_locs[0][0] > target_locs[1][0]or target_locs[0][1] > target_locs[1][1]):
+            if len(target_locs) <= 1 or (target_locs[0][0] > target_locs[1][0] or target_locs[0][1] > target_locs[1][1]):
                 logger.error("target_locs must be non-empty or locs must x1<x2,y1<y2")
                 raise ValueError("target_locs must be non-empty or locs must x1<x2,y1<y2")
 
@@ -122,7 +122,7 @@ class MSDataManager(ABC):
                                             scan_direction=scan_direction,
                                             line_scan_direction=line_scan_direction,
                                             scan_pattern=scan_pattern,
-                                            scan_type=scan_type,)
+                                            scan_type=scan_type)
             return self._writer
 
         else:
@@ -138,7 +138,7 @@ class MSDataManager(ABC):
         
         source_meta_dict = source_ms.meta.to_dict()
 
-        exclude_keys = {'mask', 'parser', 'filepath', 'spectrum_count_num', 'continuous', 'processed','queue'}
+        exclude_keys = {'mask', 'parser', 'filepath', 'spectrum_count_num', 'continuous', 'processed','queue','centroid_spectrum','profile_spectrum'}
         
         for key, value in source_meta_dict.items():
             if key not in exclude_keys and hasattr(self._ms.meta, key):
@@ -255,11 +255,18 @@ class MSDataManager(ABC):
         def _trigger_for_load_spectrum(sp):
             _ = sp.intensity
 
-        # 3. Batch processing loop
+        # Batch processing loop
         for i in range(0, total_length, batch_size):
             batch = self.ms[i : i + batch_size]
             if self.threads_executor is not None:
-                self.threads_executor.map(_trigger_for_load_spectrum, batch)
+                futures = []
+                for item in batch:
+                    future = self.threads_executor.submit(_trigger_for_load_spectrum, item)
+                    futures.append(future)
+
+                for future in as_completed(futures):
+                    future.result()  # wait for all to complete
+
             yield batch
 
     def detect_sorted(self):
