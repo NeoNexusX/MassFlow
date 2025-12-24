@@ -12,14 +12,23 @@ dependencies = [
     "numpy>=2.3.5",
     "pyimzml>=1.5.5",
     "pympler>=1.1",
+    "pywavelets>=1.9.0",
     "scipy>=1.16.3",
     "uuid>=1.30",
 ]
 
 [dependency-groups]
 dev = [
+    "black==25.12.0",
     "pytest>=9.0.1",
     "pytest-benchmark>=5.2.3",
     "pytest-memray>=1.8.0; sys_platform != 'win32'",
     "pytest-monitor>=1.6.6",
 ]
+
+[tool.pytest.ini_options]
+addopts = "--benchmark-warmup=off --benchmark-disable-gc"
+
+[tool.pytest_benchmark]
+# Force time unit to seconds
+timer = "time.perf_counter"

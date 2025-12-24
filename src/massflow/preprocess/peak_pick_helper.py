@@ -7,10 +7,10 @@ from typing import Sequence
 from scipy.signal import find_peaks
 import numpy as np
 from massflow.logger import get_logger
-from .est_noise_helper import estimator
+from massflow.preprocess.est_noise_helper import estimator
 from scipy.integrate import simpson
 
-logger = get_logger(__name__)
+logger = get_logger("preprocesss")
 
 
 def _input_validation(intensity,index):

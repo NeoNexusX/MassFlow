@@ -224,4 +224,4 @@ logs/
 *.ipynb
 *.pymon
 *.benchmark
-temp/*
+*temp*/*

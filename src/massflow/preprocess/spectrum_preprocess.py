@@ -34,20 +34,22 @@ License: See LICENSE file in project root
 """
 from typing import Union, Optional, Sequence
 import numpy as np
-from massflow.module.ms_module import SpectrumBaseModule, SpectrumImzML, MS
+from massflow.module.spectrum_imzml import SpectrumImzML
+from massflow.module.spectrum import Spectrum
+from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.logger import get_logger
-from .peak_align_helper import peak_align, get_reference
-from .filter_helper import smoother
-from .normalizer_helper import normalizer
-from .baseline_correction_helper import baseline_corrector
-from .est_noise_helper import estimator
-from .peak_pick_helper import peak_pick_fun
+from massflow.preprocess.peak_align_helper import peak_align, get_reference
+from massflow.preprocess.filter_helper import smoother
+from massflow.preprocess.normalizer_helper import normalizer
+from massflow.preprocess.baseline_correction_helper import baseline_corrector
+from massflow.preprocess.est_noise_helper import estimator
+from massflow.preprocess.peak_pick_helper import peak_pick_fun
 import os
 import time
 
 logger = get_logger("ms_preprocess")
 
-class MSIPreprocessor:
+class SpectrumPreprocess:
     """
     Abstract base class for MSI data preprocessing.
 
@@ -88,11 +90,11 @@ class MSIPreprocessor:
             raise ValueError("Input spectrum must have both intensity and mz_list data.")
 
     @staticmethod
-    def peak_pick_spectrum( data: SpectrumBaseModule,
+    def peak_pick_spectrum( data: Spectrum,
                             width: int | Sequence[int] = 2,
                             method: str = 'scipy',
                             relheight: float = 0.1,
-                            return_type: str = 'height') -> SpectrumBaseModule:
+                            return_type: str = 'height') -> Spectrum:
         """
         Perform peak picking on a single spectrum and return a reduced spectrum.
 
@@ -109,7 +111,7 @@ class MSIPreprocessor:
         Raises:
             ValueError: If `method` or `return_type` is unsupported.
         """
-        MSIPreprocessor.base_input_check(data=data)
+        SpectrumPreprocess.base_input_check(data=data)
 
         intensity = data.intensity
         index = data.mz_list
@@ -120,19 +122,19 @@ class MSIPreprocessor:
                                                     relheight=relheight,
                                                     return_type=return_type)
 
-        return SpectrumBaseModule(
+        return Spectrum(
             mz_list=peak_index,
             intensity=peak_intensity,
-            coordinates=data.coordinates,
+            coordinate=data.coordinate,
         )
 
     @staticmethod
     def normalization_spectrum(
-        data: Union[SpectrumBaseModule, SpectrumImzML],
+        data: Union[Spectrum, SpectrumImzML],
         scale_method: str = "none",
         method: str = "tic",
         scale: float = 1.0
-    ) -> Union[SpectrumBaseModule, SpectrumImzML]:
+    ) -> Union[Spectrum, SpectrumImzML]:
         """
         Normalize a single spectrum using TIC, RMS, or Median, with optional scaling.
 
@@ -156,14 +158,14 @@ class MSIPreprocessor:
             scale=scale
         )
 
-        return SpectrumBaseModule(
+        return Spectrum(
             mz_list=data.mz_list,
             intensity=norm_intensity,
-            coordinates=data.coordinates,
+            coordinate=data.coordinate,
         )
 
     @staticmethod
-    def peak_alignment(ms_data: MS,
+    def peak_alignment(ms_data: MassSpectrumSet,
                        ref: Optional[np.ndarray] = None,
                        units: str = 'ppm',
                        tolerance: Optional[float] = None,
@@ -173,7 +175,7 @@ class MSIPreprocessor:
                        ref_method: Optional[str] = None,
                        ref_mzres: Optional[float] = None,
                        ref_mzmaxshift: Optional[float] = None,
-                       ref_mzunits: Optional[str] = None) -> MS:
+                       ref_mzunits: Optional[str] = None) -> MassSpectrumSet:
         """
         Peak alignment entry (streaming): dispatch parameters, optionally compute density-based reference,
         delegate to streaming `peak_align`, and return the aligned MS object.
@@ -224,7 +226,7 @@ class MSIPreprocessor:
             if ref_mzmaxshift is None: ref_mzmaxshift = float(tolerance) if tolerance is not None else (100.0 if ref_mzunits == 'ppm' else 0.05)
             
             ref = get_reference(mz_all, ref_mzres, ref_mzmaxshift, ref_mzunits)
-            ref = ref[np.isfinite(ref)]
+            ref = ref[np.isfinite(ref)] #type: ignore
             logger.info(f"peak_alignment: density ref computed, peaks={ref.size}")
 
         # 2. Call peak_align (Now Handles Everything)
@@ -232,10 +234,10 @@ class MSIPreprocessor:
         res = peak_align(
             ms_data,
             ref=ref,
-            binfun=binfun,
+            binfun=binfun, #type: ignore
             binratio=binratio,
             tolerance=tolerance,
-            units=units,
+            units=units, #type: ignore
             output_path=output_path
         )
 
@@ -250,7 +252,7 @@ class MSIPreprocessor:
 
     @staticmethod
     def baseline_correction_spectrum(
-        data: Union[SpectrumBaseModule, SpectrumImzML],
+        data: Union[Spectrum, SpectrumImzML],
         method: str = "asls",
         smooth: str = "none",
         span: float = 0.1,
@@ -263,7 +265,7 @@ class MSIPreprocessor:
         baseline_scale: float = 1.0,
         m: Optional[int] = None,
         decreasing: bool = True,
-    ) -> tuple[SpectrumBaseModule, np.ndarray]:
+    ) -> tuple[Spectrum, np.ndarray]:
         """
         Baseline correction using LocMin, SNIP, or ASLS with optional baseline scaling.
 
@@ -318,17 +320,17 @@ class MSIPreprocessor:
             upper=upper,
             width=width,
         )
-        corrected_spectrum = SpectrumBaseModule(
+        corrected_spectrum = Spectrum(
             mz_list=data.mz_list,
             intensity=corrected_intensity,
-            coordinates=data.coordinates,
+            coordinate=data.coordinate,
         )
         
         return corrected_spectrum, baseline
 
     @staticmethod
     def noise_reduction_spectrum(
-        data: Union[SpectrumBaseModule, SpectrumImzML],
+        data: Union[Spectrum, SpectrumImzML],
         method: str = "ma",
         window: int = 5,
         sd: Optional[float] = None,
@@ -340,7 +342,7 @@ class MSIPreprocessor:
         delta: float = 1.0,
         wavelet: str = "db4",
         threshold_mode: str = "soft",
-    ) -> Union[SpectrumBaseModule, SpectrumImzML]:
+    ) -> Union[Spectrum, SpectrumImzML]:
         """
         Reduce spectral noise while preserving features using multiple algorithms.
 
@@ -362,7 +364,7 @@ class MSIPreprocessor:
         Raises:
             ValueError: If `method` is unsupported.
         """
-        MSIPreprocessor.base_input_check(data=data)
+        SpectrumPreprocess.base_input_check(data=data)
 
         intensity = data.intensity
         index = data.mz_list
@@ -383,15 +385,15 @@ class MSIPreprocessor:
             threshold_mode=threshold_mode,
         )
 
-        return SpectrumBaseModule(
+        return Spectrum(
             mz_list=data.mz_list,
             intensity=smoothed_intensity,
-            coordinates=data.coordinates,
+            coordinate=data.coordinate,
         )
 
     @staticmethod
     def noise_estimation_spectrum(
-        x: SpectrumBaseModule,
+        x: Spectrum,
         nbins: int = 1,
         overlap: float = 0.2,
         method: str = "sd",
@@ -412,7 +414,7 @@ class MSIPreprocessor:
         Returns:
             float | np.ndarray: Estimated noise scalar or per-bin array depending on method.
         """
-        MSIPreprocessor.base_input_check(data=x)
+        SpectrumPreprocess.base_input_check(data=x)
 
         intensity = x.intensity
         index = x.mz_list
@@ -429,7 +431,7 @@ class MSIPreprocessor:
 
     @staticmethod
     def calculate_snr_spectrum(
-        spectrum: SpectrumBaseModule, method="sd"
+        spectrum: Spectrum, method="sd"
     ) -> float:
         """
         Calculate the signal-to-noise ratio (SNR) for a spectrum.
@@ -441,24 +443,13 @@ class MSIPreprocessor:
         Returns:
             float: SNR computed as quantile-based signal level divided by estimated noise.
         """
-        MSIPreprocessor.base_input_check(data=spectrum)
+        SpectrumPreprocess.base_input_check(data=spectrum)
 
         signal_level = np.percentile(spectrum.intensity, 95)# type: ignore
 
-        noise = MSIPreprocessor.noise_estimation_spectrum(spectrum, method=method)
+        noise = SpectrumPreprocess.noise_estimation_spectrum(spectrum, method=method)
 
         logger.info(f"SNR: signal_level:{signal_level}, noise:{noise}")
         return signal_level / noise
 
-    @staticmethod
-    def preprocess_pipeline():
-        """
-        Composite preprocessing pipeline (placeholder).
-
-        Parameters:
-            data (SpectrumBaseModule): Input spectrum to preprocess.
-
-        Returns:
-            SpectrumBaseModule: Preprocessed spectrum (implementation-defined).
-        """
 

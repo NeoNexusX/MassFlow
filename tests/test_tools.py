@@ -4,7 +4,7 @@ from massflow.logger import get_logger
 logger = get_logger("test_tools")
 
 #暂时没用到
-def time_calculator(test_times=100):
+def time_calculator(test_times=1):
     
     def timer(func):
         @functools.wraps(func)

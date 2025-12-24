@@ -103,7 +103,7 @@ from tools.plot import plot_spectrum
 
 FILE_PATH = "data\\neg-gz4.imzML"
 ms = MS()
-ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH, coordinates_zero_based=False)
+ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
 ms_md.load_full_data_from_file()
 sp = ms[0]
 # Denoise then normalize

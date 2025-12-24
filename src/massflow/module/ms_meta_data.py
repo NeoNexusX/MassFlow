@@ -1,4 +1,4 @@
-# module/msi_meta_data.py
+# module/ms_meta_data.py
 """
 Author: MassFlow Development Team Bionet/dre,NeoNeuxs
 License: See LICENSE file in project root
@@ -6,27 +6,37 @@ License: See LICENSE file in project root
 import os
 from typing import Optional
 import numpy as np
-from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
 logger = get_logger("meta_data")
 
 meta_index = {
+    # --- Image Size and Coordinates ---
     "IMS:1000042": "max_count_of_pixels_x", # Image width (pixel count)
     "IMS:1000043": "max_count_of_pixels_y",# Image height (pixel count)
     "IMS:1000046": "pixel_size_x",# Pixel width (µm)
     "IMS:1000047": "pixel_size_y",# Pixel height (µm)
     "IMS:1000053": "absolute_position_offset_x",# X-axis position offset
     "IMS:1000054": "absolute_position_offset_y",# Y-axis position offset
+
+    # --- Files and Data Formats ---
     "IMS:1000030": "continuous",# Continuous data
     "IMS:1000031": "processed",# Whether the data is processed
+
+    #--- Acquisition Parameters (Imaging MS Ontology) ---
+    "IMS:1000041": "scan_type",
+    "IMS:1000048": "scan_direction",
+    "IMS:1000049": "line_scan_direction",
+    "IMS:1000050": "scan_pattern",
+
+    # --- Mass Spectrometers and Spectral Information (PSI-MS Ontology) ---
     "MS:1000031": "instrument_model",# Instrument model
     "MS:1000127": "centroid_spectrum",# Mass spectrum in centroid mode
     "MS:1000128": "profile_spectrum",# Mass spectrum in profile mode
     "MS:1000579": "ms1_spectrum",# MS1 spectrum
-    "MS:1000580": "msn_spectrum"# MSn spectrum
+    "MS:1000580": "msn_spectrum",# MSn spectrum
 }
 
-class MetaDataFileBase:
+class MetaDataBase:
     """
     Abstract base class for MSI data models.
 
@@ -45,8 +55,7 @@ class MetaDataFileBase:
                 max_count_of_pixels_y: Optional[int] = None,
                 pixel_size_x: Optional[float] = None,
                 pixel_size_y: Optional[float] = None,
-                mask: Optional[np.ndarray] = None,
-                coordinates_zero_based: bool = True): # [新增参数]
+                mask: Optional[np.ndarray] = None):
 
         self._meta = {}
         # Initialize all metadata fields via properties to trigger auto-sync
@@ -64,7 +73,10 @@ class MetaDataFileBase:
         self._profile_spectrum = None
         self._peakpick = None
         self._mask = None
-        self._coordinates_zero_based = None # [新增初始化]
+        self._scan_direction = None
+        self._line_scan_direction = None
+        self._scan_pattern = None
+        self._scan_type = None
 
         #set actual values through properties
         self.name = name
@@ -76,7 +88,6 @@ class MetaDataFileBase:
         self.pixel_size_x = pixel_size_x
         self.pixel_size_y = pixel_size_y
         self.mask = mask
-        self.coordinates_zero_based = coordinates_zero_based # [新增赋值]
 
     def _set(self, key, value):
         self._meta[key] = value
@@ -89,9 +100,17 @@ class MetaDataFileBase:
     @mask.setter
     def mask(self, mask: Optional[np.ndarray]):
         """Set the mask of the data model."""
-        if mask is not None and len(mask.shape) == 2:
-            self._mask = mask
-            self._set('mask', mask)
+        if mask is None:
+            return
+        if not isinstance(mask, np.ndarray):
+            logger.error("mask must be a numpy.ndarray")
+            raise TypeError("mask must be a numpy.ndarray")
+        if mask.ndim != 2:
+            logger.error(f"mask must be 2D, got shape {mask.shape}")
+            raise TypeError("mask must be a 2D array")
+        self._mask = mask
+        self._set('mask', mask)
+
     #Metadata properties with auto-sync
     @property
     def name(self):
@@ -112,6 +131,10 @@ class MetaDataFileBase:
     @version.setter
     def version(self, version):
         if version is not None:
+            if version <= 0:
+                logger.error("Version must be positive")
+                raise ValueError("Version must be positive")
+
             assert version > 0, "Version must be positive"
             self._version = version
             self._set('version', version)
@@ -231,6 +254,47 @@ class MetaDataFileBase:
         self._profile_spectrum = profile_spectrum
         self._set('profile_spectrum', profile_spectrum)
 
+    @property
+    def scan_direction(self):
+        """Return the scan direction."""
+        return self._scan_direction
+    
+    @scan_direction.setter
+    def scan_direction(self, scan_direction):
+        """Set the scan direction."""
+        self._scan_direction = scan_direction
+        self._set('scan_direction', scan_direction)
+
+    @property
+    def line_scan_direction(self):
+        """Return the line scan direction."""
+        return self._line_scan_direction
+    @line_scan_direction.setter
+    def line_scan_direction(self, line_scan_direction):
+        """Set the line scan direction."""
+        self._line_scan_direction = line_scan_direction
+        self._set('line_scan_direction', line_scan_direction)
+    
+    @property
+    def scan_pattern(self):
+        """Return the scan pattern."""
+        return self._scan_pattern
+    @scan_pattern.setter
+    def scan_pattern(self, scan_pattern):
+        """Set the scan pattern."""
+        self._scan_pattern = scan_pattern
+        self._set('scan_pattern', scan_pattern)
+    
+    @property
+    def scan_type(self):
+        """Return the scan type."""
+        return self._scan_type
+    @scan_type.setter
+    def scan_type(self, scan_type):
+        """Set the scan type."""
+        self._scan_type = scan_type
+        self._set('scan_type', scan_type)
+
     def __getitem__(self, key):
         return self._meta[key]
 
@@ -273,26 +337,7 @@ class MetaDataFileBase:
         for meta_key in self._meta:
             self._meta[meta_key] = getattr(self, meta_key, None)
 
-    @property
-    def coordinates_zero_based(self)-> bool:
-        """
-        Flag indicating whether coordinates are zero-based.
-        """
-        if self._coordinates_zero_based is not None:
-            return self._coordinates_zero_based
-        else:
-            logger.error("coordinates_zero_based is None, returning default False.")
-            raise ValueError("coordinates_zero_based is None.")
-
-    @coordinates_zero_based.setter
-    def coordinates_zero_based(self, value: bool):
-        """
-        Set the zero-based coordinate flag and persist in metadata.
-        """
-        self._coordinates_zero_based = value
-        self._set('coordinates_zero_based', self._coordinates_zero_based)
-
-class MSIMetaData(MetaDataFileBase):
+class MSIMetaData(MetaDataBase):
     """
     Metadata class for MSI image-matrix data.
 
@@ -400,7 +445,7 @@ class MSIMetaData(MetaDataFileBase):
             self._mz_num = int(mz_num)
             self._set('mz_num', self._mz_num)
 
-class ImzMlMetaData(MetaDataFileBase):
+class ImzMlMetaData(MetaDataBase):
 
     """ImzML metadata wrapper that loads and caches frequently used fields."""
 
@@ -408,7 +453,6 @@ class ImzMlMetaData(MetaDataFileBase):
                  name="ImzML",
                  version=1.0,
                  storage_mode='split',
-                 parser: Optional[ImzMLParser] = None,
                  filepath: Optional[str] = None,
                  absolute_position_offset_x = None,
                  absolute_position_offset_y = None,
@@ -424,22 +468,18 @@ class ImzMlMetaData(MetaDataFileBase):
                  pixel_size_x=None,
                  pixel_size_y=None,
                  max_count_of_pixels_x=None,
-                 max_count_of_pixels_y=None,
-                 coordinates_zero_based: bool = True):
+                 max_count_of_pixels_y=None):
 
-        """Initialize the metadata object with either a parser or a file path."""
-        # [修改] 将 coordinates_zero_based 传递给父类
+        """Initialize the metadata object with file path."""
         super().__init__(name=name, 
                          version=version, 
                          storage_mode=storage_mode, 
                          mask=mask,pixel_size_x=pixel_size_x,
                          pixel_size_y=pixel_size_y,
                          max_count_of_pixels_x=max_count_of_pixels_x,
-                         max_count_of_pixels_y=max_count_of_pixels_y,
-                         coordinates_zero_based=coordinates_zero_based)
+                         max_count_of_pixels_y=max_count_of_pixels_y)
 
         self._filepath = None
-        self._parser = None
         self._spectrum_count_num = None
         self._absolute_position_offset_x = None
         self._absolute_position_offset_y = None
@@ -450,13 +490,7 @@ class ImzMlMetaData(MetaDataFileBase):
         self._min_pixel_y = 99999
 
         # Set actual value through property
-        if parser is not None:
-            self.parser = parser
-        elif filepath is not None:
-            self.filepath = filepath
-        else:
-            logger.error("Either parser or filepath must be provided")
-            raise ValueError("Either parser or filepath must be provided")
+        self.filepath = filepath if filepath is not None else None
 
         self.absolute_position_offset_x = absolute_position_offset_x
         self.absolute_position_offset_y = absolute_position_offset_y
@@ -468,7 +502,6 @@ class ImzMlMetaData(MetaDataFileBase):
         self.spectrum_count_num = spectrum_count_num
         self.min_pixel_x = min_pixel_x
         self.min_pixel_y = min_pixel_y
-        self.coordinates_zero_based = coordinates_zero_based
 
 
     @property
@@ -477,24 +510,13 @@ class ImzMlMetaData(MetaDataFileBase):
         return self._filepath
 
     @filepath.setter
-    def filepath(self, filepath: str):
-        """Set the imzML file path and initialize the parser if needed."""
-        if not filepath or not os.path.exists(filepath):
-            raise FileNotFoundError(f"File not found: {filepath}")
-        self._filepath = filepath
-        if self.parser is None:
-            self.parser = ImzMLParser(filepath)
-
-    @property
-    def parser(self):
-        """Return the bound pyimzML parser instance."""
-        return self._parser
-
-    @parser.setter
-    def parser(self, parser: ImzMLParser):
-        """Set the pyimzML parser instance."""
-        if parser is not None:
-            self._parser = parser
+    def filepath(self, filepath: Optional[str]):
+        """Set the associated imzML file path."""
+        if filepath is not None:
+            if not os.path.exists(filepath):
+                logger.error(f"ImzML file not found at {filepath}")
+                raise FileNotFoundError(f"ImzML file not found at {filepath}")
+            self._filepath = filepath
 
     @property
     def spectrum_count_num(self):
@@ -571,7 +593,7 @@ class ImzMlMetaData(MetaDataFileBase):
     @property
     def min_pixel_x(self):
         """Return the minimum pixel X coordinate."""
-        return self._min_pixel_x-1 if self.coordinates_zero_based else self._min_pixel_x
+        return self._min_pixel_x
 
     @min_pixel_x.setter
     def min_pixel_x(self, min_pixel_x):
@@ -583,7 +605,7 @@ class ImzMlMetaData(MetaDataFileBase):
     @property
     def min_pixel_y(self):
         """Return the minimum pixel Y coordinate."""
-        return self._min_pixel_y-1 if self.coordinates_zero_based else self._min_pixel_y
+        return self._min_pixel_y
 
     @min_pixel_y.setter
     def min_pixel_y(self, min_pixel_y):

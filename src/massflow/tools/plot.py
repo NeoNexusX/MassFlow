@@ -1,15 +1,15 @@
 from typing import Sequence, Tuple, Optional
 import numpy as np
 import matplotlib.pyplot as plt
-from massflow.preprocess.ms_preprocess import MSIPreprocessor
-from massflow.module.ms_module import SpectrumBaseModule
+from massflow.preprocess.spectrum_preprocess import SpectrumPreprocess
+from massflow.module.spectrum import Spectrum
 from massflow.logger import get_logger
 
 logger = get_logger("tools.plot")
 
 def plot_spectrum(
-    base: Optional["SpectrumBaseModule"] = None,
-    target: Optional["SpectrumBaseModule"] = None,
+    base: Optional["Spectrum"] = None,
+    target: Optional["Spectrum"] = None,
     save_path=None,
     figsize=(20, 5),
     dpi: int = 300,
@@ -135,8 +135,8 @@ def add_metrics_box(ax,
     corr = float(np.corrcoef(o, d)[0, 1])
     tic_ratio = float(d.sum() / o.sum()) if o.sum() > 0 else 1.0
 
-    snr_orig = MSIPreprocessor.calculate_snr_spectrum(base)
-    snr_update = MSIPreprocessor.calculate_snr_spectrum(target)
+    snr_orig = SpectrumPreprocess.calculate_snr_spectrum(base)
+    snr_update = SpectrumPreprocess.calculate_snr_spectrum(target)
     snr_improvement = snr_update / snr_orig if snr_orig > 0 else 1.0
 
     metrics_text = (f"Range: {base.mz_list[0]:.4f} - {base.mz_list[-1]:.4f}\n"
@@ -209,8 +209,8 @@ def plot_single(base,
         plt.show()
     return
 
-def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
-                      base: Optional['SpectrumBaseModule'] = None,
+def plot_two_together(target: Optional['Spectrum'] = None,
+                      base: Optional['Spectrum'] = None,
                       save_path=None,
                       figsize=(20, 5),
                       dpi: int = 300,
@@ -293,8 +293,8 @@ def plot_two_together(target: Optional['SpectrumBaseModule'] = None,
     else:
         plt.show()
 
-def plot_two_individual(target: SpectrumBaseModule,
-                        base: SpectrumBaseModule,
+def plot_two_individual(target: Spectrum,
+                        base: Spectrum,
                         save_path=None,
                         figsize=(20, 5),
                         dpi: int = 300,
