@@ -125,7 +125,7 @@ class SpectrumPreprocess:
         return Spectrum(
             mz_list=peak_index,
             intensity=peak_intensity,
-            coordinates=data.coordinates,
+            coordinate=data.coordinate,
         )
 
     @staticmethod
@@ -161,7 +161,7 @@ class SpectrumPreprocess:
         return Spectrum(
             mz_list=data.mz_list,
             intensity=norm_intensity,
-            coordinates=data.coordinates,
+            coordinate=data.coordinate,
         )
 
     @staticmethod
@@ -323,7 +323,7 @@ class SpectrumPreprocess:
         corrected_spectrum = Spectrum(
             mz_list=data.mz_list,
             intensity=corrected_intensity,
-            coordinates=data.coordinates,
+            coordinate=data.coordinate,
         )
         
         return corrected_spectrum, baseline
@@ -388,7 +388,7 @@ class SpectrumPreprocess:
         return Spectrum(
             mz_list=data.mz_list,
             intensity=smoothed_intensity,
-            coordinates=data.coordinates,
+            coordinate=data.coordinate,
         )
 
     @staticmethod

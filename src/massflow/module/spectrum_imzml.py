@@ -17,7 +17,6 @@ from massflow.module.spectrum import Spectrum
 from typing import Optional
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 from massflow.logger import get_logger
-from pyimzml.ImzMLParser import ImzMLParser
 
 logger = get_logger("ms_module")
 
@@ -55,23 +54,23 @@ class SpectrumImzML(Spectrum):
     def __init__(self,
                  index: int,
                  coordinates,
-                 parser: Optional[ImzMLParser] = None, 
                  reader=None,
                  ibd_path=None, 
                  mz_list=None,
                  intensity=None,
+                 shared_mz_list=None,
                  sort_by_mz: bool = True,):
 
         # ImzML reader part
         self._reader = reader
         self._ibd_path = ibd_path
         self._index = int(index)
-        self._parser = parser
 
         # Super init part
         super().__init__(mz_list=mz_list,
                          intensity=intensity,
-                         coordinates=coordinates,
+                         coordinate=coordinates,
+                         shared_mz_list=shared_mz_list,
                          sort_by_mz=sort_by_mz,)
 
     def _resolve_data(self):
@@ -80,7 +79,7 @@ class SpectrumImzML(Spectrum):
         Base implementation handles loading from swap file if available.
         """
         # this part cant use logger because it may be called x10000
-        if self._reader is not None and self._intensity is None:
+        if self._reader is not None and self._ibd_path is not None and self._intensity is None:
             # logger.debug(f"Lazy loading spectrum index {self._index} from ImzML file")
             with open(self._ibd_path, 'rb') as f:
                 mz_list, intensity = self._reader.read_spectrum_from_file(f, self._index)
@@ -93,12 +92,12 @@ class SpectrumImzML(Spectrum):
 
         if self._reader is None:
 
-            if self.mz_list is None or self.intensity is None:
+            if self.mz_list is None or self.intensity is None or self.coordinate is None:
                 logger.error("Both mz_list and intensity cannot be None")
                 raise ValueError("Both mz_list and intensity cannot be None")
 
             # add spectrum to writer
-            writer.addSpectrum(self.mz_list, self.intensity, self.coordinates.get_tuple())
+            writer.addSpectrum(self.mz_list, self.intensity, self.coordinate.get_tuple())
 
         # clear loaded data to save memory
         self.clear_data()

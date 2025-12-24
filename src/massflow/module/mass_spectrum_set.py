@@ -12,7 +12,7 @@ License: See LICENSE file in project root
 from typing import List, Tuple,Literal,overload,Union, Optional
 import matplotlib.pyplot as plt
 from massflow.logger import get_logger
-from massflow.module.ms_meta_data import MetaDataBase
+from massflow.module.ms_meta_data import MetaDataBase,ImzMlMetaData
 from massflow.module.spectrum import Spectrum
 
 
@@ -60,7 +60,7 @@ class MassSpectrumSet:
         Creates empty internal data structures for storing and indexing mass spectra.
         No parameters are required for initialization.
         """
-        self.meta : Optional[MetaDataBase] = None
+        self.meta :MetaDataBase = ImzMlMetaData(filepath=None)
         self._queue = []
         self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
         self._shared_mz_list = None

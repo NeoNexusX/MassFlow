@@ -115,8 +115,8 @@ class MSDataManager(ABC):
                     self.mode = "auto"
                 logger.info(f"Creating ImzMLWriter with mode={self.mode}, spec_type={spec_type}")
                 self._writer = ImzMLWriter(str(self.filepath),
-                                            mz_dtype=self.mz_dtype, 
-                                            intensity_dtype=self.intensity_dtype,
+                                            mz_dtype=self.mz_dtype, #type: ignore
+                                            intensity_dtype=self.intensity_dtype,#type: ignore
                                             mode=self.mode,
                                             spec_type=spec_type,
                                             scan_direction=scan_direction,
@@ -129,18 +129,20 @@ class MSDataManager(ABC):
             logger.error("MS meta data is None. Please load or copy[use copy_meta method] meta data first.")
             raise ValueError("MS meta data is None. Please load or copy meta data first.")
 
-    def copy_meta(self, source_ms:MassSpectrumSet):
+    def copy_meta(self, source_dm: 'MSDataManager'):
         """copy metadata from source MS to self MS object."""
     
-        if source_ms.meta is None:
-            logger.warning("Source MS has no metadata to copy.")
+        if source_dm.ms.meta is None or self._ms.meta is None:
+            logger.warning("Source MS has no metadata to copy or meta is none.")
             return
-        
-        source_meta_dict = source_ms.meta.to_dict()
 
-        exclude_keys = {'mask', 'parser', 'filepath', 'spectrum_count_num', 'continuous', 'processed','queue','centroid_spectrum','profile_spectrum'}
-        
-        for key, value in source_meta_dict.items():
+        exclude_keys = {'mask', 
+                        'filepath', 
+                        'spectrum_count_num', 
+                        'continuous', 'processed',
+                        'centroid_spectrum','profile_spectrum'}
+
+        for key, value in source_dm.ms.meta.items():
             if key not in exclude_keys and hasattr(self._ms.meta, key):
                 try:
                     setattr(self._ms.meta, key, value)
@@ -217,7 +219,7 @@ class MSDataManager(ABC):
             base_info += (
                 f"  MS len: {len(spectrum)}\r\n"
                 f"  MS range: {min(spectrum.mz_list)} - {max(spectrum.mz_list)}\r\n"
-                f"  MS coord: {spectrum.coordinates}\r\n"
+                f"  MS coord: {spectrum.coordinate}\r\n"
                 f"  max and min mz_list: {max(spectrum.mz_list)} - {min(spectrum.mz_list)}\r\n"
                 f"  max intensity: {max(spectrum.intensity)}\r\n\r\n"
             )
@@ -258,9 +260,16 @@ class MSDataManager(ABC):
         # Batch processing loop
         for i in range(0, total_length, batch_size):
             batch = self.ms[i : i + batch_size]
+
+            # Multi-threaded loading
             if self.threads_executor is not None:
-                # 使用 list() 强制迭代，阻塞直到该批次所有谱图加载任务完成
-                list(self.threads_executor.map(_trigger_for_load_spectrum, batch))
+                futures = []
+                for item in batch:
+                    future = self.threads_executor.submit(_trigger_for_load_spectrum, item)
+                    futures.append(future)
+
+                for future in as_completed(futures):
+                    future.result()  # wait for all to complete
 
             yield batch
 
@@ -328,7 +337,7 @@ class MSDataManager(ABC):
         self.ms.meta.mask = mask
 
     @abstractmethod
-    def pre_load_meta(self, *args, **kwargs):
+    def preload_meta(self, *args, **kwargs):
         """
         Hook for pre-loading or preparing metadata before full data loading.
 
@@ -354,7 +363,6 @@ class MSDataManager(ABC):
         self.create_ms_meta_mask()
         self.detect_sorted()
 
-
     def close(self):
         """
         Close any resources held by the data manager.
@@ -376,6 +384,23 @@ class MSDataManager(ABC):
         """close ImzMLWriter."""
         if hasattr(self, "writer") and self.writer is not None:
             self.writer.close()
+
+    def clear_batch_data_memory(self, batch):
+        """
+        Clear data in a batch of spectra to free memory.
+
+        Args:
+            batch (list[Spectrum]): List of Spectrum objects to clear.
+        """
+        for spec in batch:
+            spec.clear_data()
+
+    def clear_all_data_memory(self):
+        """
+        Clear data in all spectra to free memory.
+        """
+        for spec in self.ms:
+            spec.clear_data()
 
     def __enter__(self):
         return self

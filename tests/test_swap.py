@@ -1,6 +1,7 @@
 import time
 import pytest
 import os
+from functools import partial
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
@@ -8,148 +9,121 @@ from massflow.logger import get_logger
 
 logger = get_logger("test_swap")
 
-ROUND = 10
+ROUNDS = 5
 
-def ms_raw_data():
-    """
-    create data
-    """
-    filepath = r"./data/example.imzML"
-
-    if not os.path.exists(filepath):
-        pytest.skip(f"Original data not found at {filepath}")
-        
-    ms_raw = MassSpectrumSet()
-    dm_raw = MSDataManagerImzML(ms_raw, filepath=filepath)
-
-    return ms_raw, dm_raw
-
-def ms_raw_data_readin(dm_raw):
-    """
-    Fixture: Load raw data, shared for all test cases
-    """
-    dm_raw.load_full_data_from_file()
-    batch_generator = dm_raw.get_batch_generator(batch_size=32, max_threads=4)
-    for batch in batch_generator:
-        assert len(batch[1]) >0
-
-    return dm_raw
-
-def data_swap_out_direct(ms_raw, limit=-1):
+def data_swap_out_direct(raw_dm, limit=-1):
     """
     Test: In-memory data -> Write to disk (Swap Out), using writer directly
     """
 
-    limit = len(ms_raw) if limit == -1 else limit
+    limit = len(raw_dm.ms) if limit == -1 else limit
 
-    ms_swap = MassSpectrumSet()
-    dm_swap = MSDataManagerImzML(ms_swap,temp_dir="./temp_swap")
-    dm_swap.copy_meta(ms_raw)
-    writer = dm_swap.writer
+    swap_dm = MSDataManagerImzML(temp_dir="./temp_swap")
+    swap_dm.copy_meta(raw_dm)
+    writer = swap_dm.writer
 
-    for i, spec_raw in enumerate(ms_raw):
+    for i, raw_spec in enumerate(raw_dm.ms):
         if i >= limit:
             break
 
-        writer.addSpectrum(spec_raw.mz_list, 
-                           spec_raw.intensity, 
-                           spec_raw.coordinates.get_tuple())
-        #clean old memory
-        spec_raw.clear_data()
+        writer.addSpectrum(raw_spec.mz_list, 
+                           raw_spec.intensity, 
+                           raw_spec.coordinate.get_tuple())
 
-    dm_swap.close_writer()
-    return dm_swap
+    swap_dm.close_writer()
+    return swap_dm
     
-def data_swap_out_object(ms_raw, limit=-1):
+def data_swap_out_object(raw_dm, limit=-1):
     """
     Test: In-memory data -> Write to disk (Swap Out), using SpectrumImzML object method
     """
 
-    limit = len(ms_raw) if (limit is None or limit == -1) else limit
+    limit = len(raw_dm.ms) if (limit is None or limit == -1) else limit
 
-    ms_swap = MassSpectrumSet()
-    dm_swap = MSDataManagerImzML(ms_swap,temp_dir="./temp_swap")
-    dm_swap.copy_meta(ms_raw)
+    dm_swap = MSDataManagerImzML(temp_dir="./temp_swap")
+    dm_swap.copy_meta(raw_dm)
     writer = dm_swap.writer
 
-    for i, old_spec in enumerate(ms_raw):
+    for i, old_spec in enumerate(raw_dm.ms):
         if i >= limit:
             break
 
         spec_processed_imzml = SpectrumImzML(index=i, 
                                              mz_list=old_spec.mz_list, 
                                              intensity=old_spec.intensity, 
-                                             coordinates=old_spec.coordinates)
+                                             coordinates=old_spec.coordinate)
 
         spec_processed_imzml.swap_out2disk(writer)
-
-        #clean raw data:
-        old_spec.clear_data()
 
     dm_swap.close_writer()
     return dm_swap
 
-def data_swap_in_multithread_benchmark(dm_swap):
+def data_swap_in_benchmark(swap_dm,mode="multithread"):
     """
     Test: Disk file -> Load and access in memory (Swap In)
     """
-    dm = dm_swap
+    dm = swap_dm
     dm.load_full_data_from_file()
     dm.inspect_data()
 
-    batch_generator = dm.get_batch_generator(batch_size=256, max_threads=64)
+    if mode == "multithread":
+        batch_generator = dm.get_batch_generator(batch_size=512, max_threads=32)
 
-    for batch in batch_generator:
-        assert len(batch[1]) > 0
+        for batch in batch_generator:
+            assert len(batch[1]) > 0
 
-    logger.info("Completed loading and accessing swapped data.")
+            # clean batch memory
+            for spec in batch:
+                spec.clear_data()
+    else:
 
-    for spec in dm.ms:
-        spec.clear_data()
-
-def data_swap_in_benchmark(dm_swap):
-    """
-    Test: Disk file -> Load and access in memory (Swap In)
-    """
-    dm = dm_swap
-    dm.load_full_data_from_file()
-    dm.inspect_data()
-
-    for spec in dm.ms:
-        assert spec.intensity is not None
+        #read in memory
+        for spec in dm.ms:
+            assert spec.intensity is not None
+        
+        # clean memory
+        for spec in dm.ms:
+            spec.clear_data()
 
     logger.info("Completed loading and accessing swapped data.")
 
-    for spec in dm.ms:
-        spec.clear_data()
 
-def set_up_swap_data():
-    ms_raw, dm_raw = ms_raw_data()  # Unpack the tuple
-    ms_raw_data_readin(dm_raw) # load data into ms_raw
-    dm_swap_new = data_swap_out_direct(ms_raw, limit=-1)
-
-    return (dm_swap_new, ), {}
-
-def pipeline_swap_data():
-    pass
 
 class TestDataSwap:
     """
     Disk swap performance test class
     """
+    @pytest.fixture(scope="class")
+    def ms_raw_data(self):
+
+        filepath = r"./data/example.imzML"
+
+        if not os.path.exists(filepath):
+            pytest.skip(f"Original data not found at {filepath}")
+
+        #load meta data
+        dm_raw = MSDataManagerImzML(filepath=filepath)
+        dm_raw.load_full_data_from_file()
+        dm_raw.inspect_data()
+        # load data check
+        batch_generator = dm_raw.get_batch_generator()
+        for batch in batch_generator:
+            assert len(batch[1]) >0
+
+        return  dm_raw
 
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_swap_out_performance_direct(self, benchmark, ms_raw_data, limit=-1):
         """
         Performance test: Data write speed to disk
         """                 
-        ms_raw, _ = ms_raw_data
+        raw_dm = ms_raw_data
 
         logger.info(f"Starting Swap Out benchmark for {limit} spectra")
 
         dm_result = benchmark.pedantic(data_swap_out_direct,
-                                       args=(ms_raw, limit),
-                                       rounds=ROUND,
+                                       args=(raw_dm, limit),
+                                       rounds=ROUNDS,
                                        iterations=1,
                                        warmup_rounds=1)
 
@@ -161,13 +135,13 @@ class TestDataSwap:
         """
         Performance test: Data write speed to disk
         """                 
-        ms_raw, _ = ms_raw_data
+        raw_dm = ms_raw_data
 
         logger.info(f"Starting Swap Out benchmark for {limit} spectra")
 
         dm_result = benchmark.pedantic(data_swap_out_object,
-                                       args=(ms_raw, limit),
-                                       rounds=ROUND,
+                                       args=(raw_dm, limit),
+                                       rounds=ROUNDS,
                                        iterations=1,
                                        warmup_rounds=1)
 
@@ -176,16 +150,23 @@ class TestDataSwap:
 
     @pytest.mark.benchmark(timer=time.perf_counter)
     @pytest.mark.parametrize("mode", ["normal", "multithread"])
-    def test_swap_in_performance(self, benchmark, mode,limit=-1):
+    def test_swap_in_performance(self, benchmark, ms_raw_data, mode, limit=-1):
         """
         Performance test: Data read speed from disk
         """
-        mode_fun  = data_swap_in_multithread_benchmark  if mode != "normal" else data_swap_in_benchmark
         logger.info(f"Starting Swap In benchmark for {limit} spectra")
 
-        benchmark.pedantic(mode_fun,
+        raw_dm = ms_raw_data
+
+        def set_up_swap_data():
+            dm_swap_new = data_swap_out_direct(raw_dm, limit=limit)
+            raw_dm.clear_all_data_memory()
+            return (dm_swap_new, ), {}
+        
+
+        benchmark.pedantic(partial(data_swap_in_benchmark,mode=mode),
                            setup=set_up_swap_data,
-                           rounds=ROUND,
+                           rounds=ROUNDS,
                            iterations=1,
                            warmup_rounds=1)
 

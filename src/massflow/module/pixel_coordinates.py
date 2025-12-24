@@ -43,10 +43,12 @@ class PixelCoordinates:
             else:
                 logger.error("List x must have exactly three elements with x, y, z coordinates.")
                 raise ValueError("List x must have exactly three elements with x, y, z coordinates..")
+        
         elif isinstance(x, PixelCoordinates):
             self.x = x.x # type: ignore
             self.y = x.y # type: ignore
             self.z = x.z # type: ignore
+
         else:
             self.x = x # type: ignore
             self.y = y
@@ -106,7 +108,7 @@ class PixelCoordinates:
     def z(self, value: int):
         self._z = int(value)
 
-    def get_tuple(self) -> Optional[tuple]:
+    def get_tuple(self) -> tuple:
         """
         Get coordinates as a tuple.
 
@@ -117,7 +119,7 @@ class PixelCoordinates:
             return (self.x, self.y, self.z)
         else:
             logger.error("One or more coordinates are not set.")
-            return None
+            raise ValueError("One or more coordinates are not set.")
 
     def __eq__(self, other: object) -> bool:
         """

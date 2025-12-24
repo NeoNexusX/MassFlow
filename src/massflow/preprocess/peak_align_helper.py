@@ -58,7 +58,7 @@ class SpectrumHDF5Lazy(Spectrum):
     Compatible with SpectrumBaseModule interface.
     """
     def __init__(self, filepath, index, coordinates, mz_ref=None):
-        super().__init__(mz_list=None, intensity=None, coordinates=coordinates)
+        super().__init__(mz_list=None, intensity=None, coordinate=coordinates)
         self._filepath = filepath
         self._index = index
         self._mz_ref = mz_ref

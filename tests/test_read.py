@@ -5,18 +5,16 @@ from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.logger import get_logger
 logger = get_logger("test_read")
 
-ROUND = 10
+ROUND = 2
 
 def data_reading_benchmark(data_file_path="data/example.imzML"):
-    mass_data = MassSpectrumSet()
-    with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
+    with MSDataManagerImzML(filepath=data_file_path) as ms_md:
         ms_md.load_full_data_from_file()
-        for spectrum_data in mass_data:
+        for spectrum_data in ms_md.ms:
             assert(spectrum_data.intensity is not None)
 
 def data_batch_reading_full_benchmark(data_file_path="data/example.imzML", batch_size=1024, max_workers=2):
-    mass_data = MassSpectrumSet()
-    with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
+    with MSDataManagerImzML(filepath=data_file_path) as ms_md:
         ms_md.load_full_data_from_file()
         ms_md.inspect_data()
         batch_generator = ms_md.get_batch_generator(batch_size=batch_size, max_threads=max_workers)
@@ -41,21 +39,21 @@ class TestDataReading:
         [
             # # batch_size = 32
             ("data/example.imzML", 32, 1),
-            # ("data/example.imzML", 32, 2),
-            # ("data/example.imzML", 32, 8),
-            # ("data/example.imzML", 32, 32),
+            ("data/example.imzML", 32, 2),
+            ("data/example.imzML", 32, 8),
+            ("data/example.imzML", 32, 32),
 
             # # # batch_size = 64
-            ("data/example.imzML", 64, 1),
+            # ("data/example.imzML", 64, 1),
             # ("data/example.imzML", 64, 2),
             # ("data/example.imzML", 64, 8),
-            # ("data/example.imzML", 64, 32),
-            # ("data/example.imzML", 64, 64),
+            ("data/example.imzML", 64, 32),
+            ("data/example.imzML", 64, 64),
 
             # # # batch_size = 128
             # ("data/example.imzML", 128, 1),
             # ("data/example.imzML", 128, 2),
-            # ("data/example.imzML", 128, 8),
+            ("data/example.imzML", 128, 8),
             # ("data/example.imzML", 128, 32),
             # ("data/example.imzML", 128, 64),
 
@@ -63,8 +61,8 @@ class TestDataReading:
             # ("data/example.imzML", 256, 1),
             # ("data/example.imzML", 256, 2),
             # ("data/example.imzML", 256, 8),
-            # ("data/example.imzML", 256, 32),
-            # ("data/example.imzML", 256, 64),
+            ("data/example.imzML", 256, 32),
+            ("data/example.imzML", 256, 64),
 
             # # #batch_size = 512
             # ("data/example.imzML", 512, 1),
@@ -76,7 +74,7 @@ class TestDataReading:
             # # # batch_size = 1024
             # ("data/example.imzML", 1024, 1),
             # ("data/example.imzML", 1024, 2),
-            # ("data/example.imzML", 1024, 8),
+            ("data/example.imzML", 1024, 8),
             # ("data/example.imzML", 1024, 32),
             # ("data/example.imzML", 1024, 64),
 
@@ -91,8 +89,8 @@ class TestDataReading:
             # ("data/example.imzML", 4096, 1),
             # ("data/example.imzML", 4096, 2),
             # ("data/example.imzML", 4096, 8),
-            # ("data/example.imzML", 4096, 32),
-            # ("data/example.imzML", 4096, 64),
+            ("data/example.imzML", 4096, 32),
+            ("data/example.imzML", 4096, 64),
         ]
     )
     @pytest.mark.benchmark(timer=time.perf_counter)

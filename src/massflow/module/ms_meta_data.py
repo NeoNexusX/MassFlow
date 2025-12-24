@@ -6,7 +6,6 @@ License: See LICENSE file in project root
 import os
 from typing import Optional
 import numpy as np
-from pyimzml.ImzMLParser import ImzMLParser
 from massflow.logger import get_logger
 logger = get_logger("meta_data")
 
@@ -454,7 +453,6 @@ class ImzMlMetaData(MetaDataBase):
                  name="ImzML",
                  version=1.0,
                  storage_mode='split',
-                 parser: Optional[ImzMLParser] = None,
                  filepath: Optional[str] = None,
                  absolute_position_offset_x = None,
                  absolute_position_offset_y = None,
@@ -472,7 +470,7 @@ class ImzMlMetaData(MetaDataBase):
                  max_count_of_pixels_x=None,
                  max_count_of_pixels_y=None):
 
-        """Initialize the metadata object with either a parser or a file path."""
+        """Initialize the metadata object with file path."""
         super().__init__(name=name, 
                          version=version, 
                          storage_mode=storage_mode, 
@@ -482,7 +480,6 @@ class ImzMlMetaData(MetaDataBase):
                          max_count_of_pixels_y=max_count_of_pixels_y)
 
         self._filepath = None
-        self._parser = None
         self._spectrum_count_num = None
         self._absolute_position_offset_x = None
         self._absolute_position_offset_y = None
@@ -493,13 +490,7 @@ class ImzMlMetaData(MetaDataBase):
         self._min_pixel_y = 99999
 
         # Set actual value through property
-        if parser is not None:
-            self.parser = parser
-        elif filepath is not None:
-            self.filepath = filepath
-        else:
-            logger.error("Either parser or filepath must be provided")
-            raise ValueError("Either parser or filepath must be provided")
+        self.filepath = filepath if filepath is not None else None
 
         self.absolute_position_offset_x = absolute_position_offset_x
         self.absolute_position_offset_y = absolute_position_offset_y
@@ -519,34 +510,13 @@ class ImzMlMetaData(MetaDataBase):
         return self._filepath
 
     @filepath.setter
-    def filepath(self, filepath: str):
-        """Set the imzML file path and initialize parser if file exists."""
-
-        if not filepath:
-            logger.error("Filepath cannot be empty.")
-            raise ValueError("Filepath cannot be empty.")
-            
-        self._filepath = filepath
-
-        # Only initialize parser if file exists and is not empty
-        if self.parser is None and os.path.exists(filepath):
-            if os.path.getsize(filepath) > 0:
-                self.parser = ImzMLParser(filepath)
-            else:
-                logger.info(f"File {filepath} is empty (swap mode). Skipping parser initialization.")
-        else:
-            logger.info(f"Filepath {filepath} registered. Awaiting data write.")
-
-    @property
-    def parser(self):
-        """Return the bound pyimzML parser instance."""
-        return self._parser
-
-    @parser.setter
-    def parser(self, parser: ImzMLParser):
-        """Set the pyimzML parser instance."""
-        if parser is not None:
-            self._parser = parser
+    def filepath(self, filepath: Optional[str]):
+        """Set the associated imzML file path."""
+        if filepath is not None:
+            if not os.path.exists(filepath):
+                logger.error(f"ImzML file not found at {filepath}")
+                raise FileNotFoundError(f"ImzML file not found at {filepath}")
+            self._filepath = filepath
 
     @property
     def spectrum_count_num(self):

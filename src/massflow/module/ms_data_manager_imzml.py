@@ -61,36 +61,37 @@ class MSDataManagerImzML(MSDataManager):
                          intensity_dtype=intensity_dtype, 
                          temp_dir=temp_dir)
 
-        self.parser = None
-        self.reader = None
-        self.ibd_path = None
-
-        if os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0:
-            self._init_reader_and_parser()
+        # Initialize ImzML parser and reader
+        if os.path.exists(self.filepath) and self.filepath.endswith(".imzML") and os.path.exists(self.filepath[:-5] + "ibd"):
+            self.lazy_init()
         else:
-            logger.info(f"File {self.filepath} is new or empty. Skipping initial parsing.")
-            if self.ms.meta is None:
-                self.ms.meta = ImzMlMetaData(parser=None, filepath=self.filepath)
+            self.parser = None
+            self.reader = None
+            self.ibd_path = None
+            self.ms.meta  = ImzMlMetaData(filepath=None)
+            logger.warning(f"Warning: ImzML file or corresponding ibd file not found at {self.filepath} or {self.filepath[:-5] + 'ibd'}. Deferred initialization until load.")
 
-    def _init_reader_and_parser(self):
-        """Initialize the ImzML parser and spectrum reader."""
-        
+    def lazy_init(self):
+        """
+        Lazy initialization placeholder for ImzML data manager.
+        Currently no additional lazy init steps are required beyond base class.
+        """
+        # catch warnings during parser initialization
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            self.parser = ImzMLParser(self.filepath)
-        
-        if self.ms.meta is None:
-            self.ms.meta = ImzMlMetaData(parser=self.parser, filepath=self.filepath)
-        else:
-            self.ms.meta.parser = self.parser
 
-        ibd_path = self.filepath[:-5] + "ibd"
-        if os.path.exists(ibd_path):
-            self.ibd_path = ibd_path
-            self.reader = self.parser.portable_spectrum_reader()
-        else:
-            logger.error(f"Error: Corresponding .ibd file for {self.filepath} does not exist.")
-            raise FileNotFoundError(f"Error: Corresponding .ibd file for {self.filepath} does not exist.")
+            self.parser = ImzMLParser(self.filepath)
+
+            if self.parser is not None :
+                self.reader = self.parser.portable_spectrum_reader()
+                self.ms.meta.filepath = self.filepath # type: ignore
+                self.ibd_path = self.filepath[:-5] + "ibd"
+
+            # log warnings part
+            combined_message = "\r\n".join([f"{wm.message}" for wm in w])
+            if len(combined_message) > 0:
+                logger.warning(f"{combined_message}")
+
 
     def load_full_data_from_file(self):
         """
@@ -103,41 +104,42 @@ class MSDataManagerImzML(MSDataManager):
                         and each placeholder gets `spectrum.mz_list = ms.shared_mz_list`.
          """
 
+        # Ensure parser is initialized before loading defender to avoid repeated checks
         if self.parser is None:
-            if os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0:
-                self._init_reader_and_parser()
+            if  os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0 and self.filepath.endswith(".imzML"):
+                self.lazy_init()
+                if self.parser is None:
+                    logger.error(f"load data faild : Unable to initialize ImzML parser for file {self.filepath}.")
+                    raise ValueError(f"load data faild : Unable to initialize ImzML parser for file {self.filepath}.")
             else:
-                raise ValueError("Cannot load data: File is empty or does not exist.")
-            
+                logger.error(f"load data faild : File {self.filepath} is empty or does not exist.")
+                raise ValueError(f"load data faild : File {self.filepath} is empty or does not exist.")
+        
+        # Start loading process
+        logger.info(f"Loading data from ImzML file: {self.filepath}")
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
 
-            # meta data load part
-            self.pre_load_meta()
+            # pre loading part : meta data load part
+            self.preload_meta()
 
-            # list of coords
-            coords = self.parser.coordinates
-
-            # spectrum data load and create part
-            for i, c in enumerate(coords):
+            # spectrum data load and create part  [find by coordinate]
+            for i, c in enumerate(self.parser.coordinates):
                 x, y, z = c
                 c1, c2 = (self.target_locs if self.target_locs is not None else ([0, 0], [999, 999]))
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
                     # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
-                    spectrum = SpectrumImzML(
-                        parser=self.parser,
-                        reader=self.reader,
-                        ibd_path=self.ibd_path,
-                        index=i,
-                        coordinates=[x, y, z],
-                    )
-
-                    self.loading_meta(x=spectrum.coordinates.x, 
-                                      y=spectrum.coordinates.y, 
+                    spectrum = SpectrumImzML(reader=self.reader,
+                                             ibd_path=self.ibd_path,
+                                             index=i,
+                                             coordinates=[x, y, z],
+                                             shared_mz_list=self.ms.shared_mz_list)
+                    # loading part : update meta data during loading
+                    self.loading_meta(x=spectrum.coordinate.x, #type: ignore
+                                      y=spectrum.coordinate.y, #type: ignore
                                       index=i)
 
-                    # judge mz_list is used or not
-                    spectrum.mz_list = self.ms.shared_mz_list
                     self.ms.add_spectrum(spectrum)
                     self.current_spectrum_num += 1
 
@@ -146,18 +148,32 @@ class MSDataManagerImzML(MSDataManager):
             if len(combined_message) > 0:
                 logger.warning(f"{combined_message}")
 
+            # loaded part : finalize meta data load part
             self.loaded_meta()
 
-    def pre_load_meta(self, *args, **kwargs):
+    def preload_meta(self, *args, **kwargs):
         """Pre-load and populate metadata from the ImzML parser before loading spectra."""
         self.extract_metadata()
+
+        # assign shared mz_list for continuous data
+        if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None:  # type: ignore
+            self.ms.shared_mz_list, _ = self.parser.getspectrum(1)
+            logger.info(f"Assigning shared mz_list for continuous data; len is {len(self.ms.shared_mz_list)} subsequent spectra will reuse it.")
+
+    def loading_meta(self, *args, **kwargs):
+        """Update metadata during spectrum streaming (continuous mode + min pixel tracking)."""
+        # update min pixel x,y
+        # need to judge meta is ImzMlMetaData
+        if isinstance(self.ms.meta, ImzMlMetaData):
+            self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs["x"])
+            self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs["y"])
 
     def extract_metadata(self):
         """Iterate `meta_index` and populate matching attributes from the parser."""
 
         logger.info("Extracting metadata...")
 
-        if self.ms.meta.parser is None:  # type: ignore
+        if self.parser is None:
             logger.error("Parser is not initialized. Please set parser or filepath first.")
             raise ValueError("Parser is not initialized. Please set parser or filepath first.")
 
@@ -174,13 +190,13 @@ class MSDataManagerImzML(MSDataManager):
         """Search the predefined metadata areas for the given accession identifier."""
 
         search_areas = [
-            self.ms.meta.parser.metadata.file_description,  # File description (data type, creation time, etc.) #type: ignore
-            self.ms.meta.parser.metadata.scan_settings,  # Scan settings (scan mode, m/z range, etc.)#type: ignore
-            self.ms.meta.parser.metadata.instrument_configurations,  # Instrument configuration (model, ion source, etc.)#type: ignore
-            self.ms.meta.parser.metadata.samples,  # Sample information (sample name, preparation, etc.) #type: ignore
-            self.ms.meta.parser.metadata.softwares,  # Software information (parser, version, etc.) #type: ignore
-            self.ms.meta.parser.metadata.data_processings,  # Data processing (peak picking, normalization, etc.) #type: ignore
-            self.ms.meta.parser.metadata.referenceable_param_groups,  # Referenceable parameter groups (shared metadata) #type: ignore
+            self.parser.metadata.file_description,  # File description (data type, creation time, etc.) #type: ignore
+            self.parser.metadata.scan_settings,  # Scan settings (scan mode, m/z range, etc.)#type: ignore
+            self.parser.metadata.instrument_configurations,  # Instrument configuration (model, ion source, etc.)#type: ignore
+            self.parser.metadata.samples,  # Sample information (sample name, preparation, etc.) #type: ignore
+            self.parser.metadata.softwares,  # Software information (parser, version, etc.) #type: ignore
+            self.parser.metadata.data_processings,  # Data processing (peak picking, normalization, etc.) #type: ignore
+            self.parser.metadata.referenceable_param_groups,  # Referenceable parameter groups (shared metadata) #type: ignore
         ]
 
         for area in search_areas:
@@ -205,19 +221,6 @@ class MSDataManagerImzML(MSDataManager):
                     return param_group[accession_id]
 
         return None
-
-    def loading_meta(self, *args, **kwargs):
-        """Update metadata during spectrum streaming (continuous mode + min pixel tracking)."""
-
-        if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None:  # type: ignore
-            self.ms.shared_mz_list, _ = self.parser.getspectrum(kwargs["index"])
-            logger.info(f"Assigning shared mz_list for continuous data; len is {len(self.ms.shared_mz_list)} subsequent spectra will reuse it.")
-
-        # update min pixel x,y
-        # need to judge meta is ImzMlMetaData
-        if isinstance(self.ms.meta, ImzMlMetaData):
-            self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs["x"])
-            self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs["y"])
 
     def close(self):
         """

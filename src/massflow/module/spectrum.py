@@ -35,8 +35,9 @@ class Spectrum:
         self,
         mz_list: Optional[np.ndarray],
         intensity: Optional[np.ndarray],
-        coordinates: Union[PixelCoordinates, Sequence[int]],
+        coordinate: Union[PixelCoordinates, Sequence[int]],
         sort_by_mz: bool = True,
+        shared_mz_list: Optional[np.ndarray] = None,
     ):
         """
         Initialize a mass spectrum with m/z values, intensities, and coordinates.
@@ -53,15 +54,16 @@ class Spectrum:
             TypeError: If `coordinates` is neither `PixelCoordinates` nor a list/tuple of three ints.
         """
 
-        assert len(coordinates) == 3, "Coordinates must be a list of three integers."
+        assert len(coordinate) == 3, "Coordinates must be a list of three integers."
 
         # Lazy loading
-        self._mz_list = mz_list
+        self.shared_mz_list = shared_mz_list
+        self._mz_list = self.shared_mz_list if mz_list is None else mz_list
         self._intensity = intensity
 
         # Initialize coordinates to PixelCoordinates instance
         # need to update
-        self.coordinates = PixelCoordinates(coordinates)
+        self.coordinate = PixelCoordinates(coordinate)
 
         # sort part , do not use _sort_by_mz
         self._sort_by_mz = sort_by_mz
@@ -82,7 +84,9 @@ class Spectrum:
         Returns:
             np.ndarray: An array of mz values.
         """
-        if self._mz_list is None:
+        if self.shared_mz_list is not None:
+            self._mz_list = self.shared_mz_list
+        elif self._mz_list is None:
             _ = self.intensity  # trigger data load
 
         return self._mz_list
@@ -139,7 +143,7 @@ class Spectrum:
         Returns:
             PixelCoordinates: Object containing x, y, and z coordinates.
         """
-        return self.coordinates
+        return self.coordinate
 
     def __len__(self):
         """
@@ -167,7 +171,7 @@ class Spectrum:
         """
         if not isinstance(other, Spectrum):
             return False
-        return self.coordinates == other.coordinates
+        return self.coordinate == other.coordinate
 
     def __getitem__(self, index):
         """
@@ -274,7 +278,6 @@ class Spectrum:
         """
         self.mz_list = None
         self.intensity = None
-        self.coordinates = None
 
     @property
     def x(self):
@@ -287,9 +290,9 @@ class Spectrum:
         Raises:
             AttributeError: If 'coordinates' is not initialized.
         """
-        if self.coordinates is None:
+        if self.coordinate is None:
             raise AttributeError("coordinates is not initialized.")
-        return self.coordinates.x
+        return self.coordinate.x
 
     @property
     def y(self):
@@ -302,9 +305,9 @@ class Spectrum:
         Raises:
             AttributeError: If 'coordinates' is not initialized.
         """
-        if self.coordinates is None:
+        if self.coordinate is None:
             raise AttributeError("coordinates is not initialized.")
-        return self.coordinates.y
+        return self.coordinate.y
 
     @property
     def z(self):
@@ -317,9 +320,9 @@ class Spectrum:
         Raises:
             AttributeError: If 'coordinates' is not initialized.
         """
-        if self.coordinates is None:
+        if self.coordinate is None:
             raise AttributeError("coordinates is not initialized.")
-        return self.coordinates.z
+        return self.coordinate.z
     
     def swap_out2disk(self, writer: ImzMLWriter):
         pass
