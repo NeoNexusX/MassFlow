@@ -1,0 +1,123 @@
+import os
+import sys
+import subprocess
+import shutil
+from typing import Optional, Any, Dict
+from massflow.logger import get_logger
+
+logger = get_logger("R Environment")
+
+DEFULT_R_HOME = r"E:/ele_software_file/R-4.5.2" 
+
+class RConfig:
+    """
+    R environment configuration manager.
+    Dynamically finds R_HOME and configures system environment variables.
+    """
+    @staticmethod
+    def detect_system_r_home() -> Optional[str]:
+        """
+        Get R_HOME path via command line tool.
+        """
+        if not shutil.which("R"):
+            return DEFULT_R_HOME
+        try:
+            output = subprocess.check_output(
+                ["R", "RHOME"], 
+                universal_newlines=True, 
+                stderr=subprocess.DEVNULL
+            )
+            return output.strip()
+        except subprocess.CalledProcessError:
+            return None
+        
+    @staticmethod
+    def setup_env(r_home: Optional[str] = None):
+        """
+        Set environment variables before importing rpy2.
+        Priority: Function argument > Environment variable R_HOME > System automatic detection
+        """
+        # R uses English environment to avoid rpy2 UnicodeDecodeError caused by Chinese errors
+        os.environ["LANGUAGE"] = "en"
+        os.environ["LC_ALL"] = "C"
+
+        target_home = r_home or os.environ.get("R_HOME") or RConfig.detect_system_r_home()
+
+        if not target_home or not os.path.exists(target_home):
+            raise FileNotFoundError(f"R_HOME not found at: {target_home}")
+            
+        os.environ['R_HOME'] = target_home
+        
+        if sys.platform == 'win32':
+            # Windows: Need to add bin/x64 to PATH
+            r_bin = os.path.join(target_home, 'bin', 'x64')
+            if os.path.exists(r_bin) and r_bin not in os.environ['PATH']:
+                os.environ['PATH'] = r_bin + os.pathsep + os.environ['PATH']
+            # Force ABI mode to be compatible with different versions
+            os.environ.setdefault('RPY2_CFFI_MODE', 'ABI')
+            
+        logger.info(f"R Environment configured successfully. R_HOME={target_home}")
+
+class REnvironment:
+    """
+    Responsible for R environment initialization and lazy loading of rpy2.
+    """
+    _instance = None
+    pkgs: Dict[str, Any] = {}
+    
+    # rpy2 object cache
+    robjects = None
+    FloatVector = None
+    IntVector = None
+    ListVector = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(REnvironment, cls).__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
+
+    def _initialize(self):
+        try:
+            # 1. Configure environment
+            RConfig.setup_env()
+            
+            # 2. Lazy import
+            import rpy2.robjects as robjects
+            from rpy2.robjects.packages import importr
+            from rpy2.robjects.vectors import FloatVector, IntVector, ListVector
+
+            self.robjects = robjects
+            self.FloatVector = FloatVector
+            self.IntVector = IntVector
+            self.ListVector = ListVector
+            self._importr = importr
+
+            # 3. Load base packages
+            self.pkgs['base'] = importr('base')
+            self.pkgs['utils'] = importr('utils')
+            self.pkgs['methods'] = importr('methods')
+            self.pkgs['s4'] = importr('S4Vectors')
+            
+            # 4. Try to load Cardinal
+            self.pkgs['cardinal'] = importr('Cardinal')
+            
+            ver = self.pkgs['utils'].packageVersion('Cardinal')
+            logger.info(f"R loaded successfully. Cardinal version: {ver}")
+
+        except Exception as e:
+            logger.error(f"R Environment initialization failed: {e}")
+            raise RuntimeError("Could not initialize R environment.") from e
+        
+    @property
+    def cardinal(self):
+        """Get Cardinal package, reload if namespace is invalid."""
+        try:
+            # Try to access a Cardinal function to verify if the package is available
+            _ = self.pkgs['cardinal'].readImzML
+            return self.pkgs['cardinal']
+        except Exception:
+            # Reload Cardinal package
+            logger.warning("Cardinal package namespace invalid, reloading...")
+            self.pkgs['cardinal'] = self._importr('Cardinal')
+            return self.pkgs['cardinal']

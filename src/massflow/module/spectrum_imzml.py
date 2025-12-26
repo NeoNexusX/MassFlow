@@ -14,7 +14,6 @@ License: See LICENSE file in project root
 """
 
 from massflow.module.spectrum import Spectrum
-from typing import Optional
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 from massflow.logger import get_logger
 

@@ -1,1017 +1,620 @@
-from __future__ import annotations
-import h5py
-
-import gc
-from massflow.logger import get_logger
-import copy
-from dataclasses import dataclass
-from typing import List, Optional, Literal, Tuple, Dict
 import numpy as np
+from typing import Dict, Literal, Optional, Tuple
 from numpy.typing import NDArray
-from scipy import interpolate, signal, linalg
+from massflow.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
-from massflow.module.spectrum import Spectrum
+from massflow.module.spectrum_imzml import SpectrumImzML
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 
-logger = get_logger("preprocesss")
+logger = get_logger("peak_alignment")
 
-@dataclass
-class PeakBins:
-    """Aggregated peak bins
-
-    Fields:
-    - peaks: mean peak position per bin (used for subsequent merging)
-    - values: mean intensity per bin (used to fill the aligned matrix)
-    - counts: number of spectra hitting each bin (for weighting and frequency)
-    - tolerance: half-window tolerance used during binning
-    - domain: reference domain involved in aggregation (ascending)
-    Edge case: bins with counts == 0 have peaks/values set to NaN.
+def calc_diff(
+    x: NDArray[np.float64], 
+    y: Optional[NDArray[np.float64]] = None, 
+    method: Literal["x", "y", "abs"] = "y"
+) -> NDArray[np.float64]:
     """
-    peaks: NDArray[np.float64]
-    values: NDArray[np.float64]
-    counts: NDArray[np.int64]
-    tolerance: float
-    domain: NDArray[np.float64]
+    Calculate relative or absolute differences between array elements.
 
-@dataclass
-class AlignResult:
-    """Alignment result object
-
-    Fields:
-    - ms_aligned: aligned MS collection with spectra built on the shared reference axis
-    - ref: reference peak vector (may come from binpeaks + mergepeaks)
-    - count: hit count per reference peak
-    - freq: hit frequency (count/nspec)
-    - tolerance/units/binfun/binratio: parameter echo for auditing and reproducibility
-    """
-    ms_aligned: MassSpectrumSet
-    ref: NDArray[np.float64]
-    count: NDArray[np.int64]
-    freq: NDArray[np.float64]
-    tolerance: float
-    units: Literal["relative", "absolute"]
-    binfun: Literal["median", "min", "max", "mean"]
-    binratio: int
-
-class SpectrumHDF5Lazy(Spectrum):
-    """
-    HDF5-backed spectrum that loads data only when accessed.
-    Compatible with SpectrumBaseModule interface.
-    """
-    def __init__(self, filepath, index, coordinates, mz_ref=None):
-        super().__init__(mz_list=None, intensity=None, coordinate=coordinates)
-        self._filepath = filepath
-        self._index = index
-        self._mz_ref = mz_ref
-
-    @property
-    def mz_list(self):
-        if self._mz_ref is not None:
-            return self._mz_ref
-        
-        with h5py.File(self._filepath, 'r') as f:
-            return f['mz'][:]
-
-    @property
-    def intensity(self):
-        with h5py.File(self._filepath, 'r') as f:
-            return f['intensity'][self._index]
-            
-    def unload(self):
-        pass
-
-def _rel_diff(x: NDArray[np.float64], y: Optional[NDArray[np.float64]] = None, ref: Literal["x", "y", "abs"] = "y") -> \
-NDArray[np.float64]:
-    """Relative/absolute difference computation
-
-    Behavior:
-    - If `y` is provided, return element-wise differences using `ref` to choose the denominator.
-    - If `y` is None, compute adjacent differences of `x`.
-
-    Parameters:
-    - x: float array; acts as the right-hand sequence when `y` is absent
-    - y: float array or None; when None, defaults to `x[:-1]`
-    - ref: reference for normalization ("x" divide by x, "y" divide by y, "abs" absolute difference)
+    Args:
+        x: Target array.
+        y: Reference array. If None, calculates the difference between adjacent elements of x (x[1:] - x[:-1]).
+        method: Basis for difference calculation.
+            - "x": (x - y) / x
+            - "y": (x - y) / y  (Default, commonly used for PPM calculation)
+            - "abs": x - y
 
     Returns:
-    - float array of broadcasted length
-
-    Notes:
-    - Types are coerced (int→float) consistent with R behavior
-    - Division by zero yields `inf`; comparisons `<= tol` treat `inf` as no-hit (consistent with C++)
+        Array of calculated differences.
     """
     if y is None:
         if x.size <= 1:
             return np.array([], dtype=np.float64)
         y = x[:-1]
         x = x[1:]
-    # Cast to float64, compatible with NumPy 2.0 (np.float_ removed)
+
     x = x.astype(np.float64, copy=False)
     y = y.astype(np.float64, copy=False)
+
     n = max(x.size, y.size)
-    xx = np.resize(x, n)
-    yy = np.resize(y, n)
-    if ref == "x":
-        return (xx - yy) / xx
-    if ref == "y":
-        return (xx - yy) / yy
-    return xx - yy
+    if x.size != n: x = np.resize(x, n)
+    if y.size != n: y = np.resize(y, n)
 
-def _udiff_scalar(x: float, y: float, tol_ref: Literal["x", "y", "abs"]) -> float:
-    if tol_ref == "x":
-        return abs((x - y) / x)
-    if tol_ref == "y":
-        return abs((x - y) / y)
-    return abs(x - y)
+    if method == "abs":
+        return x - y
+    
+    denominator = x if method == "x" else y
+    return (x - y) / denominator
 
-def _binary_search(
-        x: NDArray[np.float64],
-        table: NDArray[np.float64],
-        tol: float = 0.0,
-        tol_ref: Literal["x", "y", "abs"] = "abs",
-        nomatch: int = -1,
-        nearest: bool = False,
+def scalar_diff(val1: float, val2: float, method: Literal["x", "y", "abs"]) -> float:
+    """
+    Calculate the absolute difference between two scalar values (result is always positive).
+    """
+    diff = abs(val1 - val2)
+    if method == "abs":
+        return diff
+    
+    denominator = val1 if method == "x" else val2
+    return diff / abs(denominator) if denominator != 0 else float('inf')
+
+def search_nearest(
+    queries: NDArray[np.float64],
+    targets: NDArray[np.float64],
+    tolerance: float = 0.0,
+    tol_method: Literal["x", "y", "abs"] = "abs",
+    nomatch_value: int = -1,
+    force_nearest: bool = False,
 ) -> NDArray[np.int64]:
-    """Approximate binary search
+    """
+    Find matching indices for queries in the sorted array targets.
+    
+    Logic:
+    1. Use binary search to locate the insertion point.
+    2. Check the left and right neighbors of the insertion point.
+    3. Determine the best match based on tolerance and method.
 
-    Behavior:
-    - In a sorted `table`, for each `x[i]`, compare left/right neighbors by relative/absolute difference.
-      If within tolerance or `nearest=True`, return the nearer neighbor (ties choose left).
-
-    Parameters:
-    - x: query values
-    - table: sorted candidate array (ascending)
-    - tol: tolerance half-window
-    - tol_ref: difference reference ("x"/"y"/"abs")
-    - nomatch: index returned on no-hit (default -1)
-    - nearest: when True, allow nearest neighbor even outside tolerance; when False, only return within tolerance
+    Args:
+        queries: Values to query (any order).
+        targets: Sorted target reference array (must be ascending).
+        tolerance: Maximum allowed error radius.
+        tol_method: Error calculation method ("x"/"y"/"abs").
+        nomatch_value: Return value when no match is found (default -1).
+        force_nearest: If True, ignore tolerance and force return of the nearest neighbor.
 
     Returns:
-    - int index array pointing into `table`; no-hits are `nomatch`
-
-    Edge cases:
-    - `table` must be ascending; otherwise raise (consistent with R)
-    - NaN queries are treated as no-hit (`nomatch`)
-    Complexity: O(n) traversal + O(log m) search (np.searchsorted), overall O(n log m).
-
-    Raises:
-    - ValueError: When `table` is not sorted in ascending order.
+        Index array, same length as queries.
     """
-    if np.any(np.diff(table) < 0):
-        logger.error("_binary_search: 'table' must be sorted")
-        raise ValueError("'table' must be sorted")
-    pos = np.full(x.shape, nomatch, dtype=np.int64)
-    for i, xi in enumerate(x):
-        idx = int(np.searchsorted(table, xi))
-        i_left = idx - 1
-        i_right = idx
-        cand_i = None
-        if i_left >= 0 and i_right < table.size:
-            if xi == table[i_left]:
-                pos[i] = i_left
-                continue
-            if xi == table[i_right]:
-                pos[i] = i_right
-                continue
-            di = _udiff_scalar(xi, table[i_left], tol_ref)
-            dj = _udiff_scalar(xi, table[i_right], tol_ref)
-            if di <= dj and (nearest or di <= tol):
-                cand_i = i_left
-            elif dj <= di and (nearest or dj <= tol):
-                cand_i = i_right
-            else:
-                cand_i = nomatch
-        elif i_left >= 0:
-            di = _udiff_scalar(xi, table[i_left], tol_ref)
-            cand_i = i_left if (nearest or di <= tol) else nomatch
-        elif i_right < table.size:
-            dj = _udiff_scalar(xi, table[i_right], tol_ref)
-            cand_i = i_right if (nearest or dj <= tol) else nomatch
-        else:
-            cand_i = nomatch
-        pos[i] = cand_i
-    return pos
+    if targets.size == 0:
+        return np.full(queries.shape, nomatch_value, dtype=np.int64)
 
-def _rel_sequence(from_: float, to: float, by: float) -> NDArray[np.float64]:
-    """Relative half-width sequence
+    if targets.size > 1 and targets[0] > targets[-1]:
+            raise ValueError("Targets array must be sorted in ascending order.")
 
-    Principle:
-    - With half-width `half=by/2`, construct geometric ratio `ratio=(1+half)/(1-half)` and compute the length by log scale;
-      return the sequence `from * ratio^(i-1)`.
+    # 1. Initial binary search position
+    # side='left': a[i-1] < v <= a[i]
+    insert_indices = np.searchsorted(targets, queries)
+    
+    result_indices = np.full(queries.shape, nomatch_value, dtype=np.int64)
+    n_targets = targets.size
 
-    Parameters: from_, to, by for start, end, and relative step (2×half-width).
-    Returns: ascending float array.
-    Complexity: O(L) where L is output length; more stable for wide relative grids.
+    for i, q_val in enumerate(queries):
+        idx = int(insert_indices[i])
+        
+        # Candidate indices: left neighbor and current position
+        idx_left = idx - 1
+        idx_right = idx
+        
+        best_idx = nomatch_value
+        min_diff = float('inf')
+
+        # Check left neighbor
+        if idx_left >= 0:
+            diff_left = scalar_diff(q_val, targets[idx_left], tol_method)
+            if force_nearest or diff_left <= tolerance:
+                min_diff = diff_left
+                best_idx = idx_left
+
+        # Check right neighbor
+        if idx_right < n_targets:
+            diff_right = scalar_diff(q_val, targets[idx_right], tol_method)
+            
+            # If right is closer, or no match found on left yet
+            is_closer = diff_right < min_diff
+            is_within_tol = force_nearest or diff_right <= tolerance
+            
+            # Update only if right is strictly better than left (Tie-break: prefer left/smaller index)
+            if is_within_tol:
+                if best_idx == nomatch_value or is_closer:
+                    best_idx = idx_right
+
+        result_indices[i] = best_idx
+
+    return result_indices
+
+def generate_relative_sequence(start: float, end: float, step: float) -> NDArray[np.float64]:
     """
-    half = by / 2.0
+    Generate a geometric sequence (for PPM scale).
+    """
+    if start <= 0 or end <= 0:
+        return np.array([], dtype=np.float64)
+        
+    half = step / 2.0
     ratio = (1.0 + half) / (1.0 - half)
-    length_out = int(np.floor(1.0 + (np.log(to) - np.log(from_)) / np.log(ratio)))
-    i = np.arange(1, length_out + 1, dtype=np.float64)
-    return from_ * np.power(ratio, i - 1.0)
+    
+    # Calculate sequence length
+    count = int(np.floor(1.0 + (np.log(end) - np.log(start)) / np.log(ratio)))
+    indices = np.arange(count, dtype=np.float64)
+    
+    return start * np.power(ratio, indices)
 
-def _mad(x: NDArray[np.float64], constant: float = 1.4826) -> float:
+def mad(x: NDArray[np.float64], constant: float = 1.4826) -> float:
+    """Calculate Median Absolute Deviation (MAD)."""
     if x.size == 0:
         return np.nan
-    med = float(np.median(x))
-    return constant * float(np.median(np.abs(x - med)))
+    median = np.median(x)
+    diff = np.abs(x - median)
+    return constant * float(np.median(diff))
 
-def _es_resolution(x: NDArray[np.float64], tol: Optional[float] = None, ref: Optional[Literal["x", "abs"]] = None) -> float:
-    """Resolution estimation
-
-    Behavior:
-    - Choose reference (abs or x) by robustness (MAD) between adjacent absolute differences `dx` and relative differences `rx`, and return the minimal difference as resolution.
-    - If `tol` is provided, validate grid consistency by checking modulo residuals against `tol`.
-
-    Parameters:
-    - x: float array (sorted internally)
-    - tol: optional tolerance threshold for grid consistency check
-    - ref: reference selector (auto when None)
-
-    Returns: float resolution; NaN when no valid differences are available.
-    Numerical stability: filter out values smaller than machine epsilon to avoid divide-by-zero and instability.
+def estimate_resolution(
+    x: NDArray[np.float64], 
+    tolerance: Optional[float] = None, 
+    method: Optional[Literal["x", "abs"]] = None
+) -> float:
+    """
+    Estimate the minimum resolution (minimum interval) of data points.
+    Automatically determines whether absolute error (Da) or relative error (PPM) better describes the data distribution.
     """
     if x.size <= 1:
         return np.nan
+
     xs = np.sort(x)
-    from_ = xs[:-1]
-    to = xs[1:]
-    rx = 2.0 * ((to / from_) - 1.0) / ((to / from_) + 1.0)
-    rx = np.where(np.isnan(rx), np.inf, rx)
+    
+    # Calculate absolute differences
     dx = np.diff(xs)
+    
+    # Calculate relative differences (2 * (b-a)/(b+a))
+    a, b = xs[:-1], xs[1:]
+    rx = 2.0 * (b - a) / (b + a)
+    
+    # Filter invalid values below machine precision
     eps = np.finfo(float).eps
     dx = dx[dx > eps]
-    rx = rx[rx > eps]
-    chosen = ref
-    if chosen is None:
+    rx = rx[np.abs(rx) > eps]
+
+    # Automatic selection strategy: Compare MAD to see which distribution is more compact
+    chosen_method = method
+    if chosen_method is None:
         if dx.size and rx.size:
-            lhs = _mad(dx / float(np.max(xs) - np.min(xs)))
-            rhs = _mad(rx)
-            chosen = "abs" if lhs < rhs else "x"
+            # Normalize dx for comparison
+            range_span = xs[-1] - xs[0]
+            lhs = mad(dx / range_span) if range_span > 0 else np.inf
+            rhs = mad(rx)
+            chosen_method = "abs" if lhs < rhs else "x"
         elif dx.size:
-            chosen = "abs"
+            chosen_method = "abs"
         elif rx.size:
-            chosen = "x"
+            chosen_method = "x"
         else:
             return np.nan
-    if chosen == "abs":
-        res = float(np.min(dx)) if dx.size else np.inf
-        if tol is None or np.all(np.mod(dx, res) <= tol):
-            return res
-        return np.nan
-    else:
-        res = float(np.min(rx)) if rx.size else np.inf
-        if tol is None or np.all(np.mod(rx, res) <= tol):
-            return res
-        return np.nan
 
-def estimate_domain(
-        xlist: List[NDArray[np.float64]],
-        width: Literal["median", "min", "max", "mean"] = "median",
-        units: Literal["relative", "absolute"] = "relative",
-) -> Tuple[NDArray[np.float64], float]:
-    """Shared reference domain estimation
+    # Return estimated value
+    target_arr = dx if chosen_method == "abs" else rx
+    if target_arr.size == 0:
+            return np.inf
 
-    Behavior:
-    - For each spectrum, estimate resolution and range of peak indices; aggregate resolution by `width`.
-    - Generate an ascending reference domain according to units (relative or absolute), applying minimum resolution thresholds.
+    res = float(np.min(target_arr))
 
-    Parameters:
-    - xlist: list of peak indices per spectrum
-    - width: aggregation function ("median"/"min"/"max"/"mean")
-    - units: units ("relative"/"absolute")
+    # Optional: Consistency check
+    if tolerance is not None:
+        residuals = np.mod(target_arr, res)
+        if not np.all(residuals <= tolerance):
+            return np.nan
 
-    Returns:
-    - (domain, by): reference domain and resolution step
+    return res
 
-    Edge cases and numbers:
-    - When no peaks are available, return NaN step and empty domain; minimum resolution (relative 5e-7, absolute 1e-4).
-    Complexity: O(S·P): per-spectrum O(P) estimation plus a single aggregation.
-    """
-    ref = "x" if units == "relative" else "abs"
-    stats = []
-    for x in xlist:
-        x = x[np.logical_not(np.isnan(x))]
-        res = _es_resolution(x, ref=ref)
-        if x.size > 0 and (np.isfinite(res)):
-            stats.append((float(np.min(x)), float(np.max(x)), res))
-        else:
-            stats.append((np.nan, np.nan, res))
-    arr = np.array(stats, dtype=np.float64)
-    from_ = float(np.floor(np.nanmin(arr[:, 0])))
-    to = float(np.ceil(np.nanmax(arr[:, 1])))
-    by_values = arr[:, 2]
-    if width == "median":
-        by = float(np.nanmedian(by_values))
-    elif width == "min":
-        by = float(np.nanmin(by_values))
-    elif width == "max":
-        by = float(np.nanmax(by_values))
-    else:
-        by = float(np.nanmean(by_values))
-    min_relative_res = 5e-7
-    min_absolute_res = 1e-4
-    # ensure 'by' is not too small
-    if units == "relative":
-        by = max(min_relative_res, round(2.0 * by, 6) * 0.5)
-        seq = _rel_sequence(from_, to, by)
-    else:
-        by = max(min_absolute_res, round(by, 4))
-        seq = np.arange(from_, to + by, by, dtype=np.float64)
-    return seq, by
-
-def binpeaks(
-        peaklist: List[NDArray[np.float64]],
-        domain: Optional[NDArray[np.float64]] = None,
-        xlist: Optional[List[NDArray[np.float64]]] = None,
-        tol: Optional[float] = None,
-        tol_ref: Literal["abs", "x", "y"] = "abs",
-        merge: bool = False,
-        na_drop: bool = True,
-) -> PeakBins:
-    """Aggregate peaks to the reference domain
-
-    Two-stage behavior:
-    1) Initial mapping: per spectrum, use `_binary_search(nearest=False)` to map peak indices into `domain` bins.
-    2) De-duplicate conflicts: explicitly detect duplicate hits to the same bin within a spectrum (`while(any(dup))`),
-       compute relative/absolute differences to the bin center via `_rel_diff`, keep the closest and mark others as no-hit.
-    Finally, mean-aggregate hits to obtain positions and intensities, and record counts.
-
-    Parameters:
-    - peaklist: list of peak positions per spectrum
-    - domain: reference domain (None → auto-estimate range and step)
-    - xlist: list of intensities per spectrum (defaults to positions)
-    - tol/tol_ref: tolerance half-window and reference; when tol is None, estimate (median of 0.5×within-spectrum minimal differences)
-    - merge: whether to call `mergepeaks` to merge neighboring bins after aggregation
-    - na_drop: whether to drop bins with NaN values
-
-    Returns: `PeakBins` containing aggregated positions, intensities, counts, and domain.
-
-    Edge cases:
-    - `peaklist[i]` and `xlist[i]` must have equal length; otherwise raise.
-    - `domain` must be ascending; otherwise raise.
-    Complexity: per spectrum O(P log B) initial mapping + O(P) de-duplication; overall aligns with R implementation.
-
-    Raises:
-    - ValueError: When input lengths mismatch or `domain` is not sorted ascending.
-
-    Notes:
-    - In relative units (ppm), the effective step is derived dynamically from tolerance semantics to match half-width scaling.
-    """
-    if xlist is None:
-        xlist = peaklist
-    if any(len(peaklist[i]) != len(xlist[i]) for i in range(len(peaklist))):
-        logger.error("binpeaks: lengths of 'peaklist' and 'xlist' must match")
-        raise ValueError("lengths of 'peaklist' and 'xlist' must match")
-    if tol is None:
-        ref = "abs" if tol_ref == "abs" else "y"
-        mins = []
-        for peaks in peaklist:
-            d = _rel_diff(np.array(peaks, dtype=np.float64), ref=ref)
-            if d.size:
-                mins.append(float(np.nanmin(d)))
-        tol = 0.5 * float(np.median(mins)) if mins else np.nan
-    if domain is None:
-        lims = []
-        for peaks in peaklist:
-            if peaks.size:
-                lims.append(float(np.min(peaks)))
-                lims.append(float(np.max(peaks)))
-        if not lims:
-            domain = np.array([], dtype=np.float64)
-        else:
-            lo, hi = float(np.min(lims)), float(np.max(lims))
-            if tol_ref == "abs":
-                step = tol
-                n = int(np.floor((hi - lo) / step)) + 1
-                domain = lo + step * np.arange(n, dtype=np.float64)
-            else:
-                domain = _rel_sequence(lo, hi, tol)
-    if domain.size and np.any(np.diff(domain) < 0):
-        logger.error("binpeaks: 'domain' must be sorted")
-        raise ValueError("'domain' must be sorted")
-    peaks_acc = np.zeros(domain.size, dtype=np.float64)
-    x_acc = np.zeros(domain.size, dtype=np.float64)
-    counts = np.zeros(domain.size, dtype=np.int64)
-    for s in range(len(peaklist)):
-        p = _binary_search(np.array(peaklist[s], dtype=np.float64), domain, tol, tol_ref, nomatch=-1, nearest=False)
-        pos = np.array(peaklist[s], dtype=np.float64)
-        vals = np.array(xlist[s], dtype=np.float64)
-        # while(any(dup)) explicit loop per R implementation
-        # dup marks later occurrences of the same bin index (excluding NA/nomatch)
-        while True:
-            dup = np.zeros(p.shape, dtype=bool)
-            seen_bins: Dict[int, int] = {}
-            for i, pi in enumerate(p):
-                if pi < 0:
-                    continue
-                if int(pi) in seen_bins:
-                    dup[i] = True
-                else:
-                    seen_bins[int(pi)] = i
-            if not np.any(dup):
-                break
-            first_dup_idx = int(np.nonzero(dup)[0][0])
-            bin_val = int(p[first_dup_idx])
-            ids = np.where(p == bin_val)[0]
-            diffs = np.abs(_rel_diff(pos[ids], np.full(ids.size, domain[bin_val], dtype=np.float64), ref=tol_ref))
-            keep_idx = int(ids[int(np.argmin(diffs))])
-            for ii in ids:
-                if ii != keep_idx:
-                    p[ii] = -1
-        # accumulate matches
-        matched = np.where(p >= 0)[0]
-        for ii in matched:
-            b = int(p[ii])
-            peaks_acc[b] += pos[ii]
-            x_acc[b] += vals[ii]
-            counts[b] += 1
-    nz = counts != 0
-    peaks_acc[nz] = peaks_acc[nz] / counts[nz]
-    peaks_acc[~nz] = np.nan
-    x_acc[nz] = x_acc[nz] / counts[nz]
-    x_acc[~nz] = np.nan
-    if merge:
-        merged = mergepeaks(peaks_acc.copy(), counts.copy(), x_acc.copy(), tol, tol_ref, na_drop=False)
-        peaks_acc = merged.peaks
-        x_acc = merged.values
-        counts = merged.counts
-    if na_drop and np.any(np.isnan(x_acc)):
-        keep = ~np.isnan(x_acc)
-        peaks_acc = peaks_acc[keep]
-        x_acc = x_acc[keep]
-        counts = counts[keep]
-        domain = domain[keep]
-    return PeakBins(peaks=peaks_acc, values=x_acc, counts=counts, tolerance=float(tol), domain=domain)
-
-def mergepeaks(
-        peaks: NDArray[np.float64],
-        n: NDArray[np.int64],
-        x: NDArray[np.float64],
-        tol: Optional[float] = None,
-        tol_ref: Literal["abs", "x", "y"] = "abs",
-        na_drop: bool = True,
-) -> PeakBins:
-    """Merge neighboring peaks
-
-    Behavior:
-    - Within the tolerance half-window, expand left/right to find a neighborhood `[i..j]`,
-      compute count-weighted averages of position and intensity, write them to the middle index `p`, and clear others.
-    - Gating by counts during expansion: once counts rise again after having fallen past the mode side, treat it as a new peak and stop expansion immediately.
-
-    Parameters:
-    - peaks/n/x: aggregated positions, counts, intensities
-    - tol/tol_ref: tolerance and reference; when tol is None, estimate as 1% of the average peak spacing
-    - na_drop: whether to drop entries that become NaN after merging
-
-    Returns: `PeakBins` (domain left empty, used only for semantic alignment).
-    Edge cases: length mismatch or unsorted inputs raise.
-    Complexity: linear scan and local merging, O(B).
-
-    Raises:
-    - ValueError: When lengths of inputs mismatch or peaks are not sorted ascending.
-    """
-    if peaks.size != x.size:
-        logger.error("mergepeaks: length of 'peaks' and 'x' must match")
-        raise ValueError("length of 'peaks' and 'x' must match")
-    if np.any(np.diff(peaks[np.logical_not(np.isnan(peaks))]) < 0):
-        logger.error("mergepeaks: 'peaks' must be sorted")
-        raise ValueError("'peaks' must be sorted")
-    if tol is None:
-        ref = "abs" if tol_ref == "abs" else "y"
-        diffv = _rel_diff(peaks[np.logical_not(np.isnan(peaks))], ref=ref)
-        tol = 0.01 * float(np.nanmean(diffv)) if diffv.size else np.nan
-    k = int(np.nanmin(np.where(np.logical_not(np.isnan(peaks)), np.arange(peaks.size), np.nan))) if np.any(
-        np.logical_not(np.isnan(peaks))) else peaks.size + 1
-    while k <= peaks.size - 1:
-        i = k
-        j = k
-        left_of_mode = False
-        # left expansion: stop when entering a new peak (counts rise after having fallen)
-        while (i - 1) >= 0 and (not np.isnan(peaks[i - 1])) and (_udiff_scalar(peaks[i], peaks[i - 1], tol_ref) <= tol):
-            if n[i - 1] < n[i]:
-                left_of_mode = True
-            if n[i - 1] > n[i] and left_of_mode:
-                break
-            i -= 1
-        right_of_mode = False
-        # right expansion: mirror of left, with same gating on counts
-        while (j + 1) <= peaks.size - 1 and (not np.isnan(peaks[j + 1])) and (
-                _udiff_scalar(peaks[j + 1], peaks[j], tol_ref) <= tol):
-            if n[j + 1] < n[j]:
-                right_of_mode = True
-            if n[j + 1] > n[j] and right_of_mode:
-                break
-            j += 1
-        ij = np.arange(i, j + 1)
-        weights = n[ij].astype(np.float64)
-        mpeaks = float(np.sum(weights * peaks[ij]) / np.sum(weights))
-        mx = float(np.sum(weights * x[ij]) / np.sum(weights))
-        p = int(np.floor(np.mean(ij)))
-        q = ij[ij != p]
-        peaks[p] = mpeaks
-        x[p] = mx
-        n[p] = int(np.sum(n[ij]))
-        peaks[q] = np.nan
-        x[q] = np.nan
-        n[q] = 0
-        k = j + 1
-        while k <= peaks.size - 1 and np.isnan(peaks[k]):
-            k += 1
-    if na_drop and np.any(np.isnan(x)):
-        keep = ~np.isnan(x)
-        return PeakBins(peaks=peaks[keep], values=x[keep], counts=n[keep], tolerance=float(tol),
-                        domain=np.array([], dtype=np.float64))
-    return PeakBins(peaks=peaks, values=x, counts=n, tolerance=float(tol), domain=np.array([], dtype=np.float64))
-
-# Single-spectrum alignment
-# single spectrum alignment function (extracted from `align_sparse` core logic)
-def align_single_spectrum(
-        idx: NDArray[np.float64],
-        dat: NDArray[np.float64],
-        ref: NDArray[np.float64],
-        tol: float,
-        tol_ref: Literal["x", "y", "abs"]
-) -> NDArray[np.float64]:
-    """
-    Align one spectrum to the shared reference axis.
-
-    Parameters:
-        idx: 1D peak index array (m/z), arbitrary order and may contain NaNs.
-        dat: 1D intensity array aligned to `idx`.
-        ref: Reference axis (ascending, NaNs filtered by caller).
-        tol: Half-window tolerance used for gating.
-        tol_ref: Difference reference; "x" uses `ref` as denominator (ppm),
-                 "abs" uses absolute Da, "y" uses `idx` when needed.
-
-    Returns:
-        1D aligned intensity vector of length `len(ref)`.
-
-    Raises:
-        ValueError: When index/intensity lengths mismatch.
-    """
-    nrow = ref.size
-    # Preallocate output for a single spectrum (avoid building full matrix)
-    aligned = np.zeros(nrow, dtype=np.float64)
-    
-    if idx.size != dat.size:
-        raise ValueError("lengths of index and data must match")
-    
-    # Filter non-finite values and keep alignment
-    valid = np.isfinite(idx)
-    idx = idx[valid]
-    dat = dat[valid]
-    
-    if idx.size == 0:
-        return aligned
-        
-    ord = np.argsort(idx)
-    idx_sorted = idx[ord]
-    dat_sorted = dat[ord]
-    
-    # Branching: Downsample vs Upsample (consistent with original `align_sparse`)
-    if (nrow <= 2 * idx_sorted.size) or (np.any(np.diff(ref) < 0)):
-        # Downsample: reference not much larger than spectrum
-        pos = _binary_search(ref, idx_sorted, tol, tol_ref, nomatch=-1, nearest=False)
-        hits = pos >= 0
-        if np.any(hits):
-            aligned[np.where(hits)[0]] = dat_sorted[pos[hits]]
-    else:
-        # Upsample: reference significantly denser than spectrum
-        if tol_ref == "x": new_ref = "y"
-        elif tol_ref == "y": new_ref = "x"
-        else: new_ref = tol_ref
-        
-        start_pos = _binary_search(idx_sorted, ref, tol, new_ref, nomatch=-1, nearest=False)
-        processed = np.zeros(nrow, dtype=bool)
-        
-        for j in range(idx_sorted.size):
-            pj = int(start_pos[j])
-            if pj < 0: continue
-            
-            # Expand to the right from `pj`
-            for i in range(pj, nrow):
-                if processed[i]: break
-                if _udiff_scalar(ref[i], idx_sorted[j], tol_ref) > tol: break
-                aligned[i] = dat_sorted[j]
-                processed[i] = True
-            
-            # Expand to the left from `pj - 1`
-            for i in range(pj - 1, -1, -1):
-                if processed[i]: break
-                if _udiff_scalar(ref[i], idx_sorted[j], tol_ref) > tol: break
-                aligned[i] = dat_sorted[j]
-                processed[i] = True
-                
-    return aligned
-
-def _normalize_units(units: Literal["ppm", "mz", "relative", "absolute"]) -> Literal["relative", "absolute"]:
-    """
-    Unit normalization:
-    - 'ppm'/'relative' map to relative units; 'mz'/'absolute' map to absolute units.
-    Purpose: unify subsequent difference/tolerance reference (`tol_ref='x'|'abs'`) to avoid scattered branches.
-    """
+def _normalize_units(units: str) -> Literal["relative", "absolute"]:
+    """Normalize unit parameters (Internal helper)"""
     if units in ("ppm", "relative"):
         return "relative"
     return "absolute"
 
-def _estimate_tolerance(
-        indexbins: NDArray[np.float64],
-        binratio: int,
-        units: Literal["relative", "absolute"],
-) -> float:
+def estimate_domain(
+        data_manager: MSDataManagerImzML,
+        binfun: str = "median",
+        binratio: float = 2.0,
+        units: str = "relative",
+        clear_memory: bool = False,
+) -> Tuple[NDArray[np.float64], float]:
     """
-    Auto-estimate tolerance (half-window):
-    - Use `_es_resolution(indexbins, ref=('x' if relative else 'abs'))` to estimate resolution
-    - Multiply by `binratio` and round by units (relative: 6-digit half-step; absolute: 4 digits)
-    Returns: float tolerance half-window used for gating during _binary_search/expansion.
+    Estimate the m/z reference grid shared by all spectra.
     """
-    ref = "x" if units == "relative" else "abs"
-    tol = binratio * _es_resolution(indexbins, ref=ref)
+    ref_method = "x" if units == "relative" else "abs"
+    stats = []
+
+    for spec in data_manager.ms:
+        mz_list = spec.mz_list
+        valid_mz = mz_list[np.isfinite(mz_list)]
+        res = estimate_resolution(valid_mz, method=ref_method)
+        
+        if valid_mz.size > 0 and np.isfinite(res):
+            stats.append((float(np.min(valid_mz)), float(np.max(valid_mz)), res))
+        else:
+            stats.append((np.nan, np.nan, res))
+
+        if clear_memory:
+            spec.mz_list = None
+            spec.intensity = None
+            
+    stats_arr = np.array(stats, dtype=np.float64)
+
+    mz_min = float(np.floor(np.nanmin(stats_arr[:, 0])))
+    mz_max = float(np.ceil(np.nanmax(stats_arr[:, 1])))
+    resolutions = stats_arr[:, 2]
+
+    if binfun == "median":
+        step = float(np.nanmedian(resolutions))
+    elif binfun == "min":
+        step = float(np.nanmin(resolutions))
+    elif binfun == "max":
+        step = float(np.nanmax(resolutions))
+    else:
+        step = float(np.nanmean(resolutions))
+
+    logger.info(f"Estimated domain stats: min_mz={mz_min}, max_mz={mz_max}, step={step} (method={binfun})")
+
     if units == "relative":
-        return round(2.0 * tol, 6) * 0.5
-    return round(tol, 4)
+        tolerance = round(2.0 * (step * binratio), 6) * 0.5
+        step = round(2.0 * step, 6) * 0.5
+        domain = generate_relative_sequence(mz_min, mz_max, step)
+    else:
+        tolerance = round(step * binratio, 4)
+        step = round(step, 4)
+        domain = np.arange(mz_min, mz_max + step, step, dtype=np.float64)
 
-# [Refactor] `peak_align` now accepts `MS` and returns `AlignResult` with `MS` object
-def peak_align(
-        ms_data: MassSpectrumSet,
-        ref: Optional[NDArray[np.float64]] = None,
-        binfun: Literal["median", "min", "max", "mean"] = "min",
-        binratio: int = 2,
-        tolerance: Optional[float] = None,
-        units: Literal["ppm", "mz", "relative", "absolute"] = "ppm",
-        output_path: str = "aligned_data.h5",
-) -> AlignResult:
+    return domain, tolerance
+
+def bin_peaks(
+        data_manager: MSDataManagerImzML,
+        domain: NDArray[np.float64],
+        tolerance: float,
+        tol_method: Literal["abs", "x", "y"] = "abs",
+) -> NDArray[np.float64]:
     """
-    Main peak alignment routine (memory optimized, streaming construction).
-
-    Behavior:
-    1) Extract peak lists for domain estimation.
-    2) Build reference axis (ref) and resolve tolerance.
-    3) Stream through `ms_data`, align each spectrum, and build a new `MS`.
-
-    Returns:
-        AlignResult: Contains `ms_aligned`, `ref`, `count`, `freq`, `tolerance`, `units`, `binfun`, `binratio`.
-
-    Raises:
-        ValueError: If spectrum index/data lengths mismatch or reference construction fails.
+    Map peaks from multiple spectra to a unified domain.
     """
-    logger.info(f"peak_align: start, spectra={len(ms_data)}, units={units}...")
-    
-    # 1. Extract Lists (only when needed)
-    # Collect `index_list` when building reference peaks or estimating tolerance;
-    # collect `data_list` ONLY when building reference peaks (binpeaks needs intensities).
-    index_list = []
-    data_list = []
-    need_ref = ref is None
-    need_tol_estimate = tolerance is None
-    if need_ref or need_tol_estimate:
-        for s in ms_data:
-            index_list.append(s.mz_list)
-            if need_ref:
-                data_list.append(s.intensity)
+    logger.info(f"Binning peaks: {len(data_manager.ms)} spectra, domain size {domain.size}")
 
-    units_int = _normalize_units(units)
-    tol_ref = "x" if units_int == "relative" else "abs"
-    
-    # 2. Build Reference Axis (Ref Logic)
-    indexbins = None
-    min_mz, max_mz = 0.0, 1.0
-    
-    if need_ref or need_tol_estimate:
-        logger.info("peak_align: start domain estimation")
-        indexbins, by = estimate_domain(index_list, width=binfun, units=units_int)
-        logger.info(f"peak_align: domain estimated, bins={indexbins.size}, by={by}")
-        if indexbins.size > 0:
-            min_mz, max_mz = indexbins[0], indexbins[-1]
+    # Accumulator initialization
+    peaks_acc = np.zeros(domain.size, dtype=np.float64)
+    counts = np.zeros(domain.size, dtype=np.int64)
 
-    # Resolve Tolerance
-    if need_tol_estimate:
-        tol = _estimate_tolerance(indexbins, binratio, units_int)
-        logger.info(f"peak_align: tolerance resolved to {tol} (units={units_int})")
-    else:
-        if units in ("ppm",):
-            tol = 1e-6 * float(tolerance)
-        elif units in ("mz", "absolute"):
-            tol = float(tolerance)
-        else:
-            tol = float(tolerance)
-        logger.info(f"peak_align: tolerance resolved to {tol} (units={units_int})")
-
-    counts = None
-    # Build Ref
-    if need_ref:
-        if indexbins is not None and indexbins.size > 0:
-             bins = indexbins
-             logger.info(f"peak_align: using estimated domain resolution")
-        else:
-             forced_res = tol / binratio
-             if units_int == "relative":
-                 bins = _rel_sequence(min_mz, max_mz, forced_res)
-             else:
-                 bins = np.arange(min_mz, max_mz + forced_res, forced_res)
-             logger.info(f"peak_align: forced bins built, res={forced_res} in {units_int}, range=({min_mz:.6f}, {max_mz:.6f})")
-
-        # Binning & Merging
-        peaks = binpeaks(index_list, domain=bins, xlist=data_list, tol=tol, tol_ref=tol_ref, merge=False, na_drop=False)
-        merged = mergepeaks(peaks.peaks.copy(), peaks.counts.copy(), peaks.values.copy(), tol, tol_ref, na_drop=False)
-        ref_vec = merged.peaks.copy()
-        counts = merged.counts.copy()
-    else:
-        ref_vec = ref
-        counts = None
+    for spec in data_manager.ms:
+        raw_peaks = np.array(spec.mz_list, dtype=np.float64)
+        spec.mz_list = None
+        spec.intensity = None
         
-    # Filter valid ref
-    mask = np.isfinite(ref_vec)
-    ref_vec = ref_vec[mask]
-    if counts is not None:
-        counts = counts[mask]
-    else:
-        counts = np.zeros(ref_vec.size, dtype=np.int64)
-    if ref_vec.size and np.any(np.diff(ref_vec) < 0):
-        ord = np.argsort(ref_vec)
-        ref_vec = ref_vec[ord]
-        if counts is not None:
-            counts = counts[ord]
-    
-    del index_list
-    del data_list
-    if 'peaks' in locals(): del peaks
-    if 'merged' in locals(): del merged
-    gc.collect()
-
-    # 3. Stream Alignment and MS Construction (The Optimization)
-    logger.info(f"peak_align: ref built ({len(ref_vec)} peaks). Starting stream alignment...")
-    
-    ms_aligned = MassSpectrumSet()
-    if ms_data.meta:
-        new_meta = copy.copy(ms_data.meta)
-        if hasattr(new_meta, 'parser'):
-            new_meta.parser = None
-        if hasattr(new_meta, '_meta') and isinstance(new_meta._meta, dict):
-             new_meta._meta = copy.deepcopy(ms_data.meta._meta)
-        ms_aligned.meta = new_meta
-        if hasattr(ms_aligned.meta, 'storage_mode'):
-            ms_aligned.meta.storage_mode = 'hdf5'
-
-    n_spectra = len(ms_data)
-    n_peaks = len(ref_vec)
-
-    with h5py.File(output_path, 'w') as f:
-        f.create_dataset("mz", data=ref_vec.astype(np.float64))
+        # 1. Initial mapping (do not force nearest, only find within tolerance)
+        bin_indices = search_nearest(
+            raw_peaks, domain, tolerance, tol_method, nomatch_value=-1, force_nearest=False
+        )
         
-        dset_int = f.create_dataset("intensity", 
-                                   shape=(n_spectra, n_peaks), 
-                                   dtype='float32', 
-                                   chunks=(1, n_peaks), 
-                                   compression="gzip",
-                                   compression_opts=4)
+        # 2. Conflict resolution loop
+        while True:
+            dup_mask = np.zeros(bin_indices.shape, dtype=bool)
+            seen_bins: Dict[int, int] = {}
+            
+            # Mark duplicates
+            for idx, bin_idx in enumerate(bin_indices):
+                if bin_idx < 0: continue
+                b_int = int(bin_idx)
+                if b_int in seen_bins:
+                    dup_mask[idx] = True
+                else:
+                    seen_bins[b_int] = idx
+            
+            if not np.any(dup_mask):
+                break # No duplicates, exit loop
 
-        for i, spectrum in enumerate(ms_data):
-            aligned_intensity = align_single_spectrum(
-                spectrum.mz_list, 
-                spectrum.intensity, 
-                ref_vec, 
-                tol, 
-                tol_ref
-            )
+            # Handle the first found duplicate Bin
+            first_dup_idx = int(np.nonzero(dup_mask)[0][0])
+            target_bin = int(bin_indices[first_dup_idx])
+            
+            # Find all peak indices mapped to this Bin
+            conflict_indices = np.where(bin_indices == target_bin)[0]
+            
+            # Calculate distances of these peaks to the Bin center
+            diffs = np.abs(calc_diff(
+                raw_peaks[conflict_indices], 
+                np.full(conflict_indices.size, domain[target_bin], dtype=np.float64), 
+                method=tol_method
+            ))
 
-            dset_int[i, :] = aligned_intensity.astype(np.float32)
+            # Find candidates with distance >= minimum distance, remove the first one
+            min_diff = np.min(diffs)
+            candidates = conflict_indices[diffs >= min_diff]
+            
+            # Mark the first candidate in the conflict list as unmatched (-1)
+            bin_indices[candidates[0]] = -1
+        
+        # 3. Accumulate valid matches
+        valid_mask = bin_indices >= 0
+        matched_bins = bin_indices[valid_mask].astype(np.int64)
+        matched_peaks = raw_peaks[valid_mask]
+        
+        np.add.at(peaks_acc, matched_bins, matched_peaks)
+        np.add.at(counts, matched_bins, 1)
 
-            lazy_spec = SpectrumHDF5Lazy(
-                    filepath=output_path,
-                    index=i,
-                    coordinates=spectrum.coordinates,
-                    mz_ref=ref_vec 
-                )
+    # 4. Calculate mean
+    nonzero = counts != 0
+    peaks_acc[nonzero] /= counts[nonzero]
+    peaks_acc[~nonzero] = np.nan
+
+    # 5. Merge Peaks
+    logger.info("Merging peaks...")
+    reference = merge_peaks(mz_list=peaks_acc, counts=counts, tolerance=tolerance, tol_method=tol_method)
+
+    # 6. Clean NaN (Drop NA) - Logic from original binpeaks
+    valid = ~np.isnan(reference)
+    reference = reference[valid]
+    return reference
+
+def merge_peaks(
+    mz_list: NDArray[np.float64],
+    counts: NDArray[np.int64],
+    tolerance: float,
+    tol_method: Literal["abs", "x", "y"] = "abs",
+) -> NDArray[np.float64]:
+    """
+    Merge adjacent peaks.
+    """
+    
+    # Sort check (ignore NaN)
+    valid_peaks = mz_list[~np.isnan(mz_list)]
+    logger.debug(f"Merging peaks: initial count {valid_peaks.size}")
+    if valid_peaks.size > 1 and np.any(np.diff(valid_peaks) < 0):
+            raise ValueError("peaks must be sorted")
+
+    n = mz_list.size
+    # Find the first non-NaN index k
+    k = 0
+    while k < n and np.isnan(mz_list[k]):
+        k += 1
+        
+    while k < n:
+        i = k
+        j = k
+        
+        # Left Expansion
+        left_of_mode = False
+        while (i - 1) >= 0:
+            if np.isnan(mz_list[i - 1]):
+                break
+            # Check if distance is within tolerance
+            dist = scalar_diff(mz_list[i], mz_list[i - 1], tol_method)
+            if dist > tolerance:
+                break
+            
+            # Continue only if monotonically decreasing or flat; stop if it becomes a valley (left is higher than current)
+            if counts[i - 1] < counts[i]:
+                left_of_mode = True
+            if counts[i - 1] > counts[i] and left_of_mode:
+                break
+            i -= 1
+
+        # Right Expansion
+        right_of_mode = False
+        while (j + 1) < n:
+            if np.isnan(mz_list[j + 1]):
+                break
+            dist = scalar_diff(mz_list[j + 1], mz_list[j], tol_method)
+            if dist > tolerance:
+                break
+            
+            if counts[j + 1] < counts[j]:
+                right_of_mode = True
+            if counts[j + 1] > counts[j] and right_of_mode:
+                break
+            j += 1
+        
+        # Merge interval [i, j]
+        indices = np.arange(i, j + 1)
+        w = counts[indices].astype(np.float64)
+        w_sum = np.sum(w)
+        
+        # Weighted average
+        if w_sum > 0:
+            merged_peak = np.sum(w * mz_list[indices]) / w_sum
+        else:
+            merged_peak = np.mean(mz_list[indices])
+        
+        merged_count = np.sum(counts[indices])
+        
+        # Write to center position p
+        p = int(np.floor((i + j) / 2.0)) # Original logic: floor(mean(ij))
+        
+        mz_list[p] = merged_peak
+        counts[p] = int(merged_count)
+        
+        # Clear other positions
+        mask = np.ones(indices.size, dtype=bool)
+        mask[p - i] = False # Keep p
+        
+        # Set merged positions to NaN / 0
+        cleared_indices = indices[mask]
+        mz_list[cleared_indices] = np.nan
+        counts[cleared_indices] = 0
+        
+        # Move pointer k to the right of j, and skip NaN
+        k = j + 1
+        while k < n and np.isnan(mz_list[k]):
+            k += 1
+
+    # Drop NA
+    valid = ~np.isnan(mz_list)
+    return mz_list[valid]
+
+def compute_reference(
+        data_manager: MSDataManagerImzML,
+        binfun="median",
+        binratio=2.0,
+        units="ppm",
+        clear_memory=False) -> Tuple[NDArray[np.float64], float]:
+    """Calculate reference m/z axis and tolerance."""
+    logger.info(f"Computing reference: units={units}, binfun={binfun}, binratio={binratio}")
+    norm_units = _normalize_units(units)
+    tol_method = "x" if norm_units == "relative" else "abs"
+
+    domain, tolerance = estimate_domain(data_manager=data_manager, binfun=binfun, binratio=binratio, units=norm_units, clear_memory=clear_memory)
+    logger.info(f"Domain estimated: size={domain.size}, tolerance={tolerance}")
+
+    reference = bin_peaks(data_manager=data_manager, domain=domain, tolerance=tolerance, tol_method=tol_method)
+    logger.info(f"Reference computed: final size={reference.size}")
+
+    return reference, tolerance
+
+def align_spectrum(
+    spectrum: SpectrumImzML,
+    reference: NDArray[np.float64],
+    tolerance: float,
+    units: str = "ppm",
+) -> SpectrumImzML:
+    """Align peaks for a single spectrum."""
+    norm_units = _normalize_units(units)
+    tol_method = "x" if norm_units == "relative" else "abs" 
+
+    n_ref = reference.size
+    aligned_row = np.zeros(n_ref, dtype=np.float64)
+
+    if spectrum.mz_list.size == 0:
+        spectrumed = SpectrumImzML(
+                index=spectrum._index,
+                mz_list=reference,
+                intensity=aligned_row,
+                coordinates=spectrum.coordinate
+        )
+        return spectrumed
+
+    # If reference axis is smaller than (or similar size to) spectrum, or reference axis is unsorted (rare), use Downsample
+    if (n_ref <= 2 * spectrum.mz_list.size):
+        # Downsample Strategy
+        pos = search_nearest(
+            queries=reference, 
+            targets=spectrum.mz_list, 
+            tolerance=tolerance, 
+            tol_method=tol_method, 
+            nomatch_value=-1, 
+        )
+        hits = pos >= 0
+        if np.any(hits):
+            aligned_row[hits] = spectrum.intensity[pos[hits]]
+            
+    else:
+        # 1. Find the starting insertion position of each peak in Ref
+        upsample_method = "y" if tol_method == "x" else "x" if tol_method == "y" else "abs"
+        
+        start_pos = search_nearest(
+            queries=spectrum.mz_list,
+            targets=reference,
+            tolerance=tolerance,
+            tol_method=tol_method, 
+            nomatch_value=-1,
+        )
+        
+        processed_mask = np.zeros(n_ref, dtype=bool)
+        
+        for j in range(spectrum.mz_list.size):
+            pj = int(start_pos[j])
+            if pj < 0: continue
+            
+            curr_mz = spectrum.mz_list[j]
+
+            def process_bin(i):
+                if processed_mask[i]: return True # Stop expansion if blocked
                 
-            ms_aligned.add_spectrum(lazy_spec)
+                # 1. Check tolerance
+                if scalar_diff(float(reference[i]), float(curr_mz), upsample_method) > tolerance: 
+                    return True # Stop expansion if out of bounds
+                
+                # 2. Reconfirm nearest neighbor
+                best_match_idx = search_nearest(
+                    queries=np.array([reference[i]]), 
+                    targets=spectrum.mz_list, 
+                    tolerance=tolerance,
+                    tol_method=tol_method, 
+                    nomatch_value=-1,
+                    force_nearest=True # Force find nearest, we already know it's within tolerance
+                )[0]
+                
+                if best_match_idx != -1:
+                    aligned_row[i] = spectrum.intensity[best_match_idx]
+                    processed_mask[i] = True
+                
+                return False # Continue expansion
+
             
-            del aligned_intensity
-            
+            # Expand Right
+            for i in range(pj, n_ref):
+                if process_bin(i):
+                    break
+                
+            # Expand Left
+            for i in range(pj - 1, -1, -1):
+                if process_bin(i):
+                    break
+
+    spectrumed = SpectrumImzML(
+        index=spectrum._index,
+        mz_list=reference,
+        intensity=aligned_row,
+        coordinates=spectrum.coordinate
+    )
+
+    spectrum.mz_list = None
+    spectrum.intensity = None
+    aligned_row = None
+
+    return spectrumed
+
+def align_massdata(
+        data_manager: MSDataManagerImzML,
+        reference: Optional[NDArray[np.float64]] = None,
+        tolerance: Optional[float] = None,
+        units: str = "ppm",
+        binfun: str = "max",
+        binratio: float = 2.0,
+    ) -> MSDataManagerImzML:
+    """Align all spectra in MSDataManagerImzML."""
+
+    if reference is None or tolerance is None:
+        reference, estimate_tolerance = compute_reference(
+            data_manager=data_manager,
+            binfun=binfun,
+            binratio=binratio,
+            units=units
+        )
+    tolerance = estimate_tolerance if tolerance is None else tolerance
+    logger.info(f"Starting mass data alignment. Reference size: {reference.size}, Tolerance: {tolerance}")
+
+    aligned_ms = MassSpectrumSet()
+    aligned_manager = MSDataManagerImzML(aligned_ms, temp_dir="./temp_align_data")
+    aligned_manager.copy_meta(data_manager)
+    writer = aligned_manager.writer
+
+    for i, spectrum in enumerate(data_manager.ms):
+            aligned_spectrum = align_spectrum(spectrum=spectrum,
+                                              reference=reference,
+                                              tolerance=tolerance,
+                                              units=units)
+            aligned_spectrum.swap_out2disk(writer)
+
             if (i + 1) % 5000 == 0:
-                logger.info(f"Aligned {i + 1}/{n_spectra} spectra")
+                logger.info(f"Aligned {i + 1}/{len(data_manager.ms)} spectra")
 
-    # Final stats
-    freq = counts.astype(np.float64) / float(len(ms_data))
-    
-    logger.info("peak_align: alignment complete.")
-    
-    return AlignResult(
-        ms_aligned=ms_aligned, 
-        ref=ref_vec, 
-        count=counts, 
-        freq=freq, 
-        tolerance=tol, 
-        units=units_int, 
-        binfun=binfun, 
-        binratio=binratio
-    )
+    aligned_manager.close_writer()
+    aligned_manager.load_full_data_from_file()
 
-def _smooth_loess_tricubic(y, window=10):
-    """
-    Specific Loess smoothing implementation (fixed weighting 'tri-cubic').
-    Removes unused parameter `x` and fixes boundary alignment logic.
-    """
-    leny = len(y)
-    halfw = int(np.floor(window / 2.))
-    window = int(2 * halfw + 1)
-    
-    # --- 1. Core filter kernel construction ---
-    # Local coordinates: [-halfw, ..., 0, ..., halfw]
-    x1 = np.arange(1. - halfw, (halfw - 1.) + 1)
-    # Tri-cubic weighting
-    weight = (1. - np.abs(x1 / halfw) ** 3.) ** 1.5
-    
-    # Loess design matrix (Order=2)
-    # V = [weight, weight*x, weight*x^2]
-    V = np.vstack((weight, weight * x1, weight * x1 * x1)).T
-    
-    # Compute alpha via QR decomposition
-    [Q, _] = linalg.qr(V, mode='economic')
-    alpha = np.dot(Q[halfw - 1,], Q.T)
-    
-    # Apply core smoothing via filter
-    yhat = signal.lfilter(alpha * weight, 1, y)
-    # Correct phase shift (lfilter is causal; shift to center-align)
-    yhat[halfw:-halfw] = yhat[window - 2:-1]
+    logger.info("Mass data alignment completed.")
+    if aligned_manager.ms.meta is not None:
+        aligned_manager.ms.meta.continuous = True
 
-    # --- 2. Boundary handling ---
-    # Local coordinates at boundary: [1, 2, ..., window-1]
-    x1_boundary = np.arange(1., window)
-    # Boundary design matrix
-    V_boundary = np.vstack((np.ones(window - 1), x1_boundary, x1_boundary * x1_boundary)).T
-    
-    # Precompute boundary weight shape
-    W_ones = np.ones((3, 1))
-
-    # Process both ends (j from 1 to halfw)
-    for j in range(1, halfw + 1):
-        # Compute weights based on distance j
-        # Distance vector: abs([j-1, j-2, ..., 0, ..., window-1-j])
-        dist = np.abs(np.arange(1, window) - j)
-        w_j = (1. - np.divide(dist, window - j) ** 3.) ** 1.5
-        
-        # Weighted QR decomposition
-        W = (np.kron(W_ones, w_j)).T
-        [Q, _] = linalg.qr(V_boundary * W, mode='economic')
-        
-        # Compute projection coefficients
-        alpha = np.dot(Q[j - 1,], Q.T) * w_j
-        
-        # Left boundary: use the first window-1 points
-        yhat[j - 1] = np.dot(alpha, y[:window - 1])
-        
-        # Right boundary: take the last window-1 points and reverse to match left-bound distance
-        # Equivalent to: y[-(window-1):][::-1]
-        y_right_edge = y[-(window - 1):][::-1]
-        yhat[-j] = np.dot(alpha, y_right_edge)
-
-    return yhat
-
-def median_threshold(X):
-    """
-    Compute a median-based intensity threshold.
-
-    Args:
-        X: intensity data vector or matrix
-    """
-    md = np.median(X);
-    MAD = np.median(np.abs(np.subtract(X, md))) * 1.4826;
-    tval = md + 5 * MAD;
-    return tval
-
-def _find_peaks(sp, gap=3, int_thr=None):
-    """
-    Detect local maxima in a signal.
-    gap: minimal spacing between peaks (in number of points)
-    """
-    gap = int(gap)
-    ndp = len(sp)
-
-    x = np.zeros(ndp + 2 * gap)
-    x[:gap] = sp[0] - 1.e-6
-    x[-gap:] = sp[-1] - 1.e-6
-    x[gap:gap + ndp] = sp
-
-    peak_candidate = np.ones(ndp, dtype=bool)
-
-    for s in range(gap):
-        start = gap - s - 1
-        h_s = x[start:start + ndp]
-        central = gap
-        h_c = x[central:central + ndp]
-        end = gap + s + 1
-        h_e = x[end:end + ndp]
-
-        peak_candidate &= (h_c > h_s) & (h_c > h_e)
-
-    peakindcs = np.argwhere(peak_candidate).flatten()
-
-    if int_thr is not None:
-        peakindcs = peakindcs[sp[peakindcs] > int_thr]
-
-    return peakindcs
-
-def get_reference(mz, mzres, mzmaxshift, mzunits):
-    """
-    Compute a reference m/z axis (consensus peak locations) via kernel density over a histogram, without relying on an external grid.
-
-    Parameters:
-        mz: concatenated m/z array (1D)
-        mzres: histogram resolution (bin width), unit dictated by `mzunits`
-        mzmaxshift: minimal spacing for peak detection (used as `gap` in `_find_peaks`), same unit as `mzunits`
-        mzunits: 'Da' or 'ppm', determines the processing space (operate in ppm space and convert back to m/z)
-
-    Returns:
-        refmz: reference m/z axis (ascending list of peak positions)
-
-    Notes:
-        1) Histogram construction → Loess/Tricubic smoothing → PCHIP interpolation → adaptive threshold → tie-breaking → peak detection → coordinate back-transform
-        2) In 'ppm' mode, process in ppm space to improve numerical stability, and finally convert back to m/z units
-    """
-    logger.info(
-        f"get_reference: start, n={0 if mz is None else np.size(mz)}, mzunits={mzunits}, mzres={mzres}, mzmaxshift={mzmaxshift}")
-    if mz is None or np.size(mz) == 0:
-        logger.error("get_reference: 'mz' must be a non-empty array")
-        raise ValueError("'mz' must be a non-empty array")
-    if mzres is None or float(mzres) <= 0:
-        logger.error("get_reference: 'mzres' must be > 0")
-        raise ValueError("'mzres' must be > 0")
-    if mzmaxshift is None or float(mzmaxshift) <= 0:
-        logger.error("get_reference: 'mzmaxshift' must be > 0")
-        raise ValueError("'mzmaxshift' must be > 0")
-    # unit conversion
-    if mzunits == 'Da':
-        rconst = 0.5
-    elif mzunits == 'ppm':
-        rconst = 1
-        mz = np.log(mz / 1.00794) * 1.0e6
-    else:
-        rconst = 1
-
-    # determine histogram range (expand by 100×bin as buffer)
-    mzmin = np.min(mz) - 100 * mzres
-    mzmax = np.max(mz) + 100 * mzres
-    nbins = int(np.round((mzmax - mzmin) / mzres) + 1)
-    logger.info(f"get_reference: histogram range=({mzmin:.6f}, {mzmax:.6f}), nbins={nbins}")
-
-    # build histogram
-    idx = np.round(
-        np.divide((nbins - 1) * (mz - mzmin), (mzmax - mzmin), dtype=float) + rconst
-    ).astype(int)
-
-    histvals = np.bincount(idx, minlength=nbins)
-    nbins = len(histvals)
-    histidx = np.arange(1, nbins + 1)
-    histmz = np.divide(
-        (mzmax - mzmin) * (histidx - rconst),
-        nbins - 1,
-        dtype=float
-    ) + mzmin
-
-    # smoothing with tri-cubic weighting to reduce oscillations before interpolation
-    histvals = _smooth_loess_tricubic(histvals)
-
-    # super-resolution interpolation (precision boost; Da uses ×1000, ppm uses its own resolution)
-    if mzunits == 'Da':
-        iconst = np.max([mzres * 1000, 1])
-    else:
-        iconst = mzres
-
-    histintidx = np.arange(1, nbins * iconst + 1, 1)
-    logger.info(f"get_reference: iconst={iconst}, histint_len={histintidx.size}")
-    inthistmz = np.divide(
-        (mzmax - mzmin) * (histintidx - rconst),
-        len(histintidx) - 1,
-        dtype=float
-    ) + mzmin
-
-    histintvals = interpolate.pchip_interpolate(histmz, histvals, inthistmz)
-    histintvals[histintvals < 0] = 0
-
-    # adaptive threshold (median + 5×MAD) to suppress background/noise
-    thrval = median_threshold(histintvals)
-    histintvals[histintvals < thrval] = 0
-
-    # break ties among equal peaks (small perturbations) to ensure unique local maxima
-    histintvals[histintvals > thrval] = (
-            1000 * histintvals[histintvals > thrval] +
-            1e-6 * np.cumsum(np.random.uniform(size=np.sum(histintvals > 0)))
-    )
-
-    # peak detection (minimum spacing = ceil(mzmaxshift))
-    maxidx = _find_peaks(histintvals, gap=np.ceil(mzmaxshift))
-
-    # compute precise centroid positions (invert interpolated coordinates to original space)
-    refmz = np.divide(
-        (mzmax - mzmin) * (maxidx - rconst),
-        len(histintidx) - 1,
-        dtype=float
-    ) + mzmin
-
-    refmz = refmz.flatten()
-
-    # convert back to m/z units (in ppm mode)
-    if mzunits == 'ppm':
-        refmz = np.exp(refmz * 1.0e-6) * 1.00794
-    logger.info(f"get_reference: done, peaks={refmz.size}, units={mzunits}")
-    return refmz
+    return aligned_manager

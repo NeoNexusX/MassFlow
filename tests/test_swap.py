@@ -3,7 +3,6 @@ import pytest
 import os
 from functools import partial
 from massflow.module.spectrum_imzml import SpectrumImzML
-from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.logger import get_logger
 

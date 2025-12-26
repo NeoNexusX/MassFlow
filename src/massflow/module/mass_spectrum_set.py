@@ -218,7 +218,7 @@ class MassSpectrumSet:
             logger.error(f"Index {index} out of range.")
             raise IndexError(f"Index {index} out of range.")
 
-        elif index >=0 and index < len(self._queue):
+        elif index < len(self._queue):
             # check if coordinates match
             if self._queue[index] == spectrum:
                 #update queue

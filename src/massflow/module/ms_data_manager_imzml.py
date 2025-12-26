@@ -62,14 +62,19 @@ class MSDataManagerImzML(MSDataManager):
                          temp_dir=temp_dir)
 
         # Initialize ImzML parser and reader
-        if os.path.exists(self.filepath) and self.filepath.endswith(".imzML") and os.path.exists(self.filepath[:-5] + "ibd"):
+        # Check for .ibd file with case-insensitive extension
+        ibd_path_lower = self.filepath[:-6] + ".ibd"
+        ibd_path_upper = self.filepath[:-6] + ".IBD"
+        ibd_exists = os.path.exists(ibd_path_lower) or os.path.exists(ibd_path_upper)
+        
+        if os.path.exists(self.filepath) and self.filepath.lower().endswith(".imzml") and ibd_exists:
             self.lazy_init()
         else:
             self.parser = None
             self.reader = None
             self.ibd_path = None
             self.ms.meta  = ImzMlMetaData(filepath=None)
-            logger.warning(f"Warning: ImzML file or corresponding ibd file not found at {self.filepath} or {self.filepath[:-5] + 'ibd'}. Deferred initialization until load.")
+            logger.warning(f"Warning: ImzML file or corresponding ibd file not found at {self.filepath} or {ibd_path_lower}/{ibd_path_upper}. Deferred initialization until load.")
 
     def lazy_init(self):
         """
@@ -106,7 +111,7 @@ class MSDataManagerImzML(MSDataManager):
 
         # Ensure parser is initialized before loading defender to avoid repeated checks
         if self.parser is None:
-            if  os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0 and self.filepath.endswith(".imzML"):
+            if  os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0 and self.filepath.lower().endswith(".imzml"):
                 self.lazy_init()
                 if self.parser is None:
                     logger.error(f"load data faild : Unable to initialize ImzML parser for file {self.filepath}.")
