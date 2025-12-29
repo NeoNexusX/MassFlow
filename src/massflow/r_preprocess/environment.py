@@ -7,7 +7,7 @@ from massflow.logger import get_logger
 
 logger = get_logger("R Environment")
 
-DEFULT_R_HOME = r"E:/ele_software_file/R-4.5.2" 
+DEFAULT_R_HOME = r"r_home" 
 
 class RConfig:
     """
@@ -20,7 +20,7 @@ class RConfig:
         Get R_HOME path via command line tool.
         """
         if not shutil.which("R"):
-            return DEFULT_R_HOME
+            return DEFAULT_R_HOME
         try:
             output = subprocess.check_output(
                 ["R", "RHOME"], 

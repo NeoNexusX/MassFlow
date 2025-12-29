@@ -36,7 +36,6 @@ from typing import Union, Optional, Sequence
 import numpy as np
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.spectrum import Spectrum
-from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.logger import get_logger
 from massflow.preprocess.peak_align_helper import align_massdata, align_spectrum
@@ -174,7 +173,7 @@ class SpectrumPreprocess:
                        tolerance: Optional[float] = None,
                        binfun: str = 'median',
                        binratio: int = 2,
-                       backend_method: Optional[str] = None,
+                       backend_method: Optional[str] = "python",
                        batch_size: int = 256,
                        clear_memory: bool = True
                        ):

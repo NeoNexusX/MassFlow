@@ -63,8 +63,9 @@ class MSDataManagerImzML(MSDataManager):
 
         # Initialize ImzML parser and reader
         # Check for .ibd file with case-insensitive extension
-        ibd_path_lower = self.filepath[:-6] + ".ibd"
-        ibd_path_upper = self.filepath[:-6] + ".IBD"
+        base_path, _ = os.path.splitext(self.filepath)
+        ibd_path_lower = base_path + ".ibd"
+        ibd_path_upper = base_path + ".IBD"
         ibd_exists = os.path.exists(ibd_path_lower) or os.path.exists(ibd_path_upper)
         
         if os.path.exists(self.filepath) and self.filepath.lower().endswith(".imzml") and ibd_exists:

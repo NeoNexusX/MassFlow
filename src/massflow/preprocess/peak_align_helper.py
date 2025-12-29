@@ -54,12 +54,12 @@ def scalar_diff_jit(val1, val2, method_code):
     diff = abs(val1 - val2)
     if method_code == 2: return diff
     denom = val1 if method_code == 0 else val2
-    if denom == 0: return np.nan
+    if denom == 0: return np.inf
     return diff / abs(denom)
 
 def scalar_diff(val1: float, val2: float, method: Literal["x", "y", "abs"]) -> float:
     """
-    Calculate the absolute difference between two scalar values (result is always positive).
+    Calculate the absolute difference between two scalar values.
     """
     diff = abs(val1 - val2)
     if method == "abs":
@@ -91,7 +91,7 @@ def search_nearest_jit(
         q_val = queries[i]
         
         best_idx = nomatch_value
-        min_diff = np.nan
+        min_diff = np.inf
 
         # Check left neighbor
         if idx - 1 >= 0:
@@ -308,7 +308,6 @@ def bin_peaks(
                 
             valid_bins = bin_indices[valid_mask].astype(np.int64)
             valid_peaks = raw_peaks[valid_mask]
-            valid_indices = np.arange(raw_peaks.size)[valid_mask]
 
             dists = np.abs(calc_diff(valid_peaks, domain[valid_bins], method=tol_method))
 
@@ -340,8 +339,6 @@ def bin_peaks(
     logger.info("Merging peaks...")
     reference = merge_peaks(mz_list=peaks_acc, counts=counts, tolerance=tolerance, tol_method=tol_method)
 
-    valid = ~np.isnan(reference)
-    reference = reference[valid]
     return reference
 
 def merge_peaks(
