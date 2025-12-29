@@ -6,12 +6,11 @@ from massflow.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.preprocess.spectrum_preprocess import SpectrumPreprocess
-from massflow.r_preprocess.adapter import CardinalAdapter
 pytest.importorskip("pytest_benchmark")
 
 logger = get_logger("test_peak_alignment")
 
-FILEPATH = r"./peak_picked.imzml"
+FILEPATH = r"/picked.imzML"
 MZ_RANGES = [(500, 600)]
 TOLERANCE = 0.05
 ROUND = 1
@@ -21,9 +20,7 @@ def data_manager(filepath = FILEPATH) -> MSDataManagerImzML:
     mass_data = MassSpectrumSet()
     manager_data = MSDataManagerImzML(mass_data, filepath=filepath)
     manager_data.load_full_data_from_file()
-    
-    picked_manager = CardinalAdapter.peak_pick(manager_data)
-    return picked_manager
+    return manager_data
 
 def run_alignment_task(data_manager: MSDataManagerImzML,
                        units: str, 
@@ -123,10 +120,10 @@ def compare_align_result(
 class TestPeakAlignment:
 
     @pytest.mark.parametrize("units", ["ppm"])
-    @pytest.mark.parametrize("binfun",["max"])
+    @pytest.mark.parametrize("binfun",["median"])
     @pytest.mark.parametrize("binratio",[2])
     @pytest.mark.parametrize("tolerance",[None])
-    @pytest.mark.parametrize("backend_method",["python"])
+    @pytest.mark.parametrize("backend_method",["python","cardinal"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_peak_alignment_benchmark(self, benchmark, data_manager, units, binfun, binratio, tolerance, backend_method):
         """
@@ -149,7 +146,7 @@ class TestPeakAlignment:
         dm_align.close()
 
     @pytest.mark.parametrize("units", ["ppm"])
-    @pytest.mark.parametrize("binfun",["max"])
+    @pytest.mark.parametrize("binfun",["median"])
     @pytest.mark.parametrize("binratio",[2])
     @pytest.mark.parametrize("tolerance",[None])
     @pytest.mark.parametrize("mz_range", MZ_RANGES)

@@ -41,6 +41,9 @@ class RConfig:
         os.environ["LANGUAGE"] = "en"
         os.environ["LC_ALL"] = "C"
 
+        os.environ.setdefault('R_MAX_VSIZE', '100Gb') 
+        os.environ.setdefault('R_MAX_MEM_SIZE', '100Gb')
+
         target_home = r_home or os.environ.get("R_HOME") or RConfig.detect_system_r_home()
 
         if not target_home or not os.path.exists(target_home):

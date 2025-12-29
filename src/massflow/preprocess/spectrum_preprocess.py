@@ -39,7 +39,7 @@ from massflow.module.spectrum import Spectrum
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.logger import get_logger
-from massflow.preprocess.peak_align_helper import align_massdata, align_spectrum, compute_reference
+from massflow.preprocess.peak_align_helper import align_massdata, align_spectrum
 from massflow.r_preprocess.adapter import CardinalAdapter
 from massflow.preprocess.filter_helper import smoother
 from massflow.preprocess.normalizer_helper import normalizer
@@ -174,7 +174,10 @@ class SpectrumPreprocess:
                        tolerance: Optional[float] = None,
                        binfun: str = 'median',
                        binratio: int = 2,
-                       backend_method: Optional[str] = None):
+                       backend_method: Optional[str] = None,
+                       batch_size: int = 256,
+                       clear_memory: bool = True
+                       ):
         """
         Align peaks across spectra in MS data using specified backend.
 
@@ -215,8 +218,9 @@ class SpectrumPreprocess:
             units,
         )
 
-        if backend_method == "cardinal":
-            aligned_data_manager = CardinalAdapter.align_massdata(dm_data=data_manager,
+        if backend_method == "cardinal" and data_manager is not None:
+            aligned_data_manager = CardinalAdapter.align_massdata(
+                                                                  dm_data=data_manager,
                                                                   reference=ref,
                                                                   tolerance=tolerance,
                                                                   units=units,
@@ -239,7 +243,9 @@ class SpectrumPreprocess:
                                                   tolerance=tolerance,
                                                   units=units,
                                                   binfun=binfun,
-                                                  binratio=binratio)
+                                                  binratio=binratio,
+                                                  batch_size=batch_size,
+                                                  clear_memory=clear_memory)
             return aligned_data_manager
 
         raise ValueError("Either 'data_manager' or 'spectrum' must be provided for alignment.")
