@@ -502,13 +502,11 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
         curr_mz = mz_list[j]
         pj_int = int(pj)
 
-        def check_bin(i):
-            if processed_mask[i]: return 1 # Blocked
-            
+        # Expand Right
+        for i in range(pj_int, n_ref):
+            if processed_mask[i]: break
+            if scalar_diff_jit(reference[i], curr_mz, upsample_code) > tolerance: break
 
-            if scalar_diff_jit(reference[i], curr_mz, upsample_code) > tolerance:
-                return 1 
-            
             q_arr = np.array([reference[i]], dtype=np.float64)
             best_match_arr = search_nearest_jit(q_arr, mz_list, tolerance, code, -1, True)
             best_match_idx = best_match_arr[0]
@@ -516,16 +514,19 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
             if best_match_idx != -1:
                 aligned[i] = intensity[best_match_idx]
                 processed_mask[i] = True
-            
-            return 0
-
-        # Expand Right
-        for i in range(pj_int, n_ref):
-            if check_bin(i) == 1: break
 
         # Expand Left
         for i in range(pj_int - 1, -1, -1):
-            if check_bin(i) == 1: break
+            if processed_mask[i]: break
+            if scalar_diff_jit(reference[i], curr_mz, upsample_code) > tolerance: break
+
+            q_arr = np.array([reference[i]], dtype=np.float64)
+            best_match_arr = search_nearest_jit(q_arr, mz_list, tolerance, code, -1, True)
+            best_match_idx = best_match_arr[0]
+
+            if best_match_idx != -1:
+                aligned[i] = intensity[best_match_idx]
+                processed_mask[i] = True
 
     return aligned
 
@@ -570,7 +571,8 @@ def align_massdata(
         binfun: str = "max",
         binratio: float = 2.0,
         batch_size: int = 256,
-        clear_memory: bool = True
+        clear_memory: bool = True,
+        temp_dir: str = "./temp_align_data"
     ) -> MSDataManagerImzML:
     """Align all spectra in MSDataManagerImzML."""
 
@@ -589,7 +591,7 @@ def align_massdata(
     logger.info(f"Starting mass data alignment. Reference size: {reference.size}, Tolerance: {tolerance}")
 
     aligned_ms = MassSpectrumSet()
-    aligned_manager = MSDataManagerImzML(aligned_ms, temp_dir="./temp_align_data")
+    aligned_manager = MSDataManagerImzML(aligned_ms, temp_dir=temp_dir)
     aligned_manager.copy_meta(data_manager)
     writer = aligned_manager.writer
 

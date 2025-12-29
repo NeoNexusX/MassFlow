@@ -16,6 +16,7 @@ class CardinalAdapter:
                        units: str = "ppm",
                        binfun: str = "min",
                        binratio: float = 2.0,
+                       temp_dir: str = "./temp_align_data"
                        ) -> MSDataManagerImzML:
         """
         Call Cardinal::peakAlign for peak alignment.
@@ -23,7 +24,7 @@ class CardinalAdapter:
         r_env = REnvironment()
 
         ms_cardinal = MassSpectrumSet()
-        dm_cardinal = MSDataManagerImzML(ms_cardinal, temp_dir="./temp_align_data")
+        dm_cardinal = MSDataManagerImzML(ms_cardinal, temp_dir=temp_dir)
         dm_cardinal.copy_meta(dm_data)
         dm_cardinal.ms.meta.continuous = True
 
@@ -58,6 +59,7 @@ class CardinalAdapter:
     def peak_pick(dm_data: MSDataManagerImzML,
                   method: str = "mad",
                   SNR: float = 3.0,
+                  temp_dir: str = "./temp_pick_data"
                   ) -> MSDataManagerImzML:
         """
         Call Cardinal::peakPick for peak picking.
@@ -65,7 +67,7 @@ class CardinalAdapter:
         r_env = REnvironment()
         
         ms_cardinal = MassSpectrumSet()
-        dm_cardinal = MSDataManagerImzML(ms_cardinal, temp_dir="./temp_pick_data")
+        dm_cardinal = MSDataManagerImzML(ms_cardinal, temp_dir=temp_dir)
         dm_cardinal.copy_meta(dm_data)
         dm_cardinal.ms.meta.processed = True
         

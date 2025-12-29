@@ -175,7 +175,8 @@ class SpectrumPreprocess:
                        binratio: int = 2,
                        backend_method: Optional[str] = "python",
                        batch_size: int = 256,
-                       clear_memory: bool = True
+                       clear_memory: bool = True,
+                       temp_dir: str = "./temp_align_data"
                        ):
         """
         Align peaks across spectra in MS data using specified backend.
@@ -224,7 +225,8 @@ class SpectrumPreprocess:
                                                                   tolerance=tolerance,
                                                                   units=units,
                                                                   binfun=binfun,
-                                                                  binratio=binratio)
+                                                                  binratio=binratio,
+                                                                  temp_dir=temp_dir)
             return aligned_data_manager
 
         if spectrum is not None:
@@ -244,7 +246,8 @@ class SpectrumPreprocess:
                                                   binfun=binfun,
                                                   binratio=binratio,
                                                   batch_size=batch_size,
-                                                  clear_memory=clear_memory)
+                                                  clear_memory=clear_memory,
+                                                  temp_dir=temp_dir)
             return aligned_data_manager
 
         raise ValueError("Either 'data_manager' or 'spectrum' must be provided for alignment.")
