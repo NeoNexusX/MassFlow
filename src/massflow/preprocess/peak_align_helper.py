@@ -1,19 +1,19 @@
 import numpy as np
-from typing import Literal, Optional, Tuple
-from numpy.typing import NDArray
 from numba import jit
-from massflow.logger import get_logger
-from massflow.module.mass_spectrum_set import MassSpectrumSet
+from numpy.typing import NDArray
+from typing import Literal, Optional, Tuple
 from massflow.module.spectrum_imzml import SpectrumImzML
+from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.logger import get_logger
 
 logger = get_logger("peak_alignment")
 
 def calc_diff(
-    x: NDArray[np.float64], 
-    y: Optional[NDArray[np.float64]] = None, 
-    method: Literal["x", "y", "abs"] = "y"
-) -> NDArray[np.float64]:
+    x: NDArray[any], 
+    y: Optional[NDArray[any]] = None, 
+    method: str = "y"
+) -> NDArray[any]:
     """
     Calculate relative or absolute differences between array elements.
 
@@ -64,14 +64,14 @@ def scalar_diff(val1: float, val2: float, method: Literal["x", "y", "abs"]) -> f
     diff = abs(val1 - val2)
     if method == "abs":
         return diff
-    
+
     denominator = val1 if method == "x" else val2
     return diff / abs(denominator) if denominator != 0 else float('inf')
 
 @jit(nopython=True, fastmath=True, cache=True)
 def search_nearest_jit(
-    queries: NDArray[np.float64], 
-    targets: NDArray[np.float64],
+    queries: NDArray[any], 
+    targets: NDArray[any],
     tolerance: float,
     code: int = 2,
     nomatch_value=-1,
@@ -111,8 +111,8 @@ def search_nearest_jit(
         result_indices[i] = best_idx
     return result_indices
 
-def search_nearest(queries: NDArray[np.float64],
-                   targets: NDArray[np.float64],
+def search_nearest(queries: NDArray[any],
+                   targets: NDArray[any],
                    tolerance: float,
                    tol_method: str,
                    nomatch_value=-1,
@@ -128,7 +128,7 @@ def search_nearest(queries: NDArray[np.float64],
         force_nearest=force_nearest
     )
 
-def generate_relative_sequence(start: float, end: float, step: float) -> NDArray[np.float64]:
+def generate_relative_sequence(start: float, end: float, step: float) -> NDArray[any]:
     """
     Generate a geometric sequence (for PPM scale).
     """
@@ -144,7 +144,7 @@ def generate_relative_sequence(start: float, end: float, step: float) -> NDArray
     
     return start * np.power(ratio, indices)
 
-def mad(x: NDArray[np.float64], constant: float = 1.4826) -> float:
+def mad(x: NDArray[any], constant: float = 1.4826) -> float:
     """Calculate Median Absolute Deviation (MAD)."""
     if x.size == 0:
         return np.nan
@@ -153,7 +153,7 @@ def mad(x: NDArray[np.float64], constant: float = 1.4826) -> float:
     return constant * float(np.median(diff))
 
 def estimate_resolution(
-    x: NDArray[np.float64], 
+    x: NDArray[any], 
     tolerance: Optional[float] = None, 
     method: Optional[Literal["x", "abs"]] = None
 ) -> float:
@@ -222,7 +222,7 @@ def estimate_domain(
         units: str = "relative",
         clear_memory: bool = True,
         batch_size: int = 256,
-) -> Tuple[NDArray[np.float64], float]:
+) -> Tuple[NDArray[any], float]:
     """
     Estimate the m/z reference grid shared by all spectra.
     """
@@ -274,11 +274,11 @@ def estimate_domain(
 
 def bin_peaks(
         data_manager: MSDataManagerImzML,
-        domain: NDArray[np.float64],
+        domain: NDArray[any],
         tolerance: float,
-        tol_method: Literal["abs", "x", "y"] = "abs",
+        tol_method: str = "abs",
         batch_size: int = 256,
-) -> NDArray[np.float64]:
+) -> NDArray[any]:
     """
     Map peaks from multiple spectra to a unified domain.
     """
@@ -341,13 +341,15 @@ def bin_peaks(
 
     return reference
 
+# TODO: 数据类型any
+# TODO: 添加注释
 @jit(nopython=True, fastmath=True, cache=True)
 def merge_peaks_jit(
-        mz_list: NDArray[np.float64],
-        counts: NDArray[np.int64],
+        mz_list: NDArray[any],
+        counts: NDArray[any],
         tolerance: float,
         tol_method_code: int,
-    ) -> NDArray[np.float64]:
+    ) -> NDArray[any]:
 
     n = mz_list.size
 
@@ -422,11 +424,11 @@ def merge_peaks_jit(
     return mz_list
 
 def merge_peaks(
-    mz_list: NDArray[np.float64],
-    counts: NDArray[np.int64],
+    mz_list: NDArray[any],
+    counts: NDArray[any],
     tolerance: float,
-    tol_method: Literal["abs", "x", "y"] = "abs",
-) -> NDArray[np.float64]:
+    tol_method: str = "abs",
+) -> NDArray[any]:
     """
     Merge adjacent peaks.
     """
@@ -447,7 +449,7 @@ def compute_reference(
         units="ppm",
         clear_memory=True,
         batch_size:int=256,
-        ) -> Tuple[NDArray[np.float64], float]:
+        ) -> Tuple[NDArray[any], float]:
     """Calculate reference m/z axis and tolerance."""
     logger.info(f"Computing reference: units={units}, binfun={binfun}, binratio={binratio}")
     norm_units = _normalize_units(units)
@@ -537,7 +539,7 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
 
 def align_spectrum(
     spectrum: SpectrumImzML,
-    reference: NDArray[np.float64],
+    reference: NDArray[any],
     tolerance: float,
     units: str = "ppm",
 ) -> SpectrumImzML:
@@ -569,7 +571,7 @@ def align_spectrum(
 
 def align_massdata(
         data_manager: MSDataManagerImzML,
-        reference: Optional[NDArray[np.float64]] = None,
+        reference: Optional[NDArray[any]] = None,
         tolerance: Optional[float] = None,
         units: str = "ppm",
         binfun: str = "max",
