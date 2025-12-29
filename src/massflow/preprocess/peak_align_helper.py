@@ -341,6 +341,86 @@ def bin_peaks(
 
     return reference
 
+@jit(nopython=True, fastmath=True, cache=True)
+def merge_peaks_jit(
+        mz_list: NDArray[np.float64],
+        counts: NDArray[np.int64],
+        tolerance: float,
+        tol_method_code: int,
+    ) -> NDArray[np.float64]:
+
+    n = mz_list.size
+
+    k = 0
+    while k < n and np.isnan(mz_list[k]):
+        k += 1
+
+    while k < n:
+        i = k
+        j = k
+
+        left_of_mode = False
+        while (i - 1) >= 0:
+            if np.isnan(mz_list[i - 1]):
+                break
+            dist = scalar_diff_jit(mz_list[i], mz_list[i - 1], tol_method_code)
+            if dist > tolerance:
+                break
+
+            if counts[i - 1] < counts[i]:
+                left_of_mode = True
+            if counts[i - 1] > counts[i] and left_of_mode:
+                break
+            i -= 1
+
+        right_of_mode = False
+        while (j + 1) < n:
+            if np.isnan(mz_list[j + 1]):
+                break
+            dist = scalar_diff_jit(mz_list[j + 1], mz_list[j], tol_method_code)
+            if dist > tolerance:
+                break
+
+            if counts[j + 1] < counts[j]:
+                right_of_mode = True
+            if counts[j + 1] > counts[j] and right_of_mode:
+                break
+            j += 1
+
+        w_sum = 0.0
+        weighted_mz_sum =0.0
+        merged_count = 0
+
+        for idx in range(i, j + 1):
+            w = float(counts[idx])
+            w_sum += w
+            weighted_mz_sum += w * mz_list[idx]
+            merged_count += counts[idx]
+        
+        if w_sum > 0:
+            merged_peak = weighted_mz_sum / w_sum
+        else:
+            sub_sum = 0.0
+            for idx in range(i, j + 1):
+                sub_sum += mz_list[idx]
+            merged_peak = sub_sum / float(j - i + 1)
+        
+        p = int(np.floor((i + j) / 2.0))
+        
+        mz_list[p] = merged_peak
+        counts[p] = int(merged_count)
+
+        for idx in range(i, j + 1):
+            if idx != p:
+                mz_list[idx] = np.nan
+                counts[idx] = 0
+        
+        k = j + 1
+        while k < n and np.isnan(mz_list[k]):
+            k += 1
+        
+    return mz_list
+
 def merge_peaks(
     mz_list: NDArray[np.float64],
     counts: NDArray[np.int64],
@@ -350,91 +430,15 @@ def merge_peaks(
     """
     Merge adjacent peaks.
     """
-    
-    # Sort check (ignore NaN)
-    valid_peaks = mz_list[~np.isnan(mz_list)]
-    logger.debug(f"Merging peaks: initial count {valid_peaks.size}")
-    if valid_peaks.size > 1 and np.any(np.diff(valid_peaks) < 0):
-            raise ValueError("peaks must be sorted")
+    code = 0 if tol_method == "x" else (1 if tol_method == "y" else 2)
+    res_mz = merge_peaks_jit(
+        mz_list=mz_list,
+        counts=counts,
+        tolerance=tolerance,
+        tol_method_code=code
+    )
 
-    n = mz_list.size
-    # Find the first non-NaN index k
-    k = 0
-    while k < n and np.isnan(mz_list[k]):
-        k += 1
-        
-    while k < n:
-        i = k
-        j = k
-        
-        # Left Expansion
-        left_of_mode = False
-        while (i - 1) >= 0:
-            if np.isnan(mz_list[i - 1]):
-                break
-            # Check if distance is within tolerance
-            dist = scalar_diff(mz_list[i], mz_list[i - 1], tol_method)
-            if dist > tolerance:
-                break
-            
-            # Continue only if monotonically decreasing or flat; stop if it becomes a valley (left is higher than current)
-            if counts[i - 1] < counts[i]:
-                left_of_mode = True
-            if counts[i - 1] > counts[i] and left_of_mode:
-                break
-            i -= 1
-
-        # Right Expansion
-        right_of_mode = False
-        while (j + 1) < n:
-            if np.isnan(mz_list[j + 1]):
-                break
-            dist = scalar_diff(mz_list[j + 1], mz_list[j], tol_method)
-            if dist > tolerance:
-                break
-            
-            if counts[j + 1] < counts[j]:
-                right_of_mode = True
-            if counts[j + 1] > counts[j] and right_of_mode:
-                break
-            j += 1
-        
-        # Merge interval [i, j]
-        indices = np.arange(i, j + 1)
-        w = counts[indices].astype(np.float64)
-        w_sum = np.sum(w)
-        
-        # Weighted average
-        if w_sum > 0:
-            merged_peak = np.sum(w * mz_list[indices]) / w_sum
-        else:
-            merged_peak = np.mean(mz_list[indices])
-        
-        merged_count = np.sum(counts[indices])
-        
-        # Write to center position p
-        p = int(np.floor((i + j) / 2.0)) # Original logic: floor(mean(ij))
-        
-        mz_list[p] = merged_peak
-        counts[p] = int(merged_count)
-        
-        # Clear other positions
-        mask = np.ones(indices.size, dtype=bool)
-        mask[p - i] = False # Keep p
-        
-        # Set merged positions to NaN / 0
-        cleared_indices = indices[mask]
-        mz_list[cleared_indices] = np.nan
-        counts[cleared_indices] = 0
-        
-        # Move pointer k to the right of j, and skip NaN
-        k = j + 1
-        while k < n and np.isnan(mz_list[k]):
-            k += 1
-
-    # Drop NA
-    valid = ~np.isnan(mz_list)
-    return mz_list[valid]
+    return res_mz[~np.isnan(res_mz)]
 
 def compute_reference(
         data_manager: MSDataManagerImzML,

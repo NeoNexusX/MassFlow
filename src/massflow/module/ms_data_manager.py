@@ -101,7 +101,7 @@ class MSDataManager(ABC):
         if self.ms.meta is not None:
 
             if self._writer is None:
-                spec_type = "centroid" if self.ms.meta.centroid_spectrum is not None else "centroid"
+                spec_type = "profile" if self.ms.meta.profile_spectrum is not None else "centroid"
                 scan_direction = self.ms.meta.scan_direction if self.ms.meta.scan_direction is not None else "top_down"
                 line_scan_direction = self.ms.meta.line_scan_direction if self.ms.meta.line_scan_direction is not None else "line_left_right"
                 scan_pattern = self.ms.meta.scan_pattern if self.ms.meta.scan_pattern is not None else "one_way"
