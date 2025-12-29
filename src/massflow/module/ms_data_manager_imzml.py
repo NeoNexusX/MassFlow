@@ -61,21 +61,15 @@ class MSDataManagerImzML(MSDataManager):
                          intensity_dtype=intensity_dtype, 
                          temp_dir=temp_dir)
 
-        # Initialize ImzML parser and reader
-        # Check for .ibd file with case-insensitive extension
-        base_path, _ = os.path.splitext(self.filepath)
-        ibd_path_lower = base_path + ".ibd"
-        ibd_path_upper = base_path + ".IBD"
-        ibd_exists = os.path.exists(ibd_path_lower) or os.path.exists(ibd_path_upper)
-        
-        if os.path.exists(self.filepath) and self.filepath.lower().endswith(".imzml") and ibd_exists:
+        # Initialize ImzML parser and reader       
+        if os.path.exists(self.filepath) and self.filepath.endswith(".imzML") and os.path.exists(self.filepath[:-5] + "ibd"):
             self.lazy_init()
         else:
             self.parser = None
             self.reader = None
             self.ibd_path = None
             self.ms.meta  = ImzMlMetaData(filepath=None)
-            logger.warning(f"Warning: ImzML file or corresponding ibd file not found at {self.filepath} or {ibd_path_lower}/{ibd_path_upper}. Deferred initialization until load.")
+            logger.warning(f"Warning: ImzML file or corresponding ibd file not found at {self.filepath} or {self.filepath[:-5] + 'ibd'}. Deferred initialization until load.")
 
     def lazy_init(self):
         """
