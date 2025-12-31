@@ -218,6 +218,8 @@ class SpectrumPreprocess:
             units,
         )
 
+        tolerance = tolerance * 1e-6 if tolerance is not None and units == "ppm" else tolerance
+
         if backend_method == "cardinal" and data_manager is not None:
             aligned_data_manager = CardinalAdapter.align_massdata(
                                                                   dm_data=data_manager,

@@ -376,8 +376,14 @@ class MSDataManager(ABC):
         if getattr(self, "swap_filepath", None) is not None:
             if os.path.exists(self.swap_filepath):
                 ibd_filepath = self.swap_filepath.replace('.imzML', '.ibd')
+                fdata_filepath = self.swap_filepath.replace('.imzML', '.fdata')
+                log_filepath = self.swap_filepath.replace('.imzML', '.log')
+                metadata_filepath = self.swap_filepath.replace('.imzML', '.metadata')
                 os.remove(self.swap_filepath)
                 os.remove(ibd_filepath)
+                if os.path.exists(fdata_filepath): os.remove(fdata_filepath)
+                if os.path.exists(log_filepath): os.remove(log_filepath)
+                if os.path.exists(metadata_filepath): os.remove(metadata_filepath)
                 logger.info(f"Temporary swap file {self.swap_filepath}, {ibd_filepath} removed.")
 
     def close_writer(self):
