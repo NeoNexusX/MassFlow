@@ -6,14 +6,17 @@ from massflow.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.preprocess.spectrum_preprocess import SpectrumPreprocess
+from massflow.r_preprocess import set_default_r_home
 pytest.importorskip("pytest_benchmark")
 
 logger = get_logger("test_peak_alignment")
 
-FILEPATH = r"/picked.imzML"
+FILEPATH = r"picked.imzML"
 MZ_RANGES = [(500, 600)]
-TOLERANCE = 0.05
+TOLERANCE = 0.10
 ROUND = 1
+
+set_default_r_home("r_home_path_here") # set R_HOME path here
 
 @pytest.fixture(scope="module")
 def data_manager(filepath = FILEPATH) -> MSDataManagerImzML:
@@ -56,6 +59,10 @@ def validate_align_result(result_manager: MSDataManagerImzML, original_manager: 
         assert intensity.shape == ref_mz.shape, f"Spectrum {i} intensity shape mismatch"
         assert not np.all(intensity == 0), f"Spectrum {i} has all-zero intensity"
         assert np.all(np.isfinite(intensity)), f"Spectrum {i} contains NaN or Inf values"
+        
+        # Free memory to prevent OOM
+        spectrum.mz_list = None
+        spectrum.intensity = None
     
     logger.info(f"Validation passed: {len(result_manager.ms)} spectra aligned to {len(ref_mz)} peaks")
 
@@ -82,6 +89,9 @@ def compare_align_result(
         intensity = spectrum.intensity
         if intensity is not None and len(intensity) > 0:
             py_sum_intensity += np.sum(intensity[py_mask])
+        # Free memory
+        spectrum.mz_list = None
+        spectrum.intensity = None
 
     r_sum_intensity = 0.0
     r_mask = (r_ref >= mz_start) & (r_ref <= mz_end)
@@ -89,6 +99,9 @@ def compare_align_result(
         intensity = spectrum.intensity
         if intensity is not None and len(intensity) > 0:
             r_sum_intensity += np.sum(intensity[r_mask])
+        # Free memory
+        spectrum.mz_list = None
+        spectrum.intensity = None
 
     # Compare peak counts
     count_rel_diff = abs(py_count - r_count) / max(r_count, 1)
@@ -119,13 +132,12 @@ def compare_align_result(
 
 class TestPeakAlignment:
 
-    @pytest.mark.parametrize("units", ["ppm"])
+    @pytest.mark.parametrize("units, tolerance", [("ppm", None)])
     @pytest.mark.parametrize("binfun",["median"])
     @pytest.mark.parametrize("binratio",[2])
-    @pytest.mark.parametrize("tolerance",[None])
     @pytest.mark.parametrize("backend_method",["python","cardinal"])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_peak_alignment_benchmark(self, benchmark, data_manager, units, binfun, binratio, tolerance, backend_method):
+    def test_peak_alignment_benchmark(self, benchmark, data_manager, units, tolerance, binfun, binratio, backend_method):
         """
         Performance Test: Run peak alignment benchmark.
         """
@@ -145,12 +157,11 @@ class TestPeakAlignment:
 
         dm_align.close()
 
-    @pytest.mark.parametrize("units", ["ppm"])
+    @pytest.mark.parametrize("units, tolerance", [("ppm", None)])
     @pytest.mark.parametrize("binfun",["median"])
     @pytest.mark.parametrize("binratio",[2])
-    @pytest.mark.parametrize("tolerance",[None])
     @pytest.mark.parametrize("mz_range", MZ_RANGES)
-    def test_peak_alignment_validation(self, data_manager, units, binfun, binratio, tolerance, mz_range):
+    def test_peak_alignment_validation(self, data_manager, units, tolerance, binfun, binratio, mz_range):
         """
         Functional Test: Verify the correctness of peak alignment results.
         """

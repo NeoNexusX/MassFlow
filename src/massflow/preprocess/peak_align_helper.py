@@ -403,6 +403,7 @@ def align_massdata(
     if reference is None or tolerance is None:
         reference, tolerance = compute_reference(
             data_manager=data_manager,
+            reference=reference,
             binfun=binfun,
             binratio=binratio,
             tolerance=tolerance,

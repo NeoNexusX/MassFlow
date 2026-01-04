@@ -108,16 +108,16 @@ class MSDataManager(ABC):
                 scan_type = self.ms.meta.scan_type if self.ms.meta.scan_type is not None else "horizontal_line"
 
                 if self.ms.meta.continuous is not None:
-                    self.mode = "continuous"
+                    mode = "continuous"
                 elif self.ms.meta.processed is not None:
-                    self.mode = "processed"
+                    mode = "processed"
                 else:
-                    self.mode = "auto"
-                logger.info(f"Creating ImzMLWriter with mode={self.mode}, spec_type={spec_type}")
+                    mode = "auto"
+                logger.info(f"Creating ImzMLWriter with mode={mode}, spec_type={spec_type}")
                 self._writer = ImzMLWriter(str(self.filepath),
                                             mz_dtype=self.mz_dtype, #type: ignore
                                             intensity_dtype=self.intensity_dtype,#type: ignore
-                                            mode=self.mode,
+                                            mode=mode,
                                             spec_type=spec_type,
                                             scan_direction=scan_direction,
                                             line_scan_direction=line_scan_direction,

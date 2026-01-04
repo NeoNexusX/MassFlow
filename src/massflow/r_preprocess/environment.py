@@ -7,29 +7,36 @@ from massflow.logger import get_logger
 
 logger = get_logger("R Environment")
 
-DEFAULT_R_HOME = r"r_home" 
+_DEFAULT_R_HOME = None
 
 class RConfig:
     """
     R environment configuration manager.
     Dynamically finds R_HOME and configures system environment variables.
     """
-    @staticmethod
-    def detect_system_r_home() -> Optional[str]:
+    DEFAULT_R_HOME: Optional[str] = _DEFAULT_R_HOME
+
+    @classmethod
+    def detect_system_r_home(cls) -> Optional[str]:
         """
         Get R_HOME path via command line tool.
         """
-        if not shutil.which("R"):
-            return DEFAULT_R_HOME
-        try:
-            output = subprocess.check_output(
-                ["R", "RHOME"], 
-                universal_newlines=True, 
-                stderr=subprocess.DEVNULL
-            )
-            return output.strip()
-        except subprocess.CalledProcessError:
-            return None
+        if cls.DEFAULT_R_HOME and os.path.exists(cls.DEFAULT_R_HOME):
+            return cls.DEFAULT_R_HOME
+        
+        if shutil.which("R"):
+            try:
+                output = subprocess.check_output(
+                    ["R", "RHOME"], 
+                    universal_newlines=True, 
+                    stderr=subprocess.DEVNULL
+                )
+                return output.strip()
+            except subprocess.CalledProcessError:
+                pass
+        
+        logger.error("R_HOME could not be detected automatically. Please set R_HOME environment variable or provide R_HOME path.")
+        return None
         
     @staticmethod
     def setup_env(r_home: Optional[str] = None):
