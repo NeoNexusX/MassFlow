@@ -8,10 +8,11 @@ creation over spatial coordinates.
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
+
 import os
 from abc import ABC, abstractmethod
 import random
-from concurrent.futures import ThreadPoolExecutor,as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 import tempfile
 from massflow.logger import get_logger
@@ -19,6 +20,7 @@ from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 import uuid
 import asyncio
+
 logger = get_logger("ms_data_manager")
 
 
@@ -29,14 +31,14 @@ class MSDataManager(ABC):
 
     def __init__(
         self,
-        ms = None,
+        ms=None,
         target_mz_range=None,
         target_locs=None,
         filepath=None,
         temp_dir=None,
         max_threads: int = 8,
-        mz_dtype = np.float64,
-        intensity_dtype = np.float32,
+        mz_dtype=np.float64,
+        intensity_dtype=np.float32,
     ):
         """
         Initialize the MS data manager.
@@ -74,9 +76,14 @@ class MSDataManager(ABC):
         # target_locs input verification
         if target_locs is not None:
             # target locs input
-            if len(target_locs) <= 1 or (target_locs[0][0] > target_locs[1][0] or target_locs[0][1] > target_locs[1][1]):
+            if len(target_locs) <= 1 or (
+                target_locs[0][0] > target_locs[1][0]
+                or target_locs[0][1] > target_locs[1][1]
+            ):
                 logger.error("target_locs must be non-empty or locs must x1<x2,y1<y2")
-                raise ValueError("target_locs must be non-empty or locs must x1<x2,y1<y2")
+                raise ValueError(
+                    "target_locs must be non-empty or locs must x1<x2,y1<y2"
+                )
 
         # update target_locs
         self.target_locs = target_locs
@@ -86,7 +93,9 @@ class MSDataManager(ABC):
     def threads_executor(self) -> ThreadPoolExecutor:
         """lazy load for thread pool executor"""
         if self._threads_executor is None:
-            logger.info(f"Creating ThreadPoolExecutor with max_workers={self.max_threads}")
+            logger.info(
+                f"Creating ThreadPoolExecutor with max_workers={self.max_threads}"
+            )
             self._threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
         return self._threads_executor
 
@@ -102,46 +111,78 @@ class MSDataManager(ABC):
         if self.ms.meta is not None:
 
             if self._writer is None:
-                spec_type = "centroid" if self.ms.meta.centroid_spectrum is not None else "centroid"
-                scan_direction = self.ms.meta.scan_direction if self.ms.meta.scan_direction is not None else "top_down"
-                line_scan_direction = self.ms.meta.line_scan_direction if self.ms.meta.line_scan_direction is not None else "line_left_right"
-                scan_pattern = self.ms.meta.scan_pattern if self.ms.meta.scan_pattern is not None else "one_way"
-                scan_type = self.ms.meta.scan_type if self.ms.meta.scan_type is not None else "horizontal_line"
+                spec_type = (
+                    "centroid"
+                    if self.ms.meta.centroid_spectrum is not None
+                    else "centroid"
+                )
+                scan_direction = (
+                    self.ms.meta.scan_direction
+                    if self.ms.meta.scan_direction is not None
+                    else "top_down"
+                )
+                line_scan_direction = (
+                    self.ms.meta.line_scan_direction
+                    if self.ms.meta.line_scan_direction is not None
+                    else "line_left_right"
+                )
+                scan_pattern = (
+                    self.ms.meta.scan_pattern
+                    if self.ms.meta.scan_pattern is not None
+                    else "one_way"
+                )
+                scan_type = (
+                    self.ms.meta.scan_type
+                    if self.ms.meta.scan_type is not None
+                    else "horizontal_line"
+                )
 
                 if self.ms.meta.continuous is not None:
-                    self.mode = "continuous"
+                    mode = "continuous"
                 elif self.ms.meta.processed is not None:
-                    self.mode = "processed"
+                    mode = "processed"
                 else:
-                    self.mode = "auto"
-                logger.info(f"Creating ImzMLWriter with mode={self.mode}, spec_type={spec_type}")
-                self._writer = ImzMLWriter(str(self.filepath),
-                                            mz_dtype=self.mz_dtype, #type: ignore
-                                            intensity_dtype=self.intensity_dtype,#type: ignore
-                                            mode=self.mode,
-                                            spec_type=spec_type,
-                                            scan_direction=scan_direction,
-                                            line_scan_direction=line_scan_direction,
-                                            scan_pattern=scan_pattern,
-                                            scan_type=scan_type)
+                    mode = "auto"
+                logger.info(
+                    f"Creating ImzMLWriter with mode={mode}, spec_type={spec_type}"
+                )
+                self._writer = ImzMLWriter(
+                    str(self.filepath),
+                    mz_dtype=self.mz_dtype,  # type: ignore
+                    intensity_dtype=self.intensity_dtype,  # type: ignore
+                    mode=mode,
+                    spec_type=spec_type,
+                    scan_direction=scan_direction,
+                    line_scan_direction=line_scan_direction,
+                    scan_pattern=scan_pattern,
+                    scan_type=scan_type,
+                )
             return self._writer
 
         else:
-            logger.error("MS meta data is None. Please load or copy[use copy_meta method] meta data first.")
-            raise ValueError("MS meta data is None. Please load or copy meta data first.")
+            logger.error(
+                "MS meta data is None. Please load or copy[use copy_meta method] meta data first."
+            )
+            raise ValueError(
+                "MS meta data is None. Please load or copy meta data first."
+            )
 
-    def copy_meta(self, source_dm: 'MSDataManager'):
+    def copy_meta(self, source_dm: "MSDataManager"):
         """copy metadata from source MS to self MS object."""
-    
+
         if source_dm.ms.meta is None or self._ms.meta is None:
             logger.warning("Source MS has no metadata to copy or meta is none.")
             return
 
-        exclude_keys = {'mask', 
-                        'filepath', 
-                        'spectrum_count_num', 
-                        'continuous', 'processed',
-                        'centroid_spectrum','profile_spectrum'}
+        exclude_keys = {
+            "mask",
+            "filepath",
+            "spectrum_count_num",
+            "continuous",
+            "processed",
+            "centroid_spectrum",
+            "profile_spectrum",
+        }
 
         for key, value in source_dm.ms.meta.items():
             if key not in exclude_keys and hasattr(self._ms.meta, key):
@@ -266,7 +307,9 @@ class MSDataManager(ABC):
             if self.threads_executor is not None:
                 futures = []
                 for item in batch:
-                    future = self.threads_executor.submit(_trigger_for_load_spectrum, item)
+                    future = self.threads_executor.submit(
+                        _trigger_for_load_spectrum, item
+                    )
                     futures.append(future)
 
                 for future in as_completed(futures):
@@ -276,21 +319,6 @@ class MSDataManager(ABC):
 
     def get_batch_generator_new(self, batch_size: int = 256, max_threads: int = -1):
         """
-        Create a generator that yields batches of spectra from the MS object with multi-threaded processing.
-
-        This method splits the data into batches and utilizes multi-threading to pre-load spectrum data
-        (intensity arrays) for each mini-batch in parallel. The use of multi-threading ensures faster
-        processing of larger datasets by pre-loading the data in smaller parallel chunks (mini-batches)
-        while maintaining the generator interface.
-
-        Args:
-            batch_size (int, optional): Number of spectra per batch. Defaults to 256.
-            max_threads (int, optional): Number of threads for parallel loading.
-                                     If -1, uses the current `self.max_threads`.
-                                     Defaults to -1.
-
-        Yields:
-            list[Spectrum]: A list of Spectrum objects representing a fully processed batch.
         """
         # update max_threads if needed
         if max_threads != -1 and max_threads != self.max_threads:
@@ -299,7 +327,7 @@ class MSDataManager(ABC):
             if self.threads_executor is not None:
                 self.threads_executor.shutdown(wait=True)
             self.threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
-            
+
         total_length = len(self.ms)
 
         # Nested function for processing a mini-batch
@@ -312,17 +340,22 @@ class MSDataManager(ABC):
 
         # Batch processing logic
         for i in range(0, total_length, batch_size):
-            batch = self.ms[i: i + batch_size]  # Extract the current batch
+            batch = self.ms[i : i + batch_size]  # Extract the current batch
 
             if self.threads_executor is not None:
                 # Split the batch into mini-batches based on the number of threads
                 mini_batch_size = max(1, len(batch) // self.max_threads)
-                mini_batches = [batch[j: j + mini_batch_size] for j in range(0, len(batch), mini_batch_size)]
-            
+                mini_batches = [
+                    batch[j : j + mini_batch_size]
+                    for j in range(0, len(batch), mini_batch_size)
+                ]
+
                 # Multi-threaded processing of each mini-batch
                 futures = []
                 for mini_batch in mini_batches:
-                    future = self.threads_executor.submit(process_mini_batch, mini_batch)
+                    future = self.threads_executor.submit(
+                        process_mini_batch, mini_batch
+                    )
                     futures.append(future)
 
                 # Wait for all mini-batch tasks to complete
@@ -332,62 +365,41 @@ class MSDataManager(ABC):
             # Yield the fully processed batch
             yield batch
 
-    async def get_batch_generator_async(self, batch_size: int = 256, max_concurrency: int = -1):
-       
+    async def get_batch_generator_async(
+        self, 
+        batch_size: int = 256, 
+        max_concurrency: int = -1
+    ):
         """
-        Create an async generator that yields batches of spectra from the MS object with asynchronous concurrent processing.
-
-        This method divides each batch into smaller mini-batches and utilizes asynchronous concurrency to pre-load
-        spectrum data (intensity arrays) for each mini-batch in parallel. By employing asyncio with thread pool
-        execution (via asyncio.to_thread), it ensures efficient I/O-bound operations while maintaining the 
-        asynchronous generator interface.
-
-        Args:
-            batch_size (int, optional): Number of spectra per batch. Defaults to 256.
-            max_concurrency (int, optional): Maximum number of concurrent mini-batch processing tasks.
-                                     If -1, uses the current `self.max_threads`.
-                                     Defaults to -1.
-
-        Yields:
-            list[Spectrum]: A list of Spectrum objects representing a fully processed batch.
         """
 
         # 1. Determine concurrency level (equivalent to number of workers)
         worker_count = max_concurrency if max_concurrency != -1 else self.max_threads
         if worker_count <= 0:
             logger.error("max_concurrency must be greater than 0.")
-            raise ValueError("max_concurrency must be greater than 0.") 
-        
+            raise ValueError("max_concurrency must be greater than 0.")
+
         total_length = len(self.ms)
 
         # Define worker function: processes a list of spectra assigned to it
         async def process_mini_batch(spectra_list):
-            # Delegate the reading task for this list to the thread pool
-            # Note: All spectra in this list are read sequentially in a single thread
-            def _blocking_load():
-                for sp in spectra_list:
-                    _ = sp.intensity  # Synchronous blocking read
-            
-            await asyncio.to_thread(_blocking_load)
+            for sp in spectra_list:
+                await sp.get_data_async()  # Trigger async data loading
 
         # Main loop
         for i in range(0, total_length, batch_size):
             batch = self.ms[i : i + batch_size]
-            
-            # 2. Split the batch into mini-batches
-            # Example: batch_size=256, worker_count=8 → split into 8 chunks of 32 each
+
             chunk_size = (len(batch) + worker_count - 1) // worker_count
-            mini_batches = [batch[j:j + chunk_size] for j in range(0, len(batch), chunk_size)]
-            
-            # 3. Create one coroutine task for each mini-batch
-            # This creates up to worker_count (max_concurrency) tasks, one per mini-batch
+            mini_batches = [
+                batch[j : j + chunk_size] for j in range(0, len(batch), chunk_size)
+            ]
+
             tasks = [process_mini_batch(mini_batch) for mini_batch in mini_batches]
-            
-            # 4. Wait for all these "larger tasks" to complete
+
             if tasks:
                 await asyncio.gather(*tasks)
 
-            # Yield the fully processed batch
             yield batch
 
     def detect_sorted(self):
@@ -484,7 +496,7 @@ class MSDataManager(ABC):
         """
         Close any resources held by the data manager.
         """
-        #thread pool delete
+        # thread pool delete
         if self._threads_executor is not None:
             self._threads_executor.shutdown(wait=True)
             self._threads_executor = None
@@ -492,10 +504,12 @@ class MSDataManager(ABC):
         # temporary directory delete
         if getattr(self, "swap_filepath", None) is not None:
             if os.path.exists(self.swap_filepath):
-                ibd_filepath = self.swap_filepath.replace('.imzML', '.ibd')
+                ibd_filepath = self.swap_filepath.replace(".imzML", ".ibd")
                 os.remove(self.swap_filepath)
                 os.remove(ibd_filepath)
-                logger.info(f"Temporary swap file {self.swap_filepath}, {ibd_filepath} removed.")
+                logger.info(
+                    f"Temporary swap file {self.swap_filepath}, {ibd_filepath} removed."
+                )
 
     def close_writer(self):
         """close ImzMLWriter."""

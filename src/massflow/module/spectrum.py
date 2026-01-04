@@ -68,6 +68,13 @@ class Spectrum:
         # sort part , do not use _sort_by_mz
         self._sort_by_mz = sort_by_mz
 
+    async def _resolve_data_async(self):
+        """
+        Internal async hook to resolve/load data.
+        Base implementation handles loading from swap file if available.
+        """
+        pass
+
     def _resolve_data(self):
         """
         Internal hook to resolve/load data.

@@ -12,12 +12,12 @@ Classes:
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
-
+from pyimzml.ImzMLParser import PortableSpectrumReader, SIZE_DICT
+import numpy as np
+import aiofiles
 from massflow.module.spectrum import Spectrum
-from typing import Optional
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 from massflow.logger import get_logger
-
 logger = get_logger("ms_module")
 
 class SpectrumImzML(Spectrum):
@@ -55,14 +55,14 @@ class SpectrumImzML(Spectrum):
                  index: int,
                  coordinates,
                  reader=None,
-                 ibd_path=None, 
+                 ibd_path=None,
                  mz_list=None,
                  intensity=None,
                  shared_mz_list=None,
                  sort_by_mz: bool = True,):
 
         # ImzML reader part
-        self._reader = reader
+        self._reader :PortableSpectrumReader= reader
         self._ibd_path = ibd_path
         self._index = int(index)
 
@@ -73,12 +73,46 @@ class SpectrumImzML(Spectrum):
                          shared_mz_list=shared_mz_list,
                          sort_by_mz=sort_by_mz,)
 
+
+    async def _read_spectrum_from_file_async(self, f, index: int):
+        """
+        异步版：模仿 PortableSpectrumReader.read_spectrum_from_file。
+        适配 aiofiles 打开的文件句柄（seek/read 需要 await）。
+        """
+        await f.seek(self._reader.mzOffsets[index])
+        mz_bytes = await f.read(self._reader.mzLengths[index] * SIZE_DICT[self._reader.mzPrecision])
+
+        await f.seek(self._reader.intensityOffsets[index])
+        intensity_bytes = await f.read(
+            self._reader.intensityLengths[index] * SIZE_DICT[self._reader.intensityPrecision]
+        )
+
+        mz_array = np.frombuffer(mz_bytes, dtype=self._reader.mzPrecision)
+        intensity_array = np.frombuffer(intensity_bytes, dtype=self._reader.intensityPrecision)
+        return mz_array, intensity_array
+
+
+    async def _resolve_data_async(self):
+        # this part cant use logger because it may be called x100000
+        if self._reader is not None and self._ibd_path is not None and self._intensity is None:
+            async with aiofiles.open(self._ibd_path, 'rb') as f:
+                mz_list, intensity = await self._read_spectrum_from_file_async(f, self._index)
+                if self._mz_list is None:
+                    self._mz_list = mz_list.copy()
+                self._intensity = intensity.copy()
+
+    async def get_data_async(self):
+        """
+        Asynchronously get the m/z and intensity data, loading from file if necessary.
+        """
+        await self._resolve_data_async()
+
     def _resolve_data(self):
         """
         Internal hook to resolve/load data.
         Base implementation handles loading from swap file if available.
         """
-        # this part cant use logger because it may be called x10000
+        # this part cant use logger because it may be called x100000
         if self._reader is not None and self._ibd_path is not None and self._intensity is None:
             # logger.debug(f"Lazy loading spectrum index {self._index} from ImzML file")
             with open(self._ibd_path, 'rb') as f:
