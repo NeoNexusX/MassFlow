@@ -365,7 +365,7 @@ class MSDataManager(ABC):
             # Yield the fully processed batch
             yield batch
 
-    async def get_batch_generator_async(
+    def get_batch_generator_async(
         self, 
         batch_size: int = 256, 
         max_concurrency: int = -1
@@ -373,7 +373,6 @@ class MSDataManager(ABC):
         """
         """
 
-        # 1. Determine concurrency level (equivalent to number of workers)
         worker_count = max_concurrency if max_concurrency != -1 else self.max_threads
         if worker_count <= 0:
             logger.error("max_concurrency must be greater than 0.")
@@ -382,23 +381,17 @@ class MSDataManager(ABC):
         total_length = len(self.ms)
 
         # Define worker function: processes a list of spectra assigned to it
-        async def process_mini_batch(spectra_list):
-            for sp in spectra_list:
-                await sp.get_data_async()  # Trigger async data loading
+        async def _load_batch_async(batch, max_concurrency):
+            sem = asyncio.Semaphore(max_concurrency)
+            async def load(sp):
+                async with sem:
+                    await sp.get_data_async()
+            await asyncio.gather(*(load(sp) for sp in batch))
 
-        # Main loop
         for i in range(0, total_length, batch_size):
             batch = self.ms[i : i + batch_size]
-
-            chunk_size = (len(batch) + worker_count - 1) // worker_count
-            mini_batches = [
-                batch[j : j + chunk_size] for j in range(0, len(batch), chunk_size)
-            ]
-
-            tasks = [process_mini_batch(mini_batch) for mini_batch in mini_batches]
-
-            if tasks:
-                await asyncio.gather(*tasks)
+            # 异步并发读取 batch 内所有 spectrum
+            asyncio.run(_load_batch_async(batch, max_concurrency))
 
             yield batch
 
