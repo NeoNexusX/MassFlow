@@ -101,11 +101,23 @@ class SpectrumImzML(Spectrum):
                     self._mz_list = mz_list.copy()
                 self._intensity = intensity.copy()
 
+    async def _resolve_data_async_with_file(self, f):
+        # this part cant use logger because it may be called x100000
+        if self._reader is not None and self._ibd_path is not None and self._intensity is None:
+            mz_list, intensity = await self._read_spectrum_from_file_async(f, self._index)
+            if self._mz_list is None:
+                self._mz_list = mz_list.copy()
+            self._intensity = intensity.copy()
+
     async def get_data_async(self):
         """
         Asynchronously get the m/z and intensity data, loading from file if necessary.
         """
         await self._resolve_data_async()
+
+    async def get_data_async_with_file(self, f):
+        """Asynchronously load data using an already-opened file handle."""
+        await self._resolve_data_async_with_file(f)
 
     def _resolve_data(self):
         """

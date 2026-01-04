@@ -20,6 +20,7 @@ from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 import uuid
 import asyncio
+import aiofiles
 
 logger = get_logger("ms_data_manager")
 
@@ -374,24 +375,55 @@ class MSDataManager(ABC):
         """
 
         worker_count = max_concurrency if max_concurrency != -1 else self.max_threads
+
         if worker_count <= 0:
             logger.error("max_concurrency must be greater than 0.")
             raise ValueError("max_concurrency must be greater than 0.")
 
         total_length = len(self.ms)
 
-        # Define worker function: processes a list of spectra assigned to it
+        async def _load_minibatch_async(mini_batch):
+            if not mini_batch:
+                return
+
+            first = mini_batch[0]
+            ibd_path = getattr(first, "_ibd_path", None)
+            can_share_handle = (
+                ibd_path is not None
+                and hasattr(first, "get_data_async_with_file")
+                and all(getattr(sp, "_ibd_path", None) == ibd_path for sp in mini_batch)
+            )
+
+            if can_share_handle:
+                async with aiofiles.open(ibd_path, "rb") as f:
+                    for sp in mini_batch:
+                        if hasattr(sp, "get_data_async_with_file"):
+                            await sp.get_data_async_with_file(f)
+                        else:
+                            await sp.get_data_async()
+                return
+
+            for sp in mini_batch:
+                await sp.get_data_async()
+
+        # Define worker function: processes minibatches concurrently
         async def _load_batch_async(batch, max_concurrency):
-            sem = asyncio.Semaphore(max_concurrency)
-            async def load(sp):
-                async with sem:
-                    await sp.get_data_async()
-            await asyncio.gather(*(load(sp) for sp in batch))
+
+            mini_batch_size = max(1, (len(batch) + max_concurrency - 1) // max_concurrency)
+            mini_batches = [
+                batch[j : j + mini_batch_size]
+                for j in range(0, len(batch), mini_batch_size)
+            ]
+
+            async def load_mini(mini_batch):
+                await _load_minibatch_async(mini_batch)
+
+            await asyncio.gather(*(load_mini(mini) for mini in mini_batches))
 
         for i in range(0, total_length, batch_size):
             batch = self.ms[i : i + batch_size]
             # 异步并发读取 batch 内所有 spectrum
-            asyncio.run(_load_batch_async(batch, max_concurrency))
+            asyncio.run(_load_batch_async(batch, worker_count))
 
             yield batch
 
