@@ -18,6 +18,7 @@ from massflow.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 import uuid
+import asyncio
 logger = get_logger("ms_data_manager")
 
 
@@ -271,6 +272,122 @@ class MSDataManager(ABC):
                 for future in as_completed(futures):
                     future.result()  # wait for all to complete
 
+            yield batch
+
+    def get_batch_generator_new(self, batch_size: int = 256, max_threads: int = -1):
+        """
+        Create a generator that yields batches of spectra from the MS object with multi-threaded processing.
+
+        This method splits the data into batches and utilizes multi-threading to pre-load spectrum data
+        (intensity arrays) for each mini-batch in parallel. The use of multi-threading ensures faster
+        processing of larger datasets by pre-loading the data in smaller parallel chunks (mini-batches)
+        while maintaining the generator interface.
+
+        Args:
+            batch_size (int, optional): Number of spectra per batch. Defaults to 256.
+            max_threads (int, optional): Number of threads for parallel loading.
+                                     If -1, uses the current `self.max_threads`.
+                                     Defaults to -1.
+
+        Yields:
+            list[Spectrum]: A list of Spectrum objects representing a fully processed batch.
+        """
+        # update max_threads if needed
+        if max_threads != -1 and max_threads != self.max_threads:
+            self.max_threads = max_threads
+            # reload thread pool executor
+            if self.threads_executor is not None:
+                self.threads_executor.shutdown(wait=True)
+            self.threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
+            
+        total_length = len(self.ms)
+
+        # Nested function for processing a mini-batch
+        def process_mini_batch(mini_batch):
+            """
+            Process a mini-batch by triggering the loading of intensity data for each spectrum.
+            """
+            for sp in mini_batch:
+                _ = sp.intensity  # Trigger the loading of spectrum intensity data
+
+        # Batch processing logic
+        for i in range(0, total_length, batch_size):
+            batch = self.ms[i: i + batch_size]  # Extract the current batch
+
+            if self.threads_executor is not None:
+                # Split the batch into mini-batches based on the number of threads
+                mini_batch_size = max(1, len(batch) // self.max_threads)
+                mini_batches = [batch[j: j + mini_batch_size] for j in range(0, len(batch), mini_batch_size)]
+            
+                # Multi-threaded processing of each mini-batch
+                futures = []
+                for mini_batch in mini_batches:
+                    future = self.threads_executor.submit(process_mini_batch, mini_batch)
+                    futures.append(future)
+
+                # Wait for all mini-batch tasks to complete
+                for future in as_completed(futures):
+                    future.result()  # Ensure all data in the mini-batch has been processed
+
+            # Yield the fully processed batch
+            yield batch
+
+    async def get_batch_generator_async(self, batch_size: int = 256, max_concurrency: int = -1):
+       
+        """
+        Create an async generator that yields batches of spectra from the MS object with asynchronous concurrent processing.
+
+        This method divides each batch into smaller mini-batches and utilizes asynchronous concurrency to pre-load
+        spectrum data (intensity arrays) for each mini-batch in parallel. By employing asyncio with thread pool
+        execution (via asyncio.to_thread), it ensures efficient I/O-bound operations while maintaining the 
+        asynchronous generator interface.
+
+        Args:
+            batch_size (int, optional): Number of spectra per batch. Defaults to 256.
+            max_concurrency (int, optional): Maximum number of concurrent mini-batch processing tasks.
+                                     If -1, uses the current `self.max_threads`.
+                                     Defaults to -1.
+
+        Yields:
+            list[Spectrum]: A list of Spectrum objects representing a fully processed batch.
+        """
+
+        # 1. Determine concurrency level (equivalent to number of workers)
+        worker_count = max_concurrency if max_concurrency != -1 else self.max_threads
+        if worker_count <= 0:
+            logger.error("max_concurrency must be greater than 0.")
+            raise ValueError("max_concurrency must be greater than 0.") 
+        
+        total_length = len(self.ms)
+
+        # Define worker function: processes a list of spectra assigned to it
+        async def process_mini_batch(spectra_list):
+            # Delegate the reading task for this list to the thread pool
+            # Note: All spectra in this list are read sequentially in a single thread
+            def _blocking_load():
+                for sp in spectra_list:
+                    _ = sp.intensity  # Synchronous blocking read
+            
+            await asyncio.to_thread(_blocking_load)
+
+        # Main loop
+        for i in range(0, total_length, batch_size):
+            batch = self.ms[i : i + batch_size]
+            
+            # 2. Split the batch into mini-batches
+            # Example: batch_size=256, worker_count=8 → split into 8 chunks of 32 each
+            chunk_size = (len(batch) + worker_count - 1) // worker_count
+            mini_batches = [batch[j:j + chunk_size] for j in range(0, len(batch), chunk_size)]
+            
+            # 3. Create one coroutine task for each mini-batch
+            # This creates up to worker_count (max_concurrency) tasks, one per mini-batch
+            tasks = [process_mini_batch(mini_batch) for mini_batch in mini_batches]
+            
+            # 4. Wait for all these "larger tasks" to complete
+            if tasks:
+                await asyncio.gather(*tasks)
+
+            # Yield the fully processed batch
             yield batch
 
     def detect_sorted(self):
