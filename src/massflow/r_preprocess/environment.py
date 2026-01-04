@@ -41,8 +41,14 @@ class RConfig:
         os.environ["LANGUAGE"] = "en"
         os.environ["LC_ALL"] = "C"
 
-        os.environ.setdefault('R_MAX_VSIZE', '100Gb') 
-        os.environ.setdefault('R_MAX_MEM_SIZE', '100Gb')
+        def_vsize = os.environ.get('MASSFLOW_R_MAX_VSIZE', '32Gb')
+        def_mem = os.environ.get('MASSFLOW_R_MAX_MEM_SIZE', '32Gb')
+
+        if 'R_MAX_VSIZE' not in os.environ:
+            os.environ['R_MAX_VSIZE'] = def_vsize
+
+        if 'R_MAX_MEM_SIZE' not in os.environ:
+            os.environ['R_MAX_MEM_SIZE'] = def_mem
 
         target_home = r_home or os.environ.get("R_HOME") or RConfig.detect_system_r_home()
 
@@ -86,9 +92,13 @@ class REnvironment:
             RConfig.setup_env()
             
             # 2. Lazy import
-            import rpy2.robjects as robjects
-            from rpy2.robjects.packages import importr
-            from rpy2.robjects.vectors import FloatVector, IntVector, ListVector
+            try:
+                import rpy2.robjects as robjects
+                from rpy2.robjects.packages import importr
+                from rpy2.robjects.vectors import FloatVector, IntVector, ListVector
+            except ImportError as e:
+                logger.error("Required Python package 'rpy2' is not installed.")
+                raise ImportError("Please install rpy2 via 'pip install rpy2' before running.") from e
 
             self.robjects = robjects
             self.FloatVector = FloatVector
@@ -97,20 +107,31 @@ class REnvironment:
             self._importr = importr
 
             # 3. Load base packages
-            self.pkgs['base'] = importr('base')
-            self.pkgs['utils'] = importr('utils')
-            self.pkgs['methods'] = importr('methods')
-            self.pkgs['s4'] = importr('S4Vectors')
+            try:
+                self.pkgs['base'] = importr('base')
+                self.pkgs['utils'] = importr('utils')
+                self.pkgs['methods'] = importr('methods')
+                self.pkgs['s4'] = importr('S4Vectors')
+            except Exception as e:
+                logger.error("Failed to load essential R packages.")
+                raise RuntimeError("Could not load base R packages.") from e
             
             # 4. Try to load Cardinal
-            self.pkgs['cardinal'] = importr('Cardinal')
+            try:
+                self.pkgs['cardinal'] = importr('Cardinal')
+            except Exception as e:
+                logger.error("Failed to load 'Cardinal' R package. Ensure it is installed in your R environment.")
+                raise RuntimeError("Could not load Cardinal package.") from e
             
             ver = self.pkgs['utils'].packageVersion('Cardinal')
             logger.info(f"R loaded successfully. Cardinal version: {ver}")
+        
+        except (ImportError, RuntimeError):
+            raise
 
         except Exception as e:
-            logger.error(f"R Environment initialization failed: {e}")
-            raise RuntimeError("Could not initialize R environment.") from e
+            logger.error(f"Unexpected R Environment initialization failure: {e}")
+            raise RuntimeError(f"Unknown error during R setup: {type(e).__name__}") from e
         
     @property
     def cardinal(self):

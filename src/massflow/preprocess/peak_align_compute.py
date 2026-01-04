@@ -2,6 +2,8 @@ import numpy as np
 from typing import Optional
 from numpy.typing import NDArray
 from numba import jit
+from massflow.logger import get_logger
+logger = get_logger("peak_align_compute")
 
 def get_method_code(tol_method: str) -> int:
     """
@@ -31,7 +33,6 @@ def scalar_diff_jit(val1, val2, method_code):
     Returns:
         float: The computed difference. Returns NaN when the denominator is 0.
     """
-    # method_code: 0='x', 1='y', 2='abs'
     diff = abs(val1 - val2)
     if method_code == 2: return diff  # Absolute difference
     denom = val1 if method_code == 0 else val2  # Choose denominator
@@ -71,7 +72,7 @@ def search_nearest_jit(
     insert_indices = np.searchsorted(targets, queries)
 
     for i in range(n_queries):
-        idx = insert_indices[i]  # 二分搜索的插入位置
+        idx = insert_indices[i]
         q_val = queries[i]
         
         best_idx = nomatch_value
@@ -147,32 +148,30 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
         curr_mz = mz_list[j]
         pj_int = int(pj)
 
-        def check_bin(i):
-            """Check and fill the i-th position on the reference axis."""
-            if processed_mask[i]: return 1  # Already processed; stop expanding
-            
-            # Pre-check: is reference[i] within tolerance of the current peak (using upsample_code)
-            if scalar_diff_jit(reference[i], curr_mz, upsample_code) > tolerance:
-                return 1  # Outside tolerance; stop expanding
-            
-            # Secondary confirmation: does reference[i] best-match to the current peak j
+        # Expand to the right
+        for i in range(pj_int, n_ref):
+
+            if processed_mask[i] or scalar_diff_jit(reference[i], curr_mz, upsample_code) > tolerance: break
+
             q_arr = np.array([reference[i]], dtype=np.float64)
             best_match_arr = search_nearest_jit(q_arr, mz_list, tolerance, code, -1, True)
             best_match_idx = best_match_arr[0]
 
             if best_match_idx != -1:
-                aligned[i] = intensity[best_match_idx]  # Fill intensity
-                processed_mask[i] = True  # Mark as processed
-            
-            return 0  # Continue expanding
-
-        # Expand to the right
-        for i in range(pj_int, n_ref):
-            if check_bin(i) == 1: break
+                aligned[i] = intensity[best_match_idx]
+                processed_mask[i] = True
 
         # Expand to the left
         for i in range(pj_int - 1, -1, -1):
-            if check_bin(i) == 1: break
+            if processed_mask[i] or scalar_diff_jit(reference[i], curr_mz, upsample_code) > tolerance: break
+
+            q_arr = np.array([reference[i]], dtype=np.float64)
+            best_match_arr = search_nearest_jit(q_arr, mz_list, tolerance, code, -1, True)
+            best_match_idx = best_match_arr[0]
+
+            if best_match_idx != -1:
+                aligned[i] = intensity[best_match_idx]
+                processed_mask[i] = True
 
     return aligned
 
@@ -250,6 +249,7 @@ def generate_relative_sequence(start: float, end: float, step: float) -> NDArray
         NDArray: Geometric sequence array.
     """
     if start <= 0 or end <= 0:
+        logger.warning("Start and end values must be positive for relative sequence generation.")
         return np.array([], dtype=np.float64)
         
     half = step / 2.0

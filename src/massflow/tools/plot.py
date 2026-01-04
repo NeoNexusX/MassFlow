@@ -263,7 +263,6 @@ def plot_two_together(target: Optional['Spectrum'] = None,
         plt.setp(m2, markersize=3, color=color[1], alpha=0.8)
         plt.setp(b2, linewidth=0.5, color='gray', alpha=0.6)
 
-    #TODO:This part should update
     orig_c = base.crop_range(mz_range) 
     now_c = target.crop_range(mz_range)
 
