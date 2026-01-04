@@ -310,7 +310,7 @@ class MSDataManager(ABC):
             for sp in mini_batch:
                 _ = sp.intensity  # Trigger the loading of spectrum intensity data
 
-            # Batch processing logic
+        # Batch processing logic
         for i in range(0, total_length, batch_size):
             batch = self.ms[i: i + batch_size]  # Extract the current batch
 
@@ -325,11 +325,11 @@ class MSDataManager(ABC):
                     future = self.threads_executor.submit(process_mini_batch, mini_batch)
                     futures.append(future)
 
-            # Wait for all mini-batch tasks to complete
+                # Wait for all mini-batch tasks to complete
                 for future in as_completed(futures):
                     future.result()  # Ensure all data in the mini-batch has been processed
 
-        # Yield the fully processed batch
+            # Yield the fully processed batch
             yield batch
 
     async def get_batch_generator_async(self, batch_size: int = 256, max_concurrency: int = -1):
@@ -339,7 +339,8 @@ class MSDataManager(ABC):
 
         This method divides each batch into smaller mini-batches and utilizes asynchronous concurrency to pre-load
         spectrum data (intensity arrays) for each mini-batch in parallel. By employing asyncio with thread pool
-        execution, it ensures efficient I/O-bound operations while maintaining the asynchronous generator interface.
+        execution (via asyncio.to_thread), it ensures efficient I/O-bound operations while maintaining the 
+        asynchronous generator interface.
 
         Args:
             batch_size (int, optional): Number of spectra per batch. Defaults to 256.
@@ -351,11 +352,12 @@ class MSDataManager(ABC):
             list[Spectrum]: A list of Spectrum objects representing a fully processed batch.
         """
 
-
         # 1. Determine concurrency level (equivalent to number of workers)
         worker_count = max_concurrency if max_concurrency != -1 else self.max_threads
-        if worker_count <= 0: worker_count = 8
-
+        if worker_count <= 0:
+            logger.error("max_concurrency must be greater than 0.")
+            raise ValueError("max_concurrency must be greater than 0.") 
+        
         total_length = len(self.ms)
 
         # Define worker function: processes a list of spectra assigned to it
@@ -378,13 +380,14 @@ class MSDataManager(ABC):
             mini_batches = [batch[j:j + chunk_size] for j in range(0, len(batch), chunk_size)]
             
             # 3. Create one coroutine task for each mini-batch
-            # This creates only max_concurrency (e.g., 8) tasks
+            # This creates up to worker_count (max_concurrency) tasks, one per mini-batch
             tasks = [process_mini_batch(mini_batch) for mini_batch in mini_batches]
             
             # 4. Wait for all these "larger tasks" to complete
             if tasks:
                 await asyncio.gather(*tasks)
 
+            # Yield the fully processed batch
             yield batch
 
     def detect_sorted(self):

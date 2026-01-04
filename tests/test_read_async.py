@@ -6,7 +6,7 @@ from massflow.logger import get_logger
 
 logger = get_logger("test_read")
 
-ROUND = 10
+ROUND = 1
 
 def data_reading_benchmark(data_file_path="data/example.imzML"):
     with MSDataManagerImzML(filepath=data_file_path) as ms_md:
@@ -37,13 +37,13 @@ async def _async_runner(data_file_path, batch_size, max_concurrency):
                 assert batch[0].intensity is not None
                 assert len(batch[0].intensity) >= 0
 
-def data_batch_reading_async_benchmark(data_file_path="data/example.imzML", batch_size=1024, max_threads=2):
+def data_batch_reading_async_benchmark(data_file_path="data/example.imzML", batch_size=1024, max_concurrency=2):
     """
     Synchronous wrapper for benchmarking.
     pytest-benchmark works best with synchronous functions.
     We use asyncio.run() here to measure the full execution time of the async loop.
     """
-    asyncio.run(_async_runner(data_file_path, batch_size, max_threads))
+    asyncio.run(_async_runner(data_file_path, batch_size, max_concurrency))
 
 def data_batch_reading_full_benchmark(data_file_path="data/example.imzML", batch_size=1024, max_workers=2):
     with MSDataManagerImzML(filepath=data_file_path) as ms_md:
@@ -51,7 +51,7 @@ def data_batch_reading_full_benchmark(data_file_path="data/example.imzML", batch
         ms_md.inspect_data()
         batch_generator = ms_md.get_batch_generator(batch_size=batch_size, max_threads=max_workers)
         for batch in batch_generator:
-            assert len(batch[1]) > 0
+            assert len(batch) > 0
 
 def data_batch_reading_benchmark_new(data_file_path="data/example.imzML", batch_size=1024, max_workers=2):
     """
@@ -63,8 +63,9 @@ def data_batch_reading_benchmark_new(data_file_path="data/example.imzML", batch_
     
         batch_generator = ms_md.get_batch_generator_new(batch_size=batch_size, max_threads=max_workers)
         for batch in batch_generator:
-            if len(batch) > 1:
-                assert len(batch[1]) >= 0
+            if len(batch) > 0:
+                assert batch[0].intensity is not None
+                assert len(batch[0].intensity) >= 0
 
 class TestDataReading:
 
@@ -80,7 +81,7 @@ class TestDataReading:
         logger.info("Finished data reading benchmark")
 
     @pytest.mark.parametrize(
-        "data_file_path,batch_size,max_threads",
+        "data_file_path,batch_size,max_concurrency",
         [
             ("data/example.imzML", 256, 64),
             ("data/example.imzML", 256, 128),
@@ -97,7 +98,7 @@ class TestDataReading:
             ("data/example.imzML", 8192, 2048),
         ],
     )
-    def test_batch_data_reading_async_benchmark(self, benchmark, data_file_path, batch_size, max_threads):
+    def test_batch_data_reading_async_benchmark(self, benchmark, data_file_path, batch_size, max_concurrency):
         logger.info("Starting batch data reading async benchmark")
         
         # Use pedantic mode to run the synchronous wrapper
@@ -105,7 +106,7 @@ class TestDataReading:
                            kwargs={
                                "data_file_path": data_file_path,
                                "batch_size": batch_size,
-                               "max_threads": max_threads
+                               "max_concurrency": max_concurrency
                            },
                            rounds=ROUND,
                            iterations=1,
