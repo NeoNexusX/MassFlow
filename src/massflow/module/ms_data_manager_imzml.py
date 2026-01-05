@@ -44,6 +44,7 @@ class MSDataManagerImzML(MSDataManager):
         """
         Initialize the ImzML data manager.
 
+
         Args:
             ms (MassSpectrumSet): Mass-spectrometry domain model instance.
             target_locs (optional): Spatial window for sub-region loading.
@@ -235,6 +236,7 @@ class MSDataManagerImzML(MSDataManager):
         super().close()
 
     def __enter__(self):
+        return super().__enter__()  # father class
         return super().__enter__()  # father class
 
     def __exit__(self, exc_type, exc_val, exc_tb):

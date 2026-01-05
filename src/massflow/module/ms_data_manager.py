@@ -4,6 +4,9 @@ MS Data Management Module
 Provides abstract interfaces and common utilities for managing MS/MSI data,
 including metadata inspection, batch spectrum loading, and occupancy mask
 creation over spatial coordinates.
+Provides abstract interfaces and common utilities for managing MS/MSI data,
+including metadata inspection, batch spectrum loading, and occupancy mask
+creation over spatial coordinates.
 
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
@@ -21,6 +24,7 @@ from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 
 logger = get_logger("ms_data_manager")
+
 
 
 class MSDataManager(ABC):
@@ -295,6 +299,7 @@ class MSDataManager(ABC):
             raise ValueError("Image dimensions missing in meta data.")
 
         # Get image dimensions
+        # Get image dimensions
         width = int(self.ms.meta.max_count_of_pixels_x)
         height = int(self.ms.meta.max_count_of_pixels_y)
 
@@ -312,7 +317,7 @@ class MSDataManager(ABC):
 
         # Cache mask in metadata and return
         self.ms.meta.mask = mask
-
+    
     @abstractmethod
     def preload_meta(self, *args, **kwargs):
         """Hook for pre-loading or preparing metadata before full data loading."""

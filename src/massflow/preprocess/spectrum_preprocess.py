@@ -79,6 +79,7 @@ class SpectrumPreprocess:
             ValueError: If neither msi_object nor (mz, msroi) are provided
         """
 
+
     @staticmethod
     def base_input_check(data):
         """
@@ -153,6 +154,7 @@ class SpectrumPreprocess:
         """
         intensity = data.intensity
         norm_intensity = normalizer(
+            intensity, # type: ignore
             intensity, # type: ignore
             scale_method=scale_method,
             method=method,
@@ -309,6 +311,7 @@ class SpectrumPreprocess:
         index = data.mz_list
         
         corrected_intensity, baseline = baseline_corrector(
+            intensity, # type: ignore
             intensity, # type: ignore
             index=index,
             method=method,
