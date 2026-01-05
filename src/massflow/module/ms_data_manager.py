@@ -102,31 +102,11 @@ class MSDataManager(ABC):
         if self.ms.meta is not None:
 
             if self._writer is None:
-                spec_type = (
-                    "centroid"
-                    if self.ms.meta.centroid_spectrum is not None
-                    else "centroid"
-                )
-                scan_direction = (
-                    self.ms.meta.scan_direction
-                    if self.ms.meta.scan_direction is not None
-                    else "top_down"
-                )
-                line_scan_direction = (
-                    self.ms.meta.line_scan_direction
-                    if self.ms.meta.line_scan_direction is not None
-                    else "line_left_right"
-                )
-                scan_pattern = (
-                    self.ms.meta.scan_pattern
-                    if self.ms.meta.scan_pattern is not None
-                    else "one_way"
-                )
-                scan_type = (
-                    self.ms.meta.scan_type
-                    if self.ms.meta.scan_type is not None
-                    else "horizontal_line"
-                )
+                spec_type = "profile" if self.ms.meta.profile_spectrum is not None else "centroid"
+                scan_direction = self.ms.meta.scan_direction if self.ms.meta.scan_direction is not None else "top_down"
+                line_scan_direction = self.ms.meta.line_scan_direction if self.ms.meta.line_scan_direction is not None else "line_left_right"
+                scan_pattern = self.ms.meta.scan_pattern if self.ms.meta.scan_pattern is not None else "one_way"
+                scan_type = self.ms.meta.scan_type if self.ms.meta.scan_type is not None else "horizontal_line"
 
                 if self.ms.meta.continuous is not None:
                     mode = "continuous"
@@ -134,20 +114,16 @@ class MSDataManager(ABC):
                     mode = "processed"
                 else:
                     mode = "auto"
-                logger.info(
-                    f"Creating ImzMLWriter with mode={mode}, spec_type={spec_type}"
-                )
-                self._writer = ImzMLWriter(
-                    str(self.filepath),
-                    mz_dtype=self.mz_dtype,  # type: ignore
-                    intensity_dtype=self.intensity_dtype,  # type: ignore
-                    mode=mode,
-                    spec_type=spec_type,
-                    scan_direction=scan_direction,
-                    line_scan_direction=line_scan_direction,
-                    scan_pattern=scan_pattern,
-                    scan_type=scan_type,
-                )
+                logger.info(f"Creating ImzMLWriter with mode={mode}, spec_type={spec_type}")
+                self._writer = ImzMLWriter(str(self.filepath),
+                                            mz_dtype=self.mz_dtype, #type: ignore
+                                            intensity_dtype=self.intensity_dtype,#type: ignore
+                                            mode=mode,
+                                            spec_type=spec_type,
+                                            scan_direction=scan_direction,
+                                            line_scan_direction=line_scan_direction,
+                                            scan_pattern=scan_pattern,
+                                            scan_type=scan_type)
             return self._writer
 
         else:
@@ -363,12 +339,16 @@ class MSDataManager(ABC):
         # temporary directory delete
         if getattr(self, "swap_filepath", None) is not None:
             if os.path.exists(self.swap_filepath):
-                ibd_filepath = self.swap_filepath.replace(".imzML", ".ibd")
+                ibd_filepath = self.swap_filepath.replace('.imzML', '.ibd')
+                fdata_filepath = self.swap_filepath.replace('.imzML', '.fdata')
+                log_filepath = self.swap_filepath.replace('.imzML', '.log')
+                metadata_filepath = self.swap_filepath.replace('.imzML', '.metadata')
                 os.remove(self.swap_filepath)
                 os.remove(ibd_filepath)
-                logger.info(
-                    f"Temporary swap file {self.swap_filepath}, {ibd_filepath} removed."
-                )
+                if os.path.exists(fdata_filepath): os.remove(fdata_filepath)
+                if os.path.exists(log_filepath): os.remove(log_filepath)
+                if os.path.exists(metadata_filepath): os.remove(metadata_filepath)
+                logger.info(f"Temporary swap file {self.swap_filepath}, {ibd_filepath} removed.")
 
     def close_writer(self):
         """close ImzMLWriter."""

@@ -36,9 +36,10 @@ from typing import Union, Optional, Sequence
 import numpy as np
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.spectrum import Spectrum
-from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.logger import get_logger
-from massflow.preprocess.peak_align_helper import peak_align, get_reference
+from massflow.preprocess.peak_align_helper import align_massdata, align_spectrum
+from massflow.r_preprocess.adapter import CardinalAdapter
 from massflow.preprocess.filter_helper import smoother
 from massflow.preprocess.normalizer_helper import normalizer
 from massflow.preprocess.baseline_correction_helper import baseline_corrector
@@ -165,90 +166,93 @@ class SpectrumPreprocess:
         )
 
     @staticmethod
-    def peak_alignment(ms_data: MassSpectrumSet,
+    def peak_alignment(data_manager: Optional[MSDataManagerImzML] = None,
+                       spectrum: Optional[SpectrumImzML] = None,
                        ref: Optional[np.ndarray] = None,
                        units: str = 'ppm',
                        tolerance: Optional[float] = None,
                        binfun: str = 'median',
                        binratio: int = 2,
-                       output_path: Optional[str]=None,
-                       ref_method: Optional[str] = None,
-                       ref_mzres: Optional[float] = None,
-                       ref_mzmaxshift: Optional[float] = None,
-                       ref_mzunits: Optional[str] = None) -> MassSpectrumSet:
+                       backend_method: Optional[str] = "python",
+                       batch_size: int = 256,
+                       clear_memory: bool = True,
+                       temp_dir: str = "./temp_align_data"
+                       ):
         """
-        Peak alignment entry (streaming): dispatch parameters, optionally compute density-based reference,
-        delegate to streaming `peak_align`, and return the aligned MS object.
+        Align peaks across spectra in MS data using specified backend.
+
+        This method provides a unified interface for peak alignment, supporting both
+        Python-based implementation and R-based Cardinal implementation. It can align
+        an entire dataset (MSDataManagerImzML) or a single spectrum (SpectrumImzML).
+
+        Parameters:
+            data_manager (MSDataManagerImzML, optional): The data manager containing the mass spectra to align.
+                Required if `spectrum` is None.
+            spectrum (SpectrumImzML, optional): A single spectrum to align.
+                Required if `data_manager` is None.
+            ref (np.ndarray, optional): External reference m/z axis.
+                If None, it will be estimated from the data (for data_manager) or must be provided (for single spectrum).
+            units (str): Units for tolerance and resolution ('ppm' or 'absolute'). Default is 'ppm'.
+            tolerance (float, optional): The tolerance window for peak matching.
+                If None, it will be estimated from the data.
+            binfun (str): Aggregation function for estimating resolution ('median', 'min', 'max', 'mean').
+                Default is 'median'.
+            binratio (int): Ratio to scale the estimated resolution to determine tolerance. Default is 2.
+            backend_method (str, optional): The backend to use for alignment.
+                - 'cardinal': Use the R Cardinal package (requires R environment).
+                - 'python' (or None): Use the native Python implementation.
 
         Returns:
-            MS: Aligned collection whose spectra share the reference axis.
+            MSDataManagerImzML | SpectrumImzML: The aligned data manager or spectrum.
 
         Raises:
-            ValueError: When input spectra are empty or density reference computation fails.
-
-        Notes:
-            Units mapping follows tolerance semantics: 'ppm'→relative, 'mz'/'absolute'→absolute (Da).
+            ValueError: If neither `data_manager` nor `spectrum` is provided, or if required parameters
+                (ref, tolerance) are missing for single spectrum alignment.
         """
-        logger.info(f"peak_alignment_entry: binfun={binfun}, units={units}...")
-        if output_path is None:
-            ts = time.strftime("%Y%m%d-%H%M%S")
-            default_name = f"align_ms_{ts}.h5"
-            output_path = default_name
-            input_file = getattr(ms_data.meta, 'filepath', None) if ms_data.meta else None
-            if input_file:
-                input_dir = os.path.dirname(input_file)
-                candidate = os.path.join(input_dir, default_name)
-                try:
-                    tmp = os.path.join(input_dir, ".mf_write_test.tmp")
-                    with open(tmp, 'w'):
-                        pass
-                    os.remove(tmp)
-                    output_path = candidate
-                except(OSError, IOError, PermissionError):
-                    logger.warning(f"Cannot write to input directory {input_dir}, saving result to {output_path}")
-        
-        logger.info(f"Peak alignment output will be saved to: {output_path}")
 
-        # 1. Handle Density-based Reference (Special Case)
-        # If user wants density method, we calculate ref first, then pass to peak_align
-        if ref is None and (ref_method == 'density'):
-            # We still need to collect mz_list for density calculation
-            # Alternatively, peak_align could handle this if we moved get_reference logic inside
-            # But keeping it here is fine for separation of concerns
-            index_list = [s.mz_list for s in ms_data]
-            if len(index_list) == 0:
-                raise ValueError('no spectra available')
-            mz_all = np.concatenate(index_list)
-            
-            # ... (Mapping params logic keeps same) ...
-            if ref_mzunits is None: ref_mzunits = 'ppm' if units == 'ppm' else 'Da'
-            if ref_mzres is None: ref_mzres = float(tolerance) if tolerance is not None else (100.0 if ref_mzunits == 'ppm' else 0.01)
-            if ref_mzmaxshift is None: ref_mzmaxshift = float(tolerance) if tolerance is not None else (100.0 if ref_mzunits == 'ppm' else 0.05)
-            
-            ref = get_reference(mz_all, ref_mzres, ref_mzmaxshift, ref_mzunits)
-            ref = ref[np.isfinite(ref)] #type: ignore
-            logger.info(f"peak_alignment: density ref computed, peaks={ref.size}")
-
-        # 2. Call peak_align (Now Handles Everything)
-        # Pass ms_data directly
-        res = peak_align(
-            ms_data,
-            ref=ref,
-            binfun=binfun, #type: ignore
-            binratio=binratio,
-            tolerance=tolerance,
-            units=units, #type: ignore
-            output_path=output_path
+        logger.info(
+            "peak_alignment_entry: backend=%s, binfun=%s, tolerance=%s, units=%s",
+            backend_method,
+            binfun,
+            tolerance,
+            units,
         )
 
-        # 3. Return the constructed MS object
-        ms_aligned = res.ms_aligned
-        if ms_aligned.meta is not None and hasattr(ms_aligned.meta, 'continuous'):
-            ms_aligned.meta.continuous = True
+        if backend_method == "cardinal" and data_manager is not None:
+            aligned_data_manager = CardinalAdapter.align_massdata(
+                                                                  dm_data=data_manager,
+                                                                  reference=ref,
+                                                                  tolerance=tolerance,
+                                                                  units=units,
+                                                                  binfun=binfun,
+                                                                  binratio=binratio,
+                                                                  temp_dir=temp_dir)
+            return aligned_data_manager
 
-        logger.info(f"peak_alignment_entry: done, peaks={len(res.ref)}")
+        tolerance = tolerance * 1e-6 if tolerance is not None and units == "ppm" else tolerance
 
-        return ms_aligned
+        if spectrum is not None:
+            if ref is None or tolerance is None:
+                raise ValueError("Reference and tolerance must be provided for single spectrum alignment.")
+            aligned_spectrum = align_spectrum(spectrum=spectrum,
+                                              reference=ref,
+                                              tolerance=tolerance,
+                                              units=units)
+            return aligned_spectrum
+
+        if data_manager is not None and spectrum is None:
+            aligned_data_manager = align_massdata(data_manager=data_manager,
+                                                  reference=ref,
+                                                  tolerance=tolerance,
+                                                  units=units,
+                                                  binfun=binfun,
+                                                  binratio=binratio,
+                                                  batch_size=batch_size,
+                                                  clear_memory=clear_memory,
+                                                  temp_dir=temp_dir)
+            return aligned_data_manager
+
+        raise ValueError("Either 'data_manager' or 'spectrum' must be provided for alignment.")
 
     @staticmethod
     def baseline_correction_spectrum(

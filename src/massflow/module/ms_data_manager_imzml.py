@@ -61,7 +61,7 @@ class MSDataManagerImzML(MSDataManager):
                          intensity_dtype=intensity_dtype, 
                          temp_dir=temp_dir)
 
-        # Initialize ImzML parser and reader
+        # Initialize ImzML parser and reader       
         if os.path.exists(self.filepath) and self.filepath.endswith(".imzML") and os.path.exists(self.filepath[:-5] + "ibd"):
             self.lazy_init()
         else:
@@ -106,7 +106,7 @@ class MSDataManagerImzML(MSDataManager):
 
         # Ensure parser is initialized before loading defender to avoid repeated checks
         if self.parser is None:
-            if  os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0 and self.filepath.endswith(".imzML"):
+            if  os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0 and self.filepath.lower().endswith(".imzml"):
                 self.lazy_init()
                 if self.parser is None:
                     logger.error(f"load data faild : Unable to initialize ImzML parser for file {self.filepath}.")
