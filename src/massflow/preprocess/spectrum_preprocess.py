@@ -218,8 +218,6 @@ class SpectrumPreprocess:
             units,
         )
 
-        tolerance = tolerance * 1e-6 if tolerance is not None and units == "ppm" else tolerance
-
         if backend_method == "cardinal" and data_manager is not None:
             aligned_data_manager = CardinalAdapter.align_massdata(
                                                                   dm_data=data_manager,
@@ -230,6 +228,8 @@ class SpectrumPreprocess:
                                                                   binratio=binratio,
                                                                   temp_dir=temp_dir)
             return aligned_data_manager
+
+        tolerance = tolerance * 1e-6 if tolerance is not None and units == "ppm" else tolerance
 
         if spectrum is not None:
             if ref is None or tolerance is None:

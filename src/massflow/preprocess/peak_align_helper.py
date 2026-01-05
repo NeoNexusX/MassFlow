@@ -162,7 +162,6 @@ def bin_peaks(
                 
             valid_bins = bin_indices[valid_mask].astype(np.int64)
             valid_peaks = raw_peaks[valid_mask]
-            valid_indices = np.arange(raw_peaks.size)[valid_mask]
 
             # Compute distance for each match
             dists = np.abs(compute.calc_diff(valid_peaks, domain[valid_bins], method=tol_method))
@@ -338,7 +337,7 @@ def compute_reference(
         clear_memory=clear_memory,
         batch_size=batch_size,
         )
-    logger.info(f"Domain estimated: size={domain.size}, tolerance={estimate_tolerance}")
+    logger.info(f"Domain estimated: size={domain.size}, estimate_tolerance={estimate_tolerance}")
     tolerance = estimate_tolerance if tolerance is None else tolerance
 
     if reference is not None:
