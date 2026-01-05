@@ -12,11 +12,10 @@ Classes:
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
-
+from pyimzml.ImzMLParser import PortableSpectrumReader
 from massflow.module.spectrum import Spectrum
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 from massflow.logger import get_logger
-
 logger = get_logger("ms_module")
 
 class SpectrumImzML(Spectrum):
@@ -54,14 +53,14 @@ class SpectrumImzML(Spectrum):
                  index: int,
                  coordinates,
                  reader=None,
-                 ibd_path=None, 
+                 ibd_path=None,
                  mz_list=None,
                  intensity=None,
                  shared_mz_list=None,
                  sort_by_mz: bool = True,):
 
         # ImzML reader part
-        self._reader = reader
+        self._reader :PortableSpectrumReader= reader
         self._ibd_path = ibd_path
         self._index = int(index)
 
@@ -77,7 +76,7 @@ class SpectrumImzML(Spectrum):
         Internal hook to resolve/load data.
         Base implementation handles loading from swap file if available.
         """
-        # this part cant use logger because it may be called x10000
+        # this part cant use logger because it may be called x100000
         if self._reader is not None and self._ibd_path is not None and self._intensity is None:
             # logger.debug(f"Lazy loading spectrum index {self._index} from ImzML file")
             with open(self._ibd_path, 'rb') as f:

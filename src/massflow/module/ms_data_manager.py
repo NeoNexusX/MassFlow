@@ -8,16 +8,18 @@ creation over spatial coordinates.
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
+
 import os
+import uuid
 from abc import ABC, abstractmethod
 import random
-from concurrent.futures import ThreadPoolExecutor,as_completed
-import numpy as np
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import numpy as np
 from massflow.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.tools.stream_imzml_writer import ImzMLWriter
-import uuid
+
 logger = get_logger("ms_data_manager")
 
 
@@ -28,24 +30,16 @@ class MSDataManager(ABC):
 
     def __init__(
         self,
-        ms = None,
+        ms=None,
         target_mz_range=None,
         target_locs=None,
         filepath=None,
         temp_dir=None,
         max_threads: int = 8,
-        mz_dtype = np.float64,
-        intensity_dtype = np.float32,
+        mz_dtype=np.float64,
+        intensity_dtype=np.float32,
     ):
-        """
-        Initialize the MS data manager.
-
-        Args:
-            ms (MS): Mass-spectrometry domain model instance.
-            target_mz_range (tuple[float, float], optional): (min_mz, max_mz) to filter peaks.
-            target_locs (list[tuple], optional): List of (x,y) or (x,y,z) coordinates to load.
-            filepath (str, optional): Path to the input file.
-        """
+        """Initialize the MS data manager."""
         # create MassSpectrumSet object if not provided
         self._ms = MassSpectrumSet() if ms is None else ms
         self.target_mz_range = target_mz_range
@@ -73,9 +67,14 @@ class MSDataManager(ABC):
         # target_locs input verification
         if target_locs is not None:
             # target locs input
-            if len(target_locs) <= 1 or (target_locs[0][0] > target_locs[1][0] or target_locs[0][1] > target_locs[1][1]):
+            if len(target_locs) <= 1 or (
+                target_locs[0][0] > target_locs[1][0]
+                or target_locs[0][1] > target_locs[1][1]
+            ):
                 logger.error("target_locs must be non-empty or locs must x1<x2,y1<y2")
-                raise ValueError("target_locs must be non-empty or locs must x1<x2,y1<y2")
+                raise ValueError(
+                    "target_locs must be non-empty or locs must x1<x2,y1<y2"
+                )
 
         # update target_locs
         self.target_locs = target_locs
@@ -85,7 +84,9 @@ class MSDataManager(ABC):
     def threads_executor(self) -> ThreadPoolExecutor:
         """lazy load for thread pool executor"""
         if self._threads_executor is None:
-            logger.info(f"Creating ThreadPoolExecutor with max_workers={self.max_threads}")
+            logger.info(
+                f"Creating ThreadPoolExecutor with max_workers={self.max_threads}"
+            )
             self._threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
         return self._threads_executor
 
@@ -126,74 +127,63 @@ class MSDataManager(ABC):
             return self._writer
 
         else:
-            logger.error("MS meta data is None. Please load or copy[use copy_meta method] meta data first.")
-            raise ValueError("MS meta data is None. Please load or copy meta data first.")
+            logger.error(
+                "MS meta data is None. Please load or copy[use copy_meta method] meta data first."
+            )
+            raise ValueError(
+                "MS meta data is None. Please load or copy meta data first."
+            )
 
-    def copy_meta(self, source_dm: 'MSDataManager'):
+    def copy_meta(self, source_dm: "MSDataManager"):
         """copy metadata from source MS to self MS object."""
-    
+
         if source_dm.ms.meta is None or self._ms.meta is None:
             logger.warning("Source MS has no metadata to copy or meta is none.")
             return
 
-        exclude_keys = {'mask', 
-                        'filepath', 
-                        'spectrum_count_num', 
-                        'continuous', 'processed',
-                        'centroid_spectrum','profile_spectrum'}
+        exclude_keys = {
+            "mask",
+            "filepath",
+            "spectrum_count_num",
+            "continuous",
+            "processed",
+            "centroid_spectrum",
+            "profile_spectrum",
+        }
 
         for key, value in source_dm.ms.meta.items():
-            if key not in exclude_keys and hasattr(self._ms.meta, key):
+            if key in exclude_keys:
+                continue
+
+            if hasattr(self._ms.meta, key):
                 try:
                     setattr(self._ms.meta, key, value)
-                except Exception as e:
+                except (AttributeError, TypeError, ValueError) as e:
                     logger.warning(f"Failed to copy meta field {key}: {e}")
 
         logger.info("Metadata copy completed.")
 
     @property
     def ms(self) -> MassSpectrumSet:
-        """
-        Get the MS object.
-
-        Returns:
-            MS: The MS object.
-        """
+        """Get the MS object."""
         return self._ms
 
     @ms.setter
     def ms(self, ms: MassSpectrumSet):
-        """
-        Set the MS object.
-
-        Args:
-            ms (MS): Mass-spectrometry domain model instance.
-        """
+        """Set the MS object."""
         self._ms = ms
 
     @property
     def swap_writer(self):
-        """
-        返回writer。
-        """
+        """Return the writer."""
         return self.writer
 
     @abstractmethod
     def load_full_data_from_file(self):
-        """Load data (and usually metadata) from the configured input file path.
-
-        Concrete subclasses must implement the actual backend-specific loading
-        logic (e.g., ImzML, HDF5) and use :attr:`self.filepath` and
-        :attr:`self.target_locs` / :attr:`self.target_mz_range` as needed.
-        """
+        """Load data from the configured input file path."""
 
     def inspect_data(self, inspect_num=2):
-        """
-        Inspect the data structure of the MSI object.
-
-        Log metadata shapes and queue information, including max/min m/z values,
-        queue length, and count of non-empty base masks.
-        """
+        """Inspect the data structure of the MSI object."""
         meta_info = "MS meta data:\r\n"
         meta_info += f"  target_mz_range: {self.target_mz_range}\r\n"
         meta_info += f"  target_locs: {self.target_locs}\r\n"
@@ -226,23 +216,15 @@ class MSDataManager(ABC):
             pointer4num += 1
         logger.info(base_info)
 
+    def get_batch_generator_st(self, batch_size: int = 256):
+        """Get a single-threaded batch generator."""
+        total_length = len(self.ms)
+        for i in range(0, total_length, batch_size):
+            batch = self.ms[i : i + batch_size]  # Extract the current batch
+            yield batch
+
     def get_batch_generator(self, batch_size: int = 256, max_threads: int = -1):
-        """
-        Create a generator that yields batches of spectra from the MS object.
-
-        This method supports multi-threaded pre-loading of spectrum data (intensity arrays)
-        to speed up processing.
-
-        Args:
-            batch_size (int, optional): Number of spectra per batch. Defaults to 256.
-            max_threads (int, optional): Number of threads for parallel loading.
-                                         If -1, uses the current `self.max_threads`.
-                                         Defaults to -1.
-
-        Yields:
-            list[Spectrum]: A list of Spectrum objects representing a batch.
-        """
-
+        """Get a multi-threaded batch generator."""
         # update max_threads if needed
         if max_threads != -1 and max_threads != self.max_threads:
             self.max_threads = max_threads
@@ -253,34 +235,41 @@ class MSDataManager(ABC):
 
         total_length = len(self.ms)
 
-        # define the spectrum loading function
-        def _trigger_for_load_spectrum(sp):
-            _ = sp.intensity
+        # Nested function for processing a mini-batch
+        def process_mini_batch(mini_batch):
+            """Process a mini-batch."""
+            for sp in mini_batch:
+                _ = sp.intensity  # Trigger the loading of spectrum intensity data
 
-        # Batch processing loop
+        # Batch processing logic
         for i in range(0, total_length, batch_size):
-            batch = self.ms[i : i + batch_size]
+            batch = self.ms[i : i + batch_size]  # Extract the current batch
 
-            # Multi-threaded loading
             if self.threads_executor is not None:
+                # Split the batch into mini-batches based on the number of threads
+                mini_batch_size = max(1, len(batch) // self.max_threads)
+                mini_batches = [
+                    batch[j : j + mini_batch_size]
+                    for j in range(0, len(batch), mini_batch_size)
+                ]
+
+                # Multi-threaded processing of each mini-batch
                 futures = []
-                for item in batch:
-                    future = self.threads_executor.submit(_trigger_for_load_spectrum, item)
+                for mini_batch in mini_batches:
+                    future = self.threads_executor.submit(
+                        process_mini_batch, mini_batch
+                    )
                     futures.append(future)
 
+                # Wait for all mini-batch tasks to complete
                 for future in as_completed(futures):
-                    future.result()  # wait for all to complete
+                    future.result()  # Ensure all data in the mini-batch has been processed
 
+            # Yield the fully processed batch
             yield batch
 
     def detect_sorted(self):
-        """
-        Check if the m/z arrays in the MS data are sorted.
-
-        Randomly samples a spectrum to verify if its m/z values are in ascending order.
-        If unsorted data is detected, it sets the `sort_by_mz` flag to False for all
-        spectra in the MS object, indicating that sorting may be required during access.
-        """
+        """Check if the m/z arrays in the MS data are sorted."""
 
         total_length = len(self.ms)
         check_num = random.randint(0, total_length)
@@ -293,19 +282,7 @@ class MSDataManager(ABC):
             logger.info("random test m/z data in the MS object are sorted.")
 
     def create_ms_meta_mask(self):
-        """
-        Create a binary occupancy mask for all available spectra coordinates.
-
-        Parameters
-        - None
-
-        Returns
-        - np.ndarray: A 2D array of shape `(height, width)` where `1` marks a pixel
-          with an available spectrum and `0` otherwise.
-
-        Raises
-        - ValueError: If required metadata (`max_count_of_pixels_x/y`) is missing.
-        """
+        """Create a binary occupancy mask for all available spectra coordinates."""
         if self.ms.meta is None:
             logger.error("MS meta data is None. Please load meta data first.")
             raise ValueError("MS meta data is None. Please load meta data first.")
@@ -338,27 +315,14 @@ class MSDataManager(ABC):
 
     @abstractmethod
     def preload_meta(self, *args, **kwargs):
-        """
-        Hook for pre-loading or preparing metadata before full data loading.
-
-        Typically used to populate `ms.meta` (e.g., image size, instrument
-        information) prior to streaming spectra.
-        """
+        """Hook for pre-loading or preparing metadata before full data loading."""
 
     @abstractmethod
     def loading_meta(self, *args, **kwargs):
-        """
-        Hook invoked while spectra are being loaded, to update metadata
-        incrementally (e.g., min/max coordinates, shared m/z list).
-        """
+        """Hook invoked while spectra are being loaded."""
 
     def loaded_meta(self, *args, **kwargs):
-        """
-        Finalize metadata after loading spectra.
-
-        Default implementation computes and stores a spatial occupancy mask
-        in `ms.meta.mask` based on the current `ms.coordinate_index`.
-        """
+        """Finalize metadata after loading spectra."""
         logger.info("creating ms mask.")
         self.create_ms_meta_mask()
         self.detect_sorted()
@@ -367,7 +331,7 @@ class MSDataManager(ABC):
         """
         Close any resources held by the data manager.
         """
-        #thread pool delete
+        # thread pool delete
         if self._threads_executor is not None:
             self._threads_executor.shutdown(wait=True)
             self._threads_executor = None
@@ -392,12 +356,7 @@ class MSDataManager(ABC):
             self.writer.close()
 
     def clear_batch_data_memory(self, batch):
-        """
-        Clear data in a batch of spectra to free memory.
-
-        Args:
-            batch (list[Spectrum]): List of Spectrum objects to clear.
-        """
+        """Clear data in a batch of spectra to free memory."""
         for spec in batch:
             spec.clear_data()
 

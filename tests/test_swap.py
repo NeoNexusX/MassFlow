@@ -1,7 +1,7 @@
 import time
-import pytest
 import os
 from functools import partial
+import pytest
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.logger import get_logger
@@ -9,6 +9,7 @@ from massflow.logger import get_logger
 logger = get_logger("test_swap")
 
 ROUNDS = 5
+
 
 def data_swap_out_direct(raw_dm, limit=-1):
     """
@@ -25,13 +26,14 @@ def data_swap_out_direct(raw_dm, limit=-1):
         if i >= limit:
             break
 
-        writer.addSpectrum(raw_spec.mz_list, 
-                           raw_spec.intensity, 
-                           raw_spec.coordinate.get_tuple())
+        writer.addSpectrum(
+            raw_spec.mz_list, raw_spec.intensity, raw_spec.coordinate.get_tuple()
+        )
 
     swap_dm.close_writer()
     return swap_dm
-    
+
+
 def data_swap_out_object(raw_dm, limit=-1):
     """
     Test: In-memory data -> Write to disk (Swap Out), using SpectrumImzML object method
@@ -47,17 +49,20 @@ def data_swap_out_object(raw_dm, limit=-1):
         if i >= limit:
             break
 
-        spec_processed_imzml = SpectrumImzML(index=i, 
-                                             mz_list=old_spec.mz_list, 
-                                             intensity=old_spec.intensity, 
-                                             coordinates=old_spec.coordinate)
+        spec_processed_imzml = SpectrumImzML(
+            index=i,
+            mz_list=old_spec.mz_list,
+            intensity=old_spec.intensity,
+            coordinates=old_spec.coordinate,
+        )
 
         spec_processed_imzml.swap_out2disk(writer)
 
     dm_swap.close_writer()
     return dm_swap
 
-def data_swap_in_benchmark(swap_dm,mode="multithread"):
+
+def data_swap_in_benchmark(swap_dm, mode="multithread"):
     """
     Test: Disk file -> Load and access in memory (Swap In)
     """
@@ -76,10 +81,10 @@ def data_swap_in_benchmark(swap_dm,mode="multithread"):
                 spec.clear_data()
     else:
 
-        #read in memory
+        # read in memory
         for spec in dm.ms:
             assert spec.intensity is not None
-        
+
         # clean memory
         for spec in dm.ms:
             spec.clear_data()
@@ -87,11 +92,11 @@ def data_swap_in_benchmark(swap_dm,mode="multithread"):
     logger.info("Completed loading and accessing swapped data.")
 
 
-
 class TestDataSwap:
     """
     Disk swap performance test class
     """
+
     @pytest.fixture(scope="class")
     def ms_raw_data(self):
 
@@ -100,31 +105,33 @@ class TestDataSwap:
         if not os.path.exists(filepath):
             pytest.skip(f"Original data not found at {filepath}")
 
-        #load meta data
+        # load meta data
         dm_raw = MSDataManagerImzML(filepath=filepath)
         dm_raw.load_full_data_from_file()
         dm_raw.inspect_data()
         # load data check
         batch_generator = dm_raw.get_batch_generator()
         for batch in batch_generator:
-            assert len(batch[1]) >0
+            assert len(batch[1]) > 0
 
-        return  dm_raw
+        return dm_raw
 
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_swap_out_performance_direct(self, benchmark, ms_raw_data, limit=-1):
         """
         Performance test: Data write speed to disk
-        """                 
+        """
         raw_dm = ms_raw_data
 
         logger.info(f"Starting Swap Out benchmark for {limit} spectra")
 
-        dm_result = benchmark.pedantic(data_swap_out_direct,
-                                       args=(raw_dm, limit),
-                                       rounds=ROUNDS,
-                                       iterations=1,
-                                       warmup_rounds=1)
+        dm_result = benchmark.pedantic(
+            data_swap_out_direct,
+            args=(raw_dm, limit),
+            rounds=ROUNDS,
+            iterations=1,
+            warmup_rounds=1,
+        )
 
         dm_result.close()
         logger.info("Finished Swap Out benchmark")
@@ -133,16 +140,18 @@ class TestDataSwap:
     def test_swap_out_performance_object(self, benchmark, ms_raw_data, limit=-1):
         """
         Performance test: Data write speed to disk
-        """                 
+        """
         raw_dm = ms_raw_data
 
         logger.info(f"Starting Swap Out benchmark for {limit} spectra")
 
-        dm_result = benchmark.pedantic(data_swap_out_object,
-                                       args=(raw_dm, limit),
-                                       rounds=ROUNDS,
-                                       iterations=1,
-                                       warmup_rounds=1)
+        dm_result = benchmark.pedantic(
+            data_swap_out_object,
+            args=(raw_dm, limit),
+            rounds=ROUNDS,
+            iterations=1,
+            warmup_rounds=1,
+        )
 
         dm_result.close()
         logger.info("Finished Swap Out benchmark")
@@ -160,14 +169,14 @@ class TestDataSwap:
         def set_up_swap_data():
             dm_swap_new = data_swap_out_direct(raw_dm, limit=limit)
             raw_dm.clear_all_data_memory()
-            return (dm_swap_new, ), {}
-        
+            return (dm_swap_new,), {}
 
-        benchmark.pedantic(partial(data_swap_in_benchmark,mode=mode),
-                           setup=set_up_swap_data,
-                           rounds=ROUNDS,
-                           iterations=1,
-                           warmup_rounds=1)
+        benchmark.pedantic(
+            partial(data_swap_in_benchmark, mode=mode),
+            setup=set_up_swap_data,
+            rounds=ROUNDS,
+            iterations=1,
+            warmup_rounds=1,
+        )
 
         logger.info("Finished Swap In benchmark")
-
