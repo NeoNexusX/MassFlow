@@ -10,14 +10,14 @@ class CardinalAdapter:
     Preprocessing adapter, calling the R language Cardinal package for data preprocessing.
     """
     @staticmethod
-    def align_massdata(dm_data: MSDataManagerImzML,
-                       reference=None,
-                       tolerance=None,
-                       units: str = "ppm",
-                       binfun: str = "min",
-                       binratio: float = 2.0,
-                       temp_dir: str = "./temp_align_data"
-                       ) -> MSDataManagerImzML:
+    def align(data_manager: MSDataManagerImzML,
+              reference=None,
+              tolerance=None,
+              units: str = "ppm",
+              binfun: str = "min",
+              binratio: float = 2.0,
+              temp_dir: str = "./temp_align_data"
+              ) -> MSDataManagerImzML:
         """
         Call Cardinal::peakAlign for peak alignment.
         """
@@ -25,15 +25,15 @@ class CardinalAdapter:
 
         ms_cardinal = MassSpectrumSet()
         dm_cardinal = MSDataManagerImzML(ms_cardinal, temp_dir=temp_dir)
-        dm_cardinal.copy_meta(dm_data)
+        dm_cardinal.copy_meta(data_manager)
         dm_cardinal.ms.meta.continuous = True
 
-        r_reference = r_env.FloatVector(reference) if reference is not None else r_env.robjects.NULL
-        r_tol = r_env.FloatVector([tolerance]) if tolerance is not None else r_env.robjects.NA_Real
+        r_reference = r_env.float_vector(reference) if reference is not None else r_env.robjects.NULL
+        r_tol = r_env.float_vector([tolerance]) if tolerance is not None else r_env.robjects.NA_Real
 
-        logger.info(f"Starting peak alignment using Cardinal::peakAlign")
+        logger.info(f"Starting peak alignment using Cardinal::peakAlign(units={units}, binfun={binfun}, binratio={binratio})")
 
-        imzml_filepath = dm_data.filepath
+        imzml_filepath = data_manager.filepath
         r_massdata = r_env.cardinal.readImzML(imzml_filepath)
 
         aligned_massdata = r_env.cardinal.peakAlign(
@@ -54,42 +54,43 @@ class CardinalAdapter:
 
         logger.info(f"Peak alignment completed and data saved to {aligned_filepath}")
         return dm_cardinal
-    
+
     @staticmethod
-    def peak_pick(dm_data: MSDataManagerImzML,
-                  method: str = "mad",
-                  SNR: float = 3.0,
+    def peak_pick(data_manager: MSDataManagerImzML,
+                  method: str = "mad", # "diff", "sd", "mad", "quantile", "filter", "cwt"
+                  snr: float = 3.0,
+                  return_type: str = "height", # "height", "area"
                   temp_dir: str = "./temp_pick_data"
                   ) -> MSDataManagerImzML:
         """
         Call Cardinal::peakPick for peak picking.
         """
         r_env = REnvironment()
-        
+
         ms_cardinal = MassSpectrumSet()
         dm_cardinal = MSDataManagerImzML(ms_cardinal, temp_dir=temp_dir)
-        dm_cardinal.copy_meta(dm_data)
-        dm_cardinal.ms.meta.processed = True
-        
+        dm_cardinal.copy_meta(data_manager)
 
-        r_snr = r_env.FloatVector([SNR])
+        r_snr = r_env.float_vector([snr])
 
-        logger.info(f"Starting peak picking using Cardinal::peakPick (method={method}, SNR={SNR})")
+        logger.info(f"Starting peak picking using Cardinal::peakPick (method={method}, SNR={snr}, type={return_type})")
 
-        imzml_filepath = dm_data.filepath
+        imzml_filepath = data_manager.filepath
         r_massdata = r_env.cardinal.readImzML(imzml_filepath)
 
         picked_massdata = r_env.cardinal.peakPick(
             r_massdata,
             method=method,
-            SNR=r_snr
+            SNR=r_snr,
+            type=return_type,
         )
 
         picked_massdata_realize = r_env.cardinal.process(picked_massdata)
+        dm_cardinal.ms.meta.processed = True
 
         picked_filepath = dm_cardinal.filepath
         r_env.cardinal.writeMSIData(picked_massdata_realize, file=picked_filepath, bundle=False)
-        
+
         dm_cardinal.load_full_data_from_file()
 
         logger.info(f"Peak picking completed and data saved to {picked_filepath}")

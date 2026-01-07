@@ -36,10 +36,8 @@ from typing import Union, Optional, Sequence
 import numpy as np
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.spectrum import Spectrum
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.tools.logger import get_logger
-from massflow.preprocess.helper.peak_align_helper import align_massdata, align_spectrum
-from massflow.r_preprocess.adapter import CardinalAdapter
+from massflow.preprocess.helper.peak_align_helper import align_spectrum
 from massflow.preprocess.helper.filter_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
 from massflow.preprocess.helper.baseline_correction_helper import baseline_corrector
@@ -94,7 +92,7 @@ class SpectrumPreprocess:
                             width: int | Sequence[int] = 2,
                             method: str = 'scipy',
                             relheight: float = 0.1,
-                            return_type: str = 'height') -> Spectrum:
+                            return_type: str = 'height') -> SpectrumImzML:
         """
         Perform peak picking on a single spectrum and return a reduced spectrum.
 
@@ -122,10 +120,10 @@ class SpectrumPreprocess:
                                                     relheight=relheight,
                                                     return_type=return_type)
 
-        return Spectrum(
+        return SpectrumImzML(
             mz_list=peak_index,
             intensity=peak_intensity,
-            coordinate=data.coordinate,
+            coordinates=data.coordinate,
         )
 
     @staticmethod
@@ -165,93 +163,39 @@ class SpectrumPreprocess:
         )
 
     @staticmethod
-    def peak_alignment(data_manager: Optional[MSDataManagerImzML] = None,
-                       spectrum: Optional[SpectrumImzML] = None,
-                       ref: Optional[np.ndarray] = None,
-                       units: str = 'ppm',
-                       tolerance: Optional[float] = None,
-                       binfun: str = 'median',
-                       binratio: int = 2,
-                       backend_method: Optional[str] = "python",
-                       batch_size: int = 256,
-                       clear_memory: bool = True,
-                       temp_dir: str = "./temp_align_data"
-                       ):
+    def peak_align_spectrum(spectrum: Spectrum,
+                            ref: np.ndarray,
+                            tolerance: float,
+                            units: str = 'ppm',
+                            ) -> SpectrumImzML:
         """
-        Align peaks across spectra in MS data using specified backend.
-
-        This method provides a unified interface for peak alignment, supporting both
-        Python-based implementation and R-based Cardinal implementation. It can align
-        an entire dataset (MSDataManagerImzML) or a single spectrum (SpectrumImzML).
+        Align peaks across spectra in MS data.
+        This method can align a single spectrum (Spectrum).
 
         Parameters:
-            data_manager (MSDataManagerImzML, optional): The data manager containing the mass spectra to align.
-                Required if `spectrum` is None.
-            spectrum (SpectrumImzML, optional): A single spectrum to align.
-                Required if `data_manager` is None.
-            ref (np.ndarray, optional): External reference m/z axis.
-                If None, it will be estimated from the data (for data_manager) or must be provided (for single spectrum).
-            units (str): Units for tolerance and resolution ('ppm' or 'absolute'). Default is 'ppm'.
-            tolerance (float, optional): The tolerance window for peak matching.
-                If None, it will be estimated from the data.
-            binfun (str): Aggregation function for estimating resolution ('median', 'min', 'max', 'mean').
-                Default is 'median'.
-            binratio (int): Ratio to scale the estimated resolution to determine tolerance. Default is 2.
-            backend_method (str, optional): The backend to use for alignment.
-                - 'cardinal': Use the R Cardinal package (requires R environment).
-                - 'python' (or None): Use the native Python implementation.
+            spectrum : A single spectrum to align.
+            ref (np.ndarray): External reference m/z axis.
+                must be provided (for single spectrum).
+            units (str): Units for tolerance and resolution ('ppm' or 'mz'). Default is 'ppm'.
+            tolerance (float): The tolerance window for peak matching.
+                must be provided (for single spectrum).
 
         Returns:
-            MSDataManagerImzML | SpectrumImzML: The aligned data manager or spectrum.
+            SpectrumImzML: The aligned spectrum.
 
         Raises:
-            ValueError: If neither `data_manager` nor `spectrum` is provided, or if required parameters
-                (ref, tolerance) are missing for single spectrum alignment.
+            ValueError: If required parameters (ref, tolerance) are missing for single spectrum alignment.
         """
 
-        logger.info(
-            "peak_alignment_entry: backend=%s, binfun=%s, tolerance=%s, units=%s",
-            backend_method,
-            binfun,
-            tolerance,
-            units,
-        )
+        if spectrum is None or ref is None or tolerance is None:
+            raise ValueError("For single spectrum alignment, 'spectrum', 'ref', and 'tolerance' must be provided.")
 
-        if backend_method == "cardinal" and data_manager is not None:
-            aligned_data_manager = CardinalAdapter.align_massdata(
-                                                                  dm_data=data_manager,
-                                                                  reference=ref,
-                                                                  tolerance=tolerance,
-                                                                  units=units,
-                                                                  binfun=binfun,
-                                                                  binratio=binratio,
-                                                                  temp_dir=temp_dir)
-            return aligned_data_manager
+        tolerance = tolerance * 1e-6 if units == "ppm" else tolerance
 
-        tolerance = tolerance * 1e-6 if tolerance is not None and units == "ppm" else tolerance
-
-        if spectrum is not None:
-            if ref is None or tolerance is None:
-                raise ValueError("Reference and tolerance must be provided for single spectrum alignment.")
-            aligned_spectrum = align_spectrum(spectrum=spectrum,
-                                              reference=ref,
-                                              tolerance=tolerance,
-                                              units=units)
-            return aligned_spectrum
-
-        if data_manager is not None and spectrum is None:
-            aligned_data_manager = align_massdata(data_manager=data_manager,
-                                                  reference=ref,
-                                                  tolerance=tolerance,
-                                                  units=units,
-                                                  binfun=binfun,
-                                                  binratio=binratio,
-                                                  batch_size=batch_size,
-                                                  clear_memory=clear_memory,
-                                                  temp_dir=temp_dir)
-            return aligned_data_manager
-
-        raise ValueError("Either 'data_manager' or 'spectrum' must be provided for alignment.")
+        return align_spectrum(spectrum=spectrum,
+                              reference=ref,
+                              tolerance=tolerance,
+                              units=units)
 
     @staticmethod
     def baseline_correction_spectrum(
@@ -452,4 +396,3 @@ class SpectrumPreprocess:
 
         logger.info(f"SNR: signal_level:{signal_level}, noise:{noise}")
         return signal_level / noise
-

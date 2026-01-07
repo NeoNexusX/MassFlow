@@ -1,11 +1,11 @@
-import pytest
 import time
-import numpy as np
 from typing import Optional
+import pytest
+import numpy as np
 from massflow.tools.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
+from massflow.preprocess.dm_pre_fun import Preprocess
 from massflow.r_preprocess import set_default_r_home
 
 pytest.importorskip("pytest_benchmark")
@@ -23,13 +23,13 @@ set_default_r_home("r_home_path_here")  # set R_HOME path here
 @pytest.fixture(scope="module")
 def data_manager(filepath=FILEPATH) -> MSDataManagerImzML:
     mass_data = MassSpectrumSet()
-    manager_data = MSDataManagerImzML(mass_data, filepath=filepath)
-    manager_data.load_full_data_from_file()
-    return manager_data
+    dm = MSDataManagerImzML(mass_data, filepath=filepath)
+    dm.load_full_data_from_file()
+    return dm
 
 
 def run_alignment_task(
-    data_manager: MSDataManagerImzML,
+    dm: MSDataManagerImzML,
     units: str,
     binfun: str,
     binratio: int,
@@ -37,8 +37,8 @@ def run_alignment_task(
     backend_method: str = "python",
 ) -> MSDataManagerImzML:
 
-    align_manager = SpectrumPreprocess.peak_alignment(
-        data_manager=data_manager,
+    align_manager = Preprocess.peak_align(
+        data_manager=dm,
         ref=None,
         units=units,
         tolerance=tolerance,
@@ -150,6 +150,7 @@ def compare_align_result(
 
 
 class TestPeakAlignment:
+    """test peak alignment functionality"""
 
     @pytest.mark.parametrize("units, tolerance", [("ppm", None)])
     @pytest.mark.parametrize("binfun", ["median"])
@@ -159,13 +160,13 @@ class TestPeakAlignment:
     def test_peak_alignment_benchmark(
         self,
         benchmark,
-        data_manager,
-        units,
-        tolerance,
-        binfun,
-        binratio,
-        backend_method,
-    ):
+        data_manager: MSDataManagerImzML,
+        units: str,
+        tolerance: Optional[float],
+        binfun: str,
+        binratio: int,
+        backend_method: str,
+    ) -> None:
         """
         Performance Test: Run peak alignment benchmark.
         """
@@ -184,8 +185,14 @@ class TestPeakAlignment:
     @pytest.mark.parametrize("binratio", [2])
     @pytest.mark.parametrize("mz_range", MZ_RANGES)
     def test_peak_alignment_validation(
-        self, data_manager, units, tolerance, binfun, binratio, mz_range
-    ):
+        self,
+        data_manager: MSDataManagerImzML,
+        units: str,
+        tolerance: Optional[float],
+        binfun: str,
+        binratio: int,
+        mz_range: tuple[float, float],
+    ) -> None:
         """
         Functional Test: Verify the correctness of peak alignment results.
         """

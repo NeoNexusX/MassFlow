@@ -2,9 +2,9 @@ from typing import Literal, Optional, Tuple
 import numpy as np
 from numpy.typing import NDArray
 from massflow.tools.logger import get_logger
-from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.spectrum import Spectrum
 from massflow.module.spectrum_imzml import SpectrumImzML
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.module.ms_data_manager import MSDataManager
 import massflow.preprocess.numba.peak_align_compute as compute
 
 logger = get_logger("peak_alignment")
@@ -29,7 +29,7 @@ def _normalize_units(units: str) -> Literal["relative", "absolute"]:
 
 
 def estimate_domain(
-    data_manager: MSDataManagerImzML,
+    data_manager: MSDataManager,
     binfun: str = "median",
     binratio: float = 2.0,
     units: str = "relative",
@@ -114,7 +114,7 @@ def estimate_domain(
 
 
 def bin_peaks(
-    data_manager: MSDataManagerImzML,
+    data_manager: MSDataManager,
     domain: NDArray,
     tolerance: float,
     tol_method: str = "abs",
@@ -208,7 +208,6 @@ def bin_peaks(
     peaks_acc[nonzero] /= counts[nonzero]
     peaks_acc[~nonzero] = np.nan
 
-    logger.info("Merging peaks...")
     reference = merge_peaks(
         mz_list=peaks_acc, counts=counts, tolerance=tolerance, tol_method=tol_method
     )
@@ -336,7 +335,7 @@ def merge_peaks(
 
 
 def compute_reference(
-    data_manager: MSDataManagerImzML,
+    data_manager: MSDataManager,
     reference: Optional[NDArray] = None,
     binfun="median",
     binratio=2.0,
@@ -363,7 +362,8 @@ def compute_reference(
     logger.info(
         f"Domain estimated: size={domain.size}, estimate_tolerance={estimate_tolerance}"
     )
-    tolerance = estimate_tolerance if tolerance is None else tolerance
+
+    tolerance = estimate_tolerance if tolerance is None else (tolerance * 1e-6 if units == "ppm" else tolerance)
 
     if reference is not None:
         return reference, tolerance
@@ -381,7 +381,7 @@ def compute_reference(
 
 
 def align_spectrum(
-    spectrum: SpectrumImzML,
+    spectrum: Spectrum,
     reference: NDArray,
     tolerance: float,
     units: str = "ppm",
@@ -403,74 +403,9 @@ def align_spectrum(
     )
 
     spectrumed = SpectrumImzML(
-        index=spectrum._index,
         mz_list=reference,
         intensity=aligned_intensity,
         coordinates=spectrum.coordinate,
     )
 
-    spectrum.clear_data()
     return spectrumed
-
-
-def align_massdata(
-    data_manager: MSDataManagerImzML,
-    reference: Optional[NDArray] = None,
-    tolerance: Optional[float] = None,
-    units: str = "ppm",
-    binfun: str = "max",
-    binratio: float = 2.0,
-    batch_size: int = 256,
-    clear_memory: bool = True,
-    temp_dir: str = "./temp_align_data",
-) -> MSDataManagerImzML:
-    """Align all spectra in MSDataManagerImzML."""
-
-    if reference is None or tolerance is None:
-        reference, tolerance = compute_reference(
-            data_manager=data_manager,
-            reference=reference,
-            binfun=binfun,
-            binratio=binratio,
-            tolerance=tolerance,
-            units=units,
-            batch_size=batch_size,
-            clear_memory=clear_memory,
-        )
-    logger.info(
-        f"Starting mass data alignment. Reference size: {reference.size}, Tolerance: {tolerance}"
-    )
-
-    aligned_ms = MassSpectrumSet()
-    aligned_manager = MSDataManagerImzML(aligned_ms, temp_dir=temp_dir)
-    aligned_manager.copy_meta(data_manager)
-    writer = aligned_manager.writer
-
-    total_spectra = len(data_manager.ms)
-    processed = 0
-
-    for batch_idx, batch in enumerate(
-        data_manager.get_batch_generator(batch_size=batch_size), start=1
-    ):
-        for spectrum in batch:
-            aligned_spectrum = align_spectrum(
-                spectrum=spectrum,
-                reference=reference,
-                tolerance=tolerance,
-                units=units,
-            )
-            aligned_spectrum.swap_out2disk(writer)
-        processed += len(batch)
-        logger.info(
-            f"Aligned batch {batch_idx}: {len(batch)} spectra (cumulative {processed}/{total_spectra})"
-        )
-        data_manager.clear_batch_data_memory(batch)
-
-    aligned_manager.close_writer()
-    aligned_manager.load_full_data_from_file()
-
-    logger.info("Mass data alignment completed.")
-    if aligned_manager.ms.meta is not None:
-        aligned_manager.ms.meta.continuous = True
-
-    return aligned_manager

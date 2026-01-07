@@ -354,6 +354,11 @@ class MSDataManager(ABC):
         for spec in batch:
             spec.clear_data()
 
+    def swap_batch_data_out2disk(self, batch, writer):
+        """Swap out a batch of spectra to disk to free memory."""
+        for spec in batch:
+            spec.swap_out2disk(writer=writer)
+
     def clear_all_data_memory(self):
         """
         Clear data in all spectra to free memory.

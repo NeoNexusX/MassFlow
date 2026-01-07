@@ -12,6 +12,7 @@ Classes:
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
+from typing import Optional
 from pyimzml.ImzMLParser import PortableSpectrumReader
 from massflow.module.spectrum import Spectrum
 from massflow.tools.stream_imzml_writer import ImzMLWriter
@@ -50,8 +51,8 @@ class SpectrumImzML(Spectrum):
     """
 
     def __init__(self,
-                 index: int,
                  coordinates,
+                 index: Optional[int] = None,
                  reader=None,
                  ibd_path=None,
                  mz_list=None,
@@ -60,9 +61,9 @@ class SpectrumImzML(Spectrum):
                  sort_by_mz: bool = True,):
 
         # ImzML reader part
-        self._reader :PortableSpectrumReader= reader
+        self._reader :Optional[PortableSpectrumReader]= reader
         self._ibd_path = ibd_path
-        self._index = int(index)
+        self._index = index
 
         # Super init part
         super().__init__(mz_list=mz_list,
@@ -77,13 +78,17 @@ class SpectrumImzML(Spectrum):
         Base implementation handles loading from swap file if available.
         """
         # this part cant use logger because it may be called x100000
-        if self._reader is not None and self._ibd_path is not None and self._intensity is None:
-            # logger.debug(f"Lazy loading spectrum index {self._index} from ImzML file")
-            with open(self._ibd_path, 'rb') as f:
-                mz_list, intensity = self._reader.read_spectrum_from_file(f, self._index)
-                if self._mz_list is None:
-                    self._mz_list = mz_list.copy()
-                self._intensity = intensity.copy()
+        if self._reader is not None and self._ibd_path is not None and self._index is not None:
+            if self._intensity is None:
+                # logger.debug(f"Lazy loading spectrum index {self._index} from ImzML file")
+                with open(self._ibd_path, 'rb') as f:
+                    mz_list, intensity = self._reader.read_spectrum_from_file(f, self._index)
+                    if self._mz_list is None:
+                        self._mz_list = mz_list.copy()
+                    self._intensity = intensity.copy()
+        else:
+            logger.error("ImzML spectrum reader or ibd_path or index not properly set.")
+            raise ValueError("ImzML spectrum reader or ibd_path or index not properly set.")
 
     def swap_out2disk(self, writer: ImzMLWriter):
         """Write spectrum data to disk using ImzMLWriter."""

@@ -23,21 +23,21 @@ class RConfig:
         """
         if cls.DEFAULT_R_HOME and os.path.exists(cls.DEFAULT_R_HOME):
             return cls.DEFAULT_R_HOME
-        
+
         if shutil.which("R"):
             try:
                 output = subprocess.check_output(
-                    ["R", "RHOME"], 
-                    universal_newlines=True, 
+                    ["R", "RHOME"],
+                    universal_newlines=True,
                     stderr=subprocess.DEVNULL
                 )
                 return output.strip()
             except subprocess.CalledProcessError:
                 pass
-        
+
         logger.error("R_HOME could not be detected automatically. Please set R_HOME environment variable or provide R_HOME path.")
         return None
-        
+
     @staticmethod
     def setup_env(r_home: Optional[str] = None):
         """
@@ -61,9 +61,9 @@ class RConfig:
 
         if not target_home or not os.path.exists(target_home):
             raise FileNotFoundError(f"R_HOME not found at: {target_home}")
-            
+
         os.environ['R_HOME'] = target_home
-        
+
         if sys.platform == 'win32':
             # Windows: Need to add bin/x64 to PATH
             r_bin = os.path.join(target_home, 'bin', 'x64')
@@ -71,7 +71,7 @@ class RConfig:
                 os.environ['PATH'] = r_bin + os.pathsep + os.environ['PATH']
             # Force ABI mode to be compatible with different versions
             os.environ.setdefault('RPY2_CFFI_MODE', 'ABI')
-            
+
         logger.info(f"R Environment configured successfully. R_HOME={target_home}")
 
 class REnvironment:
@@ -80,12 +80,13 @@ class REnvironment:
     """
     _instance = None
     pkgs: Dict[str, Any] = {}
-    
+
     # rpy2 object cache
     robjects = None
-    FloatVector = None
-    IntVector = None
-    ListVector = None
+    float_vector = None
+    int_vector = None
+    list_vector = None
+    _importr = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -97,20 +98,20 @@ class REnvironment:
         try:
             # 1. Configure environment
             RConfig.setup_env()
-            
+
             # 2. Lazy import
             try:
-                import rpy2.robjects as robjects
-                from rpy2.robjects.packages import importr
-                from rpy2.robjects.vectors import FloatVector, IntVector, ListVector
+                import rpy2.robjects as robjects  # pylint: disable=import-outside-toplevel
+                from rpy2.robjects.packages import importr  # pylint: disable=import-outside-toplevel
+                from rpy2.robjects.vectors import FloatVector, IntVector, ListVector  # pylint: disable=import-outside-toplevel
             except ImportError as e:
                 logger.error("Required Python package 'rpy2' is not installed.")
                 raise ImportError("Please install rpy2 via 'pip install rpy2' before running.") from e
 
             self.robjects = robjects
-            self.FloatVector = FloatVector
-            self.IntVector = IntVector
-            self.ListVector = ListVector
+            self.float_vector = FloatVector
+            self.int_vector = IntVector
+            self.list_vector = ListVector
             self._importr = importr
 
             # 3. Load base packages
@@ -122,24 +123,24 @@ class REnvironment:
             except Exception as e:
                 logger.error("Failed to load essential R packages.")
                 raise RuntimeError("Could not load base R packages.") from e
-            
+
             # 4. Try to load Cardinal
             try:
                 self.pkgs['cardinal'] = importr('Cardinal')
             except Exception as e:
                 logger.error("Failed to load 'Cardinal' R package. Ensure it is installed in your R environment.")
                 raise RuntimeError("Could not load Cardinal package.") from e
-            
+
             ver = self.pkgs['utils'].packageVersion('Cardinal')
             logger.info(f"R loaded successfully. Cardinal version: {ver}")
-        
+
         except (ImportError, RuntimeError):
             raise
 
         except Exception as e:
             logger.error(f"Unexpected R Environment initialization failure: {e}")
             raise RuntimeError(f"Unknown error during R setup: {type(e).__name__}") from e
-        
+
     @property
     def cardinal(self):
         """Get Cardinal package, reload if namespace is invalid."""
@@ -147,7 +148,7 @@ class REnvironment:
             # Try to access a Cardinal function to verify if the package is available
             _ = self.pkgs['cardinal'].readImzML
             return self.pkgs['cardinal']
-        except Exception:
+        except Exception:# pylint: disable=broad-exception-caught
             # Reload Cardinal package
             logger.warning("Cardinal package namespace invalid, reloading...")
             self.pkgs['cardinal'] = self._importr('Cardinal')
