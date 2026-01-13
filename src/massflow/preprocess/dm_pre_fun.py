@@ -208,3 +208,94 @@ class Preprocess:
         picked_data_manager.load_full_data_from_file()
 
         return picked_data_manager
+
+    @staticmethod
+    def noise_reduction(
+        data_manager: MSDataManager,
+        method: str = "ma",
+        window: int = 5,
+        sd: float | None = None,
+        sd_intensity: float | None = None,
+        p: int = 2,
+        coef: np.ndarray | None = None,
+        polyorder: int = 3,
+        deriv: int = 0,
+        delta: float = 1.0,
+        wavelet: str = "db4",
+        threshold_mode: str = "soft",
+        batch_size: int = 256,
+        temp_dir: str = "./temp_noise_data",
+    ) -> MSDataManagerImzML:
+        """Perform noise reduction on MSDataManager data.
+
+        This method follows the same batching pattern as :meth:`peak_pick`, but forwards
+        all denoising parameters to :meth:`SpectrumPreprocess.noise_reduction_spectrum` via
+        :meth:`BatchPreprocess.noise_reduction_batch`.
+
+        Parameters:
+            data_manager: Data manager containing spectra to be denoised.
+            method: One of {'ma','gaussian','savgol','wavelet','ma_ns','gaussian_ns','bi_ns'}.
+            window: Window size or neighbor count depending on method.
+            sd: Gaussian scale parameter.
+            sd_intensity: Intensity scale for bilateral method.
+            p: Minkowski metric for NS queries.
+            coef: Custom kernel for 'ma'.
+            polyorder: Polynomial order for Savitzky-Golay.
+            deriv: Derivative order for Savitzky-Golay.
+            delta: Sample spacing for Savitzky-Golay.
+            wavelet: Wavelet family for wavelet denoising.
+            threshold_mode: 'soft' or 'hard' thresholding.
+            batch_size: Number of spectra per batch.
+            temp_dir: Temporary directory for writing denoised data.
+
+        Returns:
+            MSDataManagerImzML containing denoised spectra.
+        """
+
+        if data_manager is None:
+            raise ValueError("data_manager must be provided for noise reduction.")
+
+        logger.info(
+            "noise_reduction_entry: method=%s, window=%s, polyorder=%s, sd=%s",
+            method,
+            window,
+            polyorder,
+            sd,
+        )
+
+        denoised_ms = MassSpectrumSet()
+        denoised_data_manager = MSDataManagerImzML(denoised_ms)
+        ## denoised_data_manager = MSDataManagerImzML(denoised_ms, temp_dir=temp_dir)
+        denoised_data_manager.copy_meta(data_manager)
+
+        ## writer = denoised_data_manager.writer
+
+        total_batches = Preprocess._total_batches(data_manager, batch_size)
+
+        for batch_idx, batch in enumerate(data_manager.get_batch_generator(batch_size=batch_size), start=1):
+            denoised_batch = BatchPreprocess.noise_reduction_batch(
+                batch_spectra=batch,
+                method=method,
+                window=window,
+                sd=sd,
+                sd_intensity=sd_intensity,
+                p=p,
+                coef=coef,
+                polyorder=polyorder,
+                deriv=deriv,
+                delta=delta,
+                wavelet=wavelet,
+                threshold_mode=threshold_mode,
+            )
+            # data_manager.clear_batch_data_memory(batch=batch)
+            ## denoised_data_manager.swap_batch_data_out2disk(batch=denoised_batch, writer=writer)
+
+            for spec in denoised_batch:
+                denoised_data_manager.ms.add_spectrum(spec)
+
+            Preprocess._log_progress(total_batches, batch_idx)
+        ##  denoised_data_manager.close_writer()
+        ##  denoised_data_manager.load_full_data_from_file()
+
+
+        return denoised_data_manager

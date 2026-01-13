@@ -12,6 +12,7 @@ from scipy import stats
 from scipy import signal, linalg
 from massflow.tools.logger import get_logger
 from massflow.module.spectrum import Spectrum
+from massflow.preprocess.numba.noise_reduction_numba import smooth_signal_savgol_numba
 
 logger = get_logger("preprocesss")
 
@@ -172,7 +173,7 @@ def smooth_signal_savgol(
         intensity:np.ndarray,
         window: int = 5,
         polyorder: int = 3,
-        derive: int = 0,
+        deriv: int = 0,
         delta: float = 1.0
 ):
     """
@@ -188,7 +189,12 @@ def smooth_signal_savgol(
             Window size (must be a positive integer and greater than polyorder; SciPy requires odd window length).
         polyorder : int
             Polynomial order (must be less than window)
-            
+        deriv : int
+            The order of the derivative to compute. This must be a nonnegative integer. The default is 0, which means to filter
+            the data without differentiating.
+        delta : float
+            The spacing of the samples to which the filter will be applied.
+            This is only used if deriv > 0. Default is 1.0.    
     Returns:
         np.ndarray
             Smoothed signal
@@ -207,7 +213,7 @@ def smooth_signal_savgol(
         raise ValueError("polyorder must be less than window")
 
     # Apply Savitzky-Golay filter
-    return savgol_filter(intensity, window, polyorder, deriv=derive, delta=delta)
+    return savgol_filter(intensity, window, polyorder, deriv=deriv, delta=delta)
 
 def smooth_signal_wavelet(
         intensity:np.ndarray,
@@ -553,22 +559,22 @@ def smooth_signal_loess(intensity: np.ndarray, window: int = 11):
     x1 = np.arange(1. - halfw, (halfw - 1.) + 1)
 
     weight = (1. - np.divide(np.abs(x1), halfw) ** 3.) ** 1.5
-    V = (np.vstack((np.hstack(weight), np.hstack(weight * x1), np.hstack(weight * x1 * x1)))).transpose()
-    Q, _ = linalg.qr(V, mode='economic')
+    v = (np.vstack((np.hstack(weight), np.hstack(weight * x1), np.hstack(weight * x1 * x1)))).transpose()
+    q, _ = linalg.qr(v, mode='economic')
 
-    alpha = np.dot(Q[halfw - 1,], Q.transpose())
+    alpha = np.dot(q[halfw - 1,], q.transpose())
     yhat = signal.lfilter(alpha * weight, 1, y)
     yhat[int(halfw + 1) - 1:-halfw] = yhat[int(window - 1) - 1:-1]
 
     x1 = np.arange(1., (window - 1.) + 1)
-    V = (np.vstack((np.hstack(np.ones([1, window - 1])), np.hstack(x1), np.hstack(x1 * x1)))).transpose()
+    v = (np.vstack((np.hstack(np.ones([1, window - 1])), np.hstack(x1), np.hstack(x1 * x1)))).transpose()
 
     for j in np.arange(1, (halfw) + 1):
         weight = (1. - np.divide(np.abs((np.arange(1, window) - j)), window - j) ** 3.) ** 1.5
-        W = (np.kron(np.ones((3, 1)), weight)).transpose()
-        Q, _ = linalg.qr(V * W, mode='economic')
+        w = (np.kron(np.ones((3, 1)), weight)).transpose()
+        q, _ = linalg.qr(v * w, mode='economic')
 
-        alpha = np.dot(Q[j - 1,], Q.transpose())
+        alpha = np.dot(q[j - 1,], q.transpose())
         alpha = alpha * weight
         yhat[int(j) - 1] = np.dot(alpha, y[:int(window) - 1])
         yhat[int(-j)] = np.dot(alpha, y[np.arange(leny - 1, leny - window, -1, dtype=int)])
@@ -584,7 +590,7 @@ def smoother(intensity:np.ndarray,
             p: int = 2,
             coef: np.ndarray = None,
             polyorder: int = 2,
-            derive: int = 0,
+            deriv: int = 0,
             delta: float = 1.0,
             wavelet: str = 'db4',
             threshold_mode: str = 'soft'):
@@ -602,6 +608,10 @@ def smoother(intensity:np.ndarray,
         p (int): Minkowski metric for NS queries.
         coef (np.ndarray, optional): Custom kernel for moving-average.
         polyorder (int): Polynomial order for Savitzky-Golay.
+        deriv (int): The order of the derivative to compute. This must be a nonnegative integer. The default is 0, which means to filter
+            the data without differentiating.
+        delta (float): The spacing of the samples to which the filter will be applied.
+            This is only used if deriv > 0. Default is 1.0.
         wavelet (str): Wavelet family for wavelet denoising.
         threshold_mode (str): 'soft' or 'hard' for wavelet thresholding.
 
@@ -614,10 +624,14 @@ def smoother(intensity:np.ndarray,
     """
     # Normalize method and validate supported set
     method_norm = (method or "ma").strip().lower()
-    supported = {"ma", "gaussian", "savgol", "wavelet", "ma_ns", "gaussian_ns", "bi_ns"}
+
+    supported = {
+        "ma", "gaussian", "savgol", "wavelet", "ma_ns", "gaussian_ns", "bi_ns",
+        "savgol_numba"
+    }
     if method_norm not in supported:
         logger.error(
-            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns",
+            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, savgol_numba",
             method,
         )
         raise ValueError(f"Unsupported smoothing method: {method}")
@@ -633,7 +647,11 @@ def smoother(intensity:np.ndarray,
 
     elif method_norm == "savgol":
         _input_validation(intensity=intensity, window=window)
-        return smooth_signal_savgol(intensity, window=window, polyorder=polyorder)
+        return smooth_signal_savgol(intensity, window=window, polyorder=polyorder, deriv=deriv, delta=delta)
+
+    elif method_norm == "savgol_numba":
+        # _input_validation(intensity=intensity, window=window)
+        return smooth_signal_savgol_numba(intensity, window=window, polyorder=polyorder, deriv=deriv, delta=delta)
 
     elif method_norm == "wavelet":
         _input_validation(intensity=intensity)

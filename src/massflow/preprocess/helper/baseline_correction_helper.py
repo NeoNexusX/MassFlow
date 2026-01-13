@@ -66,23 +66,23 @@ def asls_baseline(
         return np.array([], dtype=np.float64)
 
     ones_n_minus_2 = np.ones(n - 2)
-    D = diags(
+    d = diags(
         diagonals=[ones_n_minus_2, -2.0 * ones_n_minus_2, ones_n_minus_2],
         offsets=[0, 1, 2],
         shape=(n - 2, n),
         dtype=np.float64,
     )
-    # D^T D is a 5-diagonal sparse matrix
-    DT_D = D.T @ D
+    # d^T d is a 5-diagonal sparse matrix
+    dt_d = d.T @ d
 
     w = np.ones(n, dtype=np.float64)
     baseline = intensity.copy()
 
     for _ in range(int(max(1, niter))):
-        W = diags(w, 0, shape=(n, n), dtype=np.float64)
-        Z = (W + lam * DT_D).tocsc()
+        w_mat = diags(w, 0, shape=(n, n), dtype=np.float64)
+        z_mat = (w_mat + lam * dt_d).tocsc()
         rhs = w * intensity
-        baseline = spsolve(Z, rhs)
+        baseline = spsolve(z_mat, rhs)
         # asymmetric weights: points above baseline get smaller weight
         w = p * (intensity > baseline) + (1.0 - p) * (intensity <= baseline)
 

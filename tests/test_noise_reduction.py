@@ -1,67 +1,94 @@
 import time
-from functools import partial
-
+import numpy as np
 import pytest
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.tools.logger import get_logger
-from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
+from massflow.preprocess.dm_pre_fun import Preprocess
+pytestmark = pytest.mark.filterwarnings("ignore:This process .* is multi-threaded, use of fork():DeprecationWarning")
 
 logger = get_logger("test_noise_reduction")
 
-# @pytest.fixture(scope="function")
-def pre_load_data_setup(data_file_path="data/example.imzML"):
-    #pre load data
+@pytest.fixture(scope="module")
+def noise_data_manager(data_file_path="data/example.imzML") -> MSDataManagerImzML:
+    """Fixture providing MSDataManagerImzML instance with fully initialized spectra for noise reduction tests."""
     mass_data = MassSpectrumSet()
+    dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
+    dm.load_full_data_from_file()
 
-    with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
-        ms_md.load_full_data_from_file()
-        ms_md.inspect_data()
+    for _ in dm.get_batch_generator(batch_size=512):
+        pass
+    return dm
 
-        # Pre-load data
-        for spectrum_data in mass_data:
-            _ = spectrum_data.intensity
+def run_noise_reduction_task(
+    dm: MSDataManagerImzML,
+    method: str = "ma",
+    window: int = 11,
+    polyorder: int = 3,
+    batch_size: int = 256,
+) -> MSDataManagerImzML:
+    """Execute noise reduction preprocessing task with specified parameters, including batch size."""
+    denoised_manager = Preprocess.noise_reduction(
+        data_manager=dm,
+        method=method,
+        window=window,
+        polyorder=polyorder,
+        batch_size=batch_size,
+    )
+    return denoised_manager
 
-        logger.info("data pre-load finished!")
+def validate_noise_reduction_result(
+    result_manager: MSDataManagerImzML,
+    original_manager: MSDataManagerImzML,
+) -> None:
+    """Validate basic correctness of noise reduction results: same spectrum count, unchanged mz axis,
+    consistent intensity shape, and all finite values."""
+    assert len(result_manager.ms) == len(original_manager.ms), "Spectrum count mismatch after noise reduction"
 
-    return (mass_data,), {}
+    for i, (src, dst) in enumerate(zip(original_manager.ms, result_manager.ms)):
+        assert dst.mz_list is not None and src.mz_list is not None, f"Spectrum {i} has None mz_list"
+        assert np.array_equal(dst.mz_list, src.mz_list), f"Spectrum {i} mz_list changed after noise reduction"
 
-def replace_spectrum(mass_spectrum: MassSpectrumSet, method="bi_ns"):
-    for i, spectrum in enumerate(mass_spectrum):
-        mass_spectrum[i] = SpectrumPreprocess.noise_reduction_spectrum(spectrum, method=method)
+        dst_intensity = dst.intensity
+        src_intensity = src.intensity
+        assert dst_intensity is not None and src_intensity is not None, f"Spectrum {i} has None intensity"
+        assert dst_intensity.shape == src_intensity.shape, f"Spectrum {i} intensity shape mismatch after noise reduction"
+        assert np.all(np.isfinite(dst_intensity)), f"Spectrum {i} contains NaN or Inf after noise reduction"
 
+class TestNoiseReductionAPI:
+    """Test suite for noise reduction API functionality and performance."""
 
-def replace_spectrum_data(mass_spectrum: MassSpectrumSet, method="bi_ns"):
-    for i, spectrum in enumerate(mass_spectrum):
-        spectrum_new = SpectrumPreprocess.noise_reduction_spectrum(spectrum, method=method)
-        mass_spectrum[i].mz_list = spectrum_new.mz_list
-        mass_spectrum[i].intensity = spectrum_new.intensity
-
-
-class TestNoiseReduction:
-
-    @pytest.mark.parametrize("method", ["ma", "gaussian"])
+    @pytest.mark.parametrize("method", ["ma", "gaussian", "savgol"])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_noise_reduction_methods_replace_data_benchmark(self, benchmark, method):
-        logger.info(f"Testing noise reduction with method: {method}")
+    def test_noise_reduction_benchmark(
+        self,
+        benchmark,
+        noise_data_manager: MSDataManagerImzML,
+        method: str,
+    ) -> None:
+        """Performance test: benchmark Preprocess.noise_reduction execution time."""
+        dm_denoised = benchmark.pedantic(
+            run_noise_reduction_task,
+            args=(noise_data_manager, method, 11, 3, 256),
+            rounds=3,
+            iterations=1,
+            warmup_rounds=0,
+        )
+        dm_denoised.close()
 
-        benchmark.pedantic(partial(replace_spectrum_data,method=method),
-                           rounds=10,
-                           setup=pre_load_data_setup,
-                           iterations=1,
-                           warmup_rounds=1)
+    @pytest.mark.parametrize("method", ["ma", "gaussian", "savgol"])
+    def test_noise_reduction_validation(
+        self,
+        noise_data_manager: MSDataManagerImzML,
+        method: str,
+    ) -> None:
+        """Functional test: validate correctness of Preprocess.noise_reduction output."""
+        dm_denoised = run_noise_reduction_task(
+            noise_data_manager,
+            method=method,
+            window=11,
+            polyorder=3,
+        )
 
-        logger.info(f"Finished noise reduction with method: {method}")
-
-    @pytest.mark.parametrize("method", ["ma", "gaussian"])
-    @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_noise_reduction_methods_replace_spectrum_benchmark(self, benchmark, method):
-        logger.info(f"Testing noise reduction with method: {method}")
-
-        benchmark.pedantic(partial(replace_spectrum,method=method),
-                           rounds=10,
-                           setup=pre_load_data_setup,
-                           iterations=1,
-                           warmup_rounds=1)
-
-        logger.info(f"Finished noise reduction with method: {method}")
+        validate_noise_reduction_result(dm_denoised, noise_data_manager)
+        dm_denoised.close()
