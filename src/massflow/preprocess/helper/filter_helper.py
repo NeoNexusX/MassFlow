@@ -651,6 +651,7 @@ def smoother(intensity:np.ndarray,
 
     elif method_norm == "savgol_numba":
         # _input_validation(intensity=intensity, window=window)
+        # Note: savgol_numba supports 2D batch inputs (n_spectra, n_points); the 1D-only input validation cannot be used here.
         return smooth_signal_savgol_numba(intensity, window=window, polyorder=polyorder, deriv=deriv, delta=delta)
 
     elif method_norm == "wavelet":
@@ -665,6 +666,6 @@ def smoother(intensity:np.ndarray,
         _input_validation(intensity=intensity, index=index, k=window, p=p, sd=sd)
         return smooth_ns_signal_gaussian(intensity, index=index, k=window, p=p, sd=sd)#type: ignore
     else:
-        # bi_ns
+        # Default to bi_ns
         _input_validation(intensity=intensity, index=index, k=window, p=p)
         return smooth_ns_signal_bi(intensity, index=index, k=window, p=p, sd_dist=sd, sd_intensity=sd_intensity) #type: ignore

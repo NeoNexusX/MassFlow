@@ -299,8 +299,8 @@ class SpectrumPreprocess:
             sd (float, optional): Gaussian scale parameter.
             coef (np.ndarray, optional): Custom kernel for 'ma'.
             polyorder (int): Polynomial order for Savitzky-Golay.
-            deriv (int): The order of the derivative to compute. This must be a nonnegative integer. The default is 0, which means to filter
-            the data without differentiating.
+            deriv (int): The order of the derivative to compute. This must be a nonnegative integer. 
+            The default is 0, which means to filter the data without differentiating.
             delta (float): The spacing of the samples to which the filter will be applied.
             wavelet (str): Wavelet family for wavelet denoising.
             threshold_mode (str): 'soft' or 'hard' thresholding.

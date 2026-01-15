@@ -234,7 +234,7 @@ class Preprocess:
 
         Parameters:
             data_manager: Data manager containing spectra to be denoised.
-            method: One of {'ma','gaussian','savgol','wavelet','ma_ns','gaussian_ns','bi_ns'}.
+            method: One of {'ma','gaussian','savgol','savgol_numba','wavelet','ma_ns','gaussian_ns','bi_ns'}.
             window: Window size or neighbor count depending on method.
             sd: Gaussian scale parameter.
             sd_intensity: Intensity scale for bilateral method.
