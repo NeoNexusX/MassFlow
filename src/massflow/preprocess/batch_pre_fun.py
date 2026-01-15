@@ -48,6 +48,7 @@ class BatchPreprocess:
                         width: int | Sequence[int] = 2,
                         method: str = 'scipy',
                         relheight: float = 0.1,
+                        snr: float = 3.0,
                         return_type: str = 'height') -> Sequence[SpectrumImzML]:
         """
         Perform peak picking on a batch of spectra.
@@ -69,6 +70,7 @@ class BatchPreprocess:
                 width=width,
                 method=method,
                 relheight=relheight,
+                snr=snr,
                 return_type=return_type
             )
             picked_spectra.append(picked_spectrum)

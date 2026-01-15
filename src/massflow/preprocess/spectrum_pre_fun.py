@@ -92,6 +92,7 @@ class SpectrumPreprocess:
                             width: int | Sequence[int] = 2,
                             method: str = 'scipy',
                             relheight: float = 0.1,
+                            snr: float = 3.0,
                             return_type: str = 'height') -> SpectrumImzML:
         """
         Perform peak picking on a single spectrum and return a reduced spectrum.
@@ -118,6 +119,7 @@ class SpectrumPreprocess:
                                                     width=width,
                                                     method=method,
                                                     relheight=relheight,
+                                                    snr=snr,
                                                     return_type=return_type)
 
         return SpectrumImzML(

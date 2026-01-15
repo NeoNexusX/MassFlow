@@ -1,0 +1,167 @@
+import time
+from typing import Sequence
+import pytest
+import numpy as np
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.preprocess.dm_pre_fun import Preprocess
+# from massflow.r_preprocess import set_default_r_home
+from massflow.tools.logger import get_logger
+
+logger = get_logger("test_peak_pick")
+FILEPATH = r"./data/example.imzML"
+MZ_RANGES = [(500, 600)]
+ROUND = 1
+TOLERANCE = 0.10
+
+# set_default_r_home("r_home_path_here")  # set R_HOME path here
+
+@pytest.fixture(scope="module")
+def data_manager(filepath=FILEPATH) -> MSDataManagerImzML:
+    mass_data = MassSpectrumSet()
+    dm = MSDataManagerImzML(mass_data, filepath=filepath)
+    dm.load_full_data_from_file()
+    return dm
+
+def run_pick_test(
+    data: MSDataManagerImzML,
+    width: int | Sequence[int] = 2,
+    method: str = 'scipy',
+    relheight: float = 0.1,
+    snr: float = 3.0,
+    return_type: str = 'height',
+    backend: str = "python"
+    ) -> None:
+    """Run peak picking test using old or new method."""
+
+    picked = Preprocess.peak_pick(data_manager=data,
+                                  width=width,
+                                  method=method,
+                                  relheight=relheight,
+                                  snr=snr,
+                                  return_type=return_type,
+                                  backend=backend,
+                                  )
+
+    return picked
+
+def compare_pick_result(
+    py_manager: MSDataManagerImzML,
+    r_manager: MSDataManagerImzML,
+    mz_range,
+    tolerance = TOLERANCE
+):
+    """Compare peak picking results between python and R implementations."""
+
+    py_ms = py_manager.ms
+    r_ms = r_manager.ms
+
+    py_sum_intensity = 0.0
+    for spectrum in py_ms:
+        mz_mask = (spectrum.mz_list >= mz_range[0]) & (spectrum.mz_list <= mz_range[1])
+        py_sum_intensity += np.sum(spectrum.intensity[mz_mask])
+        spectrum.mz_list = None
+        spectrum.intensity = None
+
+    r_sum_intensity = 0.0
+    for spectrum in r_ms:
+        mz_mask = (spectrum.mz_list >= mz_range[0]) & (spectrum.mz_list <= mz_range[1])
+        r_sum_intensity += np.sum(spectrum.intensity[mz_mask])
+        spectrum.mz_list = None
+        spectrum.intensity = None
+
+    intensity_rel_diff = abs(py_sum_intensity - r_sum_intensity) / max(r_sum_intensity, 1e-10)
+    if intensity_rel_diff > tolerance:
+        pytest.fail(
+            f"Total intensity sum in {mz_range}: Python={py_sum_intensity:.2e}, cardinal={r_sum_intensity:.2e}\n"
+        )
+
+    logger.info(
+        f"Intensity sum check passed for {mz_range}: "
+        f"Python={py_sum_intensity:.2e}, cardinal={r_sum_intensity:.2e}, "
+        f"intensity_diff={intensity_rel_diff:.2%}"
+    )
+
+
+class TestPeakPick:
+    """Test peak picking functions."""
+
+    @pytest.mark.parametrize("width", [2])
+    @pytest.mark.parametrize("relheight", [0.1])
+    @pytest.mark.parametrize("snr", [1.0])
+    @pytest.mark.parametrize("return_type", ["area"])
+    @pytest.mark.parametrize("method, backend", [('scipy', 'python'), ('mad', 'cardinal')])
+    @pytest.mark.benchmark(timer=time.perf_counter)
+    def test_peak_pick_benchmark(
+        self,
+        benchmark,
+        data_manager: MSDataManagerImzML, # pylint: disable=redefined-outer-name
+        width: int | Sequence[int],
+        method: str,
+        relheight: float,
+        snr: float,
+        return_type: str,
+        backend: str,
+    ) -> None:
+        """Performance Test: Run peak picking benchmark."""
+
+        benchmark.pedantic(
+            run_pick_test,
+            args=(
+                data_manager,
+                width,
+                method,
+                relheight,
+                snr,
+                return_type,
+                backend),
+            rounds=ROUND,
+            iterations=1,
+            warmup_rounds=0)
+
+    # @pytest.mark.parametrize("width", [2])
+    # @pytest.mark.parametrize("relheight", [0.1])
+    # @pytest.mark.parametrize("snr", [1.0])
+    # @pytest.mark.parametrize("return_type", ["area", "height"])
+    # @pytest.mark.parametrize("py_method", ['scipy'])
+    # @pytest.mark.parametrize("r_method", ['mad'])
+    # @pytest.mark.parametrize("mz_range", MZ_RANGES)
+    # def test_peak_pick_validation(
+    #     self,
+    #     data_manager: MSDataManagerImzML, # pylint: disable=redefined-outer-name
+    #     width: int | Sequence[int],
+    #     py_method: str,
+    #     r_method: str,
+    #     relheight: float,
+    #     snr: float,
+    #     return_type: str,
+    #     mz_range: tuple[float, float],
+    # ) -> None:
+    #     """Functional Test: Verify the correctness of peak picking results."""
+
+    #     py_picked = run_pick_test(
+    #         data=data_manager,
+    #         width=width,
+    #         method=py_method,
+    #         relheight=relheight,
+    #         snr=snr,
+    #         return_type=return_type,
+    #         backend="python")
+
+    #     r_picked = run_pick_test(
+    #         data=data_manager,
+    #         width=width,
+    #         method=r_method,
+    #         relheight=relheight,
+    #         snr=snr,
+    #         return_type=return_type,
+    #         backend="cardinal")
+
+    #     compare_pick_result(
+    #         py_manager=py_picked,
+    #         r_manager=r_picked,
+    #         mz_range=mz_range
+    #     )
+
+    #     py_picked.close()
+    #     r_picked.close()

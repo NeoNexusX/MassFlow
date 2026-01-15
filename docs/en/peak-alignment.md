@@ -60,14 +60,14 @@ def peak_alignment(
     tolerance: Optional[float] = None,
     binfun: str = 'median',
     binratio: int = 2,
-    backend_method: Optional[str] = None
+    backend: Optional[str] = None
 )
 ```
 
 - **Behavior**
   - Serves as the unified entry point for peak alignment.
-  - Supports `backend_method="cardinal"` to call the R language Cardinal package for alignment.
-  - If `backend_method` is `None` or `"python"`, the pure Python implementation is used.
+  - Supports `backend="cardinal"` to call the R language Cardinal package for alignment.
+  - If `backend` is `None` or `"python"`, the pure Python implementation is used.
   - Supports alignment of a single `spectrum` or an entire `data_manager`.
   - If `ref` (reference axis) or `tolerance` is not provided, it is automatically calculated internally.
 - **Parameters**
@@ -78,7 +78,7 @@ def peak_alignment(
   - `tolerance` — Tolerance half-window; `None` triggers automatic estimation.
   - `binfun` — Resolution aggregation policy, `'median'|'min'|'max'|'mean'`.
   - `binratio` — Tolerance scaling factor; default is 2.
-  - `backend_method` — Backend method selection, `"python"` (default) or `"cardinal"`.
+  - `backend` — Backend method selection, `"python"` (default) or `"cardinal"`.
 - **Returns**
   - The aligned `MSDataManagerImzML` or `SpectrumImzML` object.
 

@@ -6,7 +6,7 @@ from massflow.tools.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.preprocess.dm_pre_fun import Preprocess
-from massflow.r_preprocess import set_default_r_home
+# from massflow.r_preprocess import set_default_r_home
 
 pytest.importorskip("pytest_benchmark")
 
@@ -17,7 +17,7 @@ MZ_RANGES = [(500, 600)]
 TOLERANCE = 0.10
 ROUND = 1
 
-set_default_r_home("r_home_path_here")  # set R_HOME path here
+# set_default_r_home("r_home_path_here")  # set R_HOME path here
 
 
 @pytest.fixture(scope="module")
@@ -34,19 +34,18 @@ def run_alignment_task(
     binfun: str,
     binratio: int,
     tolerance: Optional[float] = None,
-    backend_method: str = "python",
+    backend: str = "python",
 ) -> MSDataManagerImzML:
 
-    align_manager = Preprocess.peak_align(
+    return Preprocess.peak_align(
         data_manager=dm,
         ref=None,
         units=units,
         tolerance=tolerance,
         binfun=binfun,
         binratio=binratio,
-        backend_method=backend_method,
+        backend=backend,
     )
-    return align_manager
 
 
 def validate_align_result(
@@ -128,9 +127,7 @@ def compare_align_result(
         )
 
     # Compare intensity sums
-    intensity_rel_diff = abs(py_sum_intensity - r_sum_intensity) / max(
-        r_sum_intensity, 1e-10
-    )
+    intensity_rel_diff = abs(py_sum_intensity - r_sum_intensity) / max(r_sum_intensity, 1e-10)
     if intensity_rel_diff > tolerance:
         pytest.fail(
             f"Total intensity sum in {mz_range}: Python={py_sum_intensity:.2e}, cardinal={r_sum_intensity:.2e}\n"
@@ -155,24 +152,24 @@ class TestPeakAlignment:
     @pytest.mark.parametrize("units, tolerance", [("ppm", None)])
     @pytest.mark.parametrize("binfun", ["median"])
     @pytest.mark.parametrize("binratio", [2])
-    @pytest.mark.parametrize("backend_method", ["python", "cardinal"])
+    @pytest.mark.parametrize("backend", ["python", "cardinal"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_peak_alignment_benchmark(
         self,
         benchmark,
-        data_manager: MSDataManagerImzML,
+        data_manager: MSDataManagerImzML, # pylint: disable=redefined-outer-name
         units: str,
         tolerance: Optional[float],
         binfun: str,
         binratio: int,
-        backend_method: str,
+        backend: str,
     ) -> None:
         """
         Performance Test: Run peak alignment benchmark.
         """
         dm_align = benchmark.pedantic(
             run_alignment_task,
-            args=(data_manager, units, binfun, binratio, tolerance, backend_method),
+            args=(data_manager, units, binfun, binratio, tolerance, backend),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=0,
@@ -186,7 +183,7 @@ class TestPeakAlignment:
     @pytest.mark.parametrize("mz_range", MZ_RANGES)
     def test_peak_alignment_validation(
         self,
-        data_manager: MSDataManagerImzML,
+        data_manager: MSDataManagerImzML, # pylint: disable=redefined-outer-name
         units: str,
         tolerance: Optional[float],
         binfun: str,
@@ -198,18 +195,20 @@ class TestPeakAlignment:
         """
 
         py_align_manager = run_alignment_task(
-            data_manager, units, binfun, binratio, tolerance, backend_method="python"
+            data_manager, units, binfun, binratio, tolerance, backend="python"
         )
 
         r_align_manager = run_alignment_task(
-            data_manager, units, binfun, binratio, tolerance, backend_method="cardinal"
+            data_manager, units, binfun, binratio, tolerance, backend="cardinal"
         )
 
         validate_align_result(py_align_manager, data_manager)
         validate_align_result(r_align_manager, data_manager)
 
         compare_align_result(
-            py_manager=py_align_manager, r_manager=r_align_manager, mz_range=mz_range
+            py_manager=py_align_manager,
+            r_manager=r_align_manager,
+            mz_range=mz_range
         )
 
         py_align_manager.close()

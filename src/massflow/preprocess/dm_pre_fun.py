@@ -42,7 +42,7 @@ class Preprocess:
                    units: str = 'ppm',
                    binfun: str = 'median',
                    binratio: int = 2,
-                   backend_method: str = "python",
+                   backend: str = "python",
                    batch_size: int = 256,
                    clear_memory: bool = True,
                    temp_dir: str = "./temp_align_data"
@@ -63,7 +63,7 @@ class Preprocess:
                 If None, it will be estimated from the data.
             binfun (str): Aggregation function for estimating resolution ('median', 'min', 'max', 'mean').
             binratio (int): Ratio to scale the estimated resolution to determine tolerance. Default is 2.
-            backend_method (str, optional): The backend to use for alignment.
+            backend (str, optional): The backend to use for alignment.
                 - 'cardinal': Use the R Cardinal package (requires R environment).
                 - 'python' (or None): Use the native Python implementation.
 
@@ -79,13 +79,13 @@ class Preprocess:
 
         logger.info(
             "peak_align_entry: backend=%s, binfun=%s, tolerance=%s, units=%s",
-            backend_method,
+            backend,
             binfun,
             tolerance,
             units,
         )
 
-        if backend_method == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
+        if backend == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
             return CardinalAdapter.align(data_manager=data_manager,
                                          reference=ref,
                                          tolerance=tolerance,
@@ -136,7 +136,7 @@ class Preprocess:
                   relheight: float = 0.1,
                   snr: float = 3.0,
                   return_type: str = 'height',
-                  backend_method: str = "python",
+                  backend: str = "python",
                   batch_size: int = 256,
                   temp_dir: str = "./temp_pick_data"
                   ) -> MSDataManagerImzML:
@@ -152,7 +152,7 @@ class Preprocess:
                 Default is 'scipy'.
             snr (float): Signal-to-noise ratio threshold for peak detection. Default is 3.0.
             return_type (str): Type of peak representation to return ('height' or 'area'). Default is 'height'.
-            backend_method (str, optional): The backend to use for peak picking.
+            backend (str, optional): The backend to use for peak picking.
                 - 'cardinal': Use the R Cardinal package (requires R environment).
                 - 'python' (or None): Use the native Python implementation.
 
@@ -169,13 +169,13 @@ class Preprocess:
 
         logger.info(
             "peak_pick_entry: backend=%s, method=%s, snr=%s, return_type=%s",
-            backend_method,
+            backend,
             method,
             snr,
             return_type,
         )
 
-        if backend_method == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
+        if backend == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
             if method != "scipy":
                 return CardinalAdapter.peak_pick(data_manager=data_manager,
                                                  method=method,
@@ -198,6 +198,7 @@ class Preprocess:
                                                            width=width,
                                                            method=method,
                                                            relheight=relheight,
+                                                           snr=snr,
                                                            return_type=return_type)
             data_manager.clear_batch_data_memory(batch=batch)
             picked_data_manager.swap_batch_data_out2disk(batch=picked_batch, writer=writer)

@@ -4,11 +4,11 @@ License: See LICENSE file in project root
 """
 
 from typing import Sequence
-from scipy.signal import find_peaks
 import numpy as np
-from scipy.integrate import simpson
+from scipy.signal import find_peaks
 from massflow.tools.logger import get_logger
 from massflow.preprocess.helper.est_noise_helper import estimator
+import massflow.preprocess.numba.peak_pick_compute as compute
 
 logger = get_logger("preprocesss")
 
@@ -131,34 +131,6 @@ def find_pick_scipy(
     #snr selection
     return peaks, props
 
-def _interp(arr: np.ndarray, idx_f: float) -> float:
-    """
-    Linear interpolation over an array for a fractional index.
-
-    Parameters:
-        arr (np.ndarray): Array to sample from.
-        idx_f (float): Fractional index in [0, len(arr)-1].
-        n (int | None): Optional length hint; if provided, must match arr length.
-
-    Returns:
-        float: Interpolated value at idx_f.
-
-    Raises:
-        ValueError: If n is provided and does not match arr length.
-    """
-    n = int(arr.shape[0])
-    m = int(arr.shape[0])
-    if n is not None and n != m:
-        raise ValueError("Provided n does not match arr length")
-    if m == 0:
-        return float("nan")
-
-    idx_f = float(np.clip(idx_f, 0, m - 1))
-    i0 = int(np.floor(idx_f))
-    i1 = min(i0 + 1, m - 1)
-    alpha = idx_f - i0
-    return float(arr[i0] + alpha * (arr[i1] - arr[i0]))
-
 def compute_peak_areas(intensity: np.ndarray,
                        index: np.ndarray,
                        peaks: np.ndarray,
@@ -197,29 +169,9 @@ def compute_peak_areas(intensity: np.ndarray,
     else:
         raise ValueError("boundary must be one of {'ips','bases'}")
 
-    areas = np.zeros(len(peaks), dtype=float)
-    for k, (lf, rf) in enumerate(zip(left_f, right_f)):
-        if rf <= lf:
-            areas[k] = 0.0
-            continue
-        xl = _interp(index, lf)
-        xr = _interp(index, rf)
-        yl = _interp(intensity, lf)
-        yr = _interp(intensity, rf)
-        li = int(np.ceil(lf))
-        ri = int(np.floor(rf))
-        xs = [xl]
-        ys = [yl]
-
-        #add points between lf and rf
-        if ri >= li:
-            xs.extend(index[li:ri + 1].tolist())
-            ys.extend(intensity[li:ri + 1].tolist())
-
-        xs.append(xr)
-        ys.append(yr)
-        xs = np.asarray(xs, dtype=float)
-        ys = np.asarray(ys, dtype=float)
-
-        areas[k] = float(simpson(ys, xs))
-    return areas
+    return compute.compute_peak_areas_jit(intensity=intensity,
+                                         index=index,
+                                         peaks=peaks,
+                                         left_f=left_f,
+                                         right_f=right_f,
+                                         )
