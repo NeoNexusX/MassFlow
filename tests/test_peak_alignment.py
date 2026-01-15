@@ -72,8 +72,7 @@ def validate_align_result(
         ), f"Spectrum {i} contains NaN or Inf values"
 
         # Free memory to prevent OOM
-        spectrum.mz_list = None
-        spectrum.intensity = None
+        spectrum.clear_data()
 
     logger.info(
         f"Validation passed: {len(result_manager.ms)} spectra aligned to {len(ref_mz)} peaks"
@@ -105,8 +104,7 @@ def compare_align_result(
         if intensity is not None and len(intensity) > 0:
             py_sum_intensity += np.sum(intensity[py_mask])
         # Free memory
-        spectrum.mz_list = None
-        spectrum.intensity = None
+        spectrum.clear_data()
 
     r_sum_intensity = 0.0
     r_mask = (r_ref >= mz_start) & (r_ref <= mz_end)
@@ -115,8 +113,7 @@ def compare_align_result(
         if intensity is not None and len(intensity) > 0:
             r_sum_intensity += np.sum(intensity[r_mask])
         # Free memory
-        spectrum.mz_list = None
-        spectrum.intensity = None
+        spectrum.clear_data()
 
     # Compare peak counts
     count_rel_diff = abs(py_count - r_count) / max(r_count, 1)

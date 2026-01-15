@@ -34,16 +34,14 @@ def run_pick_test(
     ) -> None:
     """Run peak picking test using old or new method."""
 
-    picked = Preprocess.peak_pick(data_manager=data,
-                                  width=width,
-                                  method=method,
-                                  relheight=relheight,
-                                  snr=snr,
-                                  return_type=return_type,
-                                  backend=backend,
-                                  )
-
-    return picked
+    return Preprocess.peak_pick(data_manager=data,
+                                width=width,
+                                method=method,
+                                relheight=relheight,
+                                snr=snr,
+                                return_type=return_type,
+                                backend=backend,
+                                )
 
 def compare_pick_result(
     py_manager: MSDataManagerImzML,
@@ -60,15 +58,13 @@ def compare_pick_result(
     for spectrum in py_ms:
         mz_mask = (spectrum.mz_list >= mz_range[0]) & (spectrum.mz_list <= mz_range[1])
         py_sum_intensity += np.sum(spectrum.intensity[mz_mask])
-        spectrum.mz_list = None
-        spectrum.intensity = None
+        spectrum.clear_data()
 
     r_sum_intensity = 0.0
     for spectrum in r_ms:
         mz_mask = (spectrum.mz_list >= mz_range[0]) & (spectrum.mz_list <= mz_range[1])
         r_sum_intensity += np.sum(spectrum.intensity[mz_mask])
-        spectrum.mz_list = None
-        spectrum.intensity = None
+        spectrum.clear_data()
 
     intensity_rel_diff = abs(py_sum_intensity - r_sum_intensity) / max(r_sum_intensity, 1e-10)
     if intensity_rel_diff > tolerance:
@@ -105,7 +101,7 @@ class TestPeakPick:
     ) -> None:
         """Performance Test: Run peak picking benchmark."""
 
-        benchmark.pedantic(
+        dm_picked = benchmark.pedantic(
             run_pick_test,
             args=(
                 data_manager,
@@ -118,6 +114,8 @@ class TestPeakPick:
             rounds=ROUND,
             iterations=1,
             warmup_rounds=0)
+
+        dm_picked.close()
 
     # @pytest.mark.parametrize("width", [2])
     # @pytest.mark.parametrize("relheight", [0.1])
