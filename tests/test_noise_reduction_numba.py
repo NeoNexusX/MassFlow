@@ -19,6 +19,8 @@ def noise_data_manager(data_file_path="data/example.imzML") -> MSDataManagerImzM
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
     dm.load_full_data_from_file()
+    for _ in dm.get_batch_generator(batch_size=512):
+        pass
     return dm
 
 def run_dm_noise_reduction_task(
@@ -59,9 +61,9 @@ class TestNoiseReductionDMNumba:
     ) -> None:
         dm_denoised = benchmark.pedantic(
             run_dm_noise_reduction_task,
-            args=(noise_data_manager, "savgol_numba", 11, 3, 256),
+            args=(noise_data_manager, "savgol_numba", 11, 3, 1024),
             rounds=1,
-            iterations=1,
+            iterations=10,
             warmup_rounds=0,
         )
         dm_denoised.close()
@@ -69,7 +71,7 @@ class TestNoiseReductionDMNumba:
     @pytest.mark.parametrize("method", ["savgol"])
     def test_numba_consistency(self, noise_data_manager: MSDataManagerImzML, method: str) -> None:
         loaded_mass_data = noise_data_manager.ms
-        subset_size = min(20, len(loaded_mass_data))
+        subset_size = min(100, len(loaded_mass_data))
         data_for_original = MassSpectrumSet()
         subset_spectra: list = []
         for i in range(subset_size):
