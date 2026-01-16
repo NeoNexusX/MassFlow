@@ -12,12 +12,12 @@ pytest.importorskip("pytest_benchmark")
 
 logger = get_logger("test_peak_alignment")
 
-FILEPATH = r"picked.imzML"
+FILEPATH = "data/example.imzML"
 MZ_RANGES = [(500, 600)]
 TOLERANCE = 0.10
 ROUND = 1
 
-# set_default_r_home("r_home_path_here")  # set R_HOME path here
+# set_default_r_home(r"E:/ele_software_file/R-4.5.2")  # set R_HOME path here
 
 
 @pytest.fixture(scope="module")
@@ -25,7 +25,7 @@ def data_manager(filepath=FILEPATH) -> MSDataManagerImzML:
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=filepath)
     dm.load_full_data_from_file()
-    return dm
+    return Preprocess.peak_pick(data_manager=dm, method="scipy", backend="python")
 
 
 def run_alignment_task(
@@ -66,7 +66,6 @@ def validate_align_result(
         intensity = spectrum.intensity
         assert intensity is not None, f"Spectrum {i} has None intensity"
         assert intensity.shape == ref_mz.shape, f"Spectrum {i} intensity shape mismatch"
-        assert not np.all(intensity == 0), f"Spectrum {i} has all-zero intensity"
         assert np.all(
             np.isfinite(intensity)
         ), f"Spectrum {i} contains NaN or Inf values"

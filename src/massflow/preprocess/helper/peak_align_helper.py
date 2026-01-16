@@ -141,7 +141,7 @@ def bin_peaks(
         NDArray: Final reference m/z axis.
     """
     logger.info(
-        f"Binning peaks: {len(data_manager.ms)} spectra, domain size {domain.size}"
+        f"Binning peaks: {len(data_manager.ms)} spectra, domain size {domain.size}, tolerance {tolerance}"
     )
 
     code = compute.get_method_code(tol_method)
@@ -208,12 +208,15 @@ def bin_peaks(
     peaks_acc[nonzero] /= counts[nonzero]
     peaks_acc[~nonzero] = np.nan
 
+    # Extract non-NaN values before merging
+    valid_mask = ~np.isnan(peaks_acc)
+    valid_peaks = peaks_acc[valid_mask]
+    valid_counts = counts[valid_mask]
+
     reference = merge_peaks(
-        mz_list=peaks_acc, counts=counts, tolerance=tolerance, tol_method=tol_method
+        mz_list=valid_peaks, counts=valid_counts, tolerance=tolerance, tol_method=tol_method
     )
 
-    valid = ~np.isnan(reference)
-    reference = reference[valid]
     return reference
 
 
