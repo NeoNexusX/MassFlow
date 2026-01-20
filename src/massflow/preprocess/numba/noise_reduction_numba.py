@@ -45,10 +45,38 @@ def savgol_batch_jit(data: np.ndarray, kernels: np.ndarray) -> np.ndarray:
 
 # --- Python wrapper layer (handles kernel pre‑computation) ---
 def smooth_signal_savgol_numba(intensity: np.ndarray, window: int = 5, polyorder: int = 3, deriv: int = 0, delta: float = 1.0) -> np.ndarray:
-    """Compute Savitzky-Golay smoothing using a Numba-accelerated batch core.
-
-    Accepts either a 1D spectrum or a 2D (n_spectra, n_points) batch and
-    applies position-dependent convolution kernels to smooth the signal.
+    """
+    This function wraps the JIT-compiled Savitzky-Golay implementation and
+    handles pre-computation of position-dependent convolution kernels.
+    Parameters
+    ----------
+    intensity : numpy.ndarray
+        Input intensity array. Either a 1D array of shape ``(n_points,)`` for
+        a single spectrum or a 2D array of shape ``(n_spectra, n_points)``
+        for a batch of spectra.
+    window : int, optional
+        Window length of the Savitzky-Golay filter. The actual window used is
+        forced to be an odd integer and at least 3. Defaults to 5.
+    polyorder : int, optional
+        Order of the polynomial used to fit the samples. Must be strictly
+        less than the effective window length. Defaults to 3.
+    deriv : int, optional
+        Order of the derivative to compute. ``0`` means only smoothing is
+        performed. Defaults to 0.
+    delta : float, optional
+        Spacing of the samples along the x-axis. This is passed to
+        :func:`scipy.signal.savgol_coeffs` when computing derivative
+        coefficients. Defaults to 1.0.
+    Returns
+    -------
+    numpy.ndarray
+        Smoothed (or differentiated) intensity array of type ``float32`` with
+        the same shape as ``intensity``.
+    Raises
+    ------
+    ValueError
+        If ``polyorder`` is greater than or equal to the effective window
+        length.
     """
     actual_window = max(3, window + (1 - window % 2))
     if polyorder >= actual_window:

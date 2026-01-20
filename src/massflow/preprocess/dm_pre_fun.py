@@ -234,7 +234,7 @@ class Preprocess:
 
         Parameters:
             data_manager: Data manager containing spectra to be denoised.
-            method: One of {'ma','gaussian','savgol','savgol_numba','wavelet','ma_ns','gaussian_ns','bi_ns'}.
+            method: One of {'ma','gaussian','savgol','savgol_numba','wavelet','ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
             window: Window size or neighbor count depending on method.
             sd: Gaussian scale parameter.
             sd_intensity: Intensity scale for bilateral method.
@@ -264,11 +264,11 @@ class Preprocess:
         )
 
         denoised_ms = MassSpectrumSet()
-        denoised_data_manager = MSDataManagerImzML(denoised_ms)
-        ## denoised_data_manager = MSDataManagerImzML(denoised_ms, temp_dir=temp_dir)
+        #denoised_data_manager = MSDataManagerImzML(denoised_ms)
+        denoised_data_manager = MSDataManagerImzML(denoised_ms, temp_dir=temp_dir)
         denoised_data_manager.copy_meta(data_manager)
 
-        ## writer = denoised_data_manager.writer
+        writer = denoised_data_manager.writer
 
         total_batches = Preprocess._total_batches(data_manager, batch_size)
 
@@ -287,15 +287,164 @@ class Preprocess:
                 wavelet=wavelet,
                 threshold_mode=threshold_mode,
             )
-            # data_manager.clear_batch_data_memory(batch=batch)
-            ## denoised_data_manager.swap_batch_data_out2disk(batch=denoised_batch, writer=writer)
-
-            for spec in denoised_batch:
-                denoised_data_manager.ms.add_spectrum(spec)
-
+            data_manager.clear_batch_data_memory(batch=batch) 
+            denoised_data_manager.swap_batch_data_out2disk(batch=denoised_batch, writer=writer)
             Preprocess._log_progress(total_batches, batch_idx)
-        ##  denoised_data_manager.close_writer()
-        ##  denoised_data_manager.load_full_data_from_file()
+
+        denoised_data_manager.close_writer()
+        denoised_data_manager.load_full_data_from_file()
 
 
         return denoised_data_manager
+
+    @staticmethod
+    def normalization(
+        data_manager: MSDataManager,
+        scale_method: str = "none",
+        method: str = "tic",
+        scale: float = 1.0,
+        batch_size: int = 256,
+        temp_dir: str = "./temp_normalization_data",
+    ) -> MSDataManagerImzML:
+        """Perform intensity normalization on MSDataManager data.
+
+        This method mirrors :meth:`noise_reduction` but forwards normalization
+        parameters to :meth:`SpectrumPreprocess.normalization_spectrum` via
+        :meth:`BatchPreprocess.normalization_batch`.
+
+        Parameters:
+            data_manager: Data manager containing spectra to be normalized.
+            scale_method: 'none' or 'unit' min-max scaling.
+            method: One of {'tic', 'rms', 'median'}.
+            scale: Cardinal-like amplitude scaling factor applied after normalization.
+            batch_size: Number of spectra per batch.
+            temp_dir: Temporary directory for writing normalized data.
+
+        Returns:
+            MSDataManagerImzML containing normalized spectra.
+        """
+        if data_manager is None:
+            raise ValueError("data_manager must be provided for normalization.")
+
+        logger.info(
+            "normalization_entry: method=%s, scale_method=%s, scale=%s",
+            method,
+            scale_method,
+            scale,
+        )
+
+        normalized_ms = MassSpectrumSet()
+        #normalized_data_manager = MSDataManagerImzML(normalized_ms)
+        normalized_data_manager = MSDataManagerImzML(normalized_ms, temp_dir=temp_dir)
+        normalized_data_manager.copy_meta(data_manager)
+
+        writer = normalized_data_manager.writer
+
+        total_batches = Preprocess._total_batches(data_manager, batch_size)
+
+        for batch_idx, batch in enumerate(data_manager.get_batch_generator(batch_size=batch_size), start=1):
+            normalized_batch = BatchPreprocess.normalization_batch(
+                batch_spectra=batch,
+                scale_method=scale_method,
+                method=method,
+                scale=scale,
+            )
+            data_manager.clear_batch_data_memory(batch=batch) 
+            normalized_data_manager.swap_batch_data_out2disk(batch=normalized_batch, writer=writer)
+
+            Preprocess._log_progress(total_batches, batch_idx)
+
+        normalized_data_manager.close_writer()
+        normalized_data_manager.load_full_data_from_file()
+
+        return normalized_data_manager
+
+    @staticmethod
+    def baseline_correction(
+        data_manager: MSDataManager,
+        method: str = "asls",
+        smooth: str = "none",
+        span: float = 0.1,
+        s: float | None = 0.0,
+        upper: bool = False,
+        width: int = 5,
+        lam: float = 1e7,
+        p: float = 0.01,
+        niter: int = 15,
+        baseline_scale: float = 1.0,
+        m: int | None = None,
+        decreasing: bool = True,
+        batch_size: int = 256,
+        temp_dir: str = "./temp_baseline_data",
+    ) -> MSDataManagerImzML:
+        """Perform baseline correction on MSDataManager data.
+
+        This method mirrors :meth:`noise_reduction` but forwards baseline parameters to
+        :meth:`SpectrumPreprocess.baseline_correction_spectrum` via
+        :meth:`BatchPreprocess.baseline_correction_batch`.
+
+        Parameters:
+            data_manager: Data manager containing spectra to be baseline-corrected.
+            method: One of {'locmin', 'snip', 'asls'}.
+            smooth: LocMin smoothing method; one of {'none', 'loess', 'spline'}.
+            span: Loess span proportion in (0, 1]; used when method='locmin'.
+            s: Spline smoothing target RSS (>= 0); used when method='locmin'.
+            upper: If True, use local maxima as anchors; used when method='locmin'.
+            width: Neighborhood width (>= 3) for extrema detection; used when method='locmin'.
+            lam: ASLS smoothness parameter; used when method='asls'.
+            p: ASLS asymmetry parameter in (0, 1); used when method='asls'.
+            niter: ASLS iteration count (> 0); used when method='asls'.
+            baseline_scale: Scale factor in (0, 1] applied to the estimated baseline.
+            m: SNIP window half-size (>= 1); used when method='snip'.
+            decreasing: SNIP decreasing rule; used when method='snip'.
+            batch_size: Number of spectra per batch.
+            temp_dir: Temporary directory for writing baseline-corrected data.
+
+        Returns:
+            MSDataManagerImzML containing baseline-corrected spectra.
+        """
+        if data_manager is None:
+            raise ValueError("data_manager must be provided for baseline correction.")
+
+        logger.info(
+            "baseline_correction_entry: method=%s, lam=%s, p=%s, niter=%s",
+            method,
+            lam,
+            p,
+            niter,
+        )
+
+        corrected_ms = MassSpectrumSet()
+        #corrected_data_manager = MSDataManagerImzML(corrected_ms)
+        corrected_data_manager = MSDataManagerImzML(corrected_ms, temp_dir=temp_dir)
+        corrected_data_manager.copy_meta(data_manager)
+
+        writer = corrected_data_manager.writer
+
+        total_batches = Preprocess._total_batches(data_manager, batch_size)
+
+        for batch_idx, batch in enumerate(data_manager.get_batch_generator(batch_size=batch_size), start=1):
+            corrected_batch = BatchPreprocess.baseline_correction_batch(
+                batch_spectra=batch,
+                method=method,
+                smooth=smooth,
+                span=span,
+                s=s,
+                upper=upper,
+                width=width,
+                lam=lam,
+                p=p,
+                niter=niter,
+                baseline_scale=baseline_scale,
+                m=m,
+                decreasing=decreasing,
+            )
+            data_manager.clear_batch_data_memory(batch=batch) 
+            corrected_data_manager.swap_batch_data_out2disk(batch=corrected_batch, writer=writer)
+
+            Preprocess._log_progress(total_batches, batch_idx)
+
+        corrected_data_manager.close_writer()
+        corrected_data_manager.load_full_data_from_file()
+
+        return corrected_data_manager

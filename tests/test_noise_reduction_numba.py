@@ -115,7 +115,6 @@ class TestNoiseReductionDMNumba:
         subset_spectra: list = []
         for i in range(subset_size):
             sp = loaded_mass_data[i]
-           
             data_for_original.add_spectrum(sp)
             subset_spectra.append(sp)
 
@@ -164,7 +163,7 @@ class TestNoiseReductionDMNumba:
                     )
                 elif numba_kind == "gaussian_ns":
                     numba_intensity = smooth_ns_signal_gaussian_numba(
-                        intensity,                                                         
+                        intensity,
                         index=index,
                         k=11,
                         p=2,

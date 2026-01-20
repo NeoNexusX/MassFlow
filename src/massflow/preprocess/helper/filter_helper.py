@@ -638,7 +638,7 @@ def smoother(intensity:np.ndarray,
     }
     if method_norm not in supported:
         logger.error(
-            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, savgol_numba",
+            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, savgol_numba, ma_ns_numba, gaussian_ns_numba, bi_ns_numba",
             method,
         )
         raise ValueError(f"Unsupported smoothing method: {method}")
@@ -679,12 +679,12 @@ def smoother(intensity:np.ndarray,
 
     elif method_norm == "ma_ns_numba":
         _input_validation(intensity=intensity, index=index, k=window, p=p)
-        return smooth_ns_signal_ma_numba(intensity, index=index, k=window, p=p) 
+        return smooth_ns_signal_ma_numba(intensity, index=index, k=window, p=p)
 
     elif method_norm == "gaussian_ns_numba":
         _input_validation(intensity=intensity, index=index, k=window, p=p, sd=sd)
-        return smooth_ns_signal_gaussian_numba(intensity, index=index, k=window, p=p, sd=sd) 
+        return smooth_ns_signal_gaussian_numba(intensity, index=index, k=window, p=p, sd=sd)
 
     else:
         _input_validation(intensity=intensity, index=index, k=window, p=p)
-        return smooth_ns_signal_bi_numba(intensity, index=index, k=window, p=p, sd_dist=sd, sd_intensity=sd_intensity) 
+        return smooth_ns_signal_bi_numba(intensity, index=index, k=window, p=p, sd_dist=sd, sd_intensity=sd_intensity)
