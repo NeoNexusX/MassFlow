@@ -2,7 +2,7 @@ from typing import Optional
 import numpy as np
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
-
+from massflow.preprocess.numba.baseline_correction_numba import snip_baseline_numba
 from massflow.tools.logger import get_logger
 
 logger = get_logger("preprocesss")
@@ -48,7 +48,7 @@ def asls_baseline(
         niter (int): Iteration count.
 
     Returns:
-        np.ndarray: Estimated baseline (float64).
+        np.ndarray: Estimated baseline stored as float32 (internal computations use float64).
     """
     # Parameter validation
     if not np.isfinite(lam) or lam <= 0:
@@ -63,7 +63,7 @@ def asls_baseline(
 
     n = intensity.size
     if n == 0:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float32)
 
     ones_n_minus_2 = np.ones(n - 2)
     d = diags(
@@ -86,7 +86,7 @@ def asls_baseline(
         # asymmetric weights: points above baseline get smaller weight
         w = p * (intensity > baseline) + (1.0 - p) * (intensity <= baseline)
 
-    return baseline
+    return np.asarray(baseline, dtype=np.float32)
 
 
 def snip_baseline(
@@ -117,10 +117,10 @@ def snip_baseline(
         raise ValueError("intensity must be a 1D array")
     n = int(intensity.size)
     if n == 0:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float32)
     if n < 3:
         # Too short to apply SNIP; return a copy as baseline
-        return intensity.copy()
+        return np.asarray(intensity, dtype=np.float32)
 
     # Validate m when provided
     if m is not None and not isinstance(m, (int, np.integer)):
@@ -159,7 +159,7 @@ def snip_baseline(
             z[p : n - p] = np.minimum(cur, clip_val)
             baseline[p : n - p] = z[p : n - p]
 
-    return baseline
+    return np.asarray(baseline, dtype=np.float32)
 
 
 def _local_extrema_mask(
@@ -244,16 +244,16 @@ def locmin_baseline(
         width (int): Neighborhood width for extrema detection (default 5).
 
     Returns:
-        np.ndarray: Estimated baseline.
+        np.ndarray: Estimated baseline stored as float32.
     """
     n = int(intensity.size)
     if n == 0:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float32)
     if n < 3:
         val = np.nanmax(intensity) if upper else np.nanmin(intensity)
         if not np.isfinite(val):
             val = 0.0
-        return np.full((n,), float(val), dtype=np.float64)
+        return np.full((n,), float(val), dtype=np.float32)
 
     # Validate smoothing parameters
     smooth_kind = (smooth or "none").strip().lower()
@@ -309,13 +309,13 @@ def locmin_baseline(
             spl = UnivariateSpline(x, baseline, s=max(0.0, s_val))
             baseline = spl(x)
 
-        return np.asarray(baseline, dtype=np.float64)
+        return np.asarray(baseline, dtype=np.float32)
 
     # Fallback when insufficient anchors: constant baseline
     val = np.nanmax(intensity) if upper else np.nanmin(intensity)
     if not np.isfinite(val):
         val = 0.0
-    return np.full((n,), float(val), dtype=np.float64)
+    return np.full((n,), float(val), dtype=np.float32)
 
 
 def baseline_corrector(
@@ -340,7 +340,7 @@ def baseline_corrector(
     Parameters:
         intensity (np.ndarray): Input 1D intensity array.
         index (Optional[np.ndarray]): Optional 1D index (e.g., m/z). If provided, length must match `intensity`.
-        method (str): 'locmin', 'snip', or 'asls'.
+        method (str): 'locmin', 'snip', 'snip_numba', or 'asls'.
         smooth (str): LocMin smoothing method ('none', 'gaussian', etc.), used when method='locmin'.
         span (float): LocMin smoothing span (fraction of data), used when method='locmin'.
         s (float, optional): LocMin smoothing strength, used when method='locmin'.
@@ -350,11 +350,11 @@ def baseline_corrector(
         p (float): ASLS asymmetry parameter, used when method='asls'.
         niter (int): ASLS iteration count, used when method='asls'.
         baseline_scale (float): Scale factor in (0,1] applied to estimated baseline.
-        m (int): SNIP window half-size, used when method='snip'.
-        decreasing (bool): SNIP decreasing rule, used when method='snip'.
+        m (int): SNIP window half-size, used when method in {'snip','snip_numba'}.
+        decreasing (bool): SNIP decreasing rule, used when method in {'snip','snip_numba'}.
 
     Returns:
-        tuple[np.ndarray, np.ndarray]: (corrected, scaled_baseline)
+        tuple[np.ndarray, np.ndarray]: (corrected, scaled_baseline), both stored as float32 (internal computations use float64).
 
     Raises:
         ValueError: If `method` is unsupported.
@@ -363,9 +363,9 @@ def baseline_corrector(
 
     # Normalize and validate method
     method_norm = (method or "locmin").strip().lower()
-    if method_norm not in {"locmin", "snip", "asls"}:
+    if method_norm not in {"locmin", "snip", "snip_numba", "asls"}:
         logger.error(
-            "Unsupported baseline method: %s. Use one of: locmin, snip, asls", method
+            "Unsupported baseline method: %s. Use one of: locmin, snip, snip_numba, asls", method
         )
         raise ValueError(f"Unsupported baseline method: {method}")
 
@@ -386,6 +386,8 @@ def baseline_corrector(
         )
     elif method_norm == "snip":
         baseline = snip_baseline(xi, m=m, decreasing=decreasing)
+    elif method_norm == "snip_numba":
+        baseline = snip_baseline_numba(xi, m=m, decreasing=decreasing)
     else:
         baseline = asls_baseline(xi, lam=lam, p=p, niter=niter)
 
@@ -395,4 +397,7 @@ def baseline_corrector(
     corrected = xi - scaled_baseline
     corrected = np.maximum(corrected, 0.0)
 
-    return corrected, scaled_baseline
+    corrected32 = corrected.astype(np.float32)
+    scaled_baseline32 = scaled_baseline.astype(np.float32)
+
+    return corrected32, scaled_baseline32

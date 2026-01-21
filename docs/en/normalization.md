@@ -1,11 +1,11 @@
 # MassFlow
 
-This document introduces the normalization module in MassFlow, focusing on the unified entry `MSIPreprocessor.normalization_spectrum` and helper functions defined in `preprocess/normalizer_helper.py`. It provides an overview, API specification, example code, parameter notes, and troubleshooting tips.
+This document introduces the normalization module in MassFlow, focusing on the unified entry `SpectrumPreprocess.normalization_spectrum` and helper functions defined in `preprocess/normalizer_helper.py`. It provides an overview, API specification, example code, parameter notes, and troubleshooting tips.
 
 ## Overview
 - Input and output
-  - Input: `module.ms_module.SpectrumBaseModule` (with 1D `intensity` and optional `mz_list`)
-  - Output: A new `SpectrumBaseModule` with the same `mz_list` and coordinates; `intensity` is replaced by normalized (and optionally scaled) values.
+  - Input: `massflow.module.spectrum.Spectrum` or `SpectrumImzML` (with 1D `intensity` and optional `mz_list`).
+  - Output: A new `SpectrumImzML` with the same `mz_list` and coordinates; `intensity` is replaced by normalized (and optionally scaled) values.
 - Methods
   - TIC (Total Ion Current) normalization: scales intensities such that the sum equals 1.
   - RMS (Root Mean Square) normalization: scales intensities such that the RMS equals 1.
@@ -16,7 +16,7 @@ This document introduces the normalization module in MassFlow, focusing on the u
 ```mermaid
 graph LR
 
-  A[MSIPreprocessor.normalization_spectrum] --> B{Primary Method}
+  A[SpectrumPreprocess.normalization_spectrum] --> B{Primary Method}
   B --> C[TIC]
   B --> D[RMS]
   B --> E[Median]
@@ -28,17 +28,77 @@ graph LR
 
 ## Core API
 
-### MSIPreprocessor.normalization_spectrum
+### Preprocess.normalization (Data manager level)
 
 ```python
-preprocess.ms_preprocess.MSIPreprocessor.normalization_spectrum(
-  data: SpectrumBaseModule | SpectrumImzML,
+massflow.preprocess.dm_pre_fun.Preprocess.normalization(
+  data_manager: MSDataManager,
   scale_method: str = "none",
   method: str = "tic",
-  scale: float = 1.0
-) -> SpectrumBaseModule | SpectrumImzML
+  scale: float = 1.0,
+  batch_size: int = 256,
+  temp_dir: str = "./temp_normalization_data",
+) -> MSDataManagerImzML
+```
+- Description: Data-manager-level entry for normalization. Processes all spectra in an `MSDataManager` using the same methods as the spectrum-level API, streaming data in batches and writing normalized spectra to disk.
+- Input: `MSDataManagerImzML` (or subclass) containing spectra to be normalized.
+- Output: A new `MSDataManagerImzML` with the same `mz_list`/coordinates as the original, and normalized `intensity` values.
+- Notes:
+  - Internally uses `BatchPreprocess.normalization_batch` to apply `SpectrumPreprocess.normalization_spectrum` over batches of spectra.
+  - Batch-wise processing clears in-memory spectra and swaps normalized data out to disk, allowing large datasets to be processed within limited memory.
+
+Example (data manager level):
+
+```python
+import numpy as np
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.preprocess.dm_pre_fun import Preprocess
+from massflow.tools.plot import plot_spectrum
+
+FILE_PATH = "data/example.imzML"
+ms = MassSpectrumSet()
+dm = MSDataManagerImzML(ms, filepath=FILE_PATH)
+dm.load_full_data_from_file()
+
+# Normalize all spectra using TIC (sum=1) without extra scaling
+dm_norm = Preprocess.normalization(
+    data_manager=dm,
+    method="tic",
+    scale_method="none",
+    scale=1.0,
+    batch_size=256,
+)
+
+sp_orig = dm.ms[0]
+sp_norm = dm_norm.ms[0]
+
+plot_spectrum(
+    base=sp_orig,
+    target=sp_norm,
+    mz_range=(500.0, 510.0),
+    intensity_range=(0.0, 1.5),
+    metrics_box=True,
+    title_suffix="DM_TIC",
+)
+
+dm.close()
+dm_norm.close()
+```
+
+### SpectrumPreprocess.normalization_spectrum
+
+```python
+massflow.preprocess.spectrum_pre_fun.SpectrumPreprocess.normalization_spectrum(
+  data: Spectrum | SpectrumImzML,
+  scale_method: str = "none",
+  method: str = "tic",
+  scale: float = 1.0,
+) -> SpectrumImzML
 ```
 - Description: Unified entry for spectrum normalization. Dispatches to TIC, RMS, or Median normalization and optionally applies post-scaling. Returns a spectrum object preserving `mz_list` and coordinates, with normalized `intensity`.
+- Notes:
+  - This spectrum-level API performs no automatic memory cleanup; it simply returns a new spectrum instance. When applying it repeatedly over large datasets, you must manage memory yourself or prefer `Preprocess.normalization` at the data-manager level.
 - Methods:
   - 'tic' (sum equals 1)
   - 'rms' (RMS equals 1)
@@ -96,27 +156,27 @@ Example: (after Savitzky-Golay denoising)
 import sys
 import os
 import numpy as np
-from module.ms_module import MS
-from module.ms_data_manager_imzml import MSDataManagerImzML
-from preprocess.ms_preprocess import MSIPreprocessor
-from tools.plot import plot_spectrum
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
+from massflow.tools.plot import plot_spectrum
 
-FILE_PATH = "data\\neg-gz4.imzML"
-ms = MS()
+FILE_PATH = "data/example.imzML"
+ms = MassSpectrumSet()
 ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
 ms_md.load_full_data_from_file()
 sp = ms[0]
 # Denoise then normalize
-denoised = MSIPreprocessor.noise_reduction_spectrum(
+denoised = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="savgol",
     window=11,
-    polyorder=3
+    polyorder=3,
 )
-normalized_tic = MSIPreprocessor.normalization_spectrum(
+normalized_tic = SpectrumPreprocess.normalization_spectrum(
     data=denoised,
     method="tic",
-    scale_method="none"
+    scale_method="none",
 )
 
 tic_origin = float(np.sum(denoised.intensity))
@@ -124,17 +184,17 @@ tic_after = float(np.sum(normalized_tic.intensity))
 print(f"TIC normalized sum={tic_after:.6f}")
 
 plot_spectrum(
-    base = denoised,
+    base=denoised,
     mz_range=(500.0, 510.0),
     intensity_range=(0.0, 1.5),
-    title_suffix='Savgol_denoised'
+    title_suffix="Savgol_denoised",
 )
 
 plot_spectrum(
     base=normalized_tic,
     mz_range=(500.0, 510.0),
     intensity_range=(0.0, 1.5 / tic_origin),
-    title_suffix='TIC_normalized_none'
+    title_suffix="TIC_normalized_none",
 )
 ```
 ![Original Spectrum after denoised]()
@@ -165,17 +225,17 @@ Example: (after Savitzky-Golay denoising)
 
 ```python
 # Denoise then normalize (same as TIC example)
-denoised = MSIPreprocessor.noise_reduction_spectrum(
+denoised = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="savgol",
     window=11,
-    polyorder=3
+    polyorder=3,
 )
 
-normalized_rms = MSIPreprocessor.normalization_spectrum(
+normalized_rms = SpectrumPreprocess.normalization_spectrum(
     data=denoised,
     method="rms",
-    scale_method="none"
+    scale_method="none",
 )
 
 # RMS before and after (RMS equals 1 after normalization when input RMS > 0)
@@ -188,7 +248,7 @@ plot_spectrum(
     base=normalized_rms,
     mz_range=(500.0, 510.0),
     intensity_range=(0.0, 1.5 / max(rms_origin, 1e-12)),
-    title_suffix='RMS_normalized_none'
+    title_suffix="RMS_normalized_none",
 )
 ```
 ![RMS example]()
@@ -215,17 +275,17 @@ preprocess.normalizer_helper.median_normalize(
 Example: (after Savitzky-Golay denoising)
 
 ```python
-denoised = MSIPreprocessor.noise_reduction_spectrum(
+denoised = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="savgol",
     window=11,
-    polyorder=3
+    polyorder=3,
 )
 med_origin = float(np.median(denoised.intensity))
-normalized_med = MSIPreprocessor.normalization_spectrum(
+normalized_med = SpectrumPreprocess.normalization_spectrum(
     data=denoised,
     method="median",
-    scale_method="none"
+    scale_method="none",
 )
 med_after = float(np.median(normalized_med.intensity))
 print(f"Median_value_after={med_after:.6f}")
@@ -234,7 +294,7 @@ plot_spectrum(
     base=normalized_med,
     mz_range=(500.0, 510.0),
     intensity_range=(0.0, 1.5 / med_origin),
-    title_suffix='Median_normalized_none'
+    title_suffix="Median_normalized_none",
 )
 ```
 ![Median example]()
@@ -259,7 +319,7 @@ preprocess.normalizer_helper.apply_scaling(
 
 ### Optional 0–1 scaling (unit scaling)
 ```python
-normalized_unit = MSIPreprocessor.normalization_spectrum(
+normalized_unit = SpectrumPreprocess.normalization_spectrum(
     data=denoised,
     method="tic",          # or "median"
     scale_method="unit"    # min-max scaling to [0, 1]
@@ -296,7 +356,8 @@ plot_spectrum(
   Check spelling: `method='tic'|'median'`, `scale_method='none'|'unit'`.
 
 ## References
-- `preprocess/normalizer_helper.py` (TIC/median implementations and scaling)
-- `preprocess/ms_preprocess.py` (Unified entry point and parameter dispatch)
-- `module/ms_module.py` (Data structure for `SpectrumBaseModule`)
-- `tools/plot.py` (Plotting utilities for `SpectrumBaseModule`)
+- `preprocess/normalizer_helper.py` (TIC/RMS/median implementations and scaling)
+- `preprocess/spectrum_pre_fun.py` (Spectrum-level entry points and parameter dispatch)
+- `preprocess/dm_pre_fun.py` (Data-manager-level normalization entry)
+- `module/spectrum.py` and `module/mass_spectrum_set.py` (Spectrum and MassSpectrumSet data structures)
+- `src/massflow/tools/plot.py` (Plotting utilities for Spectrum/MassSpectrumSet)

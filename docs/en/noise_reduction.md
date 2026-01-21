@@ -1,16 +1,16 @@
 # MassFlow 
 
-This document introduces the noise suppression and filtering module in MassFlow, focusing on the functions in `preprocess/filter_helper.py` and their coordinated use with `MSIPreprocessor.noise_reduction_spectrum`. The content includes API descriptions, example code, parameters and tuning suggestions, application scenarios, and common issues.
+This document introduces the noise suppression and filtering module in MassFlow, focusing on the functions in `preprocess/filter_helper.py`, the spectrum-level entry `SpectrumPreprocess.noise_reduction_spectrum`, and the data-manager-level entry `Preprocess.noise_reduction`. The content includes API descriptions, example code, parameters and tuning suggestions, application scenarios, and common issues.
 ## Overview
 
 - Input and Output
-  - Input: `module.ms_module.SpectrumBaseModule` (1D `intensity` must exist; `mz_list` is optional)
-  - Output: All function calls should be made through the `MSIPreprocessor.noise_reduction_spectrum` method.
+  - Spectrum level: Input `massflow.module.spectrum.Spectrum` (or `SpectrumImzML`) with 1D `intensity` and optional `mz_list`; output is a new `SpectrumImzML` returned by `SpectrumPreprocess.noise_reduction_spectrum`.
+  - Data-manager level: Input `massflow.module.ms_data_manager_imzml.MSDataManagerImzML`; output is a new `MSDataManagerImzML` whose spectra have been denoised via `Preprocess.noise_reduction`, with data streamed to disk to control memory usage.
 - Algorithm Categories
   - Time-domain convolution smoothing: `smooth_signal_ma` (moving average/custom kernel), `smooth_signal_gaussian` (discrete Gaussian)
-  - Polynomial fitting smoothing: `smooth_signal_savgol` (Savitzky-Golay)
+  - Polynomial fitting smoothing: `smooth_signal_savgol` (Savitzky-Golay) and its Numba-accelerated variant `savgol_numba` (supports 1D and 2D/batch inputs).
   - Wavelet denoising: `smooth_signal_wavelet` (thresholding based on PyWavelets)
-  - Smoothing based on m/z neighborhood search: `smooth_ns_signal_ma`, `smooth_ns_signal_gaussian`, `smooth_ns_signal_bi` (bilateral)
+  - Smoothing based on m/z neighborhood search: `smooth_ns_signal_ma`, `smooth_ns_signal_gaussian`, `smooth_ns_signal_bi` (bilateral) and their Numba-accelerated variants `ma_ns_numba`, `gaussian_ns_numba`, `bi_ns_numba`.
 - Preprocessing
   - `smooth_preprocess`: Sets negative intensities to zero; optional utility, not automatically called by `noise_reduction_spectrum`.
 
@@ -18,40 +18,117 @@ This document introduces the noise suppression and filtering module in MassFlow,
 
 ```mermaid
 graph LR
-  A["MSIPreprocessor.noise_reduction_spectrum"] --> P[smooth_preprocess]
+  A["SpectrumPreprocess.noise_reduction_spectrum"] --> P[smooth_preprocess]
   A --> MA[smooth_signal_ma]
   A --> G[smooth_signal_gaussian]
   A --> SG[smooth_signal_savgol]
+  A --> SGN[savgol_numba]
   A --> WT[smooth_signal_wavelet]
   A --> MA_NS[smooth_ns_signal_ma]
   A --> G_NS[smooth_ns_signal_gaussian]
   A --> BI_NS[smooth_ns_signal_bi]
+  A --> MA_NS_N[ma_ns_numba]
+  A --> G_NS_N[gaussian_ns_numba]
+  A --> BI_NS_N[bi_ns_numba]
 ```
 
 ## Core API
 
-### MSIPreprocessor.noise_reduction_spectrum
+### Preprocess.noise_reduction (Data manager level)
 
 ```python
-preprocess.ms_preprocess.MSIPreprocessor.noise_reduction_spectrum(
-  data: SpectrumBaseModule | SpectrumImzML,
+preprocess.dm_pre_fun.Preprocess.noise_reduction(
+  data_manager: MSDataManager,
   method: str = "ma",
   window: int = 5,
   sd: float | None = None,
   sd_intensity: float | None = None,
   p: int = 2,
   coef: np.ndarray | None = None,
-  polyorder: int = 2,
+  polyorder: int = 3,
+  deriv: int = 0,
+  delta: float = 1.0,
   wavelet: str = "db4",
   threshold_mode: str = "soft",
-) -> SpectrumBaseModule
+  batch_size: int = 256,
+  temp_dir: str = "./temp_noise_data",
+) -> MSDataManagerImzML
 ```
 
-- Description: Unified entry point for denoising. Dispatches to the specific filter implementation based on `method`, and returns a spectrum object with the same coordinates as the input, where `intensity` is the smoothed result.
+- Description: Data-manager-level entry for denoising. Processes all spectra in an `MSDataManager` with the same algorithms as the spectrum-level API, streaming data in batches and writing results to disk.
+- Input: `MSDataManagerImzML` (or subclass) containing spectra to be denoised.
+- Output: A new `MSDataManagerImzML` whose spectra have the same `mz_list` and coordinates as the original, with `intensity` replaced by smoothed values.
+- Notes:
+  - Internally uses a batch-processing layer to limit memory usage; this batch API is not intended to be called directly in normal workflows.
+  - Batch-wise processing clears in-memory spectra and swaps denoised data out to disk, so large datasets can be processed without manual memory management.
+
+Example (data manager level):
+
+```python
+import sys
+import os
+from pathlib import Path
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.preprocess.dm_pre_fun import Preprocess
+from massflow.tools.plot import plot_spectrum
+
+FILE_PATH = "data/example.imzML"
+ms = MassSpectrumSet()
+dm = MSDataManagerImzML(ms, filepath=FILE_PATH)
+dm.load_full_data_from_file()
+
+# Use either classic methods (e.g. "savgol") or Numba-accelerated ones (e.g. "savgol_numba")
+dm_denoised = Preprocess.noise_reduction(
+    data_manager=dm,
+    method="savgol_numba",
+    window=11,
+    polyorder=3,
+    batch_size=256,
+)
+
+sp_orig = dm.ms[0]
+sp_denoised = dm_denoised.ms[0]
+
+plot_spectrum(
+    base=sp_orig,
+    target=sp_denoised,
+    mz_range=(500.0, 510.0),
+    intensity_range=(0.0, 1.5),
+    metrics_box=True,
+    title_suffix="DM_SavgolNumba",
+)
+
+dm.close()
+dm_denoised.close()
+```
+
+### SpectrumPreprocess.noise_reduction_spectrum
+
+```python
+massflow.preprocess.spectrum_pre_fun.SpectrumPreprocess.noise_reduction_spectrum(
+  data: Spectrum | SpectrumImzML,
+  method: str = "ma",
+  window: int = 5,
+  sd: float | None = None,
+  sd_intensity: float | None = None,
+  p: int = 2,
+  coef: np.ndarray | None = None,
+  polyorder: int = 3,
+  deriv: int = 0,
+  delta: float = 1.0,
+  wavelet: str = "db4",
+  threshold_mode: str = "soft",
+) -> SpectrumImzML
+```
+
+- Description: Unified entry point for denoising a single spectrum. Dispatches to the specific filter implementation based on `method`, and returns a new spectrum object with the same coordinates as the input, where `intensity` is the smoothed result.
+- Notes:
+  - This spectrum-level API performs no automatic memory cleanup; it simply returns a new spectrum instance. When applying it repeatedly over large datasets, you must manage memory yourself or prefer `Preprocess.noise_reduction` at the data-manager level.
 - Supported `method`s:
-  - `ma`, `gaussian`, `savgol`, `wavelet`
-  - `ma_ns`, `gaussian_ns`, `bi_ns`
-- Returns: A new `SpectrumBaseModule` instance, with `mz_list` and coordinates preserved, and `intensity` replaced with the smoothed result.
+  - Classic methods: `ma`, `gaussian`, `savgol`, `wavelet`, `ma_ns`, `gaussian_ns`, `bi_ns`.
+  - Numba-accelerated methods: `savgol_numba`, `ma_ns_numba`, `gaussian_ns_numba`, `bi_ns_numba`.
+- Returns: A new `SpectrumImzML` instance, with `mz_list` and coordinates preserved, and `intensity` replaced with the smoothed result.
 - Exceptions:
   - `ValueError`: unsupported `method`.
   - `TypeError`: invalid input type.
@@ -73,16 +150,18 @@ preprocess.filter_helper.smooth_signal_ma(
   - `window`: Window length (positive integer; if even and `coef is None`, it is automatically coerced to odd for centered alignment).
 - Returns: A 1D `intensity` array of the same length as the input.
 - Exceptions:
-  - `ValueError`: `window <= 0` or even when `coef` is None,intensity is not a 1D array.
-  - `TypeError`: `window` must be integer when `coef` is None，`coef` must be a non-empty 1D numpy array when provided.
+  - `ValueError`: `window <= 0`, or `intensity` is not a 1D array.
+  - `TypeError`: `window` must be integer when `coef` is None, `coef` must be a non-empty 1D numpy array when provided.
 
 Example:
 
 ```python
-denoised_spectrum = MSIPreprocessor.noise_reduction_spectrum(
+from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
+
+denoised_spectrum = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="ma",
-    window=7
+    window=7,
 )
 ```
 
@@ -94,25 +173,23 @@ import os
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-from module.ms_module import MS, SpectrumBaseModule
-from module.ms_data_manager_imzml import MSDataManagerImzML
-from preprocess.ms_preprocess import MSIPreprocessor
-from tools.plot import plot_spectrum
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
+from massflow.tools.plot import plot_spectrum
 
-# Dataloading part only show once for blow examples
-# Load data
-# Data path
-FILE_PATH = 'data/neg-gz4.imzML'
-ms = MS()
+# Data loading (shared by subsequent examples)
+FILE_PATH = "data/example.imzML"
+ms = MassSpectrumSet()
 ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
 ms_md.load_full_data_from_file()
 sp = ms[0]
 
 # Denoising processing (using directly set window size)
-denoised_spectrum = MSIPreprocessor.noise_reduction_spectrum(
+denoised_spectrum = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="ma",
-    window=7  # Window size for moving average
+    window=7,  # Window size for moving average
 )
 
 # Plotting (overlay original and denoised)
@@ -122,7 +199,7 @@ plot_spectrum(
     mz_range=(500.0, 510.0),
     intensity_range=(0.0, 1.5),
     metrics_box=True,
-    title_suffix='MA',
+    title_suffix="MA",
 )
 ```
 
@@ -150,7 +227,7 @@ preprocess.filter_helper.smooth_signal_gaussian(
 Example:
 
 ```python
-denoised = MSIPreprocessor.noise_reduction_spectrum(
+denoised = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="gaussian",
     window=7,
@@ -182,7 +259,7 @@ preprocess.filter_helper.smooth_signal_savgol(
 Example:
 
 ```python
-denoised = MSIPreprocessor.noise_reduction_spectrum(
+denoised = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="savgol",
     window=10,
@@ -219,7 +296,7 @@ preprocess.filter_helper.smooth_signal_wavelet(
 Example:
 
 ```python
-denoised = MSIPreprocessor.noise_reduction_spectrum(
+denoised = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="wavelet",
 )
@@ -250,7 +327,7 @@ preprocess.filter_helper.smooth_ns_signal_ma(
 Example:
 
 ```python
-denoised = MSIPreprocessor.noise_reduction_spectrum(
+denoised = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="ma_ns",
     window=10,  # window maps to k
@@ -288,7 +365,7 @@ preprocess.filter_helper.smooth_ns_signal_gaussian(
 Example:
 
 ```python
-denoised = MSIPreprocessor.noise_reduction_spectrum(
+denoised = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="gaussian_ns",
     window=10,  # window maps to k
@@ -328,7 +405,7 @@ preprocess.filter_helper.smooth_ns_signal_bi(
 Example:
 
 ```python
-denoised = MSIPreprocessor.noise_reduction_spectrum(
+denoised = SpectrumPreprocess.noise_reduction_spectrum(
     data=sp,
     method="bi_ns",
     window=10,  # window maps to k
@@ -375,6 +452,7 @@ window=20:
 - Neighborhood methods: when `index` is missing or mismatched, a `logger.warning` is emitted and it falls back to `np.arange(len(intensity))` for KD-tree queries.
 
 - `preprocess/filter_helper.py` (Core implementation of filtering/denoising)
-- `preprocess/ms_preprocess.py` (Unified entry point and parameter dispatch)
-- `module/ms_module.py` (Data structure for `SpectrumBaseModule`)
-- `tools/plot.py` (Plotting utilities for `SpectrumBaseModule`)
+- `preprocess/dm_pre_fun.py` (Data-manager-level preprocessing entry, including noise reduction)
+- `preprocess/spectrum_pre_fun.py` (Spectrum-level entry points and parameter dispatch)
+- `module/spectrum.py` and `module/mass_spectrum_set.py` (Spectrum and MassSpectrumSet data structures)
+- `src/massflow/tools/plot.py` (Plotting utilities for Spectrum/MassSpectrumSet)

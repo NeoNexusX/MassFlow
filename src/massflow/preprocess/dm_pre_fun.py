@@ -255,13 +255,33 @@ class Preprocess:
         if data_manager is None:
             raise ValueError("data_manager must be provided for noise reduction.")
 
-        logger.info(
-            "noise_reduction_entry: method=%s, window=%s, polyorder=%s, sd=%s",
-            method,
-            window,
-            polyorder,
-            sd,
-        )
+        method_norm = (method or "ma").strip().lower()
+        if method_norm in {"ma", "gaussian", "savgol", "savgol_numba"}:
+            logger.info(
+                "noise_reduction_entry: method=%s, window=%s, polyorder=%s, sd=%s, deriv=%s, delta=%s",
+                method,
+                window,
+                polyorder,
+                sd,
+                deriv,
+                delta,
+            )
+        elif method_norm in {"wavelet"}:
+            logger.info(
+                "noise_reduction_entry: method=%s, wavelet=%s, threshold_mode=%s",
+                method,
+                wavelet,
+                threshold_mode,
+            )
+        else:
+            logger.info(
+                "noise_reduction_entry: method=%s, window(k)=%s, p=%s, sd=%s, sd_intensity=%s",
+                method,
+                window,
+                p,
+                sd,
+                sd_intensity,
+            )
 
         denoised_ms = MassSpectrumSet()
         #denoised_data_manager = MSDataManagerImzML(denoised_ms)
@@ -406,13 +426,33 @@ class Preprocess:
         if data_manager is None:
             raise ValueError("data_manager must be provided for baseline correction.")
 
-        logger.info(
-            "baseline_correction_entry: method=%s, lam=%s, p=%s, niter=%s",
-            method,
-            lam,
-            p,
-            niter,
-        )
+        method_norm = (method or "asls").strip().lower()
+        if method_norm == "asls":
+            logger.info(
+                "baseline_correction_entry: method=%s, lam=%s, p=%s, niter=%s",
+                method,
+                lam,
+                p,
+                niter,
+            )
+        elif method_norm in {"snip", "snip_numba"}:
+            logger.info(
+                "baseline_correction_entry: method=%s, m=%s, decreasing=%s, baseline_scale=%s",
+                method,
+                m,
+                decreasing,
+                baseline_scale,
+            )
+        else:
+            logger.info(
+                "baseline_correction_entry: method=%s, smooth=%s, span=%s, s=%s, upper=%s, width=%s",
+                method,
+                smooth,
+                span,
+                s,
+                upper,
+                width,
+            )
 
         corrected_ms = MassSpectrumSet()
         #corrected_data_manager = MSDataManagerImzML(corrected_ms)

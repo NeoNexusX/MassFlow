@@ -29,11 +29,16 @@ MassFlow/
 ├── logs/                    # Runtime logs
 ├── src/
 │   └── massflow/            # Core source code
-│       ├── module/          # Data models and managers
-│       │   ├── ms_module.py # MS/ImzML base types
+│       ├── module/               # Core data models and data managers
+│       │   ├── spectrum.py       # Spectrum base type
+│       │   ├── spectrum_imzml.py # ImzML spectrum with lazy loading
+│       │   ├── mass_spectrum_set.py  # Collection of spectra
+│       │   ├── ms_meta_data.py       # Metadata structures (ImzMlMetaData, etc.)
 │       │   └── ...
-│       ├── preprocess/      # Preprocessing algorithms
-│       │   ├── ms_preprocess.py
+│       ├── preprocess/              # Preprocessing entry points and helpers
+│       │   ├── spectrum_pre_fun.py  # Spectrum-level preprocessing API (SpectrumPreprocess)
+│       │   ├── dm_pre_fun.py        # Data-manager-level preprocessing API (Preprocess)
+│       │   ├── batch_pre_fun.py     # Batch processing utilities (BatchPreprocess)
 │       │   └── ...
 │       └── tools/           # Utility functions
 ├── tests/                   # Test cases

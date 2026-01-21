@@ -4,33 +4,43 @@ from functools import partial
 import pytest
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
+from massflow.preprocess.dm_pre_fun import Preprocess
 from massflow.tools.logger import get_logger
+pytestmark = pytest.mark.filterwarnings("ignore:This process .* is multi-threaded, use of fork():DeprecationWarning")
 
 logger = get_logger("test_all_normalize")
 
-def pre_load_data_setup(data_file_path="data/neg-gz4.imzML"):
+
+@pytest.fixture(scope="module")
+def normalize_data_manager(data_file_path="data/example.imzML") -> MSDataManagerImzML:
     mass_data = MassSpectrumSet()
+    dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
+    dm.load_full_data_from_file()
 
-    with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
-        ms_md.load_full_data_from_file()
-        ms_md.inspect_data()
+    for _ in dm.get_batch_generator(batch_size=512):
+        pass
 
-        # Pre-load data
-        for spectrum_data in mass_data:
-            _ = spectrum_data.intensity
+    logger.info("data pre-load finished!")
 
-        logger.info("data pre-load finished!")
+    return dm
 
-    return (mass_data,), {}
+def run_normalization(data_manager, method="tic", scale_method="none", scale=1.0):
+    Preprocess.normalization(
+        data_manager=data_manager,
+        scale_method=scale_method,
+        method=method,
+        scale=scale,
+    )
 
+def validate_normalization_data(data_manager, method="tic", scale_method="none", scale=1.0):
+    normalized_dm = Preprocess.normalization(
+        data_manager=data_manager,
+        scale_method=scale_method,
+        method=method,
+        scale=scale,
+    )
 
-def replace_normalization_data(mass_spectrum: MassSpectrumSet, method="tic", scale_method="none", scale=1.0):
-    for spectrum in mass_spectrum:
-        spectrum_new = SpectrumPreprocess.normalization_spectrum(
-            spectrum, method=method, scale_method=scale_method, scale=scale
-        )
-
+    for spectrum, spectrum_new in zip(data_manager.ms, normalized_dm.ms):
         x = spectrum.intensity
         y = spectrum_new.intensity
 
@@ -51,18 +61,21 @@ def replace_normalization_data(mass_spectrum: MassSpectrumSet, method="tic", sca
                 new_ratio = float(y[i1] / y[i2])
                 assert np.isclose(new_ratio, old_ratio, rtol=1e-6, atol=1e-8)
 
-
 class TestAllNormalization:
     @pytest.mark.parametrize("method", ["tic", "rms", "median"])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_normalize_methods_replace_data_benchmark(self, benchmark, method):
+    def test_normalize_methods_replace_data_benchmark(self, benchmark, method, normalize_data_manager):
 
         logger.info(f"Testing normalization with method: {method}")
         benchmark.pedantic(
-            partial(replace_normalization_data, method=method, scale_method="none", scale=1.0),
-            setup=pre_load_data_setup,
+            partial(run_normalization, method=method, scale_method="none", scale=1.0),
+            args=(normalize_data_manager,),
             rounds=10,
             iterations=1,
             warmup_rounds=1,
         )
         logger.info(f"Finished normalization with method: {method}")
+
+    @pytest.mark.parametrize("method", ["tic", "rms", "median"])
+    def test_normalize_methods_correctness(self, method, normalize_data_manager):
+        validate_normalization_data(normalize_data_manager, method=method, scale_method="none", scale=1.0)

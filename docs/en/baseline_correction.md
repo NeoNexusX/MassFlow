@@ -1,19 +1,19 @@
 # MassFlow
 
-This document introduces the baseline correction module in MassFlow, focusing on `preprocess/ms_preprocess.py` and the unified entry `MSIPreprocessor.baseline_correction`.
+This document introduces the baseline correction module in MassFlow, focusing on the spectrum-level entry `SpectrumPreprocess.baseline_correction_spectrum`, the data-manager-level entry `Preprocess.baseline_correction`, and helper functions defined in `preprocess/baseline_correction_helper.py`.
 
 ## Overview
 - Input and output
-  - Input: `module.ms_module.SpectrumBaseModule`
-  - Output: a tuple `(corrected, baseline)`:
-  - `SpectrumBaseModule`: `(SpectrumBaseModule corrected_spectrum, np.ndarray baseline)` with `mz_list` and coordinates preserved.
+  - Spectrum level: Input `massflow.module.spectrum.Spectrum` (or `SpectrumImzML`) with 1D `intensity` and `mz_list`; output is a new `SpectrumImzML` with the same `mz_list` and coordinates and baseline-corrected `intensity`.
+  - Data-manager level: Input `massflow.module.ms_data_manager.MSDataManager` (typically `MSDataManagerImzML`); output is a new `MSDataManagerImzML` whose spectra have been baseline-corrected via `Preprocess.baseline_correction`, using batch processing and disk swapping to control memory usage.
 - Methods
   - LocMin (Local Minima Interpolation): baseline from local extrema anchors with optional smoothing.
   - SNIP (Statistics-Sensitive Non-linear Iterative Peak-clipping): iterative clipping with adaptive early stop.
-  - ASLS (Asymmetric Least Squares): robust baseline estimation with peak preservation.
+  - SNIP (Numba-accelerated variant): same algorithm as SNIP, implemented in `snip_baseline_numba` for faster processing on large spectra.
+  - ASLS (Asymmetric Least Squares): robust baseline estimation with peak preservation. Due to high computational cost, it is slower and best suited for precise correction of single or small numbers of spectra.
 - Baseline scaling
   - `baseline_scale` scales the estimated baseline by `(0,1]` (default `1.0`) to prevent over-subtraction.
-  - The returned baseline is scaled. Set `baseline_scale=1.0` to keep native algorithm behavior.
+  - The scaled baseline is subtracted from the original signal; set `baseline_scale=1.0` to keep native algorithm behavior.
 
 ### Function Relationship Diagram
 
@@ -33,10 +33,10 @@ graph LR
 
 ## Core API
 
-### MSIPreprocessor.baseline_correction_spectrum
+### Preprocess.baseline_correction (Data manager level)
 ```python
-preprocess.ms_preprocess.MSIPreprocessor.baseline_correction_spectrum(
-  data: SpectrumBaseModule | SpectrumImzML
+massflow.preprocess.dm_pre_fun.Preprocess.baseline_correction(
+  data_manager: MSDataManager,
   method: str = "asls",
   smooth: str = "none",
   span: float = 0.1,
@@ -48,14 +48,80 @@ preprocess.ms_preprocess.MSIPreprocessor.baseline_correction_spectrum(
   niter: int = 15,
   baseline_scale: float = 1.0,
   m: int | None = None,
-  decreasing: bool = True
-) -> tuple[SpectrumBaseModule, np.ndarray]
+  decreasing: bool = True,
+  batch_size: int = 256,
+  temp_dir: str = "./temp_baseline_data",
+) -> MSDataManagerImzML
 ```
-- Description: Unified entry for baseline correction. Dispatches to LocMin, SNIP, or ASLS and returns the corrected spectrum and the scaled estimated baseline.
-- Supported methods: `"locmin"`, `"snip"`, `"asls"`
-- Returns: `(corrected_spectrum, baseline)`; corrected spectrum preserves `mz_list` and coordinates.
+- Description: Data-manager-level entry for baseline correction. Processes all spectra in an `MSDataManager` using the same algorithms as the spectrum-level API, streaming baseline-corrected spectra to disk.
+- Input: `MSDataManagerImzML` (or subclass) containing spectra to be baseline-corrected.
+- Output: A new `MSDataManagerImzML` with the same `mz_list` and coordinates as the original, and baseline-corrected `intensity` values.
+- Notes:
+  - Internally uses `BatchPreprocess.baseline_correction_batch` to apply `SpectrumPreprocess.baseline_correction_spectrum` over batches of spectra.
+  - Batch-wise processing clears in-memory spectra (`MSDataManager.clear_batch_data_memory`) and writes corrected data out to disk, allowing large datasets to be processed within limited memory.
+  - Supported methods include classic Python implementations (`"locmin"`, `"snip"`, `"asls"`) and the Numba-accelerated SNIP variant (`"snip_numba"`).
+
+Example (data manager level):
+
+```python
+from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.preprocess.dm_pre_fun import Preprocess
+from massflow.tools.plot import plot_spectrum
+
+FILE_PATH = "data/example.imzML"
+ms = MassSpectrumSet()
+dm = MSDataManagerImzML(ms, filepath=FILE_PATH)
+dm.load_full_data_from_file()
+
+dm_corrected = Preprocess.baseline_correction(
+    data_manager=dm,
+    method="snip_numba",  # use Numba-accelerated SNIP for speed
+    m=50,
+    baseline_scale=1.0,
+    batch_size=256,
+)
+
+sp_orig = dm.ms[0]
+sp_corr = dm_corrected.ms[0]
+
+plot_spectrum(
+    base=sp_orig,
+    target=sp_corr,
+    mz_range=(400.0, 450.0),
+    intensity_range=(0.0, 2.0),
+    metrics_box=True,
+    title_suffix="DM_SNIPNumba",
+)
+
+dm.close()
+dm_corrected.close()
+```
+
+### SpectrumPreprocess.baseline_correction_spectrum
+```python
+massflow.preprocess.spectrum_pre_fun.SpectrumPreprocess.baseline_correction_spectrum(
+  data: Spectrum | SpectrumImzML,
+  method: str = "asls",
+  smooth: str = "none",
+  span: float = 0.1,
+  s: float | None = 0.0,
+  upper: bool = False,
+  width: int = 5,
+  lam: float = 1e7,
+  p: float = 0.01,
+  niter: int = 15,
+  baseline_scale: float = 1.0,
+  m: int | None = None,
+  decreasing: bool = True,
+) -> SpectrumImzML
+```
+- Description: Unified entry for baseline correction of a single spectrum. Dispatches to LocMin, SNIP, or ASLS and returns a new `SpectrumImzML` with baseline-corrected `intensity` and preserved `mz_list`/coordinates.
+- Supported methods: `"locmin"`, `"snip"`, `"snip_numba"`, `"asls"`.
+- Notes:
+  - This spectrum-level API does not perform automatic memory cleanup; it simply returns a new spectrum instance. For large datasets, prefer `Preprocess.baseline_correction` at the data-manager level.
+  - To obtain the baseline explicitly (for analysis or plotting), use `baseline_corrector` directly.
 - Exceptions: `ValueError` (unsupported method), `TypeError` (invalid input type)
- 
 
 ### baseline_corrector
 ```python
@@ -78,17 +144,17 @@ preprocess.baseline_correction_helper.baseline_corrector(
 ```
 - Parameters:
   - `intensity`: 1D intensity array.
-  - `index`: optional 1D coordinate array; validated for alignment but not directly used by current methods.
-  - `method`: `'locmin' | 'snip' | 'asls'`.
+  - `index`: optional 1D coordinate array; validated for alignment and optionally used for plotting.
+  - `method`: `'locmin' | 'snip' | 'snip_numba' | 'asls'`.
   - `smooth`, `span`, `s`, `upper`, `width`: LocMin options (smoothing and anchor detection).
   - `lam`, `p`, `niter`: ASLS options.
   - `baseline_scale`: scale factor in `(0,1]` applied to the estimated baseline (default `1.0`).
-  - `m`, `decreasing`: SNIP options.
+  - `m`, `decreasing`: SNIP options (for both pure Python and Numba versions).
 - Returns:
-  - `(corrected, scaled_baseline)`: corrected intensity and the scaled baseline.
+  - `(corrected, scaled_baseline)`: baseline-corrected intensity and the scaled baseline.
 - Exceptions:  
   - `ValueError`: unsupported `method`.
-  - Input validation errors for non-1D or empty arrays.
+  - Input validation errors for non-1D or empty arrays; invalid `baseline_scale`.
 
 ### locmin_baseline
 ```python
@@ -120,19 +186,19 @@ Example:
 
 ```python
 import numpy as np
-from module.ms_module import SpectrumBaseModule
-from preprocess.ms_preprocess import MSIPreprocessor
-from tools.plot import plot_spectrum
+from massflow.module.spectrum import Spectrum
+from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
+from massflow.tools.plot import plot_spectrum
 
-sp = SpectrumBaseModule(mz_list=mz_data, intensity=intensity_original, coordinates=[0, 0, 0])
+sp = Spectrum(mz_list=mz_data, intensity=intensity_original, coordinate=[0, 0, 0])
 
-corrected_sp, baseline = MSIPreprocessor.baseline_correction_spectrum(
+corrected_sp = SpectrumPreprocess.baseline_correction_spectrum(
     data=sp,
     method="locmin",
     upper=False,
     width=11,
     smooth="none",
-    baseline_scale=1.0
+    baseline_scale=1.0,
 )
 
 plot_spectrum(
@@ -142,7 +208,7 @@ plot_spectrum(
     intensity_range=(0.0, 2.0),
     metrics_box=True,
     title_suffix="LocMin",
-    overlay=True
+    overlay=True,
 )
 ```
 ![Locmin example before/after (image to be added)]()
@@ -152,15 +218,15 @@ plot_spectrum(
 preprocess.baseline_correction_helper.snip_baseline(
   intensity: np.ndarray,
   m: int | None = None,
-  decreasing: bool = True
+  decreasing: bool = True,
 ) -> np.ndarray
 ```
-- Description: Statistics-sensitive Non-linear Iterative Peak-clipping (SNIP) baseline estimation algorithm. Performs multi-scale iterative processing to effectively estimate and remove baseline while preserving real mass spectral peaks.
+- Description: Statistics-sensitive Non-linear Iterative Peak-clipping (SNIP) baseline estimation algorithm (pure Python implementation). Performs multi-scale iterative processing to effectively estimate and remove baseline while preserving real mass spectral peaks.
 - Parameters:
-  - `m`: Window half-size; if None, auto-selects based on spectrum length: `min(100, max(10, n//10))`
-  - `decreasing`: Iterate from large window to small (`True`) or small to large (`False`)
+  - `m`: Window half-size; if None, auto-selects based on spectrum length: `min(100, max(10, n//10))`.
+  - `decreasing`: Iterate from large window to small (`True`) or small to large (`False`).
 - Returns:
-  - `baseline`: Estimated baseline as 1D numpy array
+  - `baseline`: Estimated baseline as 1D numpy array.
 - Exceptions:
   - `TypeError`: `m` is not an integer.
   - `ValueError`: `m <= 0`; `intensity` is not a 1D array.
@@ -168,18 +234,18 @@ preprocess.baseline_correction_helper.snip_baseline(
 Example:
 
 ```python
-import numpy as np
-from module.ms_module import SpectrumBaseModule
-from preprocess.ms_preprocess import MSIPreprocessor
+from massflow.module.spectrum import Spectrum
+from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
+from massflow.tools.plot import plot_spectrum
 
-sp = SpectrumBaseModule(mz_list=mz_data, intensity=intensity_original , coordinates=[0, 0, 0])
+sp = Spectrum(mz_list=mz_data, intensity=intensity_original, coordinate=[0, 0, 0])
 
-corrected_sp, baseline = MSIPreprocessor.baseline_correction_spectrum(
+corrected_sp = SpectrumPreprocess.baseline_correction_spectrum(
     data=sp,
     method="snip",
     m=50,
     decreasing=True,
-    baseline_scale=1.0
+    baseline_scale=1.0,
 )
 
 plot_spectrum(
@@ -189,18 +255,40 @@ plot_spectrum(
     intensity_range=(0.0, 2.0),
     metrics_box=True,
     title_suffix="SNIP",
-    overlay=True
+    overlay=True,
 )
 ```
 ![SNIP example before/after (image to be added)]()
+
+### snip_baseline_numba
+```python
+preprocess.numba.baseline_correction_numba.snip_baseline_numba(
+  intensity: np.ndarray,
+  m: int | None = None,
+  decreasing: bool = True,
+) -> np.ndarray
+```
+- Description: Numba-accelerated implementation of the SNIP baseline estimation algorithm. Uses parallel loops (`prange`) and JIT compilation to speed up baseline estimation on large spectra while preserving the same algorithmic behavior as `snip_baseline`.
+- Parameters:
+  - `intensity`: 1D input spectrum; must be non-empty.
+  - `m`: Window half-size; if None, auto-selects based on spectrum length: `min(100, max(10, n//10))` (internally clamped to valid range).
+  - `decreasing`: Iterate from large window to small (`True`) or small to large (`False`).
+- Returns:
+  - `baseline`: Estimated baseline as a float32 numpy array.
+- Exceptions:
+  - `ValueError`: `intensity` is not a 1D array, spectrum too short, or `m < 1` when provided.
+
+Notes:
+- When calling `baseline_corrector` with `method="snip_numba"`, this Numba implementation is used internally.
+
 
 ### asls_baseline
 ```python
 preprocess.baseline_correction_helper.asls_baseline(
   intensity: np.ndarray,
-  lam: float = 1e7,
-  p: float = 0.01,
-  niter: int = 15
+  lam: float = 1e5,
+  p: float = 0.001,
+  niter: int = 15,
 ) -> np.ndarray
 ```
 - Description: Asymmetric Least Squares (ASLS) baseline estimation algorithm. Uses weighted least squares with asymmetric penalties to estimate baseline while preserving peak signals through iterative reweighting.
@@ -238,10 +326,11 @@ preprocess.baseline_correction_helper.asls_baseline(
 - Overlay mode: set `overlay=True` to plot original and corrected spectra on the same axis. Omit or set `overlay=False` for stacked subplots.
 
 ## References
-- `preprocess/ms_preprocess.py` (unified entry, parameter defaults)
-- `preprocess/baseline_correction_helper.py` (LocMin, SNIP, ASLS implementations)
-- `module/ms_module.py` (Data structure for `SpectrumBaseModule`)
-- `tools/plot.py` (Plotting utilities for `SpectrumBaseModule`)
+- `massflow.preprocess.spectrum_pre_fun.py` (spectrum-level unified entry, parameter defaults)
+- `massflow.preprocess.dm_pre_fun.py` (data-manager-level batch baseline correction)
+- `preprocess/baseline_correction_helper.py` (LocMin, SNIP, Numba-SNIP, ASLS implementations)
+- `massflow.module.spectrum.py` and `massflow.module.spectrum_imzml.py` (Spectrum and SpectrumImzML data structures)
+- `massflow.tools.plot.py` (Plotting utilities for Spectrum/SpectrumImzML)
 
 ## Error Handling and Logging
 
@@ -252,7 +341,8 @@ preprocess.baseline_correction_helper.asls_baseline(
   - `span` must be in `(0,1]`; `s` must be a finite number and `>= 0`.
   - `width` must be an integer and `>= 3`.
   - Loess/Spline smoothing depends on external functions (`_smooth1d`, `UnivariateSpline`); if they fail (e.g., missing dependency, invalid parameters), exceptions will propagate.
-- SNIP:
+- SNIP/SNIPNumba:
   - `m` must be an integer (type violation raises `TypeError`); if provided, it must be `>= 1`.
+  - `intensity` must be a non-empty 1D array; otherwise `ValueError` is raised.
 - ASLS:
   - `lam` must be a positive finite number; `p` must be in `(0,1)`; `niter` must be a positive integer.
