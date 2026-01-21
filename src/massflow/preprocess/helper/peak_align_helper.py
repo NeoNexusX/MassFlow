@@ -262,8 +262,8 @@ def merge_peaks(
         k += 1
 
     while k < n:
-        i = k  # 左边界
-        j = k  # 右边界
+        i = k
+        j = k
 
         # Expand to the left
         left_of_mode = False  # Whether we already passed the mode peak (local maximum)
@@ -354,6 +354,7 @@ def compute_reference(
     norm_units = _normalize_units(units)
     tol_method = "x" if norm_units == "relative" else "abs"
 
+    # Estimate domain and tolerance
     domain, estimate_tolerance = estimate_domain(
         data_manager=data_manager,
         binfun=binfun,
@@ -405,10 +406,8 @@ def align_spectrum(
         code=code,
     )
 
-    spectrumed = SpectrumImzML(
+    return SpectrumImzML(
         mz_list=reference,
         intensity=aligned_intensity,
         coordinates=spectrum.coordinate,
     )
-
-    return spectrumed

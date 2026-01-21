@@ -55,12 +55,12 @@ def peak_pick_fun(intensity: np.ndarray,
                   snr: float  = 3,
                   noise: str = "wavelet",
                   relheight: float = 0.01,
-                  method: str = 'scipy',
+                  method: str = 'origin',
                   return_type: str = 'height'):
 
     _input_validation(intensity,index)
 
-    if method == 'scipy':
+    if method == 'origin':
         peaks, props = find_pick_scipy(intensity,
                                         index,
                                         width=width,
@@ -69,8 +69,8 @@ def peak_pick_fun(intensity: np.ndarray,
                                         noise=noise,
                                         relheight=relheight)
     else:
-        logger.error("method must be 'scipy'")
-        raise ValueError("method must be 'scipy'")
+        logger.error("method must be 'origin'")
+        raise ValueError("method must be 'origin'")
 
     if return_type == 'height':
         return intensity[peaks],index[peaks]

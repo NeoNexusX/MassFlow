@@ -17,7 +17,7 @@ MZ_RANGES = [(500, 600)]
 TOLERANCE = 0.10
 ROUND = 1
 
-# set_default_r_home(r"E:/ele_software_file/R-4.5.2")  # set R_HOME path here
+# set_default_r_home("r_home_path_here")  # set R_HOME path here
 
 
 @pytest.fixture(scope="module")

@@ -179,21 +179,25 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
 
 def calc_diff(x: NDArray, y: Optional[NDArray] = None, method: str = "y") -> NDArray:
     """Calculate relative or absolute differences between array elements."""
+    # If only one array provided, compute differences between consecutive elements
     if y is None:
         if x.size <= 1:
             return np.array([], dtype=np.float64)
-        y = x[:-1]
-        x = x[1:]
+        # Shift arrays to align adjacent elements: x[i+1] vs x[i]
+        y = x[:-1]  # First element to second-to-last
+        x = x[1:]   # Second element to last
 
     x = x.astype(np.float64, copy=False)
     y = y.astype(np.float64, copy=False)
 
+    # Handle size mismatch by resizing to the larger size (fills with repeated values)
     n = max(x.size, y.size)
     if x.size != n:
         x = np.resize(x, n)
     if y.size != n:
         y = np.resize(y, n)
 
+    # Compute differences based on selected method
     if method == "abs":
         return x - y
 
@@ -243,7 +247,6 @@ def estimate_resolution(
         return np.nan
 
     xs = np.sort(x)
-
     dx = np.diff(xs)
 
     a, b = xs[:-1], xs[1:]
@@ -257,6 +260,7 @@ def estimate_resolution(
     if chosen_method is None:
         if dx.size and rx.size:
             range_span = xs[-1] - xs[0]
+            # compare the stability of the two resolution estimates
             lhs = mad(dx / range_span) if range_span > 0 else np.nan
             rhs = mad(rx)
             chosen_method = "abs" if lhs < rhs else "x"

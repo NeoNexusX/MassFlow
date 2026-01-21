@@ -46,9 +46,9 @@ class BatchPreprocess:
     @staticmethod
     def peak_pick_batch(batch_spectra: Sequence[Spectrum],
                         width: int | Sequence[int] = 2,
-                        method: str = 'scipy',
-                        relheight: float = 0.1,
-                        snr: float = 3.0,
+                        method: str = 'origin',
+                        relheight: float = 0.01,
+                        snr: float = 2.0,
                         return_type: str = 'height') -> Sequence[SpectrumImzML]:
         """
         Perform peak picking on a batch of spectra.
@@ -56,7 +56,7 @@ class BatchPreprocess:
         Parameters:
         - spectra: Sequence of Spectrum objects to be processed.
         - width: Width parameter for peak picking.
-        - method: Method for peak picking ('scipy', etc.).
+        - method: Method for peak picking ('origin', etc.).
         - relheight: Relative height threshold for peak picking.
         - return_type: Type of return value ('height' or 'area').
 

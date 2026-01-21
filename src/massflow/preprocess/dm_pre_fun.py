@@ -77,13 +77,7 @@ class Preprocess:
         if data_manager is None:
             raise ValueError("data_manager must be provided for peak alignment.")
 
-        logger.info(
-            "peak_align_entry: backend=%s, binfun=%s, tolerance=%s, units=%s",
-            backend,
-            binfun,
-            tolerance,
-            units,
-        )
+        logger.info(f"peak_align_entry: backend={backend}, binfun={binfun}, tolerance={tolerance}, units={units}")
 
         if backend == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
             return CardinalAdapter.align(data_manager=data_manager,
@@ -131,10 +125,10 @@ class Preprocess:
 
     @staticmethod
     def peak_pick(data_manager: MSDataManager,
-                  width: int | Sequence[int] = 2,
-                  method: str = 'scipy',
-                  relheight: float = 0.1,
-                  snr: float = 3.0,
+                  width: int | Sequence[int] = 1,
+                  method: str = 'origin',
+                  relheight: float = 0.012,
+                  snr: Optional[float] = 2.0,
                   return_type: str = 'height',
                   backend: str = "python",
                   batch_size: int = 256,
@@ -148,9 +142,9 @@ class Preprocess:
         an entire dataset (MSDataManager).
         Parameters:
             data_manager (MSDataManager): The data manager containing the mass spectra to process.
-            method (str): The peak picking method to use ('diff', 'sd', 'mad', 'quantile', 'filter', 'cwt', 'scipy').
-                Default is 'scipy'.
-            snr (float): Signal-to-noise ratio threshold for peak detection. Default is 3.0.
+            method (str): The peak picking method to use ('diff', 'sd', 'mad', 'quantile', 'filter', 'cwt', 'origin').
+                Default is 'origin'.
+            snr (float): Signal-to-noise ratio threshold for peak detection. Default is 2.0 .
             return_type (str): Type of peak representation to return ('height' or 'area'). Default is 'height'.
             backend (str, optional): The backend to use for peak picking.
                 - 'cardinal': Use the R Cardinal package (requires R environment).
@@ -164,26 +158,19 @@ class Preprocess:
 
         """
 
+        method = "diff" if backend == "cardinal" and method == "origin" else method
+
         if data_manager is None:
             raise ValueError("data_manager must be provided for peak picking.")
 
-        logger.info(
-            "peak_pick_entry: backend=%s, method=%s, snr=%s, return_type=%s",
-            backend,
-            method,
-            snr,
-            return_type,
-        )
+        logger.info(f"peak_pick_entry: backend={backend}, method={method}, snr={snr}, return_type={return_type}")
 
         if backend == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
-            if method != "scipy":
-                return CardinalAdapter.peak_pick(data_manager=data_manager,
-                                                 method=method,
-                                                 snr=snr,
-                                                 return_type=return_type,
-                                                 temp_dir=temp_dir)
-            else:
-                logger.warning("Cardinal backend does not support 'scipy' method. Falling back to Python implementation.")
+            return CardinalAdapter.peak_pick(data_manager=data_manager,
+                                                method=method,
+                                                snr=snr,
+                                                return_type=return_type,
+                                                temp_dir=temp_dir)
 
         picked_ms = MassSpectrumSet()
         picked_data_manager = MSDataManagerImzML(picked_ms, temp_dir=temp_dir)

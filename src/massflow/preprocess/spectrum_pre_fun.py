@@ -89,10 +89,10 @@ class SpectrumPreprocess:
 
     @staticmethod
     def peak_pick_spectrum( data: Spectrum,
-                            width: int | Sequence[int] = 2,
-                            method: str = 'scipy',
-                            relheight: float = 0.1,
-                            snr: float = 3.0,
+                            width: int | Sequence[int] = 1,
+                            method: str = 'origin',
+                            relheight: float = 0.012,
+                            snr: float = 2,
                             return_type: str = 'height') -> SpectrumImzML:
         """
         Perform peak picking on a single spectrum and return a reduced spectrum.
@@ -100,7 +100,7 @@ class SpectrumPreprocess:
         Parameters:
             data (SpectrumBaseModule): Input spectrum.
             width (int): Required peak width for underlying detector.
-            method (str): Peak pick backend; currently supports 'scipy'.
+            method (str): Peak pick backend; currently supports 'origin'.
             relheight (float): Relative height threshold for candidate peaks.
             return_type (str): 'height' for peak heights or 'area' for integrated areas.
 
