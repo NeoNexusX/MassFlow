@@ -49,7 +49,8 @@ class BatchPreprocess:
                         method: str = 'origin',
                         relheight: float = 0.01,
                         snr: float = 2.0,
-                        return_type: str = 'height') -> Sequence[SpectrumImzML]:
+                        return_type: str = 'height',
+                        use_numba: bool = True) -> Sequence[SpectrumImzML]:
         """
         Perform peak picking on a batch of spectra.
 
@@ -71,7 +72,8 @@ class BatchPreprocess:
                 method=method,
                 relheight=relheight,
                 snr=snr,
-                return_type=return_type
+                return_type=return_type,
+                use_numba=use_numba
             )
             picked_spectra.append(picked_spectrum)
         return picked_spectra

@@ -132,7 +132,8 @@ class Preprocess:
                   return_type: str = 'height',
                   backend: str = "python",
                   batch_size: int = 256,
-                  temp_dir: str = "./temp_pick_data"
+                  temp_dir: str = "./temp_pick_data",
+                  use_numba: bool = True
                   ) -> MSDataManagerImzML:
         """
         Perform peak picking on MSDataManager data using specified backend.
@@ -186,7 +187,8 @@ class Preprocess:
                                                            method=method,
                                                            relheight=relheight,
                                                            snr=snr,
-                                                           return_type=return_type)
+                                                           return_type=return_type,
+                                                           use_numba=use_numba)
             data_manager.clear_batch_data_memory(batch=batch)
             picked_data_manager.swap_batch_data_out2disk(batch=picked_batch, writer=writer)
 

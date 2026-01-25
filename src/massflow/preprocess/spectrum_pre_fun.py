@@ -93,7 +93,8 @@ class SpectrumPreprocess:
                             method: str = 'origin',
                             relheight: float = 0.012,
                             snr: float = 2,
-                            return_type: str = 'height') -> SpectrumImzML:
+                            return_type: str = 'height',
+                            use_numba: bool = True) -> SpectrumImzML:
         """
         Perform peak picking on a single spectrum and return a reduced spectrum.
 
@@ -120,7 +121,8 @@ class SpectrumPreprocess:
                                                     method=method,
                                                     relheight=relheight,
                                                     snr=snr,
-                                                    return_type=return_type)
+                                                    return_type=return_type,
+                                                    use_numba=use_numba)
 
         return SpectrumImzML(
             mz_list=peak_index,
