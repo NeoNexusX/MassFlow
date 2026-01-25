@@ -148,7 +148,7 @@ class TestNoiseReductionDMNumba:
                     ),
                 )
         else:
-            # NS-series methods: Translate into English by individually calling their respective Numba-accelerated versions
+            # NS-series methods: check Numba consistency by calling each method's Numba implementation per spectrum
             for i in range(subset_size):
                 sp = subset_spectra[i]
                 intensity = sp.intensity
