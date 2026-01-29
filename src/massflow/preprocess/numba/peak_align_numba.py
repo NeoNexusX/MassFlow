@@ -6,24 +6,6 @@ from massflow.tools.logger import get_logger
 
 logger = get_logger("peak_align_compute")
 
-
-def get_method_code(tol_method: str) -> int:
-    """Convert a tolerance/distance method name into an integer code (for JIT functions).
-
-    Args:
-        tol_method: Method name - 'x' (relative to x), 'y' (relative to y; common for PPM),
-            or 'abs' (absolute difference).
-
-    Returns:
-        int: 0='x', 1='y', 2='abs'
-    """
-    if tol_method == "x":
-        return 0
-    if tol_method == "y":
-        return 1
-    return 2
-
-
 @jit(nopython=True, fastmath=True, cache=True)
 def scalar_diff_jit(val1, val2, method_code):
     """JIT-optimized scalar difference calculation (always returns a non-negative value).
@@ -43,7 +25,6 @@ def scalar_diff_jit(val1, val2, method_code):
     if denom == 0:
         return np.nan  # Avoid division by zero
     return diff / abs(denom)  # Relative difference
-
 
 @jit(nopython=True, fastmath=True, cache=True)
 def search_nearest_jit(
@@ -99,7 +80,6 @@ def search_nearest_jit(
 
         result_indices[i] = best_idx
     return result_indices
-
 
 @jit(nopython=True, fastmath=True, cache=True)
 def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
@@ -177,105 +157,5 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
     return aligned
 
 
-def calc_diff(x: NDArray, y: Optional[NDArray] = None, method: str = "y") -> NDArray:
-    """Calculate relative or absolute differences between array elements."""
-    if y is None:
-        if x.size <= 1:
-            return np.array([], dtype=np.float64)
-        y = x[:-1]
-        x = x[1:]
-
-    x = x.astype(np.float64, copy=False)
-    y = y.astype(np.float64, copy=False)
-
-    n = max(x.size, y.size)
-    if x.size != n:
-        x = np.resize(x, n)
-    if y.size != n:
-        y = np.resize(y, n)
-
-    if method == "abs":
-        return x - y
-
-    denominator = x if method == "x" else y
-    return (x - y) / denominator
 
 
-def scalar_diff(val1: float, val2: float, method: str) -> float:
-    """Compute the difference between two scalar values (always non-negative)."""
-    diff = abs(val1 - val2)
-    if method == "abs":
-        return diff
-
-    denominator = val1 if method == "x" else val2
-    return diff / abs(denominator) if denominator != 0 else float("inf")
-
-
-def generate_relative_sequence(start: float, end: float, step: float) -> NDArray:
-    """Generate a geometric sequence (for PPM/relative scale)."""
-    if start <= 0 or end <= 0:
-        logger.warning("Start and end values must be positive for relative sequence generation.")
-        return np.array([], dtype=np.float64)
-
-    half = step / 2.0
-    ratio = (1.0 + half) / (1.0 - half)
-
-    count = int(np.floor(1.0 + (np.log(end) - np.log(start)) / np.log(ratio)))
-    indices = np.arange(count, dtype=np.float64)
-
-    return start * np.power(ratio, indices)
-
-
-def mad(x: NDArray, constant: float = 1.4826) -> float:
-    """Compute Median Absolute Deviation (MAD)."""
-    if x.size == 0:
-        return np.nan
-    median = np.median(x)
-    diff = np.abs(x - median)
-    return constant * float(np.median(diff))
-
-
-def estimate_resolution(
-    x: NDArray, tolerance: Optional[float] = None, method: Optional[str] = None
-) -> float:
-    """Estimate the minimum resolution (minimum spacing) of data points."""
-    if x.size <= 1:
-        return np.nan
-
-    xs = np.sort(x)
-
-    dx = np.diff(xs)
-
-    a, b = xs[:-1], xs[1:]
-    rx = 2.0 * (b - a) / (b + a)
-
-    eps = np.finfo(float).eps
-    dx = dx[dx > eps]
-    rx = rx[np.abs(rx) > eps]
-
-    chosen_method = method
-    if chosen_method is None:
-        if dx.size and rx.size:
-            range_span = xs[-1] - xs[0]
-            lhs = mad(dx / range_span) if range_span > 0 else np.nan
-            rhs = mad(rx)
-            chosen_method = "abs" if lhs < rhs else "x"
-        elif dx.size:
-            chosen_method = "abs"
-        elif rx.size:
-            chosen_method = "x"
-        else:
-            return np.nan
-
-    target_arr = dx if chosen_method == "abs" else rx
-    if target_arr.size == 0:
-        return np.nan
-
-    res = float(np.min(target_arr))
-
-    if tolerance is not None:
-        residuals = np.mod(target_arr, res)
-        if not np.all(residuals <= tolerance):
-            return np.nan
-
-    return res

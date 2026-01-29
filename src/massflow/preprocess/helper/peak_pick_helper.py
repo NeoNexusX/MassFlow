@@ -4,13 +4,14 @@ License: See LICENSE file in project root
 """
 
 from typing import Sequence
-from scipy.signal import find_peaks
 import numpy as np
+from scipy.signal import find_peaks
 from scipy.integrate import simpson
 from massflow.tools.logger import get_logger
 from massflow.preprocess.helper.est_noise_helper import estimator
+import massflow.preprocess.numba.peak_pick_numba as compute
 
-logger = get_logger("preprocesss")
+logger = get_logger("peak_pick")
 
 
 def _input_validation(intensity,index):
@@ -55,12 +56,13 @@ def peak_pick_fun(intensity: np.ndarray,
                   snr: float  = 3,
                   noise: str = "wavelet",
                   relheight: float = 0.01,
-                  method: str = 'scipy',
-                  return_type: str = 'height'):
+                  method: str = 'origin',
+                  return_type: str = 'height',
+                  use_numba: bool = True):
 
     _input_validation(intensity,index)
 
-    if method == 'scipy':
+    if method == 'origin':
         peaks, props = find_pick_scipy(intensity,
                                         index,
                                         width=width,
@@ -69,14 +71,14 @@ def peak_pick_fun(intensity: np.ndarray,
                                         noise=noise,
                                         relheight=relheight)
     else:
-        logger.error("method must be 'scipy'")
-        raise ValueError("method must be 'scipy'")
+        logger.error("method must be 'origin'")
+        raise ValueError("method must be 'origin'")
 
     if return_type == 'height':
         return intensity[peaks],index[peaks]
 
     elif return_type == 'area':
-        return compute_peak_areas(intensity,index,peaks,props),index[peaks]
+        return compute_peak_areas(intensity,index,peaks,props,use_numba=use_numba),index[peaks]
     else:
         logger.error("type must be 'height' or 'area'")
         raise ValueError("type must be 'height' or 'area'")
@@ -131,39 +133,12 @@ def find_pick_scipy(
     #snr selection
     return peaks, props
 
-def _interp(arr: np.ndarray, idx_f: float) -> float:
-    """
-    Linear interpolation over an array for a fractional index.
-
-    Parameters:
-        arr (np.ndarray): Array to sample from.
-        idx_f (float): Fractional index in [0, len(arr)-1].
-        n (int | None): Optional length hint; if provided, must match arr length.
-
-    Returns:
-        float: Interpolated value at idx_f.
-
-    Raises:
-        ValueError: If n is provided and does not match arr length.
-    """
-    n = int(arr.shape[0])
-    m = int(arr.shape[0])
-    if n is not None and n != m:
-        raise ValueError("Provided n does not match arr length")
-    if m == 0:
-        return float("nan")
-
-    idx_f = float(np.clip(idx_f, 0, m - 1))
-    i0 = int(np.floor(idx_f))
-    i1 = min(i0 + 1, m - 1)
-    alpha = idx_f - i0
-    return float(arr[i0] + alpha * (arr[i1] - arr[i0]))
-
 def compute_peak_areas(intensity: np.ndarray,
                        index: np.ndarray,
                        peaks: np.ndarray,
                        props: dict,
                        boundary: str = "ips",
+                       use_numba: bool = True
                        ) -> np.ndarray:
     """
     Compute peak areas via piecewise linear interpolation and Simpson integration.
@@ -176,6 +151,7 @@ def compute_peak_areas(intensity: np.ndarray,
             `left_ips/right_ips` when `boundary='ips'` or
             `left_bases/right_bases` when `boundary='bases'`.
         boundary (str): One of {'ips','bases'} selecting integration boundaries.
+        use_numba (bool): Whether to use the numba-optimized implementation.
 
     Returns:
         np.ndarray: Areas per peak, same length as `peaks`.
@@ -196,6 +172,14 @@ def compute_peak_areas(intensity: np.ndarray,
         right_f = np.asarray(props["right_ips"], dtype=float)
     else:
         raise ValueError("boundary must be one of {'ips','bases'}")
+
+    if use_numba:
+        return compute.compute_peak_areas_jit(intensity=intensity,
+                                              index=index,
+                                              peaks=peaks,
+                                              left_f=left_f,
+                                              right_f=right_f,
+                                              )
 
     areas = np.zeros(len(peaks), dtype=float)
     for k, (lf, rf) in enumerate(zip(left_f, right_f)):
@@ -223,3 +207,25 @@ def compute_peak_areas(intensity: np.ndarray,
 
         areas[k] = float(simpson(ys, xs))
     return areas
+
+
+def _interp(arr: np.ndarray, idx_f: float) -> float:
+    """
+    Linear interpolation over an array for a fractional index.
+
+    Parameters:
+        arr (np.ndarray): Array to sample from.
+        idx_f (float): Fractional index in [0, len(arr)-1].
+
+    Returns:
+        float: Interpolated value at idx_f.
+    """
+    m = int(arr.shape[0])
+    if m == 0:
+        return float("nan")
+
+    idx_f = float(np.clip(idx_f, 0, m - 1))
+    i0 = int(np.floor(idx_f))
+    i1 = min(i0 + 1, m - 1)
+    alpha = idx_f - i0
+    return float(arr[i0] + alpha * (arr[i1] - arr[i0]))

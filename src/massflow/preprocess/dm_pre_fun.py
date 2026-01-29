@@ -70,7 +70,7 @@ class Preprocess:
                    units: str = 'ppm',
                    binfun: str = 'median',
                    binratio: int = 2,
-                   backend_method: str = "python",
+                   backend: str = "python",
                    batch_size: int = 256,
                    clear_memory: bool = True,
                    temp_dir: str = "./temp_align_data"
@@ -91,7 +91,7 @@ class Preprocess:
                 If None, it will be estimated from the data.
             binfun (str): Aggregation function for estimating resolution ('median', 'min', 'max', 'mean').
             binratio (int): Ratio to scale the estimated resolution to determine tolerance. Default is 2.
-            backend_method (str, optional): The backend to use for alignment.
+            backend (str, optional): The backend to use for alignment.
                 - 'cardinal': Use the R Cardinal package (requires R environment).
                 - 'python' (or None): Use the native Python implementation.
 
@@ -106,10 +106,10 @@ class Preprocess:
             raise ValueError("data_manager must be provided for peak alignment.")
 
         logger.info(
-            f"peak_align_entry: backend={backend_method}, binfun={binfun}, tolerance={tolerance}, units={units}"
+            f"peak_align_entry: backend={backend}, binfun={binfun}, tolerance={tolerance}, units={units}"
         )
 
-        if backend_method == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
+        if backend == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
             return CardinalAdapter.align(data_manager=data_manager,
                                          reference=ref,
                                          tolerance=tolerance,
@@ -143,13 +143,14 @@ class Preprocess:
     @staticmethod
     def peak_pick(data_manager: MSDataManager,
                   width: int | Sequence[int] = 2,
-                  method: str = 'scipy',
-                  relheight: float = 0.1,
-                  snr: float = 3.0,
+                  method: str = 'origin',
+                  relheight: float = 0.012,
+                  snr: float = 2.0,
                   return_type: str = 'height',
-                  backend_method: str = "python",
+                  backend: str = "python",
                   batch_size: int = 256,
-                  temp_dir: str = "./temp_pick_data"
+                  temp_dir: str = "./temp_pick_data",
+                  use_numba: bool = True
                   ) -> MSDataManagerImzML:
         """
         Perform peak picking on MSDataManager data using specified backend.
@@ -159,11 +160,11 @@ class Preprocess:
         an entire dataset (MSDataManager).
         Parameters:
             data_manager (MSDataManager): The data manager containing the mass spectra to process.
-            method (str): The peak picking method to use ('diff', 'sd', 'mad', 'quantile', 'filter', 'cwt', 'scipy').
-                Default is 'scipy'.
-            snr (float): Signal-to-noise ratio threshold for peak detection. Default is 3.0.
+            method (str): The peak picking method to use ('diff', 'sd', 'mad', 'quantile', 'filter', 'cwt', 'origin').
+                Default is 'origin'.
+            snr (float): Signal-to-noise ratio threshold for peak detection. Default is 2.0.
             return_type (str): Type of peak representation to return ('height' or 'area'). Default is 'height'.
-            backend_method (str, optional): The backend to use for peak picking.
+            backend (str, optional): The backend to use for peak picking.
                 - 'cardinal': Use the R Cardinal package (requires R environment).
                 - 'python' (or None): Use the native Python implementation.
 
@@ -174,16 +175,17 @@ class Preprocess:
                 ValueError: If `data_manager` is not provided.
 
         """
+        method = "diff" if backend == "cardinal" and method == "origin" else method
 
         if data_manager is None:
             raise ValueError("data_manager must be provided for peak picking.")
 
         logger.info(
-            f"peak_pick_entry: backend={backend_method}, method={method}, snr={snr}, return_type={return_type}"
+            f"peak_pick_entry: backend={backend}, method={method}, snr={snr}, return_type={return_type}"
         )
 
-        if backend_method == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
-            if method != "scipy":
+        if backend == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
+            if method != "origin":
                 return CardinalAdapter.peak_pick(data_manager=data_manager,
                                                  method=method,
                                                  snr=snr,
@@ -200,7 +202,9 @@ class Preprocess:
             width=width,
             method=method,
             relheight=relheight,
+            snr=snr,
             return_type=return_type,
+            use_numba=use_numba,
         )
 
     @staticmethod

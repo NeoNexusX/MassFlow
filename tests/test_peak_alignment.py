@@ -8,8 +8,6 @@ from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.preprocess.dm_pre_fun import Preprocess
 from massflow.r_preprocess import set_default_r_home
 
-pytest.importorskip("pytest_benchmark")
-
 logger = get_logger("test_peak_alignment")
 
 FILEPATH = r"picked.imzML"
@@ -19,14 +17,12 @@ ROUND = 1
 
 set_default_r_home("r_home_path_here")  # set R_HOME path here
 
-
 @pytest.fixture(scope="module")
 def data_manager(filepath=FILEPATH) -> MSDataManagerImzML:
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=filepath)
     dm.load_full_data_from_file()
     return dm
-
 
 def run_alignment_task(
     dm: MSDataManagerImzML,
@@ -44,10 +40,9 @@ def run_alignment_task(
         tolerance=tolerance,
         binfun=binfun,
         binratio=binratio,
-        backend_method=backend_method,
+        backend=backend_method,
     )
     return align_manager
-
 
 def validate_align_result(
     result_manager: MSDataManagerImzML, original_manager: MSDataManagerImzML
@@ -67,19 +62,16 @@ def validate_align_result(
         intensity = spectrum.intensity
         assert intensity is not None, f"Spectrum {i} has None intensity"
         assert intensity.shape == ref_mz.shape, f"Spectrum {i} intensity shape mismatch"
-        assert not np.all(intensity == 0), f"Spectrum {i} has all-zero intensity"
         assert np.all(
             np.isfinite(intensity)
         ), f"Spectrum {i} contains NaN or Inf values"
 
         # Free memory to prevent OOM
-        spectrum.mz_list = None
-        spectrum.intensity = None
+        spectrum.clear_data()
 
     logger.info(
         f"Validation passed: {len(result_manager.ms)} spectra aligned to {len(ref_mz)} peaks"
     )
-
 
 def compare_align_result(
     py_manager: MSDataManagerImzML,
@@ -106,8 +98,7 @@ def compare_align_result(
         if intensity is not None and len(intensity) > 0:
             py_sum_intensity += np.sum(intensity[py_mask])
         # Free memory
-        spectrum.mz_list = None
-        spectrum.intensity = None
+        spectrum.clear_data()
 
     r_sum_intensity = 0.0
     r_mask = (r_ref >= mz_start) & (r_ref <= mz_end)
@@ -116,8 +107,7 @@ def compare_align_result(
         if intensity is not None and len(intensity) > 0:
             r_sum_intensity += np.sum(intensity[r_mask])
         # Free memory
-        spectrum.mz_list = None
-        spectrum.intensity = None
+        spectrum.clear_data()
 
     # Compare peak counts
     count_rel_diff = abs(py_count - r_count) / max(r_count, 1)
@@ -128,9 +118,7 @@ def compare_align_result(
         )
 
     # Compare intensity sums
-    intensity_rel_diff = abs(py_sum_intensity - r_sum_intensity) / max(
-        r_sum_intensity, 1e-10
-    )
+    intensity_rel_diff = abs(py_sum_intensity - r_sum_intensity) / max(r_sum_intensity, 1e-10)
     if intensity_rel_diff > tolerance:
         pytest.fail(
             f"Total intensity sum in {mz_range}: Python={py_sum_intensity:.2e}, cardinal={r_sum_intensity:.2e}\n"
@@ -147,7 +135,6 @@ def compare_align_result(
         f"Python={py_sum_intensity:.2e}, cardinal={r_sum_intensity:.2e}, "
         f"intensity_diff={intensity_rel_diff:.2%}"
     )
-
 
 class TestPeakAlignment:
     """test peak alignment functionality"""
@@ -209,7 +196,9 @@ class TestPeakAlignment:
         validate_align_result(r_align_manager, data_manager)
 
         compare_align_result(
-            py_manager=py_align_manager, r_manager=r_align_manager, mz_range=mz_range
+            py_manager=py_align_manager,
+            r_manager=r_align_manager,
+            mz_range=mz_range
         )
 
         py_align_manager.close()

@@ -47,18 +47,22 @@ class BatchPreprocess:
     @staticmethod
     def peak_pick_batch(batch_spectra: Sequence[Spectrum],
                         width: int | Sequence[int] = 2,
-                        method: str = 'scipy',
-                        relheight: float = 0.1,
-                        return_type: str = 'height') -> Sequence[SpectrumImzML]:
+                        method: str = 'origin',
+                        relheight: float = 0.012,
+                        snr: float = 2.0,
+                        return_type: str = 'height',
+                        use_numba: bool = True) -> Sequence[SpectrumImzML]:
         """
         Perform peak picking on a batch of spectra.
 
         Parameters:
         - spectra: Sequence of Spectrum objects to be processed.
         - width: Width parameter for peak picking.
-        - method: Method for peak picking ('scipy', etc.).
+        - method: Method for peak picking ('origin', etc.).
         - relheight: Relative height threshold for peak picking.
+        - snr: Signal-to-noise ratio threshold.
         - return_type: Type of return value ('height' or 'area').
+        - use_numba: Whether to use Numba acceleration.
 
         Returns:
         - Processed spectra as a sequence of Spectrum objects.
@@ -70,7 +74,9 @@ class BatchPreprocess:
                 width=width,
                 method=method,
                 relheight=relheight,
-                return_type=return_type
+                snr=snr,
+                return_type=return_type,
+                use_numba=use_numba
             )
             picked_spectra.append(picked_spectrum)
         return picked_spectra

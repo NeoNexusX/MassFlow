@@ -90,9 +90,12 @@ class SpectrumPreprocess:
     @staticmethod
     def peak_pick_spectrum( data: Spectrum,
                             width: int | Sequence[int] = 2,
-                            method: str = 'scipy',
-                            relheight: float = 0.1,
-                            return_type: str = 'height') -> SpectrumImzML:
+                            method: str = 'origin',
+                            relheight: float = 0.012,
+                            snr: float = 2.0,
+                            return_type: str = 'height',
+                            use_numba: bool = True
+                            ) -> SpectrumImzML:
         """
         Perform peak picking on a single spectrum and return a reduced spectrum.
 
@@ -113,12 +116,15 @@ class SpectrumPreprocess:
 
         intensity = data.intensity
         index = data.mz_list
-        peak_intensity,peak_index = peak_pick_fun(  intensity, # type: ignore
-                                                    index, # type: ignore
-                                                    width=width,
-                                                    method=method,
-                                                    relheight=relheight,
-                                                    return_type=return_type)
+        peak_intensity,peak_index = peak_pick_fun(intensity, # type: ignore
+                                                  index, # type: ignore
+                                                  width=width,
+                                                  method=method,
+                                                  relheight=relheight,
+                                                  snr=snr,
+                                                  return_type=return_type,
+                                                  use_numba=use_numba
+                                                  )
 
         return SpectrumImzML(
             mz_list=peak_index,

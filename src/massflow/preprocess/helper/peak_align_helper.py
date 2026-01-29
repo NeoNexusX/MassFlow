@@ -5,13 +5,12 @@ from massflow.tools.logger import get_logger
 from massflow.module.spectrum import Spectrum
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_data_manager import MSDataManager
-import massflow.preprocess.numba.peak_align_compute as compute
+import massflow.preprocess.numba.peak_align_numba as compute
 
 logger = get_logger("peak_alignment")
 
 MIN_RELATIVE_RES = 5e-7  # 0.5 ppm
 MIN_ABSOLUTE_RES = 1e-4  # 0.0001 Da
-
 
 def _normalize_units(units: str) -> Literal["relative", "absolute"]:
     """
@@ -27,6 +26,120 @@ def _normalize_units(units: str) -> Literal["relative", "absolute"]:
         return "relative"
     return "absolute"
 
+def get_method_code(tol_method: str) -> int:
+    """Convert a tolerance/distance method name into an integer code (for JIT functions).
+
+    Args:
+        tol_method: Method name - 'x' (relative to x), 'y' (relative to y; common for PPM),
+            or 'abs' (absolute difference).
+
+    Returns:
+        int: 0='x', 1='y', 2='abs'
+    """
+    if tol_method == "x":
+        return 0
+    if tol_method == "y":
+        return 1
+    return 2
+
+def mad(x: NDArray, constant: float = 1.4826) -> float:
+    """Compute Median Absolute Deviation (MAD)."""
+    if x.size == 0:
+        return np.nan
+    median = np.median(x)
+    diff = np.abs(x - median)
+    return constant * float(np.median(diff))
+
+def estimate_resolution(
+    x: NDArray, tolerance: Optional[float] = None, method: Optional[str] = None
+) -> float:
+    """Estimate the minimum resolution (minimum spacing) of data points."""
+    if x.size <= 1:
+        return np.nan
+
+    xs = np.sort(x)
+
+    dx = np.diff(xs)
+
+    a, b = xs[:-1], xs[1:]
+    rx = 2.0 * (b - a) / (b + a)
+
+    eps = np.finfo(float).eps
+    dx = dx[dx > eps]
+    rx = rx[np.abs(rx) > eps]
+
+    chosen_method = method
+    if chosen_method is None:
+        if dx.size and rx.size:
+            range_span = xs[-1] - xs[0]
+            lhs = mad(dx / range_span) if range_span > 0 else np.nan
+            rhs = mad(rx)
+            chosen_method = "abs" if lhs < rhs else "x"
+        elif dx.size:
+            chosen_method = "abs"
+        elif rx.size:
+            chosen_method = "x"
+        else:
+            return np.nan
+
+    target_arr = dx if chosen_method == "abs" else rx
+    if target_arr.size == 0:
+        return np.nan
+
+    res = float(np.min(target_arr))
+
+    if tolerance is not None:
+        residuals = np.mod(target_arr, res)
+        if not np.all(residuals <= tolerance):
+            return np.nan
+
+    return res
+
+def generate_relative_sequence(start: float, end: float, step: float) -> NDArray:
+    """Generate a geometric sequence (for PPM/relative scale)."""
+    if start <= 0 or end <= 0:
+        logger.warning("Start and end values must be positive for relative sequence generation.")
+        return np.array([], dtype=np.float64)
+
+    half = step / 2.0
+    ratio = (1.0 + half) / (1.0 - half)
+
+    count = int(np.floor(1.0 + (np.log(end) - np.log(start)) / np.log(ratio)))
+    indices = np.arange(count, dtype=np.float64)
+
+    return start * np.power(ratio, indices)
+
+def calc_diff(x: NDArray, y: Optional[NDArray] = None, method: str = "y") -> NDArray:
+    """Calculate relative or absolute differences between array elements."""
+    if y is None:
+        if x.size <= 1:
+            return np.array([], dtype=np.float64)
+        y = x[:-1]
+        x = x[1:]
+
+    x = x.astype(np.float64, copy=False)
+    y = y.astype(np.float64, copy=False)
+
+    n = max(x.size, y.size)
+    if x.size != n:
+        x = np.resize(x, n)
+    if y.size != n:
+        y = np.resize(y, n)
+
+    if method == "abs":
+        return x - y
+
+    denominator = x if method == "x" else y
+    return (x - y) / denominator
+
+def scalar_diff(val1: float, val2: float, method: str) -> float:
+    """Compute the difference between two scalar values (always non-negative)."""
+    diff = abs(val1 - val2)
+    if method == "abs":
+        return diff
+
+    denominator = val1 if method == "x" else val2
+    return diff / abs(denominator) if denominator != 0 else float("inf")
 
 def estimate_domain(
     data_manager: MSDataManager,
@@ -63,7 +176,7 @@ def estimate_domain(
             # Ensure numpy array for type checkers and np.isfinite
             mz_list = np.asarray(spec.mz_list, dtype=np.float64)
             valid_mz = mz_list[np.isfinite(mz_list)]
-            res = compute.estimate_resolution(valid_mz, method=ref_method)
+            res = estimate_resolution(valid_mz, method=ref_method)
 
             if valid_mz.size > 0 and np.isfinite(res):
                 stats.append((float(np.min(valid_mz)), float(np.max(valid_mz)), res))
@@ -102,7 +215,7 @@ def estimate_domain(
         tolerance = (
             round(2.0 * (step * binratio), 6) * 0.5
         )  # tolerance = step * binratio
-        domain = compute.generate_relative_sequence(mz_min, mz_max, step)
+        domain = generate_relative_sequence(mz_min, mz_max, step)
     else:
         # Absolute-error mode: use an arithmetic sequence
         step = round(step, 4)  # Round to 4 decimal places
@@ -111,7 +224,6 @@ def estimate_domain(
         domain = np.arange(mz_min, mz_max + step, step, dtype=np.float64)
 
     return domain, tolerance
-
 
 def bin_peaks(
     data_manager: MSDataManager,
@@ -141,10 +253,10 @@ def bin_peaks(
         NDArray: Final reference m/z axis.
     """
     logger.info(
-        f"Binning peaks: {len(data_manager.ms)} spectra, domain size {domain.size}"
+        f"Binning peaks: {len(data_manager.ms)} spectra, domain size {domain.size}, tolerance {tolerance}"
     )
 
-    code = compute.get_method_code(tol_method)
+    code = get_method_code(tol_method)
 
     peaks_acc = np.zeros(domain.size, dtype=np.float64)  # Peak-position accumulator
     counts = np.zeros(domain.size, dtype=np.int64)  # Counter
@@ -175,7 +287,7 @@ def bin_peaks(
 
             # Compute distance for each match
             dists = np.abs(
-                compute.calc_diff(valid_peaks, domain[valid_bins], method=tol_method)
+                calc_diff(valid_peaks, domain[valid_bins], method=tol_method)
             )
 
             # Resolve one-to-many conflicts: multiple peaks mapping to the same reference bin
@@ -208,14 +320,16 @@ def bin_peaks(
     peaks_acc[nonzero] /= counts[nonzero]
     peaks_acc[~nonzero] = np.nan
 
+    # Extract non_NaN values and before merging
+    valid_mask = ~np.isnan(peaks_acc)
+    valid_peaks = peaks_acc[valid_mask]
+    valid_counts = counts[valid_mask]
+
     reference = merge_peaks(
-        mz_list=peaks_acc, counts=counts, tolerance=tolerance, tol_method=tol_method
+        mz_list=valid_peaks, counts=valid_counts, tolerance=tolerance, tol_method=tol_method
     )
 
-    valid = ~np.isnan(reference)
-    reference = reference[valid]
     return reference
-
 
 def merge_peaks(
     mz_list: NDArray,
@@ -259,8 +373,8 @@ def merge_peaks(
         k += 1
 
     while k < n:
-        i = k  # 左边界
-        j = k  # 右边界
+        i = k
+        j = k
 
         # Expand to the left
         left_of_mode = False  # Whether we already passed the mode peak (local maximum)
@@ -268,7 +382,7 @@ def merge_peaks(
             if np.isnan(mz_list[i - 1]):
                 break  # Encounter NaN
             # Check whether the distance is within tolerance
-            dist = compute.scalar_diff(mz_list[i], mz_list[i - 1], tol_method)
+            dist = scalar_diff(mz_list[i], mz_list[i - 1], tol_method)
             if dist > tolerance:
                 break  # Outside tolerance
 
@@ -284,7 +398,7 @@ def merge_peaks(
         while (j + 1) < n:
             if np.isnan(mz_list[j + 1]):
                 break  # Encounter NaN
-            dist = compute.scalar_diff(mz_list[j + 1], mz_list[j], tol_method)
+            dist = scalar_diff(mz_list[j + 1], mz_list[j], tol_method)
             if dist > tolerance:
                 break  # Outside tolerance
 
@@ -333,7 +447,6 @@ def merge_peaks(
     valid = ~np.isnan(mz_list)
     return mz_list[valid]
 
-
 def compute_reference(
     data_manager: MSDataManager,
     reference: Optional[NDArray] = None,
@@ -351,6 +464,7 @@ def compute_reference(
     norm_units = _normalize_units(units)
     tol_method = "x" if norm_units == "relative" else "abs"
 
+    # Estimate domain and tolerance
     domain, estimate_tolerance = estimate_domain(
         data_manager=data_manager,
         binfun=binfun,
@@ -379,7 +493,6 @@ def compute_reference(
 
     return reference, tolerance
 
-
 def align_spectrum(
     spectrum: Spectrum,
     reference: NDArray,
@@ -389,7 +502,7 @@ def align_spectrum(
     """Align peaks for a single spectrum."""
     norm_units = _normalize_units(units)
     tol_method = "x" if norm_units == "relative" else "abs"
-    code = compute.get_method_code(tol_method)
+    code = get_method_code(tol_method)
 
     mz_list = spectrum.mz_list
     intensity = spectrum.intensity
@@ -402,10 +515,8 @@ def align_spectrum(
         code=code,
     )
 
-    spectrumed = SpectrumImzML(
+    return SpectrumImzML(
         mz_list=reference,
         intensity=aligned_intensity,
         coordinates=spectrum.coordinate,
     )
-
-    return spectrumed
