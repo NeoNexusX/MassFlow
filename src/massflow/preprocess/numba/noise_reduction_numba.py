@@ -32,19 +32,111 @@ def _savgol_1d_core(signal: np.ndarray, kernels: np.ndarray) -> np.ndarray:
     return res
 
 @jit(nopython=True, fastmath=True, cache=True, parallel=True)
-def savgol_batch_jit(data: np.ndarray, kernels: np.ndarray) -> np.ndarray:
+def savgol_batch_jit(data: np.ndarray, kernels: np.ndarray, lengths: np.ndarray = None) -> np.ndarray:
     """Batch Savitzky-Golay entry point. Kernels is a 2D array of position-dependent convolution kernels. Parallel over spectra."""
     if data.ndim == 1:
         return _savgol_1d_core(data, kernels)
     else:
         n_pixels, n_mz = data.shape
         res = np.empty((n_pixels, n_mz), dtype=np.float32)
-        for p in prange(n_pixels):
-            res[p] = _savgol_1d_core(data[p], kernels)
+        if lengths is None:
+            for p in prange(n_pixels):
+                res[p] = _savgol_1d_core(data[p], kernels)
+        else:
+            for p in prange(n_pixels):
+                valid_len = lengths[p]
+                # Slice the valid part, process it, and write back
+                # Note: This writes valid result to res[p, :valid_len]
+                # The rest of res[p] (padding area) remains uninitialized/garbage, which is fine as it will be trimmed later
+                processed = _savgol_1d_core(data[p, :valid_len], kernels)
+                res[p, :valid_len] = processed
         return res
 
+@jit(nopython=True, fastmath=True, cache=True)
+def _convolve1d_core_edge(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+    """Core 1D convolution routine with edge padding."""
+    n = signal.size
+    k_len = kernel.size
+    half = k_len // 2
+    res = np.empty(n, dtype=np.float32)
+
+    for i in range(n):
+        val = 0.0
+        for j in range(k_len):
+            idx = i - half + j
+            if idx < 0:
+                idx = 0
+            elif idx >= n:
+                idx = n - 1
+            val += signal[idx] * kernel[j]
+        res[i] = val
+    return res
+
+@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+def convolve1d_batch_jit(data: np.ndarray, kernel: np.ndarray, lengths: np.ndarray = None) -> np.ndarray:
+    """Batch convolution entry point. Parallel over spectra."""
+    if data.ndim == 1:
+        return _convolve1d_core_edge(data, kernel)
+    else:
+        n_pixels, n_mz = data.shape
+        res = np.empty((n_pixels, n_mz), dtype=np.float32)
+        if lengths is None:
+            for p in prange(n_pixels):
+                res[p] = _convolve1d_core_edge(data[p], kernel)
+        else:
+            for p in prange(n_pixels):
+                valid_len = lengths[p]
+                # Process only the valid length
+                processed = _convolve1d_core_edge(data[p, :valid_len], kernel)
+                res[p, :valid_len] = processed
+        return res
+
+def smooth_signal_ma_numba(intensity: np.ndarray, window: int = 5, lengths: np.ndarray = None) -> np.ndarray:
+    """
+    Numba-accelerated Moving Average smoothing.
+    """
+    if window < 1:
+        raise ValueError("window must be >= 1")
+    
+    # Ensure window is odd for centered convolution
+    if window % 2 == 0:
+        window += 1
+        
+    kernel = np.ones(window, dtype=np.float32) / window
+    
+    # intensity can be 1D or 2D
+    # Ensure float32 for Numba
+    if intensity.dtype != np.float32:
+        intensity = intensity.astype(np.float32)
+        
+    return convolve1d_batch_jit(intensity, kernel, lengths)
+
+def smooth_signal_gaussian_numba(intensity: np.ndarray, window: int = 5, sd: float = None, lengths: np.ndarray = None) -> np.ndarray:
+    """
+    Numba-accelerated Gaussian smoothing.
+    """
+    if window < 1:
+        raise ValueError("window must be >= 1")
+
+    # Ensure window is odd
+    if window % 2 == 0:
+        window += 1
+
+    if sd is None:
+        sd = window / 4.0
+        
+    # Generate Gaussian kernel
+    x = np.arange(-(window // 2), window // 2 + 1, dtype=np.float32)
+    kernel = np.exp(-0.5 * (x / sd) ** 2).astype(np.float32)
+    kernel /= kernel.sum()
+    
+    if intensity.dtype != np.float32:
+        intensity = intensity.astype(np.float32)
+
+    return convolve1d_batch_jit(intensity, kernel, lengths)
+
 # --- Python wrapper layer (handles kernel pre‑computation) ---
-def smooth_signal_savgol_numba(intensity: np.ndarray, window: int = 5, polyorder: int = 3, deriv: int = 0, delta: float = 1.0) -> np.ndarray:
+def smooth_signal_savgol_numba(intensity: np.ndarray, window: int = 5, polyorder: int = 3, deriv: int = 0, delta: float = 1.0, lengths: np.ndarray = None) -> np.ndarray:
     """
     This function wraps the JIT-compiled Savitzky-Golay implementation and
     handles pre-computation of position-dependent convolution kernels.
@@ -67,6 +159,9 @@ def smooth_signal_savgol_numba(intensity: np.ndarray, window: int = 5, polyorder
         Spacing of the samples along the x-axis. This is passed to
         :func:`scipy.signal.savgol_coeffs` when computing derivative
         coefficients. Defaults to 1.0.
+    lengths : np.ndarray, optional
+        Array of valid lengths for each spectrum in a 2D batch. If provided,
+        smoothing is only applied up to the valid length for each spectrum.
     Returns
     -------
     numpy.ndarray
@@ -87,7 +182,7 @@ def smooth_signal_savgol_numba(intensity: np.ndarray, window: int = 5, polyorder
     for pos in range(actual_window):
         kernels[pos] = savgol_coeffs(actual_window, polyorder, deriv=deriv, delta=delta, pos=pos, use="dot").astype(np.float32)
 
-    result32 = savgol_batch_jit(intensity, kernels)
+    result32 = savgol_batch_jit(intensity, kernels, lengths)
     # Results are already float32; no further casting required
     return result32
 

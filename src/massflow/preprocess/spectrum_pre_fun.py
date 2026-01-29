@@ -295,7 +295,7 @@ class SpectrumPreprocess:
 
         Parameters:
             data (SpectrumBaseModule): Spectrum to denoise.
-            method (str): One of {'ma','gaussian','savgol','wavelet','ma_ns','gaussian_ns','bi_ns'}.
+            method (str): One of {'ma','ma_gpu','gaussian','savgol','wavelet','ma_ns','gaussian_ns','bi_ns'}.
             window (int): Window size or neighbor count depending on method.
             sd (float, optional): Gaussian scale parameter.
             coef (np.ndarray, optional): Custom kernel for 'ma'.

@@ -9,6 +9,7 @@ from massflow.tools.logger import get_logger
 pytestmark = pytest.mark.filterwarnings("ignore:This process .* is multi-threaded, use of fork():DeprecationWarning")
 
 logger = get_logger("test_all_baseline")
+BATCH_SIZE = 512
 
 @pytest.fixture(scope="module")
 def baseline_data_manager(data_file_path="data/example.imzML") -> MSDataManagerImzML:
@@ -21,7 +22,7 @@ def baseline_data_manager(data_file_path="data/example.imzML") -> MSDataManagerI
     logger.info("data pre-load finished!")
     return dm
 
-def run_baseline_correction(data_manager: MSDataManagerImzML, method="asls"):
+def run_baseline_correction(data_manager: MSDataManagerImzML, method="asls", batch_size: int = BATCH_SIZE):
     if method == "asls":
         Preprocess.baseline_correction(
             data_manager=data_manager,
@@ -29,7 +30,7 @@ def run_baseline_correction(data_manager: MSDataManagerImzML, method="asls"):
             lam=1e7,
             p=0.01,
             niter=15,
-            batch_size=512,
+            batch_size=batch_size,
         )
     elif method == "locmin":
         Preprocess.baseline_correction(
@@ -39,7 +40,7 @@ def run_baseline_correction(data_manager: MSDataManagerImzML, method="asls"):
             span=None,
             upper=False,
             width=11,
-            batch_size=512,
+            batch_size=batch_size,
         )
     else:
         Preprocess.baseline_correction(
@@ -48,21 +49,23 @@ def run_baseline_correction(data_manager: MSDataManagerImzML, method="asls"):
             m=50,
             decreasing=True,
             baseline_scale=1.0,
-            batch_size=512,
+            batch_size=batch_size,
         )
 
 
-def validate_baseline_data(data_manager: MSDataManagerImzML, method="asls"):
+def validate_baseline_data(data_manager: MSDataManagerImzML, method="asls", batch_size: int | None = None):
     if method == "asls":
+        effective_batch = BATCH_SIZE if batch_size is None else batch_size
         corrected_dm = Preprocess.baseline_correction(
             data_manager=data_manager,
             method="asls",
             lam=1e7,
             p=0.01,
             niter=15,
-            batch_size=32,
+            batch_size=effective_batch,
         )
     elif method == "locmin":
+        effective_batch = BATCH_SIZE if batch_size is None else batch_size
         corrected_dm = Preprocess.baseline_correction(
             data_manager=data_manager,
             method="locmin",
@@ -70,16 +73,17 @@ def validate_baseline_data(data_manager: MSDataManagerImzML, method="asls"):
             span=None,
             upper=False,
             width=11,
-            batch_size=512,
+            batch_size=effective_batch,
         )
     else:
+        effective_batch = BATCH_SIZE if batch_size is None else batch_size
         corrected_dm = Preprocess.baseline_correction(
             data_manager=data_manager,
             method="snip",
             m=50,
             decreasing=True,
             baseline_scale=1.0,
-            batch_size=512,
+            batch_size=effective_batch,
         )
 
     for spectrum, corrected in zip(data_manager.ms, corrected_dm.ms):
@@ -94,11 +98,11 @@ def validate_baseline_data(data_manager: MSDataManagerImzML, method="asls"):
 class TestAllBaseline:
     @pytest.mark.parametrize("method", ["locmin", "snip"])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_all_baseline_methods_replace_data_benchmark(self, benchmark, method, baseline_data_manager):
+    def test_all_baseline_methods_replace_data_benchmark(self, benchmark, method, baseline_data_manager, batch_size: int = BATCH_SIZE):
 
         logger.info(f"Testing baseline correction with method: {method}")
         benchmark.pedantic(
-            partial(run_baseline_correction, method=method),
+            partial(run_baseline_correction, method=method, batch_size=batch_size),
             args=(baseline_data_manager,),
             rounds=1,
             iterations=1,
@@ -108,8 +112,8 @@ class TestAllBaseline:
         logger.info(f"Finished baseline correction with method: {method}")
 
     @pytest.mark.parametrize("method", ["locmin", "snip"])
-    def test_all_baseline_methods_correctness(self, method, baseline_data_manager):
-        validate_baseline_data(baseline_data_manager, method=method)
+    def test_all_baseline_methods_correctness(self, method, baseline_data_manager, batch_size: int = BATCH_SIZE):
+        validate_baseline_data(baseline_data_manager, method=method, batch_size=batch_size)
 
     def test_asls_correctness_with_subset(self, baseline_data_manager):
         # Build a fresh data manager that only loads a 1/10 spatial window
@@ -126,4 +130,4 @@ class TestAllBaseline:
         for _ in dm_subset.get_batch_generator(batch_size=512):
             pass
 
-        validate_baseline_data(dm_subset, method="asls")
+        validate_baseline_data(dm_subset, method="asls", batch_size=BATCH_SIZE)
