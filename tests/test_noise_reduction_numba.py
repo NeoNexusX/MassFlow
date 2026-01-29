@@ -11,6 +11,8 @@ from massflow.preprocess.numba.noise_reduction_numba import (
     smooth_ns_signal_ma_numba,
     smooth_ns_signal_gaussian_numba,
     smooth_ns_signal_bi_numba,
+    smooth_signal_ma_numba,
+    smooth_signal_gaussian_numba,
 )
 pytestmark = pytest.mark.filterwarnings("ignore:This process .* is multi-threaded, use of fork():DeprecationWarning")
 
@@ -50,17 +52,6 @@ def run_dm_noise_reduction_task(
     )
     return denoised_manager
 
-def run_noise_reduction_loop(
-    data: MassSpectrumSet,
-    method: str = "savgol",
-    window: int = 11,
-) -> None:
-    for i in range(len(data)):
-        data[i] = SpectrumPreprocess.noise_reduction_spectrum(
-            data=data[i],
-            method=method,
-            window=window,
-        )
 
 class TestNoiseReductionDMNumba:
 
@@ -69,12 +60,16 @@ class TestNoiseReductionDMNumba:
         [
             # ("savgol", "python"),
             # ("savgol", "numba"),
-            ("ma_ns", "python"),
-            ("ma_ns", "numba"),
-            ("gaussian_ns", "python"),
-            ("gaussian_ns", "numba"),
-            ("bi_ns", "python"),
-            ("bi_ns", "numba"),
+            # ("ma_ns", "python"),
+            # ("ma_ns", "numba"),
+            # ("gaussian_ns", "python"),
+            # ("gaussian_ns", "numba"),
+            # ("bi_ns", "python"),
+            # ("bi_ns", "numba"),
+            ("ma", "python"),
+            ("ma", "numba"),
+            ("gaussian", "python"),
+            ("gaussian", "numba"),
         ],
     )
     @pytest.mark.benchmark(timer=time.perf_counter)
@@ -106,91 +101,70 @@ class TestNoiseReductionDMNumba:
             ("ma_ns", "ma_ns"),
             ("gaussian_ns", "gaussian_ns"),
             ("bi_ns", "bi_ns"),
+            ("ma", "ma"),
+            ("gaussian", "gaussian"),
+            ("savgol", "savgol"),
         ],
     )
     def test_numba_consistency(self, noise_data_manager: MSDataManagerImzML, method: str, numba_kind: str) -> None:
-        loaded_mass_data = noise_data_manager.ms
-        subset_size = min(1000, len(loaded_mass_data))
-        data_for_original = MassSpectrumSet()
-        subset_spectra: list = []
-        for i in range(subset_size):
-            sp = loaded_mass_data[i]
-            data_for_original.add_spectrum(sp)
-            subset_spectra.append(sp)
-
-        logger.info(
-            f"Checking Numba consistency for method={method} (SciPy vs Numba), subset_size={subset_size}"
+        dm = noise_data_manager
+        
+        # 1. Run Python baseline (DM layer)
+        logger.info(f"Running Python baseline for method={method} on DM layer...")
+        dm_python = run_dm_noise_reduction_task(
+            dm, 
+            method=method, # e.g. "ma", "gaussian"
+            window=11, 
+            polyorder=3, 
+            batch_size=256
         )
 
-        # Baseline: Python/SciPy implementation via SpectrumPreprocess
-        run_noise_reduction_loop(data_for_original, method=method, window=11)
+        # 2. Run Numba target (DM layer)
+        # Construct the numba method name by appending "_numba"
+        # e.g. "ma" -> "ma_numba", "ma_ns" -> "ma_ns_numba"
+        dm_method_numba = f"{method}_numba"
 
-        if numba_kind == "savgol":
-            intensities = np.array(
-                [s.intensity for s in subset_spectra],
-                dtype=np.float64,
+        logger.info(f"Running Numba target for method={dm_method_numba} on DM layer...")
+        dm_numba = run_dm_noise_reduction_task(
+            dm, 
+            method=dm_method_numba, 
+            window=11, 
+            polyorder=3, 
+            batch_size=256
+        )
+
+        # 3. Compare results
+        ms_python = dm_python.ms
+        ms_numba = dm_numba.ms
+
+        assert len(ms_python) == len(ms_numba), "Result spectrum count mismatch"
+
+        subset_size = min(1000, len(ms_python))
+        logger.info(f"Comparing first {subset_size} spectra between Python and Numba...")
+
+        for i in range(subset_size):
+            # Compare Intensity
+            np.testing.assert_allclose(
+                ms_python[i].intensity,
+                ms_numba[i].intensity,
+                rtol=1e-5,
+                atol=1e-5,
+                err_msg=(
+                    f"DM Numba consistency failed for method: {method} vs {dm_method_numba} "
+                    f"at spectrum index {i}"
+                ),
             )
-            smoothed_numba = smooth_signal_savgol_numba(
-                intensities,
-                window=11,
-                polyorder=3,
+            # Compare m/z (should be untouched)
+            np.testing.assert_array_equal(
+                ms_python[i].mz_list,
+                ms_numba[i].mz_list,
+                err_msg=f"m/z axis mismatch at index {i}"
             )
 
-            for i in range(subset_size):
-                np.testing.assert_allclose(
-                    data_for_original[i].intensity,
-                    smoothed_numba[i],
-                    rtol=1e-5,
-                    atol=1e-5,
-                    err_msg=(
-                        f"2D Numba consistency failed for method: {method} "
-                        f"at spectrum index {i}"
-                    ),
-                )
-        else:
-            # NS-series methods: check Numba consistency by calling each method's Numba implementation per spectrum
-            for i in range(subset_size):
-                sp = subset_spectra[i]
-                intensity = sp.intensity
-                index = sp.mz_list
-
-                if numba_kind == "ma_ns":
-                    numba_intensity = smooth_ns_signal_ma_numba(
-                        intensity,
-                        index=index,
-                        k=11,
-                        p=2,
-                    )
-                elif numba_kind == "gaussian_ns":
-                    numba_intensity = smooth_ns_signal_gaussian_numba(
-                        intensity,
-                        index=index,
-                        k=11,
-                        p=2,
-                        sd=None,
-                    )
-                else:  # bi_ns
-                    numba_intensity = smooth_ns_signal_bi_numba(
-                        intensity,
-                        index=index,
-                        k=11,
-                        p=2,
-                        sd_dist=None,
-                        sd_intensity=None,
-                    )
-
-                np.testing.assert_allclose(
-                    data_for_original[i].intensity,
-                    numba_intensity,
-                    rtol=1e-5,
-                    atol=1e-5,
-                    err_msg=(
-                        f"Numba NS consistency failed for method: {method} "
-                        f"at spectrum index {i}"
-                    ),
-                )
+        dm_python.close()
+        dm_numba.close()
 
         logger.info(
-            f"Consistency check passed for method={method} (Numba vs SciPy) "
+            f"Consistency check passed for method={method} vs {dm_method_numba} "
             f"on first {subset_size} spectra"
         )

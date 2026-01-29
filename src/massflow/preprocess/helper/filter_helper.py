@@ -17,7 +17,10 @@ from massflow.preprocess.numba.noise_reduction_numba import (
     smooth_ns_signal_ma_numba,
     smooth_ns_signal_gaussian_numba,
     smooth_ns_signal_bi_numba,
+    smooth_signal_ma_numba,
+    smooth_signal_gaussian_numba,
 )
+from massflow.preprocess.gpu.noise_reduction_gpu import smooth_signal_ma_gpu
 
 logger = get_logger("preprocesss")
 
@@ -598,15 +601,15 @@ def smoother(intensity:np.ndarray,
             deriv: int = 0,
             delta: float = 1.0,
             wavelet: str = 'db4',
-            threshold_mode: str = 'soft'):
-
+            threshold_mode: str = 'soft',
+            lengths: Optional[np.ndarray] = None):
     """
     Unified smoothing entry for multiple methods.
 
     Parameters:
         intensity (np.ndarray): 1D intensity array.
         index (Optional[np.ndarray]): 1D coordinate array aligned with `intensity` for NS methods.
-        method (str): One of {'ma','gaussian','savgol','wavelet','ma_ns','gaussian_ns','bi_ns',
+        method (str): One of {'ma','ma_gpu','gaussian','savgol','wavelet','ma_ns','gaussian_ns','bi_ns',
             'savgol_numba','ma_ns_numba','gaussian_ns_numba','bi_ns_numba'}.
         window (int): Window size or neighbor count depending on method.
         sd (float, optional): Gaussian scale parameter for relevant methods.
@@ -620,6 +623,7 @@ def smoother(intensity:np.ndarray,
             This is only used if deriv > 0. Default is 1.0.
         wavelet (str): Wavelet family for wavelet denoising.
         threshold_mode (str): 'soft' or 'hard' for wavelet thresholding.
+        lengths (Optional[np.ndarray]): Array of valid lengths for each spectrum in a 2D batch.
 
     Returns:
         np.ndarray: Smoothed intensity array.
@@ -632,13 +636,14 @@ def smoother(intensity:np.ndarray,
     method_norm = (method or "ma").strip().lower()
 
     supported = {
-        "ma", "gaussian", "savgol", "wavelet",
+        "ma", "ma_gpu", "gaussian", "savgol", "wavelet",
         "ma_ns", "gaussian_ns", "bi_ns",
         "savgol_numba", "ma_ns_numba", "gaussian_ns_numba", "bi_ns_numba",
+        "ma_numba", "gaussian_numba",
     }
     if method_norm not in supported:
         logger.error(
-            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, savgol_numba, ma_ns_numba, gaussian_ns_numba, bi_ns_numba",
+            "Unsupported smoothing method: %s. Use one of: ma, ma_gpu, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, savgol_numba, ma_ns_numba, gaussian_ns_numba, bi_ns_numba, ma_numba, gaussian_numba",
             method,
         )
         raise ValueError(f"Unsupported smoothing method: {method}")
@@ -647,6 +652,10 @@ def smoother(intensity:np.ndarray,
     if method_norm == "ma":
         _input_validation(intensity=intensity, window=window if coef is None else None)
         return smooth_signal_ma(intensity, window=window, coef=coef)
+
+    elif method_norm == "ma_gpu":
+        _input_validation(intensity=intensity, window=window if coef is None else None)
+        return smooth_signal_ma_gpu(intensity, window=window, coef=coef)
 
     elif method_norm == "gaussian":
         _input_validation(intensity=intensity, window=window, sd=sd)
@@ -659,7 +668,15 @@ def smoother(intensity:np.ndarray,
     elif method_norm == "savgol_numba":
         # _input_validation(intensity=intensity, window=window)
         # Note: savgol_numba supports 2D batch inputs (n_spectra, n_points); the 1D-only input validation cannot be used here.
-        return smooth_signal_savgol_numba(intensity, window=window, polyorder=polyorder, deriv=deriv, delta=delta)
+        return smooth_signal_savgol_numba(intensity, window=window, polyorder=polyorder, deriv=deriv, delta=delta, lengths=lengths)
+
+    elif method_norm == "ma_numba":
+        # Supports 2D batch inputs
+        return smooth_signal_ma_numba(intensity, window=window, lengths=lengths)
+
+    elif method_norm == "gaussian_numba":
+        # Supports 2D batch inputs
+        return smooth_signal_gaussian_numba(intensity, window=window, sd=sd, lengths=lengths)
 
     elif method_norm == "wavelet":
         _input_validation(intensity=intensity)

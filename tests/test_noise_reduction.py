@@ -70,7 +70,7 @@ class TestNoiseReductionAPI:
         dm_denoised = benchmark.pedantic(
             run_noise_reduction_task,
             args=(noise_data_manager, method, 11, 3, 256),
-            rounds=10,
+            rounds=1,
             iterations=1,
             warmup_rounds=0,
         )

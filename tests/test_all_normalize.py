@@ -9,6 +9,7 @@ from massflow.tools.logger import get_logger
 pytestmark = pytest.mark.filterwarnings("ignore:This process .* is multi-threaded, use of fork():DeprecationWarning")
 
 logger = get_logger("test_all_normalize")
+BATCH_SIZE = 512
 
 
 @pytest.fixture(scope="module")
@@ -24,20 +25,23 @@ def normalize_data_manager(data_file_path="data/example.imzML") -> MSDataManager
 
     return dm
 
-def run_normalization(data_manager, method="tic", scale_method="none", scale=1.0):
+def run_normalization(data_manager, method="tic", scale_method="none", scale=1.0, batch_size: int = BATCH_SIZE):
     Preprocess.normalization(
         data_manager=data_manager,
         scale_method=scale_method,
         method=method,
         scale=scale,
+        batch_size=batch_size,
     )
 
-def validate_normalization_data(data_manager, method="tic", scale_method="none", scale=1.0):
+
+def validate_normalization_data(data_manager, method="tic", scale_method="none", scale=1.0, batch_size: int = BATCH_SIZE):
     normalized_dm = Preprocess.normalization(
         data_manager=data_manager,
         scale_method=scale_method,
         method=method,
         scale=scale,
+        batch_size=batch_size,
     )
 
     for spectrum, spectrum_new in zip(data_manager.ms, normalized_dm.ms):
@@ -64,11 +68,11 @@ def validate_normalization_data(data_manager, method="tic", scale_method="none",
 class TestAllNormalization:
     @pytest.mark.parametrize("method", ["tic", "rms", "median"])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_normalize_methods_replace_data_benchmark(self, benchmark, method, normalize_data_manager):
+    def test_normalize_methods_replace_data_benchmark(self, benchmark, method, normalize_data_manager, batch_size: int = BATCH_SIZE):
 
         logger.info(f"Testing normalization with method: {method}")
         benchmark.pedantic(
-            partial(run_normalization, method=method, scale_method="none", scale=1.0),
+            partial(run_normalization, method=method, scale_method="none", scale=1.0, batch_size=batch_size),
             args=(normalize_data_manager,),
             rounds=10,
             iterations=1,
@@ -77,5 +81,5 @@ class TestAllNormalization:
         logger.info(f"Finished normalization with method: {method}")
 
     @pytest.mark.parametrize("method", ["tic", "rms", "median"])
-    def test_normalize_methods_correctness(self, method, normalize_data_manager):
-        validate_normalization_data(normalize_data_manager, method=method, scale_method="none", scale=1.0)
+    def test_normalize_methods_correctness(self, method, normalize_data_manager, batch_size: int = BATCH_SIZE):
+        validate_normalization_data(normalize_data_manager, method=method, scale_method="none", scale=1.0, batch_size=batch_size)
