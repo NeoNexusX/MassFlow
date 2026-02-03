@@ -20,6 +20,10 @@ from massflow.preprocess.numba.noise_reduction_numba import (
     smooth_signal_ma_numba,
     smooth_signal_gaussian_numba,
 )
+from massflow.preprocess.numba.ma_numba import (
+    smooth_signal_ma_loop,
+    smooth_signal_gaussian_approx_loop
+)
 from massflow.preprocess.gpu.noise_reduction_gpu import smooth_signal_ma_gpu
 
 logger = get_logger("preprocesss")
@@ -602,7 +606,8 @@ def smoother(intensity:np.ndarray,
             delta: float = 1.0,
             wavelet: str = 'db4',
             threshold_mode: str = 'soft',
-            lengths: Optional[np.ndarray] = None):
+            lengths: Optional[np.ndarray] = None,
+            numba_max_threads: Optional[int] = None):
     """
     Unified smoothing entry for multiple methods.
 
@@ -624,6 +629,7 @@ def smoother(intensity:np.ndarray,
         wavelet (str): Wavelet family for wavelet denoising.
         threshold_mode (str): 'soft' or 'hard' for wavelet thresholding.
         lengths (Optional[np.ndarray]): Array of valid lengths for each spectrum in a 2D batch.
+        numba_max_threads (Optional[int]): Maximum number of threads for Numba parallel execution.
 
     Returns:
         np.ndarray: Smoothed intensity array.
@@ -640,10 +646,11 @@ def smoother(intensity:np.ndarray,
         "ma_ns", "gaussian_ns", "bi_ns",
         "savgol_numba", "ma_ns_numba", "gaussian_ns_numba", "bi_ns_numba",
         "ma_numba", "gaussian_numba",
+        "ma_loop", "gaussian_approx_loop",
     }
     if method_norm not in supported:
         logger.error(
-            "Unsupported smoothing method: %s. Use one of: ma, ma_gpu, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, savgol_numba, ma_ns_numba, gaussian_ns_numba, bi_ns_numba, ma_numba, gaussian_numba",
+            "Unsupported smoothing method: %s. Use one of: ma, ma_gpu, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, savgol_numba, ma_ns_numba, gaussian_ns_numba, bi_ns_numba, ma_numba, gaussian_numba, ma_loop, gaussian_approx_loop",
             method,
         )
         raise ValueError(f"Unsupported smoothing method: {method}")
@@ -668,15 +675,21 @@ def smoother(intensity:np.ndarray,
     elif method_norm == "savgol_numba":
         # _input_validation(intensity=intensity, window=window)
         # Note: savgol_numba supports 2D batch inputs (n_spectra, n_points); the 1D-only input validation cannot be used here.
-        return smooth_signal_savgol_numba(intensity, window=window, polyorder=polyorder, deriv=deriv, delta=delta, lengths=lengths)
+        return smooth_signal_savgol_numba(intensity, window=window, polyorder=polyorder, deriv=deriv, delta=delta, lengths=lengths, numba_max_threads=numba_max_threads)
 
     elif method_norm == "ma_numba":
         # Supports 2D batch inputs
-        return smooth_signal_ma_numba(intensity, window=window, lengths=lengths)
+        return smooth_signal_ma_numba(intensity, window=window, lengths=lengths, numba_max_threads=numba_max_threads)
+
+    elif method_norm == "ma_loop":
+        return smooth_signal_ma_loop(intensity, window=window, lengths=lengths, numba_max_threads=numba_max_threads)
+
+    elif method_norm == "gaussian_approx_loop":
+        return smooth_signal_gaussian_approx_loop(intensity, window=window, lengths=lengths, numba_max_threads=numba_max_threads)
 
     elif method_norm == "gaussian_numba":
         # Supports 2D batch inputs
-        return smooth_signal_gaussian_numba(intensity, window=window, sd=sd, lengths=lengths)
+        return smooth_signal_gaussian_numba(intensity, window=window, sd=sd, lengths=lengths, numba_max_threads=numba_max_threads)
 
     elif method_norm == "wavelet":
         _input_validation(intensity=intensity)
@@ -696,12 +709,12 @@ def smoother(intensity:np.ndarray,
 
     elif method_norm == "ma_ns_numba":
         _input_validation(intensity=intensity, index=index, k=window, p=p)
-        return smooth_ns_signal_ma_numba(intensity, index=index, k=window, p=p)
+        return smooth_ns_signal_ma_numba(intensity, index=index, k=window, p=p, numba_max_threads=numba_max_threads)
 
     elif method_norm == "gaussian_ns_numba":
         _input_validation(intensity=intensity, index=index, k=window, p=p, sd=sd)
-        return smooth_ns_signal_gaussian_numba(intensity, index=index, k=window, p=p, sd=sd)
+        return smooth_ns_signal_gaussian_numba(intensity, index=index, k=window, p=p, sd=sd, numba_max_threads=numba_max_threads)
 
     else:
         _input_validation(intensity=intensity, index=index, k=window, p=p)
-        return smooth_ns_signal_bi_numba(intensity, index=index, k=window, p=p, sd_dist=sd, sd_intensity=sd_intensity)
+        return smooth_ns_signal_bi_numba(intensity, index=index, k=window, p=p, sd_dist=sd, sd_intensity=sd_intensity, numba_max_threads=numba_max_threads)

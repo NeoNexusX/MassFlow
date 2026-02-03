@@ -333,6 +333,7 @@ def baseline_corrector(
     baseline_scale: float = 1.0,
     m: Optional[int] = None,
     decreasing: bool = True,
+    numba_max_threads: Optional[int] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Baseline estimation and correction for a single 1D intensity array.
@@ -352,6 +353,7 @@ def baseline_corrector(
         baseline_scale (float): Scale factor in (0,1] applied to estimated baseline.
         m (int): SNIP window half-size, used when method in {'snip','snip_numba'}.
         decreasing (bool): SNIP decreasing rule, used when method in {'snip','snip_numba'}.
+        numba_max_threads (Optional[int]): Maximum number of threads for numba parallel execution.
 
     Returns:
         tuple[np.ndarray, np.ndarray]: (corrected, scaled_baseline), both stored as float32 (internal computations use float64).
@@ -387,7 +389,9 @@ def baseline_corrector(
     elif method_norm == "snip":
         baseline = snip_baseline(xi, m=m, decreasing=decreasing)
     elif method_norm == "snip_numba":
-        baseline = snip_baseline_numba(xi, m=m, decreasing=decreasing)
+        baseline = snip_baseline_numba(
+            xi, m=m, decreasing=decreasing, numba_max_threads=numba_max_threads
+        )
     else:
         baseline = asls_baseline(xi, lam=lam, p=p, niter=niter)
 

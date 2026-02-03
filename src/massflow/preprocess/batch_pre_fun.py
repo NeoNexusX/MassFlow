@@ -90,6 +90,7 @@ class BatchPreprocess:
         delta: float = 1.0,
         wavelet: str = "db4",
         threshold_mode: str = "soft",
+        numba_max_threads: int = None,
     ) -> Sequence[SpectrumImzML]:
         """Perform noise reduction on a batch of spectra.
 
@@ -107,6 +108,7 @@ class BatchPreprocess:
         - delta: Sample spacing for Savitzky-Golay.
         - wavelet: Wavelet family for wavelet denoising.
         - threshold_mode: 'soft' or 'hard' thresholding.
+        - numba_max_threads: Maximum number of threads for Numba parallel execution.
 
         Returns:
         - Sequence of denoised spectra as SpectrumImzML objects.
@@ -134,7 +136,7 @@ class BatchPreprocess:
         # At the batch level, first stack spectra into a (n_spectra, n_mz) matrix,
         # then call the smoother once to trigger the parallel implementation
         # in noise_reduction_numba.
-        if method in {"savgol_numba", "ma_numba", "gaussian_numba"}:
+        if method in {"savgol_numba", "ma_numba", "gaussian_numba", "ma_loop", "gaussian_approx_loop"}:
             # Handle variable lengths via padding
             lengths = np.array([s.intensity.size for s in batch_spectra], dtype=np.int32)
             max_len = np.max(lengths)
@@ -167,6 +169,7 @@ class BatchPreprocess:
                 wavelet=wavelet,
                 threshold_mode=threshold_mode,
                 lengths=lengths,  # Pass valid lengths
+                numba_max_threads=numba_max_threads,
             )
 
             denoised_spectra: list[SpectrumImzML] = []
@@ -254,6 +257,7 @@ class BatchPreprocess:
         baseline_scale: float = 1.0,
         m: int | None = None,
         decreasing: bool = True,
+        numba_max_threads: int = None,
     ) -> Sequence[SpectrumImzML]:
         """Perform baseline correction on a batch of spectra.
 
@@ -271,6 +275,7 @@ class BatchPreprocess:
         - baseline_scale: Scale factor in (0, 1] applied to estimated baseline.
         - m: SNIP window half-size (>= 1); used when method='snip'.
         - decreasing: SNIP decreasing rule; used when method='snip'.
+        - numba_max_threads: Maximum number of threads for Numba parallel execution.
 
         Returns:
         - Sequence of baseline-corrected spectra.
@@ -294,6 +299,7 @@ class BatchPreprocess:
                 baseline_scale=baseline_scale,
                 m=m,
                 decreasing=decreasing,
+                numba_max_threads=numba_max_threads,
             )
             corrected_spectra.append(corrected)
 

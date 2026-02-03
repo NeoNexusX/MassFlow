@@ -5,31 +5,23 @@ from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.tools.logger import get_logger
 from massflow.preprocess.dm_pre_fun import Preprocess
-from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
-from massflow.preprocess.numba.noise_reduction_numba import (
-    smooth_signal_savgol_numba,
-    smooth_ns_signal_ma_numba,
-    smooth_ns_signal_gaussian_numba,
-    smooth_ns_signal_bi_numba,
-    smooth_signal_ma_numba,
-    smooth_signal_gaussian_numba,
-)
+
 pytestmark = pytest.mark.filterwarnings("ignore:This process .* is multi-threaded, use of fork():DeprecationWarning")
 
 logger = get_logger("test_noise_reduction_numba")
 
 
 @pytest.fixture(scope="module")
-def noise_data_manager(data_file_path="data/example.imzML") -> MSDataManagerImzML:
+def noise_data_manager(data_file_path="metaspace/metaspace/other/Example_read/example.imzML") -> MSDataManagerImzML:
 
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
 
-    dm.extract_metadata()
-    height = int(dm.ms.meta.max_count_of_pixels_y)
-    width = int(dm.ms.meta.max_count_of_pixels_x)
-    subset_height = max(1, height // 10)
-    dm.target_locs = [(1, 1), (width, subset_height)]
+    # dm.extract_metadata()
+    # height = int(dm.ms.meta.max_count_of_pixels_y)
+    # width = int(dm.ms.meta.max_count_of_pixels_x)
+    # subset_height = max(1, height // 10)
+    # dm.target_locs = [(1, 1), (width, subset_height)]
 
     dm.load_full_data_from_file()
     for _ in dm.get_batch_generator(batch_size=512):
@@ -41,7 +33,8 @@ def run_dm_noise_reduction_task(
     method: str = "savgol_numba",
     window: int = 11,
     polyorder: int = 3,
-    batch_size: int = 256
+    batch_size: int = 256,
+    numba_max_threads: int = None
 ) -> MSDataManagerImzML:
     denoised_manager = Preprocess.noise_reduction(
         data_manager=dm,
@@ -49,6 +42,7 @@ def run_dm_noise_reduction_task(
         window=window,
         polyorder=polyorder,
         batch_size=batch_size,
+        numba_max_threads=numba_max_threads
     )
     return denoised_manager
 
@@ -66,10 +60,12 @@ class TestNoiseReductionDMNumba:
             # ("gaussian_ns", "numba"),
             # ("bi_ns", "python"),
             # ("bi_ns", "numba"),
-            ("ma", "python"),
-            ("ma", "numba"),
-            ("gaussian", "python"),
-            ("gaussian", "numba"),
+            #("ma", "python"),
+            #("ma", "numba"),
+            ("ma_loop", "numba"), # New O(N) loop method
+            #("gaussian", "python"),
+            #("gaussian", "numba"),
+            ("gaussian_approx_loop", "numba"), # New O(N) approx gaussian
         ],
     )
     @pytest.mark.benchmark(timer=time.perf_counter)
@@ -82,12 +78,25 @@ class TestNoiseReductionDMNumba:
     ) -> None:
         if backend == "python":
             dm_method = method
+            threads = None
         else:
-            dm_method = f"{method}_numba"
+            # Map simplified method names to actual backend method names
+            if method == "ma":
+                dm_method = "ma_numba"
+            elif method == "ma_loop":
+                dm_method = "ma_loop"
+            elif method == "gaussian_approx_loop":
+                dm_method = "gaussian_approx_loop"
+            elif method == "gaussian":
+                dm_method = "gaussian_numba"
+            else:
+                # Default fallback for other methods (like savgol -> savgol_numba)
+                dm_method = f"{method}_numba"
+            threads = 4
 
         denoised_manager = benchmark.pedantic(
             run_dm_noise_reduction_task,
-            args=(noise_data_manager, dm_method, 11, 3, 256),
+            args=(noise_data_manager, dm_method, 11, 3, 256, threads),
             rounds=1,
             iterations=1,
             warmup_rounds=0,
@@ -95,34 +104,49 @@ class TestNoiseReductionDMNumba:
         denoised_manager.close()
 
     @pytest.mark.parametrize(
-        "method,numba_kind",
+        "method",
         [
-            # ("savgol", "savgol"),
-            ("ma_ns", "ma_ns"),
-            ("gaussian_ns", "gaussian_ns"),
-            ("bi_ns", "bi_ns"),
-            ("ma", "ma"),
-            ("gaussian", "gaussian"),
-            ("savgol", "savgol"),
+            # "savgol",
+            "ma_ns",
+            "gaussian_ns",
+            "bi_ns",
+            "ma",
+            "gaussian",
+            "savgol",
+            "ma_loop", # Check ma_loop vs ma
+            "gaussian_approx_loop", # Check approx vs gaussian
         ],
     )
-    def test_numba_consistency(self, noise_data_manager: MSDataManagerImzML, method: str, numba_kind: str) -> None:
+    def test_numba_consistency(self, noise_data_manager: MSDataManagerImzML, method: str) -> None:
         dm = noise_data_manager
         
         # 1. Run Python baseline (DM layer)
-        logger.info(f"Running Python baseline for method={method} on DM layer...")
+        # For new methods, map back to original python method name for baseline
+        if method == "ma_loop":
+            baseline_method = "ma"
+        elif method == "gaussian_approx_loop":
+            baseline_method = "gaussian"
+        else:
+            baseline_method = method
+
+        logger.info(f"Running Python baseline for method={baseline_method} on DM layer...")
         dm_python = run_dm_noise_reduction_task(
             dm, 
-            method=method, # e.g. "ma", "gaussian"
+            method=baseline_method, # e.g. "ma", "gaussian"
             window=11, 
             polyorder=3, 
             batch_size=256
         )
 
         # 2. Run Numba target (DM layer)
-        # Construct the numba method name by appending "_numba"
-        # e.g. "ma" -> "ma_numba", "ma_ns" -> "ma_ns_numba"
-        dm_method_numba = f"{method}_numba"
+        # Construct the numba method name
+        if method == "ma_loop":
+            dm_method_numba = "ma_loop"
+        elif method == "gaussian_approx_loop":
+            dm_method_numba = "gaussian_approx_loop"
+        else:
+            # e.g. "ma" -> "ma_numba", "ma_ns" -> "ma_ns_numba"
+            dm_method_numba = f"{method}_numba"
 
         logger.info(f"Running Numba target for method={dm_method_numba} on DM layer...")
         dm_numba = run_dm_noise_reduction_task(
@@ -130,7 +154,8 @@ class TestNoiseReductionDMNumba:
             method=dm_method_numba, 
             window=11, 
             polyorder=3, 
-            batch_size=256
+            batch_size=256,
+            numba_max_threads=4 # Use same threads setting as benchmark
         )
 
         # 3. Compare results

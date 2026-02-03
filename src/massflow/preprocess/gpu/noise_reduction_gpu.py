@@ -4,6 +4,11 @@ import numpy as np
 import cupy as cp
 from cupyx.scipy.ndimage import convolve1d
 
+try:
+    from cupy.cuda.compiler import CompileException
+except ImportError:
+    CompileException = Exception
+
 
 
 def _prepare_kernel(coef: Optional[np.ndarray], window: int) -> np.ndarray:
@@ -34,8 +39,16 @@ def _convolve1d_gpu(data: np.ndarray, coef: np.ndarray, axis: int) -> np.ndarray
     x = cp.asarray(data)  # Host -> Device (内存 -> 显存)
     w = cp.asarray(coef)
 
-    # 在GPU上并行执行一维卷积
-    y = convolve1d(x, w, axis=axis, mode="nearest")
+    try:
+        # 在GPU上并行执行一维卷积
+        y = convolve1d(x, w, axis=axis, mode="nearest")
+    except CompileException as e:
+        raise RuntimeError(
+            "CuPy compilation failed. This typically indicates a mismatch between "
+            "the installed CuPy version and the CUDA Toolkit version, or an invalid "
+            "GPU architecture configuration. Please verify your environment.\n"
+            f"Original error: {e}"
+        ) from e
     return cp.asnumpy(y)  # Device -> Host (显存 -> 内存)
 
 
@@ -61,11 +74,7 @@ def smooth_signal_ma_gpu_batch(
     if not intensities:
         return []
 
-    lengths: list[int] = []
-    # for arr in intensities:
-    #     if not isinstance(arr, np.ndarray) or arr.ndim != 1 or arr.size == 0:
-    #         raise ValueError("each intensity must be a non-empty 1D numpy array")
-    #     lengths.append(arr.size)
+    lengths: list[int] = [arr.size for arr in intensities]
 
     coef = _prepare_kernel(coef, window)
 
@@ -75,14 +84,13 @@ def smooth_signal_ma_gpu_batch(
     # 创建全零大矩阵进行对齐
     padded = np.zeros((n, max_len), dtype=np.float32)
     for i, arr in enumerate(intensities):
-        # Use simple slicing instead of padding for better performance if possible
-        # but here we need to align lengths.
-        # Direct copy is faster than np.pad for simple edge cases
+        # 优化：直接赋值比 np.pad 更快
         valid_len = lengths[i]
         padded[i, :valid_len] = arr.astype(np.float32, copy=False)
-        # # Handle edge padding simulation: replicate last value
-        # if valid_len < max_len:
-        #     padded[i, valid_len:] = padded[i, valid_len - 1]
+        
+        # 边缘处理：如果有填充区域，用最后一个有效值填充，减少卷积边缘伪影
+        if valid_len < max_len:
+             padded[i, valid_len:] = padded[i, valid_len - 1]
 
     # 沿 axis=1 (谱图长度方向) 进行批量卷积
     smoothed = _convolve1d_gpu(padded, coef, axis=1)

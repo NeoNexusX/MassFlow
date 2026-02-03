@@ -226,6 +226,7 @@ class Preprocess:
         threshold_mode: str = "soft",
         batch_size: int = 256,
         temp_dir: str = "./temp_noise_data",
+        numba_max_threads: int = None,
     ) -> MSDataManagerImzML:
         """Perform noise reduction on MSDataManager data.
 
@@ -248,6 +249,7 @@ class Preprocess:
             threshold_mode: 'soft' or 'hard' thresholding.
             batch_size: Number of spectra per batch.
             temp_dir: Temporary directory for writing denoised data.
+            numba_max_threads: Maximum number of threads for Numba parallel execution (default: None, use system default).
 
         Returns:
             MSDataManagerImzML containing denoised spectra.
@@ -286,6 +288,7 @@ class Preprocess:
             delta=delta,
             wavelet=wavelet,
             threshold_mode=threshold_mode,
+            numba_max_threads=numba_max_threads,
         )
 
     @staticmethod
@@ -348,6 +351,7 @@ class Preprocess:
         decreasing: bool = True,
         batch_size: int = 256,
         temp_dir: str = "./temp_baseline_data",
+        numba_max_threads: int = None,
     ) -> MSDataManagerImzML:
         """Perform baseline correction on MSDataManager data.
 
@@ -371,6 +375,7 @@ class Preprocess:
             decreasing: SNIP decreasing rule; used when method='snip'.
             batch_size: Number of spectra per batch.
             temp_dir: Temporary directory for writing baseline-corrected data.
+            numba_max_threads: Maximum number of threads for Numba parallel execution.
 
         Returns:
             MSDataManagerImzML containing baseline-corrected spectra.
@@ -409,4 +414,5 @@ class Preprocess:
             baseline_scale=baseline_scale,
             m=m,
             decreasing=decreasing,
+            numba_max_threads=numba_max_threads,
         )
