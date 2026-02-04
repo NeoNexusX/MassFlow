@@ -1,15 +1,8 @@
 from typing import Optional, Sequence
 import numpy as np
-
 import cupy as cp
 from cupyx.scipy.ndimage import convolve1d
-
-try:
-    from cupy.cuda.compiler import CompileException
-except ImportError:
-    CompileException = Exception
-
-
+from cupy.cuda.compiler import CompileException
 
 def _prepare_kernel(coef: Optional[np.ndarray], window: int) -> np.ndarray:
     """准备卷积核：如果未提供coef，则生成全1的移动平均核，并归一化为float32。"""
@@ -87,6 +80,12 @@ def smooth_signal_ma_gpu_batch(
         # 优化：直接赋值比 np.pad 更快
         valid_len = lengths[i]
         padded[i, :valid_len] = arr.astype(np.float32, copy=False)
+        #如果你想测试 np.pad 的性能，可用下面的替代实现（取消注释即可）：
+        # padded[i] = np.pad(
+        #     arr.astype(np.float32, copy=False),
+        #     (0, max_len - valid_len),
+        #     mode="edge",
+        # )
         
         # 边缘处理：如果有填充区域，用最后一个有效值填充，减少卷积边缘伪影
         if valid_len < max_len:
