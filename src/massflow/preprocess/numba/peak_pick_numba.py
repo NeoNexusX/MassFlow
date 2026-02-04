@@ -16,9 +16,6 @@ def interp_jit(arr: np.ndarray, idx_f: float) -> float:
 
     Returns:
         float: Interpolated value at idx_f.
-
-    Raises:
-        ValueError: If n is provided and does not match arr length.
     """
     m = int(arr.shape[0])
     if m == 0:

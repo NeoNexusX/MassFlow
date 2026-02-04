@@ -185,14 +185,11 @@ class Preprocess:
         )
 
         if backend == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
-            if method != "origin":
-                return CardinalAdapter.peak_pick(data_manager=data_manager,
-                                                 method=method,
-                                                 snr=snr,
-                                                 return_type=return_type,
-                                                 temp_dir=temp_dir)
-            else:
-                logger.warning("Cardinal backend does not support 'origin' method. Falling back to Python implementation.")
+            return CardinalAdapter.peak_pick(data_manager=data_manager,
+                                                method=method,
+                                                snr=snr,
+                                                return_type=return_type,
+                                                temp_dir=temp_dir)
 
         return Preprocess._process_in_batches(
             data_manager=data_manager,
