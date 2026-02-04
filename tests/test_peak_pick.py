@@ -17,13 +17,6 @@ ROUND = 1
 
 set_default_r_home("r_home_path_here")  # set R_HOME path here
 
-@pytest.fixture(scope="module")
-def data_manager(filepath=FILEPATH) -> MSDataManagerImzML:
-    mass_data = MassSpectrumSet()
-    dm = MSDataManagerImzML(mass_data, filepath=filepath)
-    dm.load_full_data_from_file()
-    return dm
-
 def run_pick_test(
     data: MSDataManagerImzML,
     width: int | Sequence[int] = 2,
@@ -31,6 +24,8 @@ def run_pick_test(
     relheight: float = 0.1,
     snr: float = 3.0,
     return_type: str = 'height',
+    batch_size: int = 256,
+    use_numba: bool = True,
     backend: str = "python"
     ) -> MSDataManagerImzML:
     """Run peak picking test using old or new method."""
@@ -41,6 +36,8 @@ def run_pick_test(
                                 relheight=relheight,
                                 snr=snr,
                                 return_type=return_type,
+                                batch_size=batch_size,
+                                use_numba=use_numba,
                                 backend=backend,
                                 )
 
@@ -104,10 +101,19 @@ def compare_pick_result(
 class TestPeakPick:
     """Test peak picking functions."""
 
+    @pytest.fixture(scope="class")
+    def data_manager(self) -> MSDataManagerImzML:
+        mass_data = MassSpectrumSet()
+        dm = MSDataManagerImzML(mass_data, filepath=FILEPATH)
+        dm.load_full_data_from_file()
+        return dm
+
     @pytest.mark.parametrize("width", [2])
     @pytest.mark.parametrize("relheight", [0.012])
     @pytest.mark.parametrize("snr", [2.0])
     @pytest.mark.parametrize("return_type", ["area"])
+    @pytest.mark.parametrize("batch_size", [256])
+    @pytest.mark.parametrize("use_numba", [True])
     @pytest.mark.parametrize("method, backend", [('origin', 'python'), ('diff', 'cardinal')])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_peak_pick_benchmark(
@@ -119,6 +125,8 @@ class TestPeakPick:
         relheight: float,
         snr: float,
         return_type: str,
+        batch_size: int,
+        use_numba: bool,
         backend: str,
     ) -> None:
         """Performance Test: Run peak picking benchmark."""
@@ -132,6 +140,8 @@ class TestPeakPick:
                 relheight,
                 snr,
                 return_type,
+                batch_size,
+                use_numba,
                 backend),
             rounds=ROUND,
             iterations=1,

@@ -1,6 +1,7 @@
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.r_preprocess.environment import REnvironment
+from massflow.tools.imzml_monkey_patch import risky_imzml_loader
 from massflow.tools.logger import get_logger
 
 logger = get_logger("r_preprocess_adapter")
@@ -50,7 +51,8 @@ class CardinalAdapter:
         r_env.cardinal.writeMSIData(aligned_massdata, file=aligned_filepath, bundle=False)
 
 
-        dm_cardinal.load_full_data_from_file()
+        with risky_imzml_loader():
+            dm_cardinal.load_full_data_from_file()
 
         logger.info(f"Peak alignment completed and data saved to {aligned_filepath}")
         return dm_cardinal
@@ -91,7 +93,8 @@ class CardinalAdapter:
         picked_filepath = dm_cardinal.filepath
         r_env.cardinal.writeMSIData(picked_massdata_realize, file=picked_filepath, bundle=False)
 
-        dm_cardinal.load_full_data_from_file()
+        with risky_imzml_loader():
+            dm_cardinal.load_full_data_from_file()
 
         logger.info(f"Peak picking completed and data saved to {picked_filepath}")
         return dm_cardinal

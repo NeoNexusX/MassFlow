@@ -192,7 +192,7 @@ class Preprocess:
                                                  return_type=return_type,
                                                  temp_dir=temp_dir)
             else:
-                logger.warning("Cardinal backend does not support 'scipy' method. Falling back to Python implementation.")
+                logger.warning("Cardinal backend does not support 'origin' method. Falling back to Python implementation.")
 
         return Preprocess._process_in_batches(
             data_manager=data_manager,
