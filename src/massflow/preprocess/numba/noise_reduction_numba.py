@@ -275,7 +275,6 @@ def smooth_signal_savgol_numba(intensity: np.ndarray, window: int = 5, polyorder
         length.
     """
     if numba_max_threads is not None:
-        
         set_num_threads(numba_max_threads)
         
     actual_window = max(3, window + (1 - window % 2))

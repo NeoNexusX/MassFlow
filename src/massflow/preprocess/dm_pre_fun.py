@@ -229,7 +229,8 @@ class Preprocess:
 
         Parameters:
             data_manager: Data manager containing spectra to be denoised.
-            method: One of {'ma','ma_numba','ma_loop','gaussian','gaussian_numba','savgol','savgol_numba','wavelet','ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
+            method: One of {'ma','ma_numba','ma_loop','gaussian','gaussian_numba','savgol','savgol_numba','wavelet'
+            'ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
             window: Window size or neighbor count depending on method.
             sd: Gaussian scale parameter.
             sd_intensity: Intensity scale for bilateral method.
@@ -252,7 +253,7 @@ class Preprocess:
             raise ValueError("data_manager must be provided for noise reduction.")
 
         method_norm = (method or "ma").strip().lower()
-        if method_norm in {"ma", "ma_numba", "ma_loop", "ma_gpu", "gaussian", "gaussian_numba", "savgol", "savgol_numba"}:
+        if method_norm in {"ma", "ma_numba", "ma_loop", "gaussian", "gaussian_numba", "savgol", "savgol_numba"}:
             logger.info(
                 f"noise_reduction_entry: method={method}, window={window}, polyorder={polyorder}, sd={sd}, deriv={deriv}, delta={delta}"
             )

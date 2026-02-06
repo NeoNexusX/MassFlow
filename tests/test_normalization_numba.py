@@ -49,11 +49,11 @@ class TestNormalizationDMNumba:
     @pytest.mark.parametrize(
         "method,backend",
         [
-            #("tic", "python"),
+            ("tic", "python"),
             ("tic", "numba"),
-            #("rms", "python"),
+            ("rms", "python"),
             ("rms", "numba"),
-            #("median", "python"),
+            ("median", "python"),
             ("median", "numba"),
         ],
     )

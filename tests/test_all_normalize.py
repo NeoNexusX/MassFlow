@@ -13,7 +13,7 @@ BATCH_SIZE = 512
 
 
 @pytest.fixture(scope="module")
-def normalize_data_manager(data_file_path="Data/other/MTBLS415/160TopL,130TopR,150BottomL,140BottomR-profile/160TopL,130TopR,150BottomL,140BottomR-profile.imzML") -> MSDataManagerImzML:
+def normalize_data_manager(data_file_path="Data/other/Example_read/example.imzML") -> MSDataManagerImzML:
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
     dm.load_full_data_from_file()

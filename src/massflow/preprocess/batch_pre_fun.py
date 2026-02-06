@@ -127,18 +127,12 @@ class BatchPreprocess:
             max_len = np.max(lengths)
             n_spectra = len(batch_spectra)
 
-            # Pre-allocate padded buffer (initialized with zeros or edge values? 
-            # Actually, Numba implementation will only process up to valid length, so padding content doesn't matter for calculation correctness,
-            # but for safety and potential future changes, zero-init is fine.)
             intensities_padded = np.zeros((n_spectra, max_len), dtype=np.float32)
 
             for i, s in enumerate(batch_spectra):
                 # Copy data into buffer
                 valid_len = lengths[i]
                 intensities_padded[i, :valid_len] = s.intensity.astype(np.float32, copy=False)
-                # Optional: Edge padding for safety if kernel looks beyond valid_len (though core logic handles boundary)
-                # But our core logic clamps index, so it won't read garbage if valid_len is respected.
-                # However, savgol/convolve core reads up to valid_len.
                 
             smoothed = smoother(
                 intensities_padded,

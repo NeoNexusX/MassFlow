@@ -12,7 +12,7 @@ logger = get_logger("test_all_baseline")
 BATCH_SIZE = 512
 
 @pytest.fixture(scope="module")
-def baseline_data_manager(data_file_path="Data/other/MTBLS415/160TopL,130TopR,150BottomL,140BottomR-profile/160TopL,130TopR,150BottomL,140BottomR-profile.imzML") -> MSDataManagerImzML:
+def baseline_data_manager(data_file_path="Data/other/Example_read/example.imzML") -> MSDataManagerImzML:
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
     dm.load_full_data_from_file()
@@ -96,7 +96,7 @@ def validate_baseline_data(data_manager: MSDataManagerImzML, method="asls", batc
         assert np.all(y >= 0.0)
 
 class TestAllBaseline:
-    @pytest.mark.parametrize("method", [ "snip"])
+    @pytest.mark.parametrize("method", [ "locmin","snip"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_all_baseline_methods_replace_data_benchmark(self, benchmark, method, baseline_data_manager):
 

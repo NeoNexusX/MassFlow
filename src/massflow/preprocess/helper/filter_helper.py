@@ -610,7 +610,7 @@ def smoother(intensity:np.ndarray,
     Parameters:
         intensity (np.ndarray): 1D intensity array.
         index (Optional[np.ndarray]): 1D coordinate array aligned with `intensity` for NS methods.
-        method (str): One of {'ma','ma_numba','ma_loop','gaussian','gaussian_numba','savgol','savgol_numba','wavelet','ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba',
+        method (str): One of {'ma','ma_numba','ma_loop','gaussian','gaussian_numba','savgol','savgol_numba','wavelet',
         'ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
         window (int): Window size or neighbor count depending on method.
         sd (float, optional): Gaussian scale parameter for relevant methods.
@@ -642,7 +642,7 @@ def smoother(intensity:np.ndarray,
         "ma_ns", "gaussian_ns", "bi_ns",
         "savgol_numba", "ma_ns_numba", "gaussian_ns_numba", "bi_ns_numba",
         "ma_numba", "gaussian_numba",
-        "ma_loop", "gaussian_approx_loop",
+        "ma_loop",
     }
     if method_norm not in supported:
         logger.error(

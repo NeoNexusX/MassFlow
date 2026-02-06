@@ -12,7 +12,7 @@ logger = get_logger("test_noise_reduction_numba")
 
 
 @pytest.fixture(scope="module")
-def noise_data_manager(data_file_path="Data/other/MTBLS415/120TopL, 90TopR, 110BottomL, 100BottomR-profile/120TopL, 90TopR, 110BottomL, 100BottomR-profile.imzML") -> MSDataManagerImzML:
+def noise_data_manager(data_file_path="Data/other/Example_read/example.imzML") -> MSDataManagerImzML:
 
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
@@ -53,18 +53,19 @@ class TestNoiseReductionDMNumba:
         "method,backend",
         [
             #("savgol", "python"),
-            #("savgol", "numba"),
-            # ("ma_ns", "python"),
-            # ("ma_ns", "numba"),
-            # ("gaussian_ns", "python"),
-            # ("gaussian_ns", "numba"),
-            # ("bi_ns", "python"),
-            # ("bi_ns", "numba"),
+            ("savgol", "numba"),
             #("ma", "python"),
-            #("ma", "numba"),
+            ("ma", "numba"),
             ("ma_loop", "numba"), # New O(N) loop method
             #("gaussian", "python"),
-            #("gaussian", "numba"),
+            ("gaussian", "numba"),
+            # ("ma_ns", "python"),
+            #("ma_ns", "numba"),
+            #("gaussian_ns", "python"),
+            #("gaussian_ns", "numba"),
+            #("bi_ns", "python"),
+            #("bi_ns", "numba"),
+        
         ],
     )
     @pytest.mark.benchmark(timer=time.perf_counter)
@@ -105,7 +106,6 @@ class TestNoiseReductionDMNumba:
     @pytest.mark.parametrize(
         "method",
         [
-            # "savgol",
             "ma_ns",
             "gaussian_ns",
             "bi_ns",

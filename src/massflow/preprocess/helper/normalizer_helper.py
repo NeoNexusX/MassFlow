@@ -205,7 +205,6 @@ def normalizer(
         ValueError: If `method` is not supported.
     """
     # Basic validation
-   
     if not np.isfinite(scale) or float(scale) < 0.0:
         logger.error("scale must be a finite non-negative number")
         raise ValueError("scale must be a finite non-negative number")

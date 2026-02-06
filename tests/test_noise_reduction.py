@@ -10,12 +10,11 @@ pytestmark = pytest.mark.filterwarnings("ignore:This process .* is multi-threade
 logger = get_logger("test_noise_reduction")
 
 @pytest.fixture(scope="module")
-def noise_data_manager(data_file_path="data/example.imzML") -> MSDataManagerImzML:
+def noise_data_manager(data_file_path="Data/other/Example_read/example.imzML") -> MSDataManagerImzML:
     """Fixture providing MSDataManagerImzML instance with fully initialized spectra for noise reduction tests."""
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
     dm.load_full_data_from_file()
-
     for _ in dm.get_batch_generator(batch_size=512):
         pass
     return dm
@@ -58,7 +57,7 @@ def validate_noise_reduction_result(
 class TestNoiseReductionAPI:
     """Test suite for noise reduction API functionality and performance."""
 
-    @pytest.mark.parametrize("method", ["ma", "gaussian", "savgol"])
+    @pytest.mark.parametrize("method", ["wavelet"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_noise_reduction_benchmark(
         self,
@@ -69,14 +68,14 @@ class TestNoiseReductionAPI:
         """Performance test: benchmark Preprocess.noise_reduction execution time."""
         dm_denoised = benchmark.pedantic(
             run_noise_reduction_task,
-            args=(noise_data_manager, method, 11, 3, 256),
+            args=(noise_data_manager, method, 11, 3, 512),
             rounds=1,
             iterations=1,
             warmup_rounds=0,
         )
         dm_denoised.close()
 
-    @pytest.mark.parametrize("method", ["ma", "gaussian", "savgol"])
+    @pytest.mark.parametrize("method", ["wavelet"])
     def test_noise_reduction_validation(
         self,
         noise_data_manager: MSDataManagerImzML,
