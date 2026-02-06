@@ -610,12 +610,10 @@ def smoother(intensity:np.ndarray,
     Parameters:
         intensity (np.ndarray): 1D intensity array.
         index (Optional[np.ndarray]): 1D coordinate array aligned with `intensity` for NS methods.
-        method (str): One of {'ma','ma_numba','ma_loop','ma_gpu','gaussian','gaussian_numba','savgol','savgol_numba','wavelet',
+        method (str): One of {'ma','ma_numba','ma_loop','gaussian','gaussian_numba','savgol','savgol_numba','wavelet','ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba',
         'ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
         window (int): Window size or neighbor count depending on method.
-        sd (float, optional)
-        
-        : Gaussian scale parameter for relevant methods.
+        sd (float, optional): Gaussian scale parameter for relevant methods.
         sd_intensity (float, optional): Intensity scale for bilateral method.
         p (int): Minkowski metric for NS queries.
         coef (np.ndarray, optional): Custom kernel for moving-average.
@@ -640,7 +638,7 @@ def smoother(intensity:np.ndarray,
     method_norm = (method or "ma").strip().lower()
 
     supported = {
-        "ma", "ma_gpu", "gaussian", "savgol", "wavelet",
+        "ma", "gaussian", "savgol", "wavelet",
         "ma_ns", "gaussian_ns", "bi_ns",
         "savgol_numba", "ma_ns_numba", "gaussian_ns_numba", "bi_ns_numba",
         "ma_numba", "gaussian_numba",
@@ -648,7 +646,7 @@ def smoother(intensity:np.ndarray,
     }
     if method_norm not in supported:
         logger.error(
-            "Unsupported smoothing method: %s. Use one of: ma, ma_gpu, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, savgol_numba, ma_ns_numba, gaussian_ns_numba, bi_ns_numba, ma_numba, gaussian_numba, ma_loop, gaussian_approx_loop",
+            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, savgol_numba, ma_ns_numba, gaussian_ns_numba, bi_ns_numba, ma_numba, gaussian_numba, ma_loop",
             method,
         )
         raise ValueError(f"Unsupported smoothing method: {method}")
@@ -657,10 +655,6 @@ def smoother(intensity:np.ndarray,
     if method_norm == "ma":
         _input_validation(intensity=intensity, window=window if coef is None else None)
         return smooth_signal_ma(intensity, window=window, coef=coef)
-
-    elif method_norm == "ma_gpu":
-        _input_validation(intensity=intensity, window=window if coef is None else None)
-        return smooth_signal_ma_gpu(intensity, window=window, coef=coef)
 
     elif method_norm == "gaussian":
         _input_validation(intensity=intensity, window=window, sd=sd)

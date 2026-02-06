@@ -47,14 +47,14 @@ class Preprocess:
         processed_data_manager = MSDataManagerImzML(processed_ms, temp_dir=temp_dir)
         processed_data_manager.copy_meta(data_manager)
 
-        writer = processed_data_manager.writer 
+        writer = processed_data_manager.writer
 
         total_batches = Preprocess._total_batches(data_manager, batch_size)
 
         for batch_idx, batch in enumerate(data_manager.get_batch_generator(batch_size=batch_size), start=1):
             processed_batch = batch_func(batch_spectra=batch, **batch_kwargs)
             data_manager.clear_batch_data_memory(batch=batch)
-            processed_data_manager.swap_batch_data_out2disk(    batch=processed_batch, writer=writer)
+            processed_data_manager.swap_batch_data_out2disk(batch=processed_batch, writer=writer)
 
             Preprocess._log_progress(total_batches, batch_idx)
 
@@ -229,7 +229,7 @@ class Preprocess:
 
         Parameters:
             data_manager: Data manager containing spectra to be denoised.
-            method: One of {'ma','ma_numba','ma_loop','ma_gpu','gaussian','gaussian_numba','savgol','savgol_numba','wavelet','ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
+            method: One of {'ma','ma_numba','ma_loop','gaussian','gaussian_numba','savgol','savgol_numba','wavelet','ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
             window: Window size or neighbor count depending on method.
             sd: Gaussian scale parameter.
             sd_intensity: Intensity scale for bilateral method.

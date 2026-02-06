@@ -12,11 +12,11 @@ logger = get_logger("test_all_baseline")
 BATCH_SIZE = 512
 
 @pytest.fixture(scope="module")
-def baseline_data_manager(data_file_path="data/example.imzML") -> MSDataManagerImzML:
+def baseline_data_manager(data_file_path="Data/other/MTBLS415/160TopL,130TopR,150BottomL,140BottomR-profile/160TopL,130TopR,150BottomL,140BottomR-profile.imzML") -> MSDataManagerImzML:
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
     dm.load_full_data_from_file()
-    dm.inspect_data()
+    #dm.inspect_data()
     for _ in dm.get_batch_generator(batch_size=512):
         pass
     logger.info("data pre-load finished!")
@@ -96,15 +96,15 @@ def validate_baseline_data(data_manager: MSDataManagerImzML, method="asls", batc
         assert np.all(y >= 0.0)
 
 class TestAllBaseline:
-    @pytest.mark.parametrize("method", ["locmin", "snip"])
+    @pytest.mark.parametrize("method", [ "snip"])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_all_baseline_methods_replace_data_benchmark(self, benchmark, method, baseline_data_manager, batch_size: int = BATCH_SIZE):
+    def test_all_baseline_methods_replace_data_benchmark(self, benchmark, method, baseline_data_manager):
 
         logger.info(f"Testing baseline correction with method: {method}")
         benchmark.pedantic(
-            partial(run_baseline_correction, method=method, batch_size=batch_size),
+            partial(run_baseline_correction, method=method, batch_size=BATCH_SIZE),
             args=(baseline_data_manager,),
-            rounds=1,
+            rounds=10,
             iterations=1,
             warmup_rounds=0,
         )
@@ -112,8 +112,8 @@ class TestAllBaseline:
         logger.info(f"Finished baseline correction with method: {method}")
 
     @pytest.mark.parametrize("method", ["locmin", "snip"])
-    def test_all_baseline_methods_correctness(self, method, baseline_data_manager, batch_size: int = BATCH_SIZE):
-        validate_baseline_data(baseline_data_manager, method=method, batch_size=batch_size)
+    def test_all_baseline_methods_correctness(self, method, baseline_data_manager):
+        validate_baseline_data(baseline_data_manager, method=method, batch_size=BATCH_SIZE)
 
     def test_asls_correctness_with_subset(self, baseline_data_manager):
         # Build a fresh data manager that only loads a 1/10 spatial window

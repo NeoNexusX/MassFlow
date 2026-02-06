@@ -96,7 +96,7 @@ class BatchPreprocess:
 
         Parameters:
         - batch_spectra: Sequence of Spectrum objects to be denoised.
-        - method: One of {'ma','ma_gpu','gaussian','savgol','savgol_numba','wavelet','ma_ns','gaussian_ns','bi_ns',
+        - method: One of {'ma','ma_numba','ma_loop','gaussian','gaussian_numba','savgol','savgol_numba','wavelet','ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba',
           'ma_ns_numba','gaussian_ns_numba','bi_ns_numba'}.
         - window: Window size or neighbor count depending on method.
         - sd: Gaussian scale parameter.
@@ -116,21 +116,6 @@ class BatchPreprocess:
         if not batch_spectra:
             return []
 
-        if method == "ma_gpu":
-            intensities = [s.intensity for s in batch_spectra]
-            smoothed_list = smooth_signal_ma_gpu_batch(intensities, window=window, coef=coef)
-
-            denoised_spectra: list[SpectrumImzML] = []
-            for i, spectrum in enumerate(batch_spectra):
-                denoised_spectra.append(
-                    SpectrumImzML(
-                        coordinates=spectrum.coordinate,
-                        mz_list=spectrum.mz_list,
-                        intensity=smoothed_list[i],
-                    )
-                )
-
-            return denoised_spectra
 
         # Specialized 2D Numba acceleration path for savgol_numba, ma_numba, gaussian_numba:
         # At the batch level, first stack spectra into a (n_spectra, n_mz) matrix,
