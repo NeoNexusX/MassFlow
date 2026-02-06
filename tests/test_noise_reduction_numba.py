@@ -85,8 +85,6 @@ class TestNoiseReductionDMNumba:
                 dm_method = "ma_numba"
             elif method == "ma_loop":
                 dm_method = "ma_loop"
-            elif method == "gaussian_approx_loop":
-                dm_method = "gaussian_approx_loop"
             elif method == "gaussian":
                 dm_method = "gaussian_numba"
             else:
@@ -122,8 +120,6 @@ class TestNoiseReductionDMNumba:
         # For new methods, map back to original python method name for baseline
         if method == "ma_loop":
             baseline_method = "ma"
-        elif method == "gaussian_approx_loop":
-            baseline_method = "gaussian"
         else:
             baseline_method = method
 
@@ -140,8 +136,6 @@ class TestNoiseReductionDMNumba:
         # Construct the numba method name
         if method == "ma_loop":
             dm_method_numba = "ma_loop"
-        elif method == "gaussian_approx_loop":
-            dm_method_numba = "gaussian_approx_loop"
         else:
             # e.g. "ma" -> "ma_numba", "ma_ns" -> "ma_ns_numba"
             dm_method_numba = f"{method}_numba"
