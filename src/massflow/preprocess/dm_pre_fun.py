@@ -41,32 +41,25 @@ class Preprocess:
         batch_size: int,
         temp_dir: str,
         batch_func,
-        swap_out: bool = False,
         **batch_kwargs,
     ) -> MSDataManagerImzML:
         processed_ms = MassSpectrumSet()
         processed_data_manager = MSDataManagerImzML(processed_ms, temp_dir=temp_dir)
         processed_data_manager.copy_meta(data_manager)
 
-        writer = processed_data_manager.writer if swap_out else None
+        writer = processed_data_manager.writer 
 
         total_batches = Preprocess._total_batches(data_manager, batch_size)
 
         for batch_idx, batch in enumerate(data_manager.get_batch_generator(batch_size=batch_size), start=1):
             processed_batch = batch_func(batch_spectra=batch, **batch_kwargs)
-        
-            if swap_out:
-                data_manager.clear_batch_data_memory(batch=batch)
-                processed_data_manager.swap_batch_data_out2disk(    batch=processed_batch, writer=writer)
-            else:
-                for spectrum in processed_batch:
-                    processed_data_manager.ms.add_spectrum(spectrum)
+            data_manager.clear_batch_data_memory(batch=batch)
+            processed_data_manager.swap_batch_data_out2disk(    batch=processed_batch, writer=writer)
 
             Preprocess._log_progress(total_batches, batch_idx)
 
-        if swap_out:
-            processed_data_manager.close_writer()
-            processed_data_manager.load_full_data_from_file()
+        processed_data_manager.close_writer()
+        processed_data_manager.load_full_data_from_file()
 
         return processed_data_manager
 
@@ -236,7 +229,7 @@ class Preprocess:
 
         Parameters:
             data_manager: Data manager containing spectra to be denoised.
-            method: One of {'ma','ma_gpu','gaussian','savgol','savgol_numba','wavelet','ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
+            method: One of {'ma','ma_numba','ma_loop','ma_gpu','gaussian','gaussian_numba','savgol','savgol_numba','wavelet','ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
             window: Window size or neighbor count depending on method.
             sd: Gaussian scale parameter.
             sd_intensity: Intensity scale for bilateral method.
@@ -259,7 +252,7 @@ class Preprocess:
             raise ValueError("data_manager must be provided for noise reduction.")
 
         method_norm = (method or "ma").strip().lower()
-        if method_norm in {"ma", "ma_gpu", "gaussian", "savgol", "savgol_numba"}:
+        if method_norm in {"ma", "ma_numba", "ma_loop", "ma_gpu", "gaussian", "gaussian_numba", "savgol", "savgol_numba"}:
             logger.info(
                 f"noise_reduction_entry: method={method}, window={window}, polyorder={polyorder}, sd={sd}, deriv={deriv}, delta={delta}"
             )
@@ -299,6 +292,7 @@ class Preprocess:
         scale: float = 1.0,
         batch_size: int = 256,
         temp_dir: str = "./temp_normalization_data",
+        numba_max_threads: int = None,
     ) -> MSDataManagerImzML:
         """Perform intensity normalization on MSDataManager data.
 
@@ -313,6 +307,7 @@ class Preprocess:
             scale: Cardinal-like amplitude scaling factor applied after normalization.
             batch_size: Number of spectra per batch.
             temp_dir: Temporary directory for writing normalized data.
+            numba_max_threads: Maximum number of threads for Numba parallel execution.
 
         Returns:
             MSDataManagerImzML containing normalized spectra.
@@ -332,6 +327,7 @@ class Preprocess:
             scale_method=scale_method,
             method=method,
             scale=scale,
+            numba_max_threads=numba_max_threads,
         )
 
     @staticmethod

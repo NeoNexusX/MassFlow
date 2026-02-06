@@ -1,6 +1,7 @@
 import numpy as np
 from massflow.tools.logger import get_logger
 from typing import Optional
+from massflow.preprocess.numba.normalization_numba import normalizer_numba
 
 logger = get_logger("preprocesss")
 
@@ -175,10 +176,14 @@ def apply_scaling(
         logger.error(f"Unsupported scale_method: {method_norm}. Supported methods are: 'none', 'unit'")
         raise ValueError(f"Unsupported scale_method: {method_norm}. Supported methods are: 'none', 'unit'")
 
-def normalizer(intensity: np.ndarray,
-               scale_method: str = 'none',
-               method: str = "tic",
-               scale: float = 1.0):
+def normalizer(
+    intensity: np.ndarray,
+    scale_method: str = 'none',
+    method: str = "tic",
+    scale: float = 1.0,
+    numba_max_threads: Optional[int] = None,
+    lengths: Optional[np.ndarray] = None,
+):
     """
     Unified normalization dispatcher.
 
@@ -187,12 +192,12 @@ def normalizer(intensity: np.ndarray,
         scale_method (str): Optional scaling after normalization:
             - 'none': no additional scaling
             - 'unit': min-max scale to [0, 1]
-        method (str): Primary normalization method:
-            - 'tic': Total Ion Current normalization
-            - 'rms': Root Mean Square normalization
-            - 'median': Median normalization
+        method (str): Normalization method.
+            - Python backend: 'tic', 'rms', 'median'
+            - Numba backend: 'tic_numba', 'rms_numba', 'median_numba'
         scale (float): Cardinal-like amplitude scaling factor (applied after normalization).
-
+        numba_max_threads (Optional[int]): Thread cap when using the numba backend.
+        lengths: Optional[np.ndarray]: Optional array of lengths for normalization.
     Returns:
         np.ndarray: Normalized (and optionally scaled) intensity array.
 
@@ -200,22 +205,39 @@ def normalizer(intensity: np.ndarray,
         ValueError: If `method` is not supported.
     """
     # Basic validation
-    _input_validation(intensity)
+   
     if not np.isfinite(scale) or float(scale) < 0.0:
         logger.error("scale must be a finite non-negative number")
         raise ValueError("scale must be a finite non-negative number")
+
     # Normalize and validate method
     method_norm = (method or "tic").strip().lower()
     scale_method_norm = (scale_method or 'none').strip().lower()
+    
+    # Check if Numba backend is requested via suffix
+    is_numba = method_norm.endswith("_numba")
+    base_method = method_norm.replace("_numba", "") if is_numba else method_norm
+    
     supported = {"tic", "rms", "median"}
-    if method_norm not in supported:
-        logger.error("Unsupported normalization method: %s. Use one of: tic, rms, median", method)
+    if base_method not in supported:
+        logger.error("Unsupported normalization method: %s. Use one of: tic, rms, median (suffix _numba for acceleration)", method)
         raise ValueError(f"Unsupported normalization method: {method}")
 
-    # Choose normalization method
-    if method_norm == "tic":
-        return tic_normalize(intensity, scale_method=scale_method_norm, scale=scale)
-    elif method_norm == "rms":
-        return rms_normalize(intensity, scale_method=scale_method_norm, scale=scale)
-    else:  # method_norm == "median"
-        return median_normalize(intensity, scale_method=scale_method_norm, scale=scale)
+    if is_numba:
+        return normalizer_numba(
+            intensity,
+            method=base_method,
+            scale=scale,
+            scale_method=scale_method_norm,
+            numba_max_threads=numba_max_threads,
+            lengths=lengths,
+        )
+    else:
+        _input_validation(intensity)
+        # Python Backend Dispatch
+        if base_method == "tic":
+            return tic_normalize(intensity, scale_method=scale_method_norm, scale=scale)
+        elif base_method == "rms":
+            return rms_normalize(intensity, scale_method=scale_method_norm, scale=scale)
+        else:  # base_method == "median"
+            return median_normalize(intensity, scale_method=scale_method_norm, scale=scale)

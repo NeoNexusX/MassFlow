@@ -19,12 +19,8 @@ from massflow.preprocess.numba.noise_reduction_numba import (
     smooth_ns_signal_bi_numba,
     smooth_signal_ma_numba,
     smooth_signal_gaussian_numba,
+    smooth_signal_ma_loop
 )
-from massflow.preprocess.numba.ma_numba import (
-    smooth_signal_ma_loop,
-    smooth_signal_gaussian_approx_loop
-)
-from massflow.preprocess.gpu.noise_reduction_gpu import smooth_signal_ma_gpu
 
 logger = get_logger("preprocesss")
 
@@ -614,10 +610,12 @@ def smoother(intensity:np.ndarray,
     Parameters:
         intensity (np.ndarray): 1D intensity array.
         index (Optional[np.ndarray]): 1D coordinate array aligned with `intensity` for NS methods.
-        method (str): One of {'ma','ma_gpu','gaussian','savgol','wavelet','ma_ns','gaussian_ns','bi_ns',
-            'savgol_numba','ma_ns_numba','gaussian_ns_numba','bi_ns_numba'}.
+        method (str): One of {'ma','ma_numba','ma_loop','ma_gpu','gaussian','gaussian_numba','savgol','savgol_numba','wavelet',
+        'ma_ns','ma_ns_numba','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
         window (int): Window size or neighbor count depending on method.
-        sd (float, optional): Gaussian scale parameter for relevant methods.
+        sd (float, optional)
+        
+        : Gaussian scale parameter for relevant methods.
         sd_intensity (float, optional): Intensity scale for bilateral method.
         p (int): Minkowski metric for NS queries.
         coef (np.ndarray, optional): Custom kernel for moving-average.
@@ -683,9 +681,6 @@ def smoother(intensity:np.ndarray,
 
     elif method_norm == "ma_loop":
         return smooth_signal_ma_loop(intensity, window=window, lengths=lengths, numba_max_threads=numba_max_threads)
-
-    elif method_norm == "gaussian_approx_loop":
-        return smooth_signal_gaussian_approx_loop(intensity, window=window, lengths=lengths, numba_max_threads=numba_max_threads)
 
     elif method_norm == "gaussian_numba":
         # Supports 2D batch inputs

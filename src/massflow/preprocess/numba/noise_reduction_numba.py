@@ -7,6 +7,102 @@ from massflow.tools.logger import get_logger
 
 logger = get_logger("noise_reduction_numba")
 
+# ---------------------------------------------------------------------
+# Moving Average (ma_loop)
+# ---------------------------------------------------------------------
+
+@jit(nopython=True, fastmath=True, cache=True)
+def _ma_loop_core_edge(signal: np.ndarray, window: int) -> np.ndarray:
+    """
+    Core Moving Average routine using an explicit sliding window loop (O(N)).
+    Simulates mode='edge' padding manually.
+    """
+    n = signal.size
+    res = np.empty(n, dtype=np.float32)
+    radius = window // 2
+
+    # Initialize running sum for the first element (index 0)
+    current_sum = 0.0
+
+    # Calculate initial sum centered at 0: range [-radius, radius]
+    for j in range(-radius, radius + 1):
+        idx = j
+        if idx < 0:
+            val = signal[0]
+        elif idx >= n:
+            val = signal[n - 1]
+        else:
+            val = signal[idx]
+        current_sum += val
+
+    res[0] = current_sum / window
+
+    # Slide the window
+    for i in range(1, n):
+        leaving_idx = i - 1 - radius
+        entering_idx = i + radius
+
+        if leaving_idx < 0:
+            leaving_val = signal[0]
+        else:
+            leaving_val = signal[leaving_idx]
+
+        if entering_idx >= n:
+            entering_val = signal[n - 1]
+        else:
+            entering_val = signal[entering_idx]
+
+        current_sum = current_sum - leaving_val + entering_val
+        res[i] = current_sum / window
+
+    return res
+
+
+@jit(nopython=True, parallel=True, cache=True)
+def _ma_loop_batch_jit(intensity: np.ndarray, window: int, lengths: np.ndarray = None) -> np.ndarray:
+    """Batch entry point for ma_loop."""
+    if intensity.ndim == 1:
+        return _ma_loop_core_edge(intensity, window)
+
+    n_pixels, n_mz = intensity.shape
+    res = np.empty((n_pixels, n_mz), dtype=np.float32)
+
+    if lengths is None:
+        for p in prange(n_pixels):
+            res[p] = _ma_loop_core_edge(intensity[p], window)
+    else:
+        for p in prange(n_pixels):
+            valid_len = lengths[p]
+            processed = _ma_loop_core_edge(intensity[p, :valid_len], window)
+            res[p, :valid_len] = processed
+
+    return res
+
+
+def smooth_signal_ma_loop(
+    intensity: np.ndarray,
+    window: int = 5,
+    lengths: np.ndarray = None,
+    numba_max_threads: int = None,
+) -> np.ndarray:
+    """
+    Numba implementation using explicit loops (primitive operations).
+    Performance is O(N) per spectrum, similar to the numpy cumsum trick,
+    but fully compiled without objmode.
+    """
+    if numba_max_threads is not None:
+        set_num_threads(numba_max_threads)
+
+    if window < 1:
+        raise ValueError("window must be >= 1")
+    if window % 2 == 0:
+        window += 1
+
+    if intensity.dtype != np.float32:
+        intensity = intensity.astype(np.float32)
+
+    return _ma_loop_batch_jit(intensity, window, lengths)
+
 @jit(nopython=True, fastmath=True, cache=True)
 def _savgol_1d_core(signal: np.ndarray, kernels: np.ndarray) -> np.ndarray:
     """Core 1D Savitzky-Golay routine handling position-dependent convolution kernels."""
@@ -178,6 +274,10 @@ def smooth_signal_savgol_numba(intensity: np.ndarray, window: int = 5, polyorder
         If ``polyorder`` is greater than or equal to the effective window
         length.
     """
+    if numba_max_threads is not None:
+        
+        set_num_threads(numba_max_threads)
+        
     actual_window = max(3, window + (1 - window % 2))
     if polyorder >= actual_window:
         raise ValueError("polyorder must be < window")
