@@ -1,6 +1,7 @@
 import time
 import numpy as np
 import pytest
+from typing import Optional
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.tools.logger import get_logger
@@ -34,7 +35,7 @@ def run_dm_noise_reduction_task(
     window: int = 11,
     polyorder: int = 3,
     batch_size: int = 256,
-    numba_max_threads: int = None
+    numba_max_threads: Optional[int] = None
 ) -> MSDataManagerImzML:
     denoised_manager = Preprocess.noise_reduction(
         data_manager=dm,
@@ -161,16 +162,24 @@ class TestNoiseReductionDMNumba:
 
         for i in range(subset_size):
             # Compare Intensity
-            np.testing.assert_allclose(
-                ms_python[i].intensity,
-                ms_numba[i].intensity,
-                rtol=1e-5,
-                atol=1e-5,
-                err_msg=(
-                    f"DM Numba consistency failed for method: {method} vs {dm_method_numba} "
-                    f"at spectrum index {i}"
-                ),
-            )
+            intensity_py = ms_python[i].intensity
+            intensity_numba = ms_numba[i].intensity
+            if intensity_py is not None and intensity_numba is not None:
+                np.testing.assert_allclose(
+                    intensity_py,
+                    intensity_numba,
+                    rtol=1e-5,
+                    atol=1e-5,
+                    err_msg=(
+                        f"DM Numba consistency failed for method: {method} vs {dm_method_numba} "
+                        f"at spectrum index {i}"
+                    ),
+                )
+            else:
+                assert intensity_py is None and intensity_numba is None, (
+                    f"Intensity None mismatch at spectrum index {i}: "
+                    f"Python={intensity_py is None}, Numba={intensity_numba is None}"
+                )
             # Compare m/z (should be untouched)
             np.testing.assert_array_equal(
                 ms_python[i].mz_list,

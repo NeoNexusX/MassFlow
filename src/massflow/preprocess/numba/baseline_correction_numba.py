@@ -1,3 +1,4 @@
+from typing import Optional
 import numpy as np
 from numba import jit, prange, set_num_threads
 
@@ -44,7 +45,7 @@ def snip_baseline_numba(
     intensity: np.ndarray,
     m: int | None = None,
     decreasing: bool = True,
-    numba_max_threads: int = None,
+    numba_max_threads: Optional[int] = None,
 ) -> np.ndarray:
     """Compute the SNIP baseline for a 1D spectrum.
 

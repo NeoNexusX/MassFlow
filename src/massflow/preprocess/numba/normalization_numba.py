@@ -1,3 +1,4 @@
+from typing import Optional
 import numpy as np
 from numba import jit, prange, set_num_threads
 
@@ -23,7 +24,7 @@ def _get_rms(arr: np.ndarray) -> float:
 
 @jit(nopython=True, cache=True)
 def _get_median(arr: np.ndarray) -> float:
-    return np.median(arr)
+    return np.median(arr) # type: ignore
 
 @jit(nopython=True, cache=True)
 def _apply_unit_scaling_inplace(arr: np.ndarray):
@@ -100,7 +101,7 @@ def _normalize_batch_jit(
     method_enum: int, 
     scale_factor: float, 
     do_unit_scale: bool,
-    lengths: np.ndarray = None
+    lengths: Optional[np.ndarray] = None
 ) -> np.ndarray:
     
     n_pixels = intensity.shape[0]
@@ -142,8 +143,8 @@ def normalizer_numba(
     method: str = "tic",
     scale: float = 1.0,
     scale_method: str = 'none',
-    lengths: np.ndarray = None,
-    numba_max_threads: int = None,
+    lengths: Optional[np.ndarray] = None,
+    numba_max_threads: Optional[int] = None,
 ) -> np.ndarray:
     """
     Numba backend for normalization with 2D batch support.

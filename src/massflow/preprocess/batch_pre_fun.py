@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Optional, Sequence
 import numpy as np
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.spectrum import Spectrum
@@ -33,7 +33,7 @@ class BatchPreprocess:
         if ref is None or tolerance is None:
             logger.error("Reference m/z axis and tolerance must be provided for alignment.")
             raise ValueError("Reference m/z axis and tolerance are required.")
-
+            
         aligned_spectra = []
         for spectrum in batch_spectra:
             aligned_spectrum = SpectrumPreprocess.peak_align_spectrum(
@@ -96,7 +96,7 @@ class BatchPreprocess:
         delta: float = 1.0,
         wavelet: str = "db4",
         threshold_mode: str = "soft",
-        numba_max_threads: int = None,
+        numba_max_threads: Optional[int] = 4,
     ) -> Sequence[SpectrumImzML]:
         """Perform noise reduction on a batch of spectra.
 
@@ -129,7 +129,7 @@ class BatchPreprocess:
         # in noise_reduction_numba.
         if method in {"savgol_numba", "ma_numba", "gaussian_numba", "ma_loop"}:
             # Handle variable lengths via padding
-            lengths = np.array([s.intensity.size for s in batch_spectra], dtype=np.int32)
+            lengths = np.array([s.intensity.size for s in batch_spectra], dtype=np.int32) # type: ignore
             max_len = np.max(lengths)
             n_spectra = len(batch_spectra)
 
@@ -138,8 +138,8 @@ class BatchPreprocess:
             for i, s in enumerate(batch_spectra):
                 # Copy data into buffer
                 valid_len = lengths[i]
-                intensities_padded[i, :valid_len] = s.intensity.astype(np.float32, copy=False)
-                
+                intensities_padded[i, :valid_len] = s.intensity.astype(np.float32, copy=False) # type: ignore
+                 
             smoothed = smoother(
                 intensities_padded,
                 method=method,
@@ -200,7 +200,7 @@ class BatchPreprocess:
         scale_method: str = "none",
         method: str = "tic",
         scale: float = 1.0,
-        numba_max_threads: int = None,
+        numba_max_threads: Optional[int] = None,
     ) -> Sequence[SpectrumImzML]:
         """Normalize a batch of spectra.
 
@@ -229,7 +229,7 @@ class BatchPreprocess:
             n_spectra = len(batch_spectra)
             
             # Calculate lengths for each spectrum
-            lengths = np.array([s.intensity.size for s in batch_spectra], dtype=np.int32)
+            lengths = np.array([s.intensity.size for s in batch_spectra], dtype=np.int32) # type: ignore
             max_len = np.max(lengths) if n_spectra > 0 else 0
             
             if max_len > 0:
@@ -239,7 +239,7 @@ class BatchPreprocess:
                 for i, s in enumerate(batch_spectra):
                     valid_len = lengths[i]
                     if valid_len > 0:
-                        intensities_padded[i, :valid_len] = s.intensity.astype(np.float32, copy=False)
+                        intensities_padded[i, :valid_len] = s.intensity.astype(np.float32, copy=False)  # type: ignore
 
                 # 2. Call the Numba kernel directly (normalizer_numba)
                 # It accepts the 2D matrix and 'lengths' for efficient batch processing
@@ -301,7 +301,7 @@ class BatchPreprocess:
         baseline_scale: float = 1.0,
         m: int | None = None,
         decreasing: bool = True,
-        numba_max_threads: int = None,
+        numba_max_threads: Optional[int] = None,
     ) -> Sequence[SpectrumImzML]:
         """Perform baseline correction on a batch of spectra.
 

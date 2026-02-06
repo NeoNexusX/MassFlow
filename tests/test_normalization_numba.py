@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 import numpy as np
 import pytest
 from massflow.module.mass_spectrum_set import MassSpectrumSet
@@ -30,7 +31,7 @@ def run_dm_normalization_task(
     scale_method: str = "none",
     scale: float = 1.0,
     batch_size: int = 256,
-    numba_max_threads: int = None
+    numba_max_threads: Optional[int] = None
 ) -> MSDataManagerImzML:
     """Helper to run normalization via the high-level DM Preprocess API."""
     normalized_manager = Preprocess.normalization(
@@ -72,7 +73,7 @@ class TestNormalizationDMNumba:
         else:
             # Construct numba method name: e.g. "tic" -> "tic_numba"
             dm_method = f"{method}_numba"
-            threads = 1
+            threads = 4
 
         # Run benchmark
         normalized_manager = benchmark.pedantic(
@@ -123,9 +124,13 @@ class TestNormalizationDMNumba:
             # Compare Intensity
             # Note: Floating point arithmetic order might differ slightly between compiled C and Python Sum
             # Using rtol=1e-5 should be safe enough for float64
+            intensity_py = ms_python[i].intensity
+            intensity_numba = ms_numba[i].intensity
+            assert intensity_py is not None, f"Python intensity is None at index {i}"
+            assert intensity_numba is not None, f"Numba intensity is None at index {i}"
             np.testing.assert_allclose(
-                ms_python[i].intensity,
-                ms_numba[i].intensity,
+                intensity_py,
+                intensity_numba,
                 rtol=1e-5,
                 atol=1e-5,
                 err_msg=(

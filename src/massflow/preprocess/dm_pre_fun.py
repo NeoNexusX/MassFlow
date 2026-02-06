@@ -220,7 +220,7 @@ class Preprocess:
         threshold_mode: str = "soft",
         batch_size: int = 256,
         temp_dir: str = "./temp_noise_data",
-        numba_max_threads: int = None,
+        numba_max_threads: Optional[int] = None,
     ) -> MSDataManagerImzML:
         """Perform noise reduction on MSDataManager data.
 
@@ -294,7 +294,7 @@ class Preprocess:
         scale: float = 1.0,
         batch_size: int = 256,
         temp_dir: str = "./temp_normalization_data",
-        numba_max_threads: int = None,
+        numba_max_threads: Optional[int] = None,
     ) -> MSDataManagerImzML:
         """Perform intensity normalization on MSDataManager data.
 
@@ -349,7 +349,7 @@ class Preprocess:
         decreasing: bool = True,
         batch_size: int = 256,
         temp_dir: str = "./temp_baseline_data",
-        numba_max_threads: int = None,
+        numba_max_threads: Optional[int] = None,
     ) -> MSDataManagerImzML:
         """Perform baseline correction on MSDataManager data.
 

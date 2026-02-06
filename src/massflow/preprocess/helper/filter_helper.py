@@ -404,7 +404,7 @@ def smooth_ns_signal_gaussian(
     index:np.ndarray,
     k: int = 5,
     p: int = 1,
-    sd: float = None,
+    sd: Optional[float] = None,
 ):
     """
     Gaussian-weighted neighborhood smoothing with distance-based weights.
@@ -453,8 +453,8 @@ def smooth_ns_signal_bi(
     index:np.ndarray,
     k: int = 5,
     p: int = 2,
-    sd_dist: float = None,
-    sd_intensity: float = None
+    sd_dist: Optional[float] = None,
+    sd_intensity: Optional[float] = None
 ):
     """
     Bilateral Gaussian smoothing combining spatial and intensity similarity.
@@ -497,7 +497,7 @@ def smooth_ns_signal_bi(
 
     # Intensity weights (based on neighbor intensity differences)
     sd_intensity = stats.median_abs_deviation(intensity, nan_policy="omit", scale="normal") if sd_intensity is None else sd_intensity #type: ignore
-    if sd_intensity <= 0:
+    if sd_intensity <= 0:   #type: ignore
         logger.error("sd_intensity must be positive")
         raise ValueError("sd_intensity must be positive")
 
@@ -528,7 +528,7 @@ def smooth_preprocess(data:Spectrum):
     Returns:
         SpectrumBaseModule: The same object with non-negative intensity values.
     """
-    intensity = data.intensity.copy()
+    intensity = data.intensity.copy()   #type: ignore
     data.intensity = None # clear intensity to avoid confusion
     intensity[intensity < 0] = 0
 
@@ -568,24 +568,24 @@ def smooth_signal_loess(intensity: np.ndarray, window: int = 11):
 
     weight = (1. - np.divide(np.abs(x1), halfw) ** 3.) ** 1.5
     v = (np.vstack((np.hstack(weight), np.hstack(weight * x1), np.hstack(weight * x1 * x1)))).transpose()
-    q, _ = linalg.qr(v, mode='economic')
+    q, _ = linalg.qr(v, mode='economic')  #type: ignore
 
-    alpha = np.dot(q[halfw - 1,], q.transpose())
+    alpha = np.dot(q[halfw - 1,], q.transpose())  #type: ignore
     yhat = signal.lfilter(alpha * weight, 1, y)
-    yhat[int(halfw + 1) - 1:-halfw] = yhat[int(window - 1) - 1:-1]
+    yhat[int(halfw + 1) - 1:-halfw] = yhat[int(window - 1) - 1:-1]  #type: ignore
 
     x1 = np.arange(1., (window - 1.) + 1)
-    v = (np.vstack((np.hstack(np.ones([1, window - 1])), np.hstack(x1), np.hstack(x1 * x1)))).transpose()
+    v = (np.vstack((np.hstack(np.ones([1, window - 1])), np.hstack(x1), np.hstack(x1 * x1)))).transpose() #type: ignore
 
     for j in np.arange(1, (halfw) + 1):
         weight = (1. - np.divide(np.abs((np.arange(1, window) - j)), window - j) ** 3.) ** 1.5
         w = (np.kron(np.ones((3, 1)), weight)).transpose()
-        q, _ = linalg.qr(v * w, mode='economic')
+        q, _ = linalg.qr(v * w, mode='economic')  #type: ignore
 
-        alpha = np.dot(q[j - 1,], q.transpose())
+        alpha = np.dot(q[j - 1,], q.transpose())  #type: ignore
         alpha = alpha * weight
-        yhat[int(j) - 1] = np.dot(alpha, y[:int(window) - 1])
-        yhat[int(-j)] = np.dot(alpha, y[np.arange(leny - 1, leny - window, -1, dtype=int)])
+        yhat[int(j) - 1] = np.dot(alpha, y[:int(window) - 1])  #type: ignore
+        yhat[int(-j)] = np.dot(alpha, y[np.arange(leny - 1, leny - window, -1, dtype=int)])  #type: ignore
 
     return yhat
 
@@ -593,10 +593,10 @@ def smoother(intensity:np.ndarray,
             index:Optional[np.ndarray]=None,
             method: str = "ma",
             window: int = 5,
-            sd: float = None,
-            sd_intensity: float = None,
+            sd: Optional[float] = None,
+            sd_intensity: Optional[float] = None,
             p: int = 2,
-            coef: np.ndarray = None,
+            coef: Optional[np.ndarray] = None,
             polyorder: int = 2,
             deriv: int = 0,
             delta: float = 1.0,
@@ -646,7 +646,8 @@ def smoother(intensity:np.ndarray,
     }
     if method_norm not in supported:
         logger.error(
-            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, savgol_numba, ma_ns_numba, gaussian_ns_numba, bi_ns_numba, ma_numba, gaussian_numba, ma_loop",
+            "Unsupported smoothing method: %s. Use one of: ma, gaussian, savgol, wavelet, ma_ns, gaussian_ns, bi_ns, "
+            "savgol_numba, ma_ns_numba, gaussian_ns_numba, bi_ns_numba, ma_numba, gaussian_numba, ma_loop",
             method,
         )
         raise ValueError(f"Unsupported smoothing method: {method}")
@@ -686,24 +687,24 @@ def smoother(intensity:np.ndarray,
 
     elif method_norm == "ma_ns":
         _input_validation(intensity=intensity, index=index, k=window, p=p)
-        return smooth_ns_signal_ma(intensity, index=index, k=window, p=p)
+        return smooth_ns_signal_ma(intensity, index=index, k=window, p=p)    #type: ignore
 
     elif method_norm == "gaussian_ns":
         _input_validation(intensity=intensity, index=index, k=window, p=p, sd=sd)
-        return smooth_ns_signal_gaussian(intensity, index=index, k=window, p=p, sd=sd)
+        return smooth_ns_signal_gaussian(intensity, index=index, k=window, p=p, sd=sd)  #type: ignore
 
     elif method_norm == "bi_ns":
         _input_validation(intensity=intensity, index=index, k=window, p=p)
-        return smooth_ns_signal_bi(intensity, index=index, k=window, p=p, sd_dist=sd, sd_intensity=sd_intensity)
+        return smooth_ns_signal_bi(intensity, index=index, k=window, p=p, sd_dist=sd, sd_intensity=sd_intensity)  #type: ignore
 
     elif method_norm == "ma_ns_numba":
         _input_validation(intensity=intensity, index=index, k=window, p=p)
-        return smooth_ns_signal_ma_numba(intensity, index=index, k=window, p=p, numba_max_threads=numba_max_threads)
+        return smooth_ns_signal_ma_numba(intensity, index=index, k=window, p=p, numba_max_threads=numba_max_threads)  #type: ignore
 
     elif method_norm == "gaussian_ns_numba":
         _input_validation(intensity=intensity, index=index, k=window, p=p, sd=sd)
-        return smooth_ns_signal_gaussian_numba(intensity, index=index, k=window, p=p, sd=sd, numba_max_threads=numba_max_threads)
+        return smooth_ns_signal_gaussian_numba(intensity, index=index, k=window, p=p, sd=sd, numba_max_threads=numba_max_threads)  #type: ignore
 
     else:
         _input_validation(intensity=intensity, index=index, k=window, p=p)
-        return smooth_ns_signal_bi_numba(intensity, index=index, k=window, p=p, sd_dist=sd, sd_intensity=sd_intensity, numba_max_threads=numba_max_threads)
+        return smooth_ns_signal_bi_numba(intensity, index=index, k=window, p=p, sd_dist=sd, sd_intensity=sd_intensity, numba_max_threads=numba_max_threads)  #type: ignore

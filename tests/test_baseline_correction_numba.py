@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 import numpy as np
 import pytest
 from massflow.module.mass_spectrum_set import MassSpectrumSet
@@ -32,7 +33,7 @@ def run_dm_baseline_task(
     dm: MSDataManagerImzML,
     method: str = "snip",
     batch_size: int = 512,
-    numba_max_threads: int = None,
+    numba_max_threads: Optional[int] = None,
 ) -> MSDataManagerImzML:
     corrected_manager = Preprocess.baseline_correction(
         data_manager=dm,
@@ -107,9 +108,15 @@ class TestBaselineCorrectionDMNumba:
         )
 
         for i in range(subset_size):
+            intensity_python = ms_python[i].intensity
+            intensity_numba = ms_numba[i].intensity
+
+            assert intensity_python is not None, f"ms_python[{i}].intensity is None"
+            assert intensity_numba is not None, f"ms_numba[{i}].intensity is None"
+
             np.testing.assert_allclose(
-                ms_python[i].intensity,
-                ms_numba[i].intensity,
+                intensity_python,
+                intensity_numba,
                 rtol=1e-5,
                 atol=1e-5,
                 err_msg=(

@@ -68,7 +68,7 @@ def asls_baseline(
     ones_n_minus_2 = np.ones(n - 2)
     d = diags(
         diagonals=[ones_n_minus_2, -2.0 * ones_n_minus_2, ones_n_minus_2],
-        offsets=[0, 1, 2],
+        offsets=[0, 1, 2],  # type: ignore
         shape=(n - 2, n),
         dtype=np.float64,
     )
@@ -333,7 +333,7 @@ def baseline_corrector(
     baseline_scale: float = 1.0,
     m: Optional[int] = None,
     decreasing: bool = True,
-    numba_max_threads: Optional[int] = None,
+    numba_max_threads: Optional[int] = 4,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Baseline estimation and correction for a single 1D intensity array.
