@@ -11,6 +11,7 @@ License: See LICENSE file in project root
 
 import os
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
@@ -18,6 +19,7 @@ from massflow.tools.logger import get_logger
 from massflow.module.ms_data_manager import MSDataManager
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_meta_data import ImzMlMetaData
+import massflow.tools.read_matrix as matrix_tools
 
 logger = get_logger("ms_data_manager_imzml")
 
@@ -103,7 +105,7 @@ class MSDataManagerImzML(MSDataManager):
                     - If `target_locs` is provided, only pixels within the inclusive window are added.
                     - For continuous data, `ms.shared_mz_list` is populated once (on first seen spectrum)
                         and each placeholder gets `spectrum.mz_list = ms.shared_mz_list`.
-         """
+        """
 
         # Ensure parser is initialized before loading defender to avoid repeated checks
         if self.parser is None:
@@ -210,6 +212,99 @@ class MSDataManagerImzML(MSDataManager):
                 return result
 
         return None
+
+    def get_matrix_generator(
+            self,
+            batch_size: int = 256,
+            include_mz: bool = False,
+            max_threads: int = -1,
+            ):
+        """
+        直接从 .ibd 读取数据到预分配的 NumPy 矩阵。
+
+        Args:
+            batch_size: 每批次的谱图数量。
+            include_mz: 仅针对 Processed 数据，True 返回 mz_matrix。
+
+        Yields:
+            (mz_data, intensity_matrix, lengths, coordinates)
+
+            mz_data 根据模式变化：
+                - Continuous → shared_mz (1-D)
+                - Processed + include_mz → mz_matrix (2-D)
+                - Processed + not include_mz → None
+        """
+        # 0. 线程池管理
+        if max_threads != -1 and max_threads != self.max_threads:
+            self.max_threads = max_threads
+            if self.threads_executor is not None:
+                self.threads_executor.shutdown(wait=True)
+            self.threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
+
+        # 1. 一次性提取文件布局
+        layout = matrix_tools.extract_ibd_layout(
+            self.parser,
+            self.ibd_path,
+            out_intensity_dtype=self.intensity_dtype,
+            out_mz_dtype=self.mz_dtype,
+        )
+
+        # 2. 判断数据模式
+        is_continuous: bool = bool(self.ms.meta and self.ms.meta.continuous)
+        shared_mz: np.ndarray | None = (
+            np.asarray(self.ms.shared_mz_list, dtype=self.mz_dtype)
+            if is_continuous else None
+        )
+
+        # 3. 过滤目标谱图索引
+        target_indices = matrix_tools.filter_target_indices(
+            layout.coordinates, self.target_locs
+        )
+        total = len(target_indices)
+        if total == 0:
+            return
+
+        # 4. 分批迭代
+        for batch_start in range(0, total, batch_size):
+            batch_end = min(batch_start + batch_size, total)
+            batch_idx = target_indices[batch_start:batch_end]
+            n = len(batch_idx)
+
+            # 批次元数据
+            lengths, max_len, coords = matrix_tools.batch_lengths_and_coords(layout, batch_idx)
+
+            # 预分配 intensity 矩阵
+            intensity = np.zeros((n, max_len), dtype=self.intensity_dtype)
+
+            # 准备 mz 容器（业务逻辑判断）
+            if is_continuous:
+                mz_data = shared_mz
+            else:
+                mz_data = np.zeros((n, max_len), dtype=self.mz_dtype) if include_mz else None
+
+            # 策略 A: 连续模式 + 磁盘连续
+            if (is_continuous
+                and n > 1
+                and matrix_tools.is_disk_contiguous(layout, batch_idx, max_len)
+            ):
+                intensity[:, :max_len] = matrix_tools.read_contiguous_block(
+                    layout, batch_idx, n, max_len
+                )
+                logger.info(f"Batch {batch_start}-{batch_end}: contiguous disk read")
+                yield (mz_data, intensity, lengths, coords)
+                continue
+
+            # 策略 B: 碎片化多线程读取
+            matrix_tools.read_fragmented_block(
+                layout,
+                batch_idx,
+                intensity,
+                mz_data if (not is_continuous and include_mz) else None,
+                self.threads_executor,
+                self.max_threads,
+            )
+            logger.info(f"Batch {batch_start}-{batch_end}: multithreaded fragmented read")
+            yield (mz_data, intensity, lengths, coords)
 
     def _search_in_area(self, area, accession_id):
         """Search a single parameter area (ParamGroup or dict) for the given accession identifier."""

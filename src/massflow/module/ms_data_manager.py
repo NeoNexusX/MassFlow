@@ -25,8 +25,6 @@ from massflow.tools.stream_imzml_writer import ImzMLWriter
 
 logger = get_logger("ms_data_manager")
 
-
-
 class MSDataManager(ABC):
     """
     Abstract base class for MS Data Manager.
@@ -214,13 +212,6 @@ class MSDataManager(ABC):
             pointer4num += 1
         logger.info(base_info)
 
-    def get_batch_generator_st(self, batch_size: int = 256):
-        """Get a single-threaded batch generator."""
-        total_length = len(self.ms)
-        for i in range(0, total_length, batch_size):
-            batch = self.ms[i : i + batch_size]  # Extract the current batch
-            yield batch
-
     def get_batch_generator(self, batch_size: int = 256, max_threads: int = -1):
         """Get a multi-threaded batch generator."""
         # update max_threads if needed
@@ -262,6 +253,37 @@ class MSDataManager(ABC):
 
             # Yield the fully processed batch
             yield batch
+
+    def swap_matrix_data_out2disk(
+        self,
+        mz_data: np.ndarray | None,
+        intensity_matrix: np.ndarray,
+        lengths: np.ndarray,
+        coordinates: np.ndarray
+    ):
+        """
+        配合 get_matrix_generator 使用，将处理后的数据矩阵直接写入磁盘。
+
+        Args:
+            intensity_matrix: np.ndarray
+            mz_data: np.ndarray | None
+                - Continuous: 共享的 1D m/z 数组，shape=(max_length,)
+                - Processed + include_mz=True: 2D 矩阵，shape=(batch_size, max_length)
+                - Processed + include_mz=False: None（不支持 swap，会抛出错误）
+            lengths: np.ndarray
+            coordinates: np.ndarray
+
+        Raises:
+            ValueError: 当 mz_data 为 None 时
+        """
+        if mz_data is None:
+            logger.error("Cannot swap_matrix_data_out2disk without m/z data!.")
+            raise ValueError("No m/z data provided. Processed mode requires include_mz=True for swap operation.")
+
+        if coordinates.dtype != np.int32 and coordinates.dtype != np.int64:
+            coordinates = coordinates.astype(np.int32, copy=False)
+
+        self.writer.addMatrix(mz_data, intensity_matrix, lengths, coordinates)
 
     def detect_sorted(self):
         """Check if the m/z arrays in the MS data are sorted."""
@@ -334,6 +356,7 @@ class MSDataManager(ABC):
                 fdata_filepath = self.swap_filepath.replace('.imzML', '.fdata')
                 log_filepath = self.swap_filepath.replace('.imzML', '.log')
                 metadata_filepath = self.swap_filepath.replace('.imzML', '.metadata')
+                pdata_filepath = self.swap_filepath.replace('.imzML', '.pdata')
                 os.remove(self.swap_filepath)
                 os.remove(ibd_filepath)
                 if os.path.exists(fdata_filepath):
@@ -342,6 +365,8 @@ class MSDataManager(ABC):
                     os.remove(log_filepath)
                 if os.path.exists(metadata_filepath):
                     os.remove(metadata_filepath)
+                if os.path.exists(pdata_filepath):
+                    os.remove(pdata_filepath)
                 logger.info(f"Temporary swap file {self.swap_filepath}, {ibd_filepath} removed.")
 
     def close_writer(self):
