@@ -290,7 +290,6 @@ class MSDataManagerImzML(MSDataManager):
                 intensity[:, :max_len] = matrix_tools.read_contiguous_block(
                     layout, batch_idx, n, max_len
                 )
-                logger.info(f"Batch {batch_start}-{batch_end}: contiguous disk read")
                 yield (mz_data, intensity, lengths, coords)
                 continue
 
@@ -303,7 +302,6 @@ class MSDataManagerImzML(MSDataManager):
                 self.threads_executor,
                 self.max_threads,
             )
-            logger.info(f"Batch {batch_start}-{batch_end}: multithreaded fragmented read")
             yield (mz_data, intensity, lengths, coords)
 
     def _search_in_area(self, area, accession_id):

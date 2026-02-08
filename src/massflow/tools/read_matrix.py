@@ -43,6 +43,12 @@ _PRECISION_DTYPE: dict[str, np.dtype] = {
     "i": np.int32,
     "l": np.int64,
 }
+_COMPRESSION_ACCESSIONS = {
+    "MS:1000574",   # zlib compression
+    "IMS:1005001",  # xz compression
+    "IMS:1005002",  # lz4 compression
+    "IMS:1005003",  # zstd compression
+}
 
 def extract_ibd_layout(
     parser,
@@ -53,6 +59,18 @@ def extract_ibd_layout(
     """
     Extract .ibd file layout information from ImzMLParser in one pass.
     """
+
+    # Check compression， which is not supported for direct .ibd reading
+    for group_id in (parser.mzGroupId, parser.intGroupId):
+        group = parser.metadata.referenceable_param_groups.get(group_id)
+        if group:
+            for acc in _COMPRESSION_ACCESSIONS:
+                if acc in group:
+                    raise ValueError(
+                        f"Compressed binary arrays detected (accession {acc}) in group '{group_id}'. "
+                        f"Direct .ibd reading does not support compressed data."
+                    )
+
     return IbdFileLayout(
         ibd_path=ibd_path,
         intensity_offsets=parser.intensityOffsets,
@@ -77,7 +95,7 @@ def filter_target_indices(
     Filter spectrum indices by spatial window.
     """
     if target_locs is None:
-        return range(len(coordinates))
+        return list(range(len(coordinates)))
 
     (x1, y1), (x2, y2) = target_locs
     return [

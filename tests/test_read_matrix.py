@@ -260,7 +260,7 @@ class TestMatrixGenerator:
     @pytest.fixture(scope="class")
     def ms_raw_data(self):
 
-        filepath = r"E:\data\data\example\example.imzML"
+        filepath = "./example.imzML"
         if not os.path.exists(filepath):
             pytest.skip(f"Original data not found at {filepath}")
         # loda meta data
