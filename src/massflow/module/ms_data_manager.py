@@ -262,19 +262,19 @@ class MSDataManager(ABC):
         coordinates: np.ndarray
     ):
         """
-        配合 get_matrix_generator 使用，将处理后的数据矩阵直接写入磁盘。
+        Used with get_matrix_generator to write processed data matrices directly to disk.
 
         Args:
             intensity_matrix: np.ndarray
             mz_data: np.ndarray | None
-                - Continuous: 共享的 1D m/z 数组，shape=(max_length,)
-                - Processed + include_mz=True: 2D 矩阵，shape=(batch_size, max_length)
-                - Processed + include_mz=False: None（不支持 swap，会抛出错误）
+                - Continuous: Shared 1D m/z array, shape=(max_length,)
+                - Processed + include_mz=True: 2D matrix, shape=(batch_size, max_length)
+                - Processed + include_mz=False: None (swap not supported, will raise error)
             lengths: np.ndarray
             coordinates: np.ndarray
 
         Raises:
-            ValueError: 当 mz_data 为 None 时
+            ValueError: When mz_data is None
         """
         if mz_data is None:
             logger.error("Cannot swap_matrix_data_out2disk without m/z data!.")

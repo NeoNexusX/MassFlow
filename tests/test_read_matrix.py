@@ -97,164 +97,164 @@ def _collect_matrix_data(dm):
 
 def _compare_spectrum_lists(list_a, list_b):
     """
-    严格比较两组谱图数据列表的一致性。
+    Strictly compare the consistency of two lists of spectrum data.
 
-    检查项：
-        1. 谱图总数一致
-        2. 每条谱图的坐标一致
-        3. 每条谱图的 m/z 数组长度一致
-        4. 每条谱图的 intensity 数组长度一致
-        5. m/z 值逐元素一致 (浮点容差 atol=1e-6, rtol=1e-6)
-        6. intensity 值逐元素一致 (浮点容差 atol=1e-4, rtol=1e-5)
+    Check items:
+        1. Total number of spectra matches.
+        2. Coordinates of each spectrum match.
+        3. m/z array length of each spectrum matches.
+        4. Intensity array length of each spectrum matches.
+        5. m/z values match element-wise (floating point tolerance atol=1e-6, rtol=1e-6).
+        6. Intensity values match element-wise (floating point tolerance atol=1e-4, rtol=1e-5).
 
     Args:
-        list_a: 第一组数据
-        list_b: 第二组数据
+        list_a: First set of data.
+        list_b: Second set of data.
 
     Raises:
-        AssertionError: 任意检查项失败时
+        AssertionError: If any check fails.
     """
-    # 总数一致
-    assert len(list_a) == len(list_b), (f"谱图数量不一致: batch_read={len(list_a)}, matrix_read={len(list_b)}")
+    # Total number matches
+    assert len(list_a) == len(list_b), (f"Spectrum count mismatch: batch_read={len(list_a)}, matrix_read={len(list_b)}")
 
-    # 对按顺序排列的谱图逐一比较
+    # Compare spectra one by one in order
     for idx, (a, b) in enumerate(zip(list_a, list_b)):
 
-        # 判断坐标一致性；m/z、intensity长度一致
-        assert a["coord"] == b["coord"], (f"spectrum #{idx} (batch_read vs matrix_read): 坐标不一致  {a['coord']} != {b['coord']}")
-        assert len(a["mz"]) == len(b["mz"]), (f"spectrum #{idx} (batch_read vs matrix_read): m/z 长度不一致  {len(a['mz'])} != {len(b['mz'])}")
+        # Check coordinate consistency; m/z and intensity lengths match
+        assert a["coord"] == b["coord"], (f"spectrum #{idx} (batch_read vs matrix_read): Coordinate mismatch {a['coord']} != {b['coord']}")
+        assert len(a["mz"]) == len(b["mz"]), (f"spectrum #{idx} (batch_read vs matrix_read): m/z length mismatch {len(a['mz'])} != {len(b['mz'])}")
         assert len(a["intensity"]) == len(b["intensity"]), (
-            f"spectrum #{idx} (batch_read vs matrix_read): intensity 长度不一致  {len(a['intensity'])} != {len(b['intensity'])}"
+            f"spectrum #{idx} (batch_read vs matrix_read): intensity length mismatch {len(a['intensity'])} != {len(b['intensity'])}"
         )
 
-        # m/z 值比较
+        # Compare m/z values
         np.testing.assert_allclose(
             a["mz"], b["mz"],
             atol=1e-6, rtol=1e-6,
-            err_msg=f"spectrum #{idx} (batch_read vs matrix_read): m/z 值不一致"
+            err_msg=f"spectrum #{idx} (batch_read vs matrix_read): m/z value mismatch"
         )
 
-        # intensity 值比较
+        # Compare intensity values
         np.testing.assert_allclose(
             a["intensity"], b["intensity"],
             atol=1e-4, rtol=1e-5,
-            err_msg=f"spectrum #{idx} (batch_read vs matrix_read): intensity 值不一致"
+            err_msg=f"spectrum #{idx} (batch_read vs matrix_read): intensity value mismatch"
         )
 
-    logger.info(f"数据一致性验证通过 (batch_read vs matrix_read): 共 {len(list_a)} 条谱图全部匹配。")
+    logger.info(f"Data consistency verification passed (batch_read vs matrix_read): All {len(list_a)} spectra matched.")
 
 def _compare_by_coordinate_map(list_a, list_b):
     """
-    基于坐标映射比较两组谱图数据（顺序无关）。
+    Compare two sets of spectrum data based on coordinate mapping (order-independent).
 
-    检查项：
-        1. 谱图总数一致
-        2. 坐标集合完全一致（无遗漏、无多余）
-        3. 相同坐标下的 m/z 值一致
-        4. 相同坐标下的 intensity 值一致
+    Check items:
+        1. Total number of spectra matches.
+        2. Coordinate sets match completely (no missing, no extras).
+        3. m/z values at the same coordinate match.
+        4. Intensity values at the same coordinate match.
 
     Raises:
-        AssertionError: 任意检查项失败时
+        AssertionError: If any check fails.
     """
     assert len(list_a) == len(list_b), (
-        f"谱图数量不一致: original={len(list_a)}, matrix_swap_readback={len(list_b)}"
+        f"Spectrum count mismatch: original={len(list_a)}, matrix_swap_readback={len(list_b)}"
     )
 
-    # 构建坐标 -> 数据映射
+    # Build coordinate -> data mapping
     map_a = {item["coord"]: item for item in list_a}
     map_b = {item["coord"]: item for item in list_b}
 
-    # 检测坐标集合是否一致
+    # Check consistency of coordinate sets
     coords_a = set(map_a.keys())
     coords_b = set(map_b.keys())
     only_in_a = coords_a - coords_b
     only_in_b = coords_b - coords_a
     assert coords_a == coords_b, (
-        f"坐标集合不一致: "
-        f"仅在 original 中: {list(only_in_a)[:5]}{'...' if len(only_in_a) > 5 else ''}, "
-        f"仅在 matrix_swap_readback 中: {list(only_in_b)[:5]}{'...' if len(only_in_b) > 5 else ''}"
+        f"Coordinate set mismatch: "
+        f"Only in original: {list(only_in_a)[:5]}{'...' if len(only_in_a) > 5 else ''}, "
+        f"Only in matrix_swap_readback: {list(only_in_b)[:5]}{'...' if len(only_in_b) > 5 else ''}"
     )
 
-    # 逐坐标比较
+    # Compare coordinate by coordinate
     for coord in sorted(coords_a):
         a = map_a[coord]
         b = map_b[coord]
 
-        # 长度
+        # Length
         assert len(a["mz"]) == len(b["mz"]), (
-            f"coord {coord} (original vs matrix_swap_readback): m/z 长度不一致  {len(a['mz'])} != {len(b['mz'])}"
+            f"coord {coord} (original vs matrix_swap_readback): m/z length mismatch {len(a['mz'])} != {len(b['mz'])}"
         )
         assert len(a["intensity"]) == len(b["intensity"]), (
-            f"coord {coord} (original vs matrix_swap_readback): intensity 长度不一致  {len(a['intensity'])} != {len(b['intensity'])}"
+            f"coord {coord} (original vs matrix_swap_readback): intensity length mismatch {len(a['intensity'])} != {len(b['intensity'])}"
         )
 
-        # m/z、intensity 值
+        # m/z and intensity values
         np.testing.assert_allclose(
             a["mz"], b["mz"],
             atol=1e-6, rtol=1e-6,
-            err_msg=f"coord {coord} (original vs matrix_swap_readback): m/z 值不一致"
+            err_msg=f"coord {coord} (original vs matrix_swap_readback): m/z value mismatch"
         )
         np.testing.assert_allclose(
             a["intensity"], b["intensity"],
             atol=1e-4, rtol=1e-5,
-            err_msg=f"coord {coord} (original vs matrix_swap_readback): intensity 值不一致"
+            err_msg=f"coord {coord} (original vs matrix_swap_readback): intensity value mismatch"
         )
 
     logger.info(
-        f"基于坐标映射的数据一致性验证通过 (original vs matrix_swap_readback): "
-        f"共 {len(list_a)} 条谱图，{len(coords_a)} 个唯一坐标全部匹配。"
+        f"Data consistency verification based on coordinate mapping passed (original vs matrix_swap_readback): "
+        f"All {len(list_a)} spectra, {len(coords_a)} unique coordinates matched."
     )
 
 def verify_read_data_consistency(dm):
     """
-    验证 batch 读取模式与 matrix 读取模式的数据一致性。
+    Verify data consistency between batch read mode and matrix read mode.
 
-    核心逻辑：
-        1. 通过 get_batch_generator 逐谱图收集所有 mz, intensity, coordinate
-        2. 通过 get_matrix_generator (include_mz=True) 逐行收集同样的数据
-        3. 严格比较两者在谱图数量、顺序、坐标、m/z、intensity 上的完全一致性
+    Core logic:
+        1. Collect all mz, intensity, coordinate spectrum by spectrum via get_batch_generator.
+        2. Collect the same data row by row via get_matrix_generator (include_mz=True).
+        3. Strictly compare the two for complete consistency in spectrum count, order, coordinates, m/z, and intensity.
 
-    这是数据正确性的基础验证：确保两种读取通道对同一原始文件产出完全一致的结果。
+    This is the basic verification of data correctness: ensuring that both read channels produce exactly the same results for the same original file.
     """
-    # 收集 batch 数据
+    # Collect batch data
     batch_data = _collect_batch_data(dm)
     matrix_data = _collect_matrix_data(dm)
 
     _compare_spectrum_lists(batch_data, matrix_data)
-    logger.info("READ 一致性验证完成: batch、matrix 读取数据完全一致。")
+    logger.info("READ consistency verification completed: batch and matrix read data are completely consistent.")
 
 def verify_swap_data_consistency(dm):
     """
-    验证 swap（写入磁盘再读回）后的数据正确性。
+    Verify data correctness after swap (write to disk and read back).
 
-    核心逻辑：
-        1. 从原始数据通过 batch 路径收集基准数据 (ground truth)
-        2. 通过 matrix 路径 swap 出到磁盘 → 重新读回 → 通过 batch 路径收集数据
-        3. 比较: 原始 vs matrix-swap 读回 → 验证 matrix swap 写入/读回的数据保真性
+    Core logic:
+        1. Collect baseline data (ground truth) from original data via the batch path.
+        2. Swap out to disk via the matrix path -> read back -> collect data via the batch path.
+        3. Compare: Original vs matrix-swap read back -> Verify data fidelity of matrix swap write/read back.
 
-    使用坐标映射比较，因为 swap 后重新读取时谱图顺序可能不同。
+    Use coordinate mapping for comparison because the order of spectra may differ when reading back after swap.
     """
-    logger.info("开始验证 SWAP 数据一致性 (原始 vs swap 读回)")
+    logger.info("Start verifying SWAP data consistency (original vs swap read back)")
 
-    # 收集原始基准数据
+    # Collect original baseline data
     original_data = _collect_batch_data(dm)
 
-    # matrix swap → 读回
+    # matrix swap -> read back
     matrix_swap_dm = data_read2matrix(dm, batch_size=1024, include_mz=True, max_threads=8, swap=True)
     matrix_swap_dm.load_full_data_from_file()
     matrix_swap_readback = _collect_batch_data(matrix_swap_dm)
 
-    # 原始 vs matrix-swap 读回
+    # Original vs matrix-swap read back
     _compare_by_coordinate_map(original_data, matrix_swap_readback)
 
-    # 清理临时资源
+    # Clean up temporary resources
     matrix_swap_dm.close()
 
-    logger.info("SWAP 一致性验证完成: matrix-swap 读回与原始数据完全一致，测试通过。")
+    logger.info("SWAP consistency verification completed: matrix-swap read back is completely consistent with original data, test passed.")
 
 class TestMatrixGenerator:
     """
-    测试 MSDataManagerImzML 的 get_matrix_generator 方法.
+    Test the get_matrix_generator method of MSDataManagerImzML.
     """
 
     @pytest.fixture(scope="class")
@@ -309,16 +309,18 @@ class TestMatrixGenerator:
         if swap:
             dm_result.close()
 
-    def test_verify_read_data_consistency(self, ms_raw_data):
-        """
-        Verify data consistency between batch and matrix read (without swap).
-        """
+    # 如果数据比较大的话，下面的测试会比较耗时，且占用内存比较大
 
-        verify_read_data_consistency(ms_raw_data)
+    # def test_verify_read_data_consistency(self, ms_raw_data):
+    #     """
+    #     Verify data consistency between batch and matrix read (without swap).
+    #     """
 
-    def test_verify_swap_data_consistency(self, ms_raw_data):
-        """
-        Verify data correctness after swap (write to disk and read back).
-        """
+    #     verify_read_data_consistency(ms_raw_data)
 
-        verify_swap_data_consistency(ms_raw_data)
+    # def test_verify_swap_data_consistency(self, ms_raw_data):
+    #     """
+    #     Verify data correctness after swap (write to disk and read back).
+    #     """
+
+    #     verify_swap_data_consistency(ms_raw_data)

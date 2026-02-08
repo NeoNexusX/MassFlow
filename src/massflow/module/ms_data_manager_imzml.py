@@ -220,28 +220,28 @@ class MSDataManagerImzML(MSDataManager):
             max_threads: int = -1,
             ):
         """
-        直接从 .ibd 读取数据到预分配的 NumPy 矩阵。
+        Read data directly from .ibd into pre-allocated NumPy matrices.
 
         Args:
-            batch_size: 每批次的谱图数量。
-            include_mz: 仅针对 Processed 数据，True 返回 mz_matrix。
+            batch_size: Number of spectra per batch.
+            include_mz: For Processed data only, True returns mz_matrix.
 
         Yields:
             (mz_data, intensity_matrix, lengths, coordinates)
 
-            mz_data 根据模式变化：
+            mz_data varies by mode:
                 - Continuous → shared_mz (1-D)
                 - Processed + include_mz → mz_matrix (2-D)
                 - Processed + not include_mz → None
         """
-        # 0. 线程池管理
+        # 0. Thread pool management
         if max_threads != -1 and max_threads != self.max_threads:
             self.max_threads = max_threads
             if self.threads_executor is not None:
                 self.threads_executor.shutdown(wait=True)
             self.threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
 
-        # 1. 一次性提取文件布局
+        # 1. Extract file layout in one pass
         layout = matrix_tools.extract_ibd_layout(
             self.parser,
             self.ibd_path,
@@ -249,14 +249,14 @@ class MSDataManagerImzML(MSDataManager):
             out_mz_dtype=self.mz_dtype,
         )
 
-        # 2. 判断数据模式
+        # 2. Determine data mode
         is_continuous: bool = bool(self.ms.meta and self.ms.meta.continuous)
         shared_mz: np.ndarray | None = (
             np.asarray(self.ms.shared_mz_list, dtype=self.mz_dtype)
             if is_continuous else None
         )
 
-        # 3. 过滤目标谱图索引
+        # 3. Filter target spectrum indices
         target_indices = matrix_tools.filter_target_indices(
             layout.coordinates, self.target_locs
         )
@@ -264,25 +264,25 @@ class MSDataManagerImzML(MSDataManager):
         if total == 0:
             return
 
-        # 4. 分批迭代
+        # 4. Batch iteration
         for batch_start in range(0, total, batch_size):
             batch_end = min(batch_start + batch_size, total)
             batch_idx = target_indices[batch_start:batch_end]
             n = len(batch_idx)
 
-            # 批次元数据
+            # Batch metadata
             lengths, max_len, coords = matrix_tools.batch_lengths_and_coords(layout, batch_idx)
 
-            # 预分配 intensity 矩阵
+            # Pre-allocate intensity matrix
             intensity = np.zeros((n, max_len), dtype=self.intensity_dtype)
 
-            # 准备 mz 容器（业务逻辑判断）
+            # Prepare mz container (business logic)
             if is_continuous:
                 mz_data = shared_mz
             else:
                 mz_data = np.zeros((n, max_len), dtype=self.mz_dtype) if include_mz else None
 
-            # 策略 A: 连续模式 + 磁盘连续
+            # Strategy A: Continuous mode + disk contiguous
             if (is_continuous
                 and n > 1
                 and matrix_tools.is_disk_contiguous(layout, batch_idx, max_len)
@@ -294,7 +294,7 @@ class MSDataManagerImzML(MSDataManager):
                 yield (mz_data, intensity, lengths, coords)
                 continue
 
-            # 策略 B: 碎片化多线程读取
+            # Strategy B: Fragmented multi-threaded reading
             matrix_tools.read_fragmented_block(
                 layout,
                 batch_idx,
