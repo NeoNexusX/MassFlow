@@ -130,7 +130,7 @@ class MSDataManagerImzML(MSDataManager):
             # spectrum data load and create part  [find by coordinate]
             for i, c in enumerate(self.parser.coordinates):
                 x, y, z = c
-                c1, c2 = (self.target_locs if self.target_locs is not None else ([0, 0], [999, 999]))
+                c1, c2 = (self.target_locs if self.target_locs is not None else ([0, 0], [9999, 9999]))
                 if c1[0] <= x <= c2[0] and c1[1] <= y <= c2[1]:
 
                     # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
@@ -224,7 +224,7 @@ class MSDataManagerImzML(MSDataManager):
 
         Args:
             batch_size: Number of spectra per batch.
-            include_mz: For Processed data only, True returns mz_matrix.
+            include_mz: For Processed data only, True returns mz_matrix, False returns None.
 
         Yields:
             (mz_data, intensity_matrix, lengths, coordinates)
@@ -232,7 +232,6 @@ class MSDataManagerImzML(MSDataManager):
             mz_data varies by mode:
                 - Continuous → shared_mz (1-D)
                 - Processed + include_mz → mz_matrix (2-D)
-                - Processed + not include_mz → None
         """
         # 0. Thread pool management
         if max_threads != -1 and max_threads != self.max_threads:
@@ -251,15 +250,10 @@ class MSDataManagerImzML(MSDataManager):
 
         # 2. Determine data mode
         is_continuous: bool = bool(self.ms.meta and self.ms.meta.continuous)
-        shared_mz: np.ndarray | None = (
-            np.asarray(self.ms.shared_mz_list, dtype=self.mz_dtype)
-            if is_continuous else None
-        )
+        shared_mz: np.ndarray | None = (np.asarray(self.ms.shared_mz_list, dtype=self.mz_dtype) if is_continuous else None)
 
         # 3. Filter target spectrum indices
-        target_indices = matrix_tools.filter_target_indices(
-            layout.coordinates, self.target_locs
-        )
+        target_indices = matrix_tools.filter_target_indices(layout.coordinates, self.target_locs)
         total = len(target_indices)
         if total == 0:
             return
@@ -273,27 +267,20 @@ class MSDataManagerImzML(MSDataManager):
             # Batch metadata
             lengths, max_len, coords = matrix_tools.batch_lengths_and_coords(layout, batch_idx)
 
-            # Pre-allocate intensity matrix
-            intensity = np.zeros((n, max_len), dtype=self.intensity_dtype)
-
-            # Prepare mz container (business logic)
+            # Prepare mz container
             if is_continuous:
                 mz_data = shared_mz
             else:
                 mz_data = np.zeros((n, max_len), dtype=self.mz_dtype) if include_mz else None
 
             # Strategy A: Continuous mode + disk contiguous
-            if (is_continuous
-                and n > 1
-                and matrix_tools.is_disk_contiguous(layout, batch_idx, max_len)
-            ):
-                intensity[:, :max_len] = matrix_tools.read_contiguous_block(
-                    layout, batch_idx, n, max_len
-                )
+            if (is_continuous and n > 1 and matrix_tools.is_disk_contiguous(layout, batch_idx, max_len)):
+                intensity = matrix_tools.read_contiguous_block(layout, batch_idx, n, max_len)
                 yield (mz_data, intensity, lengths, coords)
                 continue
 
             # Strategy B: Fragmented multi-threaded reading
+            intensity = np.zeros((n, max_len), dtype=self.intensity_dtype)
             matrix_tools.read_fragmented_block(
                 layout,
                 batch_idx,

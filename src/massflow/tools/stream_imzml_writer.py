@@ -409,157 +409,219 @@ class ImzMLWriter:
         )
         self.spectra.append(s)
 
-    def addMatrix(  # pylint: disable=C0103
-    self,
-    mz_data: np.ndarray,
-    intensity_matrix: np.ndarray,
-    lengths: np.ndarray,
-    coordinates: np.ndarray,
-    ) -> None:
+    def addMatrix( # pylint: disable=C0103
+            self,
+            mz_data: np.ndarray,
+            intensity_matrix: np.ndarray,
+            lengths: np.ndarray,
+            coordinates: np.ndarray
+        ) -> None:
         """
-        Batch add mass spectrum data matrix
+        swap matrix data -> disk
         """
-        batch_size = intensity_matrix.shape[0]
-        if batch_size == 0:
+        if intensity_matrix.shape[0] == 0:
             return
 
-        # 1. Unify dtype and contiguity
-        if intensity_matrix.dtype != self.intensity_dtype:
-            intensity_matrix = intensity_matrix.astype(self.intensity_dtype, copy=False)
-        if not intensity_matrix.flags["C_CONTIGUOUS"]:
-            intensity_matrix = np.ascontiguousarray(intensity_matrix)
+        intensity_matrix = self._ensure_matrix(intensity_matrix, self.intensity_dtype)
+        mz_data = self._ensure_matrix(mz_data, self.mz_dtype)
 
-        if mz_data.dtype != self.mz_dtype:
-            mz_data = mz_data.astype(self.mz_dtype, copy=False)
-        if not mz_data.flags["C_CONTIGUOUS"]:
-            mz_data = np.ascontiguousarray(mz_data)
-
-        # 2. Mode determination and shared mz writing
-        is_continuous = (self.mode == "continuous") or (mz_data.ndim == 1)
-
-        shared_mz_offset = shared_mz_len = shared_mz_enc_len = 0
-        if is_continuous:
-            if self.first_mz is None:
-                self.first_mz = self._write_mz(mz_data)
-            shared_mz_offset, shared_mz_len, shared_mz_enc_len = self.first_mz
-
-        # 3. Length vector
         lengths_arr = np.asarray(lengths, dtype=np.int64)
-        max_length = intensity_matrix.shape[1]
+        coord_fn = self._make_coord_fn(coordinates)
 
-        # 4. Coordinate preprocessing
-        # Ensure (batch, 3) int array
+        is_continuous = (self.mode == "continuous") or (mz_data.ndim == 1)
+        self.first_mz = self._write_mz(mz_data) if is_continuous and self.first_mz is None else self.first_mz
+        shared_mz = self.first_mz if self.first_mz is not None else (0, 0, 0)
+
+        if self._can_use_fast_path(is_continuous, lengths_arr, intensity_matrix.shape[1]):
+            self._write_matrix_fast(
+                intensity_matrix=intensity_matrix,
+                batch_size=int(intensity_matrix.shape[0]),
+                max_length=int(intensity_matrix.shape[1]),
+                coord_fn=coord_fn,
+                shared_mz=shared_mz
+            )
+            return
+
+        self._write_matrix_rows(
+            mz_data=mz_data,
+            intensity_matrix=intensity_matrix,
+            lengths_arr=lengths_arr,
+            batch_size=int(intensity_matrix.shape[0]),
+            coord_fn=coord_fn,
+            is_continuous=is_continuous,
+            shared_mz=shared_mz
+        )
+    
+    def _ensure_matrix(self, arr: np.ndarray, dtype: np.dtype) -> np.ndarray:
+        if arr.dtype != dtype:
+            arr = arr.astype(dtype, copy=False)
+        if not arr.flags["C_CONTIGUOUS"]:
+            arr = np.ascontiguousarray(arr)
+        return arr
+
+    def _make_coord_fn(self, coordinates: np.ndarray):
         if coordinates.shape[1] == 2:
-            pad = np.ones((batch_size, 1), dtype=coordinates.dtype)
-            coords_i = np.hstack((coordinates, pad))
+            def coord_tuple(i: int):
+                return int(coordinates[i, 0]), int(coordinates[i, 1])
         else:
-            coords_i = coordinates
-        if coords_i.dtype.kind != "i":
-            coords_i = coords_i.astype(np.int64)
+            def coord_tuple(i: int):
+                return int(coordinates[i, 0]), int(coordinates[i, 1]), int(coordinates[i, 2])
+        return coord_tuple
 
-        # 5. Multi-path writing
-        no_compression = isinstance(self.intensity_compression, NoCompression)
-        all_same_length = bool(np.all(lengths_arr == lengths_arr[0]))
+    def _can_use_fast_path(self, is_continuous: bool, lengths_arr: np.ndarray, max_length: int) -> bool:
+        if not is_continuous or int(lengths_arr[0]) != max_length:
+            return False
+        if not isinstance(self.intensity_compression, NoCompression):
+            return False
+        return bool(np.all(lengths_arr == lengths_arr[0]))
 
-        if is_continuous and all_same_length and no_compression:
-            # Block write: intensity_matrix.tobytes()
+    def _write_matrix_fast(
+            self,
+            intensity_matrix: np.ndarray,
+            batch_size: int,
+            max_length: int,
+            coord_fn,
+            shared_mz: tuple[int, int, int],
+        ) -> None:
+        shared_mz_offset, shared_mz_len, shared_mz_enc_len = shared_mz
 
-            row_bytes = max_length * self._int_itemsize
-            base_offset = self.ibd.tell()
+        row_bytes = max_length * self._int_itemsize
+        base_offset = self.ibd.tell()
 
-            # Single system call to write entire buffer
-            self.ibd.write(intensity_matrix.data)
+        self.ibd.write(memoryview(intensity_matrix))
 
-            # Pre-calculate all int_offset (vectorized)
-            offsets = base_offset + np.arange(batch_size, dtype=np.int64) * row_bytes
+        offsets = base_offset + np.arange(batch_size, dtype=np.int64) * row_bytes
 
-            # Batch construct _Spectrum — only coords and int_offset differ
-            _spectra = [
-                _Spectrum(
-                    coords=(int(coords_i[i, 0]), int(coords_i[i, 1]), int(coords_i[i, 2])),
-                    mz_len=shared_mz_len,
-                    mz_offset=shared_mz_offset,
-                    mz_enc_len=shared_mz_enc_len,
-                    int_len=max_length,
-                    int_offset=int(offsets[i]),
-                    int_enc_len=row_bytes,
-                    mz_min=0.0, mz_max=0.0, mz_base=0.0,
-                    int_base=0.0, int_tic=0.0,
-                    userParams=[],
+        self.spectra.extend([
+            self._get_spectrum(
+                coords=coord_fn(i),
+                mz_len=shared_mz_len,
+                mz_offset=shared_mz_offset,
+                mz_enc_len=shared_mz_enc_len,
+                int_len=max_length,
+                int_offset=int(offsets[i]),
+                int_enc_len=row_bytes,
+            )
+            for i in range(batch_size)
+        ])
+
+    def _write_matrix_rows(
+            self,
+            mz_data: np.ndarray,
+            intensity_matrix: np.ndarray,
+            lengths_arr: np.ndarray,
+            batch_size: int,
+            coord_fn,
+            is_continuous: bool,
+            shared_mz: tuple[int, int, int],
+        ) -> None:
+        no_int_compress = isinstance(self.intensity_compression, NoCompression)
+        no_mz_compress = isinstance(self.mz_compression, NoCompression)
+        use_mz_cache = (self.mode == "auto" and not is_continuous)
+
+        shared_mz_offset, shared_mz_len, shared_mz_enc_len = shared_mz
+
+        spectra = []
+        for i in range(batch_size):
+            length = int(lengths_arr[i])
+            coords = coord_fn(i)
+
+            if length <= 0:
+                cur_off = self.ibd.tell()
+                spectra.append(self._get_spectrum(coords=coords, mz_offset=cur_off, int_offset=cur_off))
+                continue
+
+            if is_continuous:
+                mz_off, mz_len, mz_enc = shared_mz_offset, shared_mz_len, shared_mz_enc_len
+            else:
+                mz_off, mz_len, mz_enc = self._write_mz_row(
+                    mz_data=mz_data,
+                    i=i,
+                    length=length,
+                    use_cache=use_mz_cache,
+                    no_mz_compress=no_mz_compress,
                 )
-                for i in range(batch_size)
-            ]
-            self.spectra.extend(_spectra)
 
-        else:
-            # Slow path
-            # Processed or needs compression: Write row by row.
-            # In auto mode, when taking processed path, mark _lru_cache so _write_xml can correctly determine as processed
-            if self.mode == "auto" and not is_continuous and len(self._lru_cache) <= 1:
-                self._lru_cache[("__matrix_processed_sentinel_1__",)] = (0, 0, 0)
-                self._lru_cache[("__matrix_processed_sentinel_2__",)] = (0, 0, 0)
+            int_off, int_enc_len = self._write_int_row(
+                intensity_matrix=intensity_matrix,
+                i=i,
+                length=length,
+                no_int_compress=no_int_compress,
+            )
 
-            ibd_write = self.ibd.write
-            ibd_tell = self.ibd.tell
-            int_compress = self.intensity_compression
-            mz_compress = self.mz_compression
-            no_int_compress = isinstance(int_compress, NoCompression)
-            no_mz_compress = isinstance(mz_compress, NoCompression)
+            spectra.append(self._get_spectrum(
+                coords=coords,
+                mz_len=mz_len,
+                mz_offset=mz_off,
+                mz_enc_len=mz_enc,
+                int_len=length,
+                int_offset=int_off,
+                int_enc_len=int_enc_len,
+            ))
 
-            batch_spectra: list = []
-            append = batch_spectra.append
+        self.spectra.extend(spectra)
 
-            for i in range(batch_size):
-                length = int(lengths_arr[i])
-                coord = (int(coords_i[i, 0]), int(coords_i[i, 1]), int(coords_i[i, 2]))
+    def _mz_cache_key(self, mz_row: np.ndarray, length: int):
+        return (
+            length,
+            float(mz_row[0]) if length > 0 else 0,
+            float(mz_row[length // 2]) if length >= 3 else 0,
+            float(mz_row[-1]) if length > 0 else 0,
+            float(np.sum(mz_row)),
+        )
 
-                if length <= 0:
-                    # Zero-length spectrum: Keep coordinates, write empty data record
-                    cur_off = ibd_tell()
-                    append(_Spectrum(
-                        coords=coord,
-                        mz_len=0, mz_offset=cur_off, mz_enc_len=0,
-                        int_len=0, int_offset=cur_off, int_enc_len=0,
-                        mz_min=0.0, mz_max=0.0, mz_base=0.0,
-                        int_base=0.0, int_tic=0.0, userParams=[],
-                    ))
-                    continue
+    def _write_mz_row(self, mz_data: np.ndarray, i: int, length: int, use_cache: bool, no_mz_compress: bool):
+        mz_row = mz_data[i, :length]
 
-                if is_continuous:
-                    mz_off = shared_mz_offset
-                    mz_len = shared_mz_len
-                    mz_enc = shared_mz_enc_len
-                else:
-                    mz_off = ibd_tell()
-                    # Direct access to underlying buffer, 0 copy (row itself is already C-contiguous)
-                    mz_buf = mz_data[i, :length].tobytes()
-                    if not no_mz_compress:
-                        mz_buf = mz_compress.compress(mz_buf)
-                    ibd_write(mz_buf)
-                    mz_len = length
-                    mz_enc = len(mz_buf)
+        if use_cache:
+            key = self._mz_cache_key(mz_row, length)
+            hit = self._lru_cache.get(key)
+            if hit is not None:
+                return hit
 
-                # Intensity
-                int_off = ibd_tell()
-                int_buf = intensity_matrix[i, :length].tobytes()
-                if not no_int_compress:
-                    int_buf = int_compress.compress(int_buf)
-                ibd_write(int_buf)
+        mz_off = self.ibd.tell()
+        mz_buf = mz_row.tobytes()
+        if not no_mz_compress:
+            mz_buf = self.mz_compression.compress(mz_buf)
+        self.ibd.write(mz_buf)
+        mz_len = length
+        mz_enc = len(mz_buf)
 
-                append(_Spectrum(
-                    coords=coord,
-                    mz_len=mz_len,
-                    mz_offset=mz_off,
-                    mz_enc_len=mz_enc,
-                    int_len=length,
-                    int_offset=int_off,
-                    int_enc_len=len(int_buf),
-                    mz_min=0.0, mz_max=0.0, mz_base=0.0,
-                    int_base=0.0, int_tic=0.0,
-                    userParams=[],
-                ))
+        if use_cache:
+            self._lru_cache[key] = (mz_off, mz_len, mz_enc)
+            if len(self._lru_cache) > self._lru_maxlen:
+                self._lru_cache.popitem(last=False)
 
-            self.spectra.extend(batch_spectra)
+        return (mz_off, mz_len, mz_enc)
+
+    def _write_int_row(self, intensity_matrix: np.ndarray, i: int, length: int, no_int_compress: bool):
+        int_off = self.ibd.tell()
+        int_buf = intensity_matrix[i, :length].tobytes()
+        if not no_int_compress:
+            int_buf = self.intensity_compression.compress(int_buf)
+        self.ibd.write(int_buf)
+        return int_off, len(int_buf)
+
+    @staticmethod
+    def _get_spectrum(coords=0, mz_len=0, mz_offset=0, mz_enc_len=0, int_len=0, int_offset=0, int_enc_len=0) -> _Spectrum:
+        """
+        get _Spectrum
+        """
+        return _Spectrum(
+            coords=coords,
+            mz_len=mz_len,
+            mz_offset=mz_offset,
+            mz_enc_len=mz_enc_len,
+            int_len=int_len,
+            int_offset=int_offset,
+            int_enc_len=int_enc_len,
+            mz_min=0.0,
+            mz_max=0.0,
+            mz_base=0.0,
+            int_base=0.0,
+            int_tic=0.0,
+            userParams=[],
+        )
 
     def _write_xml(self) -> None:
         """Write imzML XML file"""

@@ -108,9 +108,9 @@ class MSDataManager(ABC):
                 scan_pattern = self.ms.meta.scan_pattern if self.ms.meta.scan_pattern is not None else "one_way"
                 scan_type = self.ms.meta.scan_type if self.ms.meta.scan_type is not None else "horizontal_line"
 
-                if self.ms.meta.continuous is not None:
+                if bool(self.ms.meta.continuous):
                     mode = "continuous"
-                elif self.ms.meta.processed is not None:
+                elif bool(self.ms.meta.processed):
                     mode = "processed"
                 else:
                     mode = "auto"
@@ -259,7 +259,8 @@ class MSDataManager(ABC):
         mz_data: np.ndarray | None,
         intensity_matrix: np.ndarray,
         lengths: np.ndarray,
-        coordinates: np.ndarray
+        coordinates: np.ndarray,
+        add_matrix: bool = False
     ):
         """
         Used with get_matrix_generator to write processed data matrices directly to disk.
@@ -283,7 +284,18 @@ class MSDataManager(ABC):
         if coordinates.dtype != np.int32 and coordinates.dtype != np.int64:
             coordinates = coordinates.astype(np.int32, copy=False)
 
-        self.writer.addMatrix(mz_data, intensity_matrix, lengths, coordinates)
+        if add_matrix:
+            self.writer.addMatrix(mz_data, intensity_matrix, lengths, coordinates)
+        else:
+            # Slice matrix row-by-row and call addSpectrum
+            is_shared_mz = (mz_data.ndim == 1)
+            n_spectra = intensity_matrix.shape[0]
+            for i in range(n_spectra):
+                length = int(lengths[i])
+                mz = mz_data[:length] if is_shared_mz else mz_data[i, :length]
+                intensity = intensity_matrix[i, :length]
+                coord = tuple(coordinates[i].tolist())
+                self.writer.addSpectrum(mz, intensity, coord)
 
     def detect_sorted(self):
         """Check if the m/z arrays in the MS data are sorted."""
