@@ -1,4 +1,4 @@
-from typing import Optional,Union,Sequence
+from typing import Union,Sequence
 from massflow.tools.logger import get_logger
 
 logger = get_logger("ms_module")
@@ -7,15 +7,18 @@ class PixelCoordinates:
     """
     Coordinate holder for MSI pixels.
 
-    This class stores raw `x`, `y`, `z` coordinates without automatic base adjustment.
+    This class stores raw `x`, `y`, `z`coordinates without automatic base adjustment.
 
     Attributes:
         x (int): X coordinate.
         y (int): Y coordinate.
         z (int): Z coordinate.
     """
-    
-    def __init__(self, x: Union[int,Sequence[int],"PixelCoordinates"], y: int=0, z: int=0):
+
+    def __init__(self, 
+                 x: Union[int,Sequence[int],"PixelCoordinates"], 
+                 y: int=0, 
+                 z: int=0):
         """
         Initialize pixel coordinates.
 
@@ -24,38 +27,34 @@ class PixelCoordinates:
             y (int): Y coordinate value.
             z (int): Z coordinate value.
 
-        Returns:
-            None
-
         Raises:
             TypeError: If any of x, y, or z cannot be converted to int.
         """
 
-        # internal storage
         # Store raw coordinates internally.
-        self._x : Optional[int] = None
-        self._y : Optional[int] = None
-        self._z : Optional[int] = None
+        self._x = None
+        self._y = None
+        self._z = None
 
-        if isinstance(x, (list, tuple)):
-            if len(x) == 3:
-                self.x, self.y, self.z = x
-            else:
-                logger.error("List x must have exactly three elements with x, y, z coordinates.")
-                raise ValueError("List x must have exactly three elements with x, y, z coordinates..")
-        
+        if isinstance(x, (list, tuple)) and len(x) == 3:
+            self.x, self.y, self.z = x
+
         elif isinstance(x, PixelCoordinates):
-            self.x = x.x # type: ignore
-            self.y = x.y # type: ignore
-            self.z = x.z # type: ignore
+            self.x = x.x
+            self.y = x.y
+            self.z = x.z 
 
-        else:
-            self.x = x # type: ignore
+        elif isinstance(x, int):
+            self.x = x 
             self.y = y
             self.z = z
 
+        else:
+            logger.error("List x must have exactly three elements with x, y, z coordinates.")
+            raise ValueError("List x must have exactly three elements with x, y, z coordinates..")
+        
     @property
-    def x(self) -> Optional[int]:
+    def x(self) -> int:
         """
         Get the X coordinate.
 
@@ -66,14 +65,14 @@ class PixelCoordinates:
             return self._x
         else:
             logger.error("X coordinate is not set.")
-            return None
+            raise ValueError("X coordinate is not set.")
 
     @x.setter
     def x(self, value: int):
-        self._x = int(value)
+        self._x = value
 
     @property
-    def y(self) -> Optional[int]:
+    def y(self) -> int:
         """
         Get the Y coordinate.
 
@@ -84,29 +83,28 @@ class PixelCoordinates:
             return self._y
         else:
             logger.error("Y coordinate is not set.")
-            return None
+            raise ValueError("X coordinate is not set.")
 
     @y.setter
     def y(self, value: int):
-        self._y = int(value)
+        if isinstance(value,int):
+            self._y = value
 
     @property
-    def z(self) -> Optional[int]:
+    def z(self) -> int:
         """
         Get the Z coordinate.
-
-        Returns:
-            int: Z coordinate.
         """
         if self._z is not None:
             return self._z
         else:
             logger.error("Z coordinate is not set.")
-            return None
+            raise ValueError("X coordinate is not set.")
 
     @z.setter
     def z(self, value: int):
-        self._z = int(value)
+        if isinstance(value,int):
+            self._z = value
 
     def get_tuple(self) -> tuple:
         """
@@ -130,12 +128,10 @@ class PixelCoordinates:
 
         Returns:
             bool: True if all adjusted coordinates match; False otherwise.
-
-        Raises:
-            TypeError: If `other` is not an instance of PixelCoordinates.
         """
         if not isinstance(other, PixelCoordinates):
             raise TypeError("other must be a PixelCoordinates instance")
+
         return self.x == other.x and self.y == other.y and self.z == other.z
 
     def __hash__(self):
@@ -144,59 +140,8 @@ class PixelCoordinates:
 
         Returns:
             int: Hash value derived from adjusted (x, y, z).
-
-        Raises:
-            None
         """
         return hash((self.x, self.y, self.z))
-
-    def lefter(self, other: "PixelCoordinates") -> Optional[bool]:
-        """
-        Determine if this pixel is to the left of another pixel.
-
-        Args:
-            other (PixelCoordinates): The other pixel to compare against.
-
-        Returns:
-            bool: True if this pixel's X is less than the other's X; otherwise False.
-        """
-        if self.x is None or other.x is None:
-            logger.error("X coordinate is None, cannot compare.")
-            return None
-        else:
-            return self.x < other.x
-
-    def righter(self, other: "PixelCoordinates") -> Optional[bool]:
-        """
-        Determine if this pixel is to the right of another pixel.
-
-        Args:
-            other (PixelCoordinates): The other pixel to compare against.
-
-        Returns:
-            bool: True if this pixel's X is greater than the other's X; otherwise False.
-        """
-        if self.x is None or other.x is None:
-            logger.error("X coordinate is None, cannot compare.")
-            return None
-        else:
-            return self.x > other.x
-
-    def upper(self, other: "PixelCoordinates") -> Optional[bool]:
-        """
-        Determine if this pixel is above another pixel.
-
-        Args:
-            other (PixelCoordinates): The other pixel to compare against.
-
-        Returns:
-            bool: True if this pixel's Y is greater than the other's Y; otherwise False.
-        """
-        if self.y is None or other.y is None:
-            logger.error("Y coordinate is None, cannot compare.")
-            return None
-        else:
-            return self.y > other.y
 
     def __repr__(self) -> str:
         """

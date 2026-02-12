@@ -4,7 +4,7 @@ from massflow.module.pixel_coordinates import PixelCoordinates
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 from massflow.tools.logger import get_logger
 
-logger = get_logger("spectrum")
+logger = get_logger("ms_module")
 
 
 class Spectrum:
@@ -44,14 +44,13 @@ class Spectrum:
         self._intensity = intensity
 
         # Initialize coordinates to PixelCoordinates instance
-        # need to update
         self.coordinate = PixelCoordinates(coordinate)
 
         # sort part , do not use _sort_by_mz
         self._sort_by_mz = sort_by_mz
 
     def _resolve_data(self):
-        """Internal hook to trigger lazy loading of data."""
+        """Method to swap data."""
 
     # lazy load properties
     @property
@@ -143,9 +142,6 @@ class Spectrum:
     def __getitem__(self, index):
         """
         Get (m/z, intensity) pair at index.
-
-        Raises:
-            IndexError: If data is not loaded.
         """
         if self.mz_list is None or self.intensity is None:
             logger.error("mz_list or intensity is None, can not get item.")
@@ -153,9 +149,10 @@ class Spectrum:
 
         return self.mz_list[index], self.intensity[index]
 
+    # TODO：not high efficient
     def crop_range(
         self,
-        x_range: Sequence[float],
+        mz_range: Sequence[float],
         sort_by_mz: bool = True,
         mode: str = "new",
     ):
@@ -177,18 +174,18 @@ class Spectrum:
             # valid test
             min_mz = np.min(self.mz_list)
             max_mz = np.max(self.mz_list)
-            if x_range[0] < min_mz or x_range[1] > max_mz:
+            if mz_range[0] < min_mz or mz_range[1] > max_mz:
 
                 # make sure x_range is valid
-                if x_range is not None and len(x_range) == 2:
+                if mz_range is not None and len(mz_range) == 2:
                     mz_c = None
                     inten_c = None
 
                     # without sort and dont want to sort
                     if not sort_by_mz and not self._sort_by_mz:
                         mask_xr = np.ones_like(self.mz_list, dtype=bool)
-                        mask_xr &= (self.mz_list >= x_range[0]) & (
-                            self.mz_list <= x_range[1]
+                        mask_xr &= (self.mz_list >= mz_range[0]) & (
+                            self.mz_list <= mz_range[1]
                         )
 
                         mz_c = self.mz_list[mask_xr]
@@ -200,10 +197,10 @@ class Spectrum:
                         self.sort_by_mz = True
                         # use searchsorted to find the indices
                         start_index = np.searchsorted(
-                            self.mz_list, x_range[0], side="left"
+                            self.mz_list, mz_range[0], side="left"
                         )
                         end_index = np.searchsorted(
-                            self.mz_list, x_range[1], side="right"
+                            self.mz_list, mz_range[1], side="right"
                         )
 
                         # build the data
@@ -258,6 +255,7 @@ class Spectrum:
     def x(self):
         """Get X coordinate."""
         if self.coordinate is None:
+            logger.error("coordinates is not initialized.")
             raise AttributeError("coordinates is not initialized.")
         return self.coordinate.x
 
@@ -265,6 +263,7 @@ class Spectrum:
     def y(self):
         """Get Y coordinate."""
         if self.coordinate is None:
+            logger.error("coordinates is not initialized.")
             raise AttributeError("coordinates is not initialized.")
         return self.coordinate.y
 
@@ -272,8 +271,9 @@ class Spectrum:
     def z(self):
         """Get Z coordinate."""
         if self.coordinate is None:
+            logger.error("coordinates is not initialized.")
             raise AttributeError("coordinates is not initialized.")
         return self.coordinate.z
 
     def swap_out2disk(self, writer: ImzMLWriter):
-        pass
+        """Method to swap data."""
