@@ -126,8 +126,8 @@ class MassSpectrumSet:
         y = spectrum.y if y == -1 else y
         z = spectrum.z if z == -1 else z
 
-        if (z in self._coordinate_index and 
-            x in self._coordinate_index[z] and 
+        if (z in self._coordinate_index and
+            x in self._coordinate_index[z] and
             y in self._coordinate_index[z][x]):
 
             existing = self._coordinate_index[z][x][y]
@@ -350,5 +350,4 @@ class MassSpectrumSet:
             plt.savefig(save_path, dpi=dpi)
         else:
             plt.show()
-
 

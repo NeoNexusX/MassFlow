@@ -15,7 +15,7 @@ import numpy as np
 from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.tools.logger import get_logger
-from massflow.module.ms_data_manager import MSDataManager
+from massflow.data_manager.ms_data_manager import MSDataManager
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_meta_data import ImzMlMetaData
 

@@ -3,7 +3,7 @@ import os
 from functools import partial
 import pytest
 from massflow.module.spectrum_imzml import SpectrumImzML
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.data_manager.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.tools.logger import get_logger
 
 logger = get_logger("test_swap")

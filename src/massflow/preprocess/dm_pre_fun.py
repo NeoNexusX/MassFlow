@@ -1,8 +1,8 @@
 from typing import Optional, Sequence
 import numpy as np
 from massflow.module.mass_spectrum_set import MassSpectrumSet
-from massflow.module.ms_data_manager import MSDataManager
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.data_manager.ms_data_manager import MSDataManager
+from massflow.data_manager.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.tools.logger import get_logger
 from massflow.preprocess.batch_pre_fun import BatchPreprocess
 from massflow.preprocess.helper.peak_align_helper import compute_reference

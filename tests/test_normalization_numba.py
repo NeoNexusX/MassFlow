@@ -3,7 +3,7 @@ from typing import Optional
 import numpy as np
 import pytest
 from massflow.module.mass_spectrum_set import MassSpectrumSet
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.data_manager.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.tools.logger import get_logger
 from massflow.preprocess.dm_pre_fun import Preprocess
 
