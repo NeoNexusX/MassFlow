@@ -267,7 +267,7 @@ class MSDataManager(ABC):
         """Check if the m/z arrays in the MS data are sorted."""
 
         total_length = len(self.ms)
-        check_num = random.randint(0, total_length)
+        check_num = random.randint(0, total_length -1)
         check_rsult = self.ms[check_num].is_sorted()
         if not check_rsult:
             logger.info("Detected unsorted m/z data in the MS object.")

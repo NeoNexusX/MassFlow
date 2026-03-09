@@ -2,7 +2,6 @@
 from massflow.data_manager.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.tools.logger import get_logger
-from massflow.tools.plot import plot_spectrum
 logger = get_logger(__name__)
 
 def main():

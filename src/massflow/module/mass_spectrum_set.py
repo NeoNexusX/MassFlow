@@ -12,7 +12,8 @@ License: See LICENSE file in project root
 from typing import List, Tuple,Literal,overload,Union, Optional
 import matplotlib.pyplot as plt
 from massflow.tools.logger import get_logger
-from massflow.module.ms_meta_data import MetaDataBase,ImzMlMetaData
+from massflow.module.ms_meta_data import MetaDataBase
+from massflow.module.ms_meta_data_imzml import MetaDataImzMl
 from massflow.module.spectrum import Spectrum
 
 
@@ -52,7 +53,7 @@ class MassSpectrumSet:
         """
         Initialize an empty MS collection.
         """
-        self.meta :MetaDataBase = ImzMlMetaData(filepath=None) # TODO:filepath is nesssary?
+        self.meta :MetaDataBase = MetaDataImzMl()
         self._queue = [] # queue for mapping from index to spectrum
         self._coordinate_index = {}  # Dict for mapping from coordinates to spectrum
         self._shared_mz_list = None

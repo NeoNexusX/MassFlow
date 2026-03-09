@@ -17,7 +17,7 @@ from pyimzml.ImzMLParser import ImzMLParser
 from massflow.tools.logger import get_logger
 from massflow.data_manager.ms_data_manager import MSDataManager
 from massflow.module.spectrum_imzml import SpectrumImzML
-from massflow.module.ms_meta_data import ImzMlMetaData
+from massflow.module.ms_meta_data_imzml import MetaDataImzMl
 
 logger = get_logger("ms_data_manager_imzml")
 
@@ -69,7 +69,7 @@ class MSDataManagerImzML(MSDataManager):
             self.parser = None
             self.reader = None
             self.ibd_path = None
-            self.ms.meta  = ImzMlMetaData(filepath=None)
+            self.ms.meta  = MetaDataImzMl()
             logger.warning(f"Warning: ibd file not found at {self.filepath} or {self.filepath[:-5] + 'ibd'}.")
 
     def lazy_init(self):
@@ -159,16 +159,11 @@ class MSDataManagerImzML(MSDataManager):
 
         # assign shared mz_list for continuous data
         if self.parser and self.ms.meta.continuous and self.ms.shared_mz_list is None:  # type: ignore
-            self.ms.shared_mz_list, _ = self.parser.getspectrum(1)
+            self.ms.shared_mz_list, _ = self.parser.getspectrum(0)
             logger.info(f"Assigning shared mz_list for continuous data; len is {len(self.ms.shared_mz_list)} subsequent spectra will reuse it.")
 
     def loading_meta(self, *args, **kwargs):
-        """Update metadata during spectrum streaming (continuous mode + min pixel tracking)."""
-        # update min pixel x,y
-        # need to judge meta is ImzMlMetaData
-        if isinstance(self.ms.meta, ImzMlMetaData):
-            self.ms.meta.min_pixel_x = min(self.ms.meta.min_pixel_x, kwargs["x"])
-            self.ms.meta.min_pixel_y = min(self.ms.meta.min_pixel_y, kwargs["y"])
+        """Hook for metadata updates during spectrum streaming."""
 
     def extract_metadata(self):
         """Iterate `meta_index` and populate matching attributes from the parser."""

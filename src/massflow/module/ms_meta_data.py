@@ -3,14 +3,14 @@
 Author: MassFlow Development Team Bionet/dre,NeoNeuxs
 License: See LICENSE file in project root
 """
-import os
+
 from typing import Optional
 import numpy as np
 from massflow.tools.logger import get_logger
 
 logger = get_logger("meta_data")
 
-meta_index = {
+META_INDEX = {
     # --- Image Size and Coordinates ---
     "IMS:1000042": "max_count_of_pixels_x",  # Image width (pixel count)
     "IMS:1000043": "max_count_of_pixels_y",  # Image height (pixel count)
@@ -78,7 +78,6 @@ class MetaDataBase:
 
     # --- Simple synced fields (skip None) ---
     name = MetaField()
-    storage_mode = MetaField()
     max_count_of_pixels_x = MetaField(default=0)
     max_count_of_pixels_y = MetaField(default=0)
     pixel_size_x = MetaField()
@@ -99,7 +98,6 @@ class MetaDataBase:
         self,
         name: str = "default",
         version: float = 1.0,
-        storage_mode: str = "split",
         max_count_of_pixels_x: Optional[int] = None,
         max_count_of_pixels_y: Optional[int] = None,
         pixel_size_x: Optional[float] = None,
@@ -109,18 +107,16 @@ class MetaDataBase:
         self._meta = {}
         self._version = None
         self._mask = None
-        self._meta_index = None
 
         # Set values through descriptors / properties
         self.name = name
         self.version = version
-        self.storage_mode = storage_mode
-        self.meta_index = meta_index
         self.max_count_of_pixels_x = max_count_of_pixels_x
         self.max_count_of_pixels_y = max_count_of_pixels_y
         self.pixel_size_x = pixel_size_x
         self.pixel_size_y = pixel_size_y
         self.mask = mask
+        self.meta_index = META_INDEX
 
     def _set(self, key, value):
         self._meta[key] = value
@@ -160,19 +156,6 @@ class MetaDataBase:
             self._version = version
             self._set("version", version)
 
-    @property
-    def meta_index(self):
-        """Return the meta index dictionary."""
-        return self._meta_index
-
-    @meta_index.setter
-    def meta_index(self, meta_index_data):
-        if meta_index_data is not None:
-            if not isinstance(meta_index_data, dict):
-                logger.error("meta_index must be a dict")
-                raise TypeError("meta_index must be a dict")
-            self._meta_index = meta_index_data
-
     # --- Dict-like interface delegating to _meta ---
 
     def __getitem__(self, key):
@@ -205,172 +188,3 @@ class MetaDataBase:
             self._meta[meta_key] = getattr(self, meta_key, None)
 
 
-class MSIMetaData(MetaDataBase):
-    """
-    Metadata class for MSI image-matrix data.
-
-    Extends MetaDataBase with two commonly used fields:
-    - `mask`: the spatial mask of the sample (2D array or similar)
-    - `need_base_mask`: whether to generate a base mask from intensity
-
-    All fields are synchronized into the internal `_meta` dict via property setters.
-    """
-
-    need_base_mask = MetaField(converter=bool)
-    mz_num = MetaField(converter=int)
-
-    def __init__(
-        self,
-        mask=None,
-        need_base_mask: bool = False,
-        name: str = "default",
-        version: float = 1.0,
-        storage_mode: str = "split",
-        max_count_of_pixels_x: Optional[int] = None,
-        max_count_of_pixels_y: Optional[int] = None,
-        pixel_size_x: Optional[float] = None,
-        pixel_size_y: Optional[float] = None,
-        mz_num: Optional[int] = None,
-    ):
-        """
-        Initialize MSI metadata instance.
-
-        Parameters:
-            name (str): Dataset name.
-            version (float): Metadata version, must be > 0.
-            storage_mode (str): Storage mode, e.g., 'split' or 'merge'.
-            max_count_of_pixels_x (int): Pixel count along the X axis.
-            max_count_of_pixels_y (int): Pixel count along the Y axis.
-            pixel_size_x (float): Pixel size along the X axis.
-            pixel_size_y (float): Pixel size along the Y axis.
-            mask (Any): Spatial 2D mask used to define image dimensions.
-            need_base_mask (bool): Whether base mask generation is required.
-
-        Returns:
-            None
-
-        Raises:
-            ValueError: If `version` is not positive (checked in base class).
-        """
-        super().__init__(
-            name=name,
-            version=version,
-            storage_mode=storage_mode,
-            max_count_of_pixels_x=max_count_of_pixels_x,
-            max_count_of_pixels_y=max_count_of_pixels_y,
-            pixel_size_x=pixel_size_x,
-            pixel_size_y=pixel_size_y,
-            mask=mask,
-        )
-
-        self.need_base_mask = need_base_mask
-        self.mz_num = mz_num
-
-
-class ImzMlMetaData(MetaDataBase):
-    """ImzML metadata wrapper that loads and caches frequently used fields."""
-
-    spectrum_count_num = MetaField()
-    absolute_position_offset_x = MetaField()
-    absolute_position_offset_y = MetaField()
-    instrument_model = MetaField()
-    ms1_spectrum = MetaField()
-    msn_spectrum = MetaField()
-
-    def __init__(
-        self,
-        name="ImzML",
-        version=1.0,
-        storage_mode="split",
-        filepath: Optional[str] = None,
-        absolute_position_offset_x=None,
-        absolute_position_offset_y=None,
-        centroid_spectrum=None,
-        profile_spectrum=None,
-        ms1_spectrum=None,
-        msn_spectrum=None,
-        instrument_model=None,
-        spectrum_count_num=None,
-        min_pixel_x=None,
-        min_pixel_y=None,
-        mask=None,
-        pixel_size_x=None,
-        pixel_size_y=None,
-        max_count_of_pixels_x=None,
-        max_count_of_pixels_y=None,
-    ):
-        """Initialize the metadata object with file path."""
-        super().__init__(
-            name=name,
-            version=version,
-            storage_mode=storage_mode,
-            mask=mask,
-            pixel_size_x=pixel_size_x,
-            pixel_size_y=pixel_size_y,
-            max_count_of_pixels_x=max_count_of_pixels_x,
-            max_count_of_pixels_y=max_count_of_pixels_y,
-        )
-
-        self._filepath = None
-        self._min_pixel_x = 99999
-        self._min_pixel_y = 99999
-
-        self.filepath = filepath
-        self.absolute_position_offset_x = absolute_position_offset_x
-        self.absolute_position_offset_y = absolute_position_offset_y
-        self.centroid_spectrum = centroid_spectrum
-        self.profile_spectrum = profile_spectrum
-        self.ms1_spectrum = ms1_spectrum
-        self.msn_spectrum = msn_spectrum
-        self.instrument_model = instrument_model
-        self.spectrum_count_num = spectrum_count_num
-        self.min_pixel_x = min_pixel_x
-        self.min_pixel_y = min_pixel_y
-
-    # --- Properties with validation (cannot be simple descriptors) ---
-
-    @property
-    def filepath(self):
-        """Return the associated imzML file path."""
-        return self._filepath
-
-    @filepath.setter
-    def filepath(self, filepath: Optional[str]):
-        """Set the associated imzML file path."""
-        if filepath is not None:
-            if not os.path.exists(filepath):
-                logger.error(f"ImzML file not found at {filepath}")
-                raise FileNotFoundError(f"ImzML file not found at {filepath}")
-            self._filepath = filepath
-
-    @property
-    def min_pixel_x(self):
-        """Return the minimum pixel X coordinate."""
-        return self._min_pixel_x
-
-    @min_pixel_x.setter
-    def min_pixel_x(self, min_pixel_x):
-        """Set the minimum pixel X coordinate."""
-        if (
-            min_pixel_x is not None
-            and min_pixel_x >= 0
-            and min_pixel_x <= self.max_count_of_pixels_x
-        ):
-            self._min_pixel_x = min_pixel_x
-            self._set("min_pixel_x", min_pixel_x)
-
-    @property
-    def min_pixel_y(self):
-        """Return the minimum pixel Y coordinate."""
-        return self._min_pixel_y
-
-    @min_pixel_y.setter
-    def min_pixel_y(self, min_pixel_y):
-        """Set the minimum pixel Y coordinate."""
-        if (
-            min_pixel_y is not None
-            and min_pixel_y >= 0
-            and min_pixel_y <= self.max_count_of_pixels_y
-        ):
-            self._min_pixel_y = min_pixel_y
-            self._set("min_pixel_y", min_pixel_y)
