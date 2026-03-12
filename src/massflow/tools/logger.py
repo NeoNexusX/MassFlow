@@ -1,30 +1,26 @@
 import logging
 import os
 import sys
+import warnings
 from logging.handlers import RotatingFileHandler
-
 from colorama import init, Fore, Back, Style
 
-init(autoreset=True, strip=False)
+init(autoreset=True)  # 自动重置颜色
 
-# Log level mapping
+# 日志级别映射
 LOG_LEVELS = {
     "debug": logging.DEBUG,
     "info": logging.INFO,
     "warning": logging.WARNING,
     "error": logging.ERROR,
-    "critical": logging.CRITICAL,
+    "critical": logging.CRITICAL
 }
 
 
 class ColorFormatter(logging.Formatter):
-    """Colorized log formatter for console output only.
+    """带颜色的日志格式化器（仅对控制台生效）"""
 
-    Applies ANSI color codes by level and aligns multi-line messages so that
-    subsequent lines keep the same prefix indentation as the first line.
-    """
-
-    # Color palette by logging level
+    # 定义不同日志级别的颜色
     LEVEL_COLORS = {
         logging.DEBUG: Fore.CYAN,  # 青色
         logging.INFO: Fore.GREEN,  # 绿色
@@ -34,7 +30,6 @@ class ColorFormatter(logging.Formatter):
     }
 
     def format(self, record):
-        """Format a log record with colorized level name and multi-line alignment."""
         original_message = super().format(record)
         levelname_fixed = f"{record.levelname + ':':<10.10}"
         # get color
@@ -43,77 +38,75 @@ class ColorFormatter(logging.Formatter):
         colored_level = f"{color}{levelname_fixed}{Fore.RESET}"
         formatted_record = original_message.replace(f"{record.levelname}", colored_level)
 
-        # Multi-line alignment helper
-        if "\n" in record.message:
+        # multilines helper
+        if '\n' in record.message:
             # calculate prefix length
-            first_line = formatted_record.split("\n")[0]
+            first_line = formatted_record.split('\n')[0]
             # (len(colored_level)-len(levelname_fixed)) = 10
-            prefix_length = (
-                len(first_line) - len(record.message.split("\n")[0]) - 10
-            )
+            prefix_length = len(first_line) - len(record.message.split('\n')[0])-10
             # split into sever lines
-            lines = record.message.split("\n")
+            lines = record.message.split('\n')
             # add first line
             formatted_lines = [first_line]
 
             # add prefix
             for line in lines[1:]:
-                aligned_prefix = " " * prefix_length
+                aligned_prefix = ' ' * prefix_length
                 formatted_lines.append(f"{aligned_prefix}{line}")
 
             # rebuild lines
-            formatted_record = "\n".join(formatted_lines)
+            formatted_record = '\n'.join(formatted_lines)
 
         return formatted_record
 
 
 class FileFormatter(logging.Formatter):
-    """Plain file formatter with fixed-width level name and multi-line alignment."""
-
+    """文件日志格式化器，保持原始记录名"""
     def format(self, record):
-        """Format a log record for file output with aligned multi-line messages."""
         original_message = super().format(record)
         levelname_fixed = f"{record.levelname + ':':<10.10}"
         formatted_record = original_message.replace(f"{record.levelname}", levelname_fixed)
 
         # multilines helper
-        if "\n" in record.message:
+        if '\n' in record.message:
             # calculate prefix length
-            first_line = formatted_record.split("\n")[0]
-            prefix_length = len(first_line) - len(record.message.split("\n")[0])
+            first_line = formatted_record.split('\n')[0]
+            prefix_length = len(first_line) - len(record.message.split('\n')[0])
             # split into sever lines
-            lines = record.message.split("\n")
+            lines = record.message.split('\n')
             # add first line
             formatted_lines = [first_line]
 
             # add prefix
             for line in lines[1:]:
-                aligned_prefix = " " * prefix_length
+                aligned_prefix = ' ' * prefix_length
                 formatted_lines.append(f"{aligned_prefix}{line}")
 
             # rebuild lines
-            formatted_record = "\n".join(formatted_lines)
+            formatted_record = '\n'.join(formatted_lines)
 
         return formatted_record
 
+def custom_formatwarning(message, category, filename, lineno, line=None): #pylint: disable=unused-argument
+    """Custom warning formatter to show a clean message with concise origin info."""
+    # 仅提取文件名，去掉冗长的绝对路径
+    short_filename = os.path.basename(filename)
+    return f"[{short_filename}:{lineno} | {category.__name__}] {message}"
 
 class LoggerManager:
-    """Logger manager to configure and provide named loggers.
-
-    Creates console/file handlers, supports rotating file logs, and allows
-    dynamic level updates across all managed loggers.
-    """
+    """logger manager to control the logger"""
 
     def __init__(self):
         self.loggers = {}
         self.log_dir = "logs"
         self.log_level = logging.INFO
-        self.max_bytes = 10 * 1024 * 1024  # 10MB
+        self.max_bytes = 1 * 1024 * 1024  # 1MB
         self.backup_count = 5
         self.initialized = False
 
-    def init_app(self, log_level="info", log_dir="logs"):
-        """Initialize the logging system."""
+
+    def init_app(self, log_level="info", log_dir='logs'):
+        """init logger system"""
         # set logger level
         self.log_level = LOG_LEVELS.get(log_level.lower(), logging.INFO)
 
@@ -125,8 +118,53 @@ class LoggerManager:
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
 
+        # configure root logger
+        self._configure_root_logger()
+
         self.initialized = True
+        self.get_logger("main").info(
+            f"Logger initialized with level {log_level} and log directory '{self.log_dir}' ")
         return self
+
+
+    def _configure_root_logger(self):
+        """configure root logger"""
+        # get root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(self.log_level)
+
+        # clear logger handlers
+        if root_logger.handlers:
+            for handler in root_logger.handlers:
+                root_logger.removeHandler(handler)
+
+        # add console handler
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(self.log_level)
+        console_formatter = ColorFormatter(  # console Formatter for colors
+            '%(levelname)s%(asctime)s %(lineno)d %(name)s - %(message)s',
+            datefmt='%y-%m-%d %H:%M'
+        )
+        console_handler.setFormatter(console_formatter)
+        root_logger.addHandler(console_handler)
+
+        logging.captureWarnings(True)
+        warnings.formatwarning = custom_formatwarning
+
+        # add file handler
+        root_file_path = os.path.join(self.log_dir, "massflow.log")
+        file_handler = RotatingFileHandler(
+            root_file_path,
+            maxBytes=self.max_bytes,
+            backupCount=self.backup_count
+        )
+        file_formatter = FileFormatter(
+            '%(levelname)s%(asctime)s %(lineno)d %(name)s - %(message)s'
+        )
+        file_handler.setLevel(self.log_level)
+        file_handler.setFormatter(file_formatter)
+        root_logger.addHandler(file_handler)
+
 
     def _configure_logger(self, logger, name):
         """Configure a named logger with console and rotating file handlers."""
@@ -164,17 +202,48 @@ class LoggerManager:
 
         return logger
 
-    def get_logger(self, name) -> logging.Logger:
-        """get or create specify logger"""
-        if not self.initialized:
-            self.init_app()
 
+    def _logger_group(self, name: str) -> str:
+        """Top-level logger group: 'bootstrap.config' -> 'bootstrap'."""
+        return (name or "app").split(".", 1)[0]
+
+
+    def get_logger(self, name="app") -> logging.Logger:
+        """Get logger.
+
+        Desired behavior:
+        - child loggers (e.g. bootstrap.xxx) print to console and write to *parent file* (bootstrap.log)
+        - file output keeps original record.name (bootstrap.xxx)
+        """
+        if not self.initialized:
+            raise RuntimeError("LoggerManager is not initialized. Call bootstrap.init_logging()")
+
+        group = self._logger_group(name)
+
+        # 1) Ensure the parent/group logger is configured ONCE (handlers live here)
+        if group not in self.loggers:
+            group_logger = logging.getLogger(group)
+            group_logger = self._configure_logger(group_logger, group)  # writes to logs/{group}.log
+            self.loggers[group] = group_logger
+
+        # 2) If requesting the group itself, return it
+        if name == group:
+            return self.loggers[group]
+
+        # 3) Child logger: no handlers; propagate to parent/group so it uses parent's handlers
         if name not in self.loggers:
-            logger = logging.getLogger(name)
-            logger = self._configure_logger(logger, name)
-            self.loggers[name] = logger
+            child = logging.getLogger(name)
+
+            # Let records bubble up to 'bootstrap' (parent), which has the file+console handlers
+            child.propagate = True
+
+            # Keep it permissive; filtering/levels are enforced by parent/group effective level
+            child.setLevel(logging.NOTSET)
+
+            self.loggers[name] = child
 
         return self.loggers[name]
+
 
     def set_level(self, level):
         """dynamic change logger level"""
@@ -184,24 +253,31 @@ class LoggerManager:
         # update logger level
         self.log_level = level
 
-        # update all managed loggers and their handlers
+        # update root logger level
+        root_logger = logging.getLogger()
+        root_logger.setLevel(level)
+
+        # update root handler
+        for handler in root_logger.handlers:
+            handler.setLevel(level)
+
+        # update all logger
         for logger in self.loggers.values():
             logger.setLevel(level)
             # update all handlers for this logger
             for handler in logger.handlers:
                 handler.setLevel(level)
 
-
 # 创建日志管理器单例实例
-logger_manager = LoggerManager()
+LOGGER_MANAGER = LoggerManager()
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "debug")
+LOGGER_MANAGER.init_app()
 
-# 初始化日志管理器
-logger_manager.init_app(log_level=LOG_LEVEL, log_dir=os.getenv("LOG_DIR", "logs"))
+# 获取日志器的便捷函数
+def get_logger(name="app") -> logging.Logger:
+    """Get logger by name."""
 
-
-# Convenience function to get a named logger
-def get_logger(name="massflow"):
-    """Retrieve a named logger configured by LoggerManager."""
-    return logger_manager.get_logger(name)
+    if LOGGER_MANAGER is None:
+        raise RuntimeError("LoggerManager is not initialized")
+    else:
+        return LOGGER_MANAGER.get_logger(name)

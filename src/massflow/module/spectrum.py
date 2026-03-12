@@ -127,21 +127,22 @@ class Spectrum:
         return self.coordinate
 
     def __str__(self):
+
         """Return a string representation of the spectrum basic info."""
+
         if self.mz_list is not None and len(self.mz_list) > 0:
             mz_min, mz_max = min(self.mz_list), max(self.mz_list)
             intensity_max = max(self.intensity) if self.intensity is not None else 0
-            return (
-                f"  MS len: {len(self)}\r\n"
-                f"  MS range: {mz_min} - {mz_max}\r\n"
-                f"  MS coord: {self.coordinate}\r\n"
-                f"  max and min mz_list: {mz_max} - {mz_min}\r\n"
-                f"  max intensity: {intensity_max}\r\n"
-            )
+            return (f"  MS len: {len(self)}\r\n"
+                    f"  MS range: {mz_min} - {mz_max}\r\n"
+                    f"  MS coord: {self.coordinate}\r\n"
+                    f"  max and min mz_list: {mz_max} - {mz_min}\r\n"
+                    f"  max intensity: {intensity_max}\r\n")
         return f"  MS len: 0\r\n  MS coord: {self.coordinate}\r\n"
 
     def __len__(self):
         """Return number of peaks in the spectrum."""
+
         if self.mz_list is not None:
             return len(self.mz_list)
         else:
@@ -149,6 +150,7 @@ class Spectrum:
 
     def __eq__(self, other):
         """Check equality based on spatial coordinates."""
+
         if not isinstance(other, Spectrum):
             return False
         return self.coordinate == other.coordinate
@@ -157,6 +159,7 @@ class Spectrum:
         """
         Get (m/z, intensity) pair at index.
         """
+
         if self.mz_list is None or self.intensity is None:
             logger.error("mz_list or intensity is None, can not get item.")
             raise IndexError("mz_list or intensity is None, can not get item.")
@@ -164,12 +167,11 @@ class Spectrum:
         return self.mz_list[index], self.intensity[index]
 
     # TODO：not high efficient
-    def crop_range(
-        self,
-        mz_range: Sequence[float],
-        sort_by_mz: bool = True,
-        mode: str = "new",
-    ):
+    def crop_range(self,
+                   mz_range: Sequence[float],
+                   sort_by_mz: bool = True,
+                   mode: str = "new",
+        ):
         """
         Crop spectrum to a specific m/z range.
 
@@ -227,12 +229,8 @@ class Spectrum:
                 mz_c = np.array([-1])
                 inten_c = np.array([-1])
         else:
-            logger.error(
-                "mz_list is None, can not crop by mz. xr must be a tuple of two float numbers."
-            )
-            raise ValueError(
-                "mz_list is None, can not crop by mz. xr must be a tuple of two float numbers."
-            )
+            logger.error("mz_list is None, can not crop by mz. xr must be a tuple of two float numbers.")
+            raise ValueError("mz_list is None, can not crop by mz. xr must be a tuple of two float numbers.")
 
         # cut part
         if mode == "new":

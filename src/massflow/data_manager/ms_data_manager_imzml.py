@@ -8,9 +8,6 @@ continuous data.
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
-
-import os
-import warnings
 import numpy as np
 from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
@@ -18,6 +15,7 @@ from massflow.tools.logger import get_logger
 from massflow.data_manager.ms_data_manager import MSDataManager
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_meta_data_imzml import MetaDataImzMl
+from massflow.tools.funs import is_valid_file
 
 logger = get_logger("ms_data_manager_imzml")
 
@@ -66,8 +64,6 @@ class MSDataManagerImzML(MSDataManager):
         self._parser = None
         self._reader = None
         self.ms.meta  = MetaDataImzMl()
-        logger.warning(f"Warning: ibd file not found at {self.imzml_filepath} or {self.ibd_filepath}.")
-
 
     @property
     def reader(self):
@@ -82,21 +78,17 @@ class MSDataManagerImzML(MSDataManager):
 
     @property
     def parser(self):
-        if self._parser is None and os.path.exists(self.imzml_filepath) and os.path.getsize(self.ibd_filepath) > 0:
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                # Initialize the ImzML parser
 
-                self._parser = ImzMLParser(self.imzml_filepath) # 获取到对应的parser，否则报错
+        if self._parser is not None:
+            return self._parser
 
-                combined_message = "\r\n".join([f"{wm.message}" for wm in w])
-                if len(combined_message) > 0:
-                    logger.warning(f"{combined_message}")
+        if is_valid_file(self.imzml_filepath) and is_valid_file(self.ibd_filepath):
+            self._parser = ImzMLParser(self.imzml_filepath)
+            logger.info(f"Initialized ImzML parser for file: {self.imzml_filepath}")
+            return self._parser
         else:
-            logger.error(f"ImzML file {self.imzml_filepath} does not exist or is empty.")
-            raise FileNotFoundError(f"ImzML file {self.imzml_filepath} does not exist or is empty.")
-
-        return self._parser
+            logger.error(f"ImzML file {self.imzml_filepath} or {self.ibd_filepath} does not exist or is empty.")
+            raise FileNotFoundError(f"ImzML file {self.imzml_filepath} or {self.ibd_filepath} does not exist or is empty.")
 
     def load_head_data(self):
         """
@@ -111,34 +103,27 @@ class MSDataManagerImzML(MSDataManager):
         # Start loading process
         logger.info(f"Loading data from ImzML file: {self.imzml_filepath}")
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
 
-            # pre loading part : meta data load part
-            self.preload_hook()
+        # pre loading part : meta data load part
+        self.preload_hook()
 
-            # spectrum data load and create part  [find by coordinate]
-            for i, c in enumerate(self.parser.coordinates):
-                x, y, z = c
-                if self.target_locs[0][0] <= x <= self.target_locs[1][0] and self.target_locs[0][1] <= y <= self.target_locs[1][1]:
+        # spectrum data load and create part  [find by coordinate]
+        for i, c in enumerate(self.parser.coordinates):
+            x, y, z = c
+            if self.target_locs[0][0] <= x <= self.target_locs[1][0] and self.target_locs[0][1] <= y <= self.target_locs[1][1]:
 
-                    # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
-                    spectrum = SpectrumImzML(reader=self.reader,
-                                             ibd_path=self.ibd_filepath,
-                                             index=i,
-                                             coordinates=[x, y, z],
-                                             shared_mz_list=self.ms.shared_mz_list)
+                # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
+                spectrum = SpectrumImzML(reader=self.reader,
+                                            ibd_path=self.ibd_filepath,
+                                            index=i,
+                                            coordinates=[x, y, z],
+                                            shared_mz_list=self.ms.shared_mz_list)
 
-                    self.ms.add_spectrum(spectrum)
-                    self.current_spectrum_num += 1
+                self.ms.add_spectrum(spectrum)
+                self.current_spectrum_num += 1
 
-            # log warnings if any
-            combined_message = "\r\n".join([f"{wm.message}" for wm in w])
-            if len(combined_message) > 0:
-                logger.warning(f"{combined_message}")
-
-            # loaded part : finalize meta data load part
-            self.loaded_hook()
+        # loaded part : finalize meta data load part
+        self.loaded_hook()
 
     def extract_metadata(self):
         """Iterate `meta_index` and populate matching attributes from the parser."""

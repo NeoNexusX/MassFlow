@@ -19,7 +19,6 @@ from massflow.tools.stream_imzml_writer import ImzMLWriter
 logger = get_logger("ms_data_manager")
 
 
-
 class MSDataManager(ABC):
     """
     Abstract base class for MS Data Manager.
@@ -57,6 +56,7 @@ class MSDataManager(ABC):
         self._init_file_base_path(filepath, temp_dir)
         self._writer = None
 
+
     def _init_file_base_path(self, filepath: str | None ,temp_dir: str | None):
         """Normalize external path input to suffix-free base path."""
 
@@ -66,8 +66,9 @@ class MSDataManager(ABC):
             self.file_base_path = os.path.join(base_dir, f"temp_{uuid.uuid4().hex}")
             self.swap_filepath = self.file_base_path
         else:
-            filepath_lower = filepath.lower()
-            self.file_base_path = filepath[: -len(".imzML")] if filepath_lower.endswith(".imzml") else filepath
+            self.file_base_path = filepath[: -len(".imzML")] if filepath.endswith(".imzML") else filepath
+            self.swap_filepath = None
+
 
     def _init_target_locs(self, target_locs):
         """Initialize target_locs with validation."""
@@ -123,46 +124,35 @@ class MSDataManager(ABC):
             logger.error("MS meta data is None. Please load or copy[use copy_meta method] meta data first.")
             raise ValueError("MS meta data is None. Please load or copy meta data first.")
 
-    @property
-    def swap_writer(self):
-        """Return the writer."""
-        return self.writer
-
 
 ############# Method define part #############
+    @abstractmethod
+    def copy_meta(self, source_dm: "MSDataManager"):
+        pass
+
+    @abstractmethod
+    def preload_hook(self, *args, **kwargs):
+        """Hook for pre-loading or preparing metadata before full data loading."""
+
+    @abstractmethod
+    def loading_hook(self, *args, **kwargs):
+        """Hook invoked while spectra are being loaded."""
+
+    @abstractmethod
+    def loaded_hook(self):
+        """Finalize metadata after loading spectra."""
+
     @abstractmethod
     def load_head_data(self):
         """Load data from the configured input file path."""
 
 
-    def inspect_data(self, inspect_target=None):
-        """Inspect the data structure of the MSI object."""
+############# Method part #############
 
-        # get meta data info
-        if self.ms.meta is None:
-            raise ValueError("MS meta data is None. Please load meta data first.")
-
-        meta_info = str(self.ms.meta) + "\r\n"
-        logger.info(meta_info)
-
-        # get base info
-        base_info = "MS  information:\r\n"
-        total_len = len(self.ms)
-        if total_len > 0:
-            # Determine index: use inspect_target if valid, else pick a random one
-            is_valid_target = inspect_target is not None and 0 <= inspect_target < total_len
-            idx = inspect_target if is_valid_target else random.randint(0, total_len - 1)
-            label = "Target" if is_valid_target else "Random"
-
-            base_info += f"  [{label} Index {idx}]\r\n{self.ms[idx]}\r\n" #type: ignore
-
-        logger.info(base_info)
-
-
-    def get_batch_generator(self, batch_size: int = 256, max_threads: int = -1):
+    def get_batch_generator(self, batch_size: int = 256, max_threads: int = 0):
         """Get a multi-threaded batch generator."""
         # update max_threads if needed
-        if max_threads != -1 and max_threads != self.max_threads:
+        if max_threads != 0 and max_threads != self.max_threads:
             self.max_threads = max_threads
             # reload thread pool executor
             if self.threads_executor is not None:
@@ -189,9 +179,7 @@ class MSDataManager(ABC):
                 # Multi-threaded processing of each mini-batch
                 futures = []
                 for mini_batch in mini_batches:
-                    future = self.threads_executor.submit(
-                        process_mini_batch, mini_batch
-                    )
+                    future = self.threads_executor.submit(process_mini_batch, mini_batch)
                     futures.append(future)
 
                 # Wait for all mini-batch tasks to complete
@@ -200,6 +188,31 @@ class MSDataManager(ABC):
 
             # Yield the fully processed batch
             yield batch
+
+
+    def inspect_data(self, inspect_target=None):
+        """Inspect the data structure of the MSI object."""
+
+        # get meta data info
+        if self.ms.meta is None:
+            raise ValueError("MS meta data is None. Please load meta data first.")
+
+        meta_info = str(self.ms.meta) + "\n"
+        logger.info(meta_info)
+
+        # get base info
+        base_info = "Spectrum information:\n"
+        total_len = len(self.ms)
+        if total_len > 0:
+            # Determine index: use inspect_target if valid, else pick a random one
+            is_valid_target = inspect_target is not None and 0 <= inspect_target < total_len
+            idx = inspect_target if is_valid_target else random.randint(0, total_len - 1)
+            label = "Target" if is_valid_target else "Random"
+
+            base_info += f" [{label} Index {idx}]\n"
+            base_info += f"{self.ms[idx]}\n" #type: ignore
+
+        logger.info(base_info)
 
 
     def detect_sorted(self):
@@ -244,22 +257,6 @@ class MSDataManager(ABC):
         # Cache mask in metadata and return
         self.ms.meta.mask = mask
 
-    @abstractmethod
-    def copy_meta(self, source_dm: "MSDataManager"):
-        pass
-
-    @abstractmethod
-    def preload_hook(self, *args, **kwargs):
-        """Hook for pre-loading or preparing metadata before full data loading."""
-
-    @abstractmethod
-    def loading_hook(self, *args, **kwargs):
-        """Hook invoked while spectra are being loaded."""
-
-    @abstractmethod
-    def loaded_hook(self):
-        """Finalize metadata after loading spectra."""
-
 
     def close(self):
         """
@@ -277,15 +274,15 @@ class MSDataManager(ABC):
         swap_path_str = getattr(self, "swap_filepath", None)
         if swap_path_str:
             swap_base = Path(swap_path_str)
-            suffixes = [".imzML", ".ibd", ".fdata", ".log", ".metadata"]
+            suffixes = [".imzML", ".ibd", ".fdata", ".log", ".metadata", ".IBD"]
             #del all related files with the base name
             [swap_base.with_suffix(s).unlink(missing_ok=True) for s in suffixes]  #pylint: disable=expression-not-assigned
 
 
     def close_writer(self):
         """close ImzMLWriter."""
-        if hasattr(self, "writer") and self.writer is not None:
-            self.writer.close()
+        if self._writer is not None:
+            self._writer.close()
 
 
     def clear_batch_data_memory(self, batch):
@@ -294,18 +291,18 @@ class MSDataManager(ABC):
             spec.clear_data()
 
 
-    def swap_batch_data_out2disk(self, batch, writer):
-        """Swap out a batch of spectra to disk to free memory."""
-        for spec in batch:
-            spec.swap_out2disk(writer=writer)
-
-
     def clear_all_data_memory(self):
         """
         Clear data in all spectra to free memory.
         """
         for spec in self.ms:
             spec.clear_data()
+
+
+    def swap_batch_data_out2disk(self, batch, writer):
+        """Swap out a batch of spectra to disk to free memory."""
+        for spec in batch:
+            spec.swap_out2disk(writer=writer)
 
 
     def __enter__(self):

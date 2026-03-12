@@ -10,7 +10,6 @@ def main():
     ms = MassSpectrumSet()
     with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=file_path) as manager:
         manager.load_head_data()
-        manager.inspect_data()
         spectrum = ms[0]
 
         logger.info(f"Intensity: {spectrum.intensity}")

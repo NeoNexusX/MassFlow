@@ -33,6 +33,10 @@ def data_batch_reading_full_benchmark(
 
 class TestDataReading:
 
+    """
+    Test suite for benchmarking data reading performance of MSDataManagerImzML.
+    """
+
     @pytest.mark.parametrize("data_file_path", ["./data/example.imzML"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_data_reading_benchmark(self, benchmark, data_file_path):
@@ -49,18 +53,18 @@ class TestDataReading:
     @pytest.mark.parametrize(
         "data_file_path,batch_size,max_workers",
         [
-            # # batch_size = 32
+            # batch_size = 32
             ("data/example.imzML", 32, 1),
             ("data/example.imzML", 32, 2),
             ("data/example.imzML", 32, 8),
             ("data/example.imzML", 32, 32),
-            # # batch_size = 64
+            # batch_size = 64
             ("data/example.imzML", 64, 1),
             ("data/example.imzML", 64, 2),
             ("data/example.imzML", 64, 8),
             ("data/example.imzML", 64, 32),
             ("data/example.imzML", 64, 64),
-            # # batch_size = 128
+            # batch_size = 128
             ("data/example.imzML", 128, 1),
             ("data/example.imzML", 128, 2),
             ("data/example.imzML", 128, 8),
@@ -72,25 +76,25 @@ class TestDataReading:
             ("data/example.imzML", 256, 8),
             ("data/example.imzML", 256, 32),
             ("data/example.imzML", 256, 64),
-            # #batch_size = 512
+            # batch_size = 512
             ("data/example.imzML", 512, 1),
             ("data/example.imzML", 512, 2),
             ("data/example.imzML", 512, 8),
             ("data/example.imzML", 512, 32),
             ("data/example.imzML", 512, 64),
-            # # # batch_size = 1024
+            # batch_size = 1024
             ("data/example.imzML", 1024, 1),
             ("data/example.imzML", 1024, 2),
             ("data/example.imzML", 1024, 8),
             ("data/example.imzML", 1024, 32),
             ("data/example.imzML", 1024, 64),
-            # # batch_size = 2048
+            # batch_size = 2048
             ("data/example.imzML", 2048, 1),
             ("data/example.imzML", 2048, 2),
             ("data/example.imzML", 2048, 8),
             ("data/example.imzML", 2048, 32),
             ("data/example.imzML", 2048, 64),
-            # batch_size = 4068
+            # batch_size = 4096
             ("data/example.imzML", 4096, 1),
             ("data/example.imzML", 4096, 2),
             ("data/example.imzML", 4096, 8),
@@ -99,9 +103,7 @@ class TestDataReading:
         ],
     )
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_batch_reading_benchmark(
-        self, benchmark, data_file_path, batch_size, max_workers
-    ):
+    def test_batch_reading_benchmark(self, benchmark, data_file_path, batch_size, max_workers):
         logger.info("Starting data batch reading benchmark")
         benchmark.pedantic(
             data_batch_reading_full_benchmark,

@@ -195,7 +195,7 @@ class MetaDataBase:
 
     def __str__(self):
         """Format metadata information as a string, skipping None or empty values."""
-        lines = []
+        lines = ["MSI MetaData:"]
         for attr, value in self.items():
             # Skip None or effectively empty values
             if value is None:
