@@ -21,7 +21,7 @@ set_default_r_home("r_home_path_here")  # set R_HOME path here
 def data_manager(filepath=FILEPATH) -> MSDataManagerImzML:
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=filepath)
-    dm.load_full_data_from_file()
+    dm.load_head_data()
     return dm
 
 def run_alignment_task(

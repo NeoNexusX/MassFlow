@@ -34,7 +34,7 @@ class CardinalAdapter:
 
         logger.info(f"Starting peak alignment using Cardinal::peakAlign(units={units}, binfun={binfun}, binratio={binratio})")
 
-        imzml_filepath = data_manager.filepath
+        imzml_filepath = data_manager.imzml_filepath
         r_massdata = r_env.cardinal.readImzML(imzml_filepath)
 
         aligned_massdata = r_env.cardinal.peakAlign(
@@ -47,12 +47,12 @@ class CardinalAdapter:
         )
 
         # 5. Write results
-        aligned_filepath = dm_cardinal.filepath
+        aligned_filepath = dm_cardinal.imzml_filepath
         r_env.cardinal.writeMSIData(aligned_massdata, file=aligned_filepath, bundle=False)
 
 
         with risky_imzml_loader():
-            dm_cardinal.load_full_data_from_file()
+            dm_cardinal.load_head_data()
 
         logger.info(f"Peak alignment completed and data saved to {aligned_filepath}")
         return dm_cardinal
@@ -77,7 +77,7 @@ class CardinalAdapter:
 
         logger.info(f"Starting peak picking using Cardinal::peakPick (method={method}, SNR={snr}, type={return_type})")
 
-        imzml_filepath = data_manager.filepath
+        imzml_filepath = data_manager.imzml_filepath
         r_massdata = r_env.cardinal.readImzML(imzml_filepath)
 
         picked_massdata = r_env.cardinal.peakPick(
@@ -90,11 +90,11 @@ class CardinalAdapter:
         picked_massdata_realize = r_env.cardinal.process(picked_massdata)
         dm_cardinal.ms.meta.processed = True
 
-        picked_filepath = dm_cardinal.filepath
+        picked_filepath = dm_cardinal.imzml_filepath
         r_env.cardinal.writeMSIData(picked_massdata_realize, file=picked_filepath, bundle=False)
 
         with risky_imzml_loader():
-            dm_cardinal.load_full_data_from_file()
+            dm_cardinal.load_head_data()
 
         logger.info(f"Peak picking completed and data saved to {picked_filepath}")
         return dm_cardinal

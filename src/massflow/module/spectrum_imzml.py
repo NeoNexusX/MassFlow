@@ -100,7 +100,7 @@ class SpectrumImzML(Spectrum):
                 raise ValueError("Both mz_list and intensity cannot be None")
 
             # add spectrum to writer
-            writer.addSpectrum(self.mz_list, self.intensity, self.coordinate.get_tuple())
+            writer.add_spectrum(self.mz_list, self.intensity, self.coordinate.get_tuple())
 
         # clear loaded data to save memory
         self.clear_data()

@@ -13,7 +13,7 @@ def drop_caches():
 
 def data_reading_benchmark(data_file_path="data/example.imzML"):
     with MSDataManagerImzML(filepath=data_file_path) as ms_md:
-        ms_md.load_full_data_from_file()
+        ms_md.load_head_data()
         for spectrum_data in ms_md.ms:
             assert spectrum_data.intensity is not None
 
@@ -22,7 +22,7 @@ def data_batch_reading_full_benchmark(
     data_file_path="data/example.imzML", batch_size=1024, max_workers=2
 ):
     with MSDataManagerImzML(filepath=data_file_path) as ms_md:
-        ms_md.load_full_data_from_file()
+        ms_md.load_head_data()
         batch_generator = ms_md.get_batch_generator(
             batch_size=batch_size,
             max_threads=max_workers

@@ -26,7 +26,7 @@ def data_swap_out_direct(raw_dm, limit=-1):
         if i >= limit:
             break
 
-        writer.addSpectrum(
+        writer.add_spectrum(
             raw_spec.mz_list, raw_spec.intensity, raw_spec.coordinate.get_tuple()
         )
 
@@ -107,7 +107,7 @@ class TestDataSwap:
 
         # load meta data
         dm_raw = MSDataManagerImzML(filepath=filepath)
-        dm_raw.load_full_data_from_file()
+        dm_raw.load_head_data()
         dm_raw.inspect_data()
         # load data check
         batch_generator = dm_raw.get_batch_generator()

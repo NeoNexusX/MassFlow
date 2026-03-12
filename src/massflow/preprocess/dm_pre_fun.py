@@ -59,7 +59,7 @@ class Preprocess:
             Preprocess._log_progress(total_batches, batch_idx)
 
         processed_data_manager.close_writer()
-        processed_data_manager.load_full_data_from_file()
+        processed_data_manager.load_head_data()
 
         return processed_data_manager
 

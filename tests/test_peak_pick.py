@@ -105,7 +105,7 @@ class TestPeakPick:
     def data_manager(self) -> MSDataManagerImzML:
         mass_data = MassSpectrumSet()
         dm = MSDataManagerImzML(mass_data, filepath=FILEPATH)
-        dm.load_full_data_from_file()
+        dm.load_head_data()
         return dm
 
     @pytest.mark.parametrize("width", [2])

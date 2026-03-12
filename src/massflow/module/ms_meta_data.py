@@ -6,6 +6,7 @@ License: See LICENSE file in project root
 
 from typing import Optional
 import numpy as np
+
 from massflow.tools.logger import get_logger
 
 logger = get_logger("meta_data")
@@ -48,6 +49,7 @@ class MetaField:
         self.default = default
         self.allow_none = allow_none
         self.converter = converter
+        self.name = ""  # 显式声明，消除警告
 
     def __set_name__(self, owner, name):
         self.name = name
@@ -63,6 +65,10 @@ class MetaField:
         if self.converter and value is not None:
             value = self.converter(value)
         obj._meta[self.name] = value
+
+    def __int__(self):
+        """Allows int() to be called on the descriptor itself when accessed on the class."""
+        return int(self.default) if self.default is not None else 0
 
 
 class MetaDataBase:
@@ -187,4 +193,26 @@ class MetaDataBase:
         for meta_key in self._meta:
             self._meta[meta_key] = getattr(self, meta_key, None)
 
+    def __str__(self):
+        """Format metadata information as a string, skipping None or empty values."""
+        lines = []
+        for attr, value in self.items():
+            # Skip None or effectively empty values
+            if value is None:
+                continue
 
+            shape = getattr(value, "shape", None)
+            if shape is not None:
+                if len(shape) > 0:
+                    val_str = str(shape)
+                else:
+                    # Handle 0-d arrays or empty collections if they have shape
+                    continue
+            else:
+                val_str = str(value)
+            lines.append(f"  meta_{attr}: {val_str}")
+
+        return "\r\n".join(lines)
+
+    def copy(self, other: "MetaDataBase"):
+        pass

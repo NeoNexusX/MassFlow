@@ -20,7 +20,7 @@ def baseline_numba_data_manager(
 ) -> MSDataManagerImzML:
     mass_data = MassSpectrumSet()
     dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
-    dm.load_full_data_from_file()
+    dm.load_head_data()
 
     for _ in dm.get_batch_generator(batch_size=512):
         pass

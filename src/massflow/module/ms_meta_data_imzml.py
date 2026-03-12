@@ -4,9 +4,9 @@ ImzML-specific metadata model.
 Author: MassFlow Development Team Bionet/dre,NeoNeuxs
 License: See LICENSE file in project root
 """
-
 from massflow.module.ms_meta_data import MetaDataBase, MetaField
-
+from massflow.tools.logger import get_logger
+logger = get_logger("module")
 
 class MetaDataImzMl(MetaDataBase):
     """ImzML metadata wrapper that loads and caches frequently used fields."""
@@ -55,3 +55,30 @@ class MetaDataImzMl(MetaDataBase):
         self.msn_spectrum = msn_spectrum
         self.instrument_model = instrument_model
         self.spectrum_count_num = spectrum_count_num
+
+    def copy(self, other: MetaDataBase):
+        """Copy specified metadata from other MetaDataImzMl object to self."""
+
+        if other is None:
+            logger.warning("Source MS has no metadata to copy or meta is none.")
+            return
+
+        exclude_keys = {
+            "mask",
+            "filepath",
+            "spectrum_count_num",
+            "continuous",
+            "processed",
+            "centroid_spectrum",
+            "profile_spectrum",
+        }
+
+        # Iterate through all attributes and copy if they exist in self and are not excluded
+        for key, value in other.items():
+            if key in exclude_keys:
+                continue
+
+            if hasattr(self, key):
+                setattr(self, key, value)
+
+        logger.info("Metadata copy completed.")

@@ -15,7 +15,7 @@ logger = get_logger("test_normalize")
 def denoised_spec() -> Spectrum:
     ms = MassSpectrumSet()
     with MSDataManagerImzML(ms, filepath="data/neg-gz4.imzML") as ms_md:
-        ms_md.load_full_data_from_file()
+        ms_md.load_head_data()
         ms_md.inspect_data()
         sp = ms[0]
         denoised = SpectrumPreprocess.noise_reduction_spectrum(

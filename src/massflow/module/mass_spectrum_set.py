@@ -194,8 +194,8 @@ class MassSpectrumSet:
     @overload
     def __getitem__(self, key: slice) -> List[Spectrum]: ...
 
-    def __getitem__(self,
-                    key: Union[int,Tuple[int, int, int], Tuple[int, int], slice]
+    def __getitem__(
+        self, key: Union[int, Tuple[int, int], Tuple[int, int, int], slice]
     ) -> Union[Spectrum, List[Spectrum]]:
         """
         Retrieve mass spectrum using flexible indexing methods.

@@ -126,6 +126,20 @@ class Spectrum:
         """
         return self.coordinate
 
+    def __str__(self):
+        """Return a string representation of the spectrum basic info."""
+        if self.mz_list is not None and len(self.mz_list) > 0:
+            mz_min, mz_max = min(self.mz_list), max(self.mz_list)
+            intensity_max = max(self.intensity) if self.intensity is not None else 0
+            return (
+                f"  MS len: {len(self)}\r\n"
+                f"  MS range: {mz_min} - {mz_max}\r\n"
+                f"  MS coord: {self.coordinate}\r\n"
+                f"  max and min mz_list: {mz_max} - {mz_min}\r\n"
+                f"  max intensity: {intensity_max}\r\n"
+            )
+        return f"  MS len: 0\r\n  MS coord: {self.coordinate}\r\n"
+
     def __len__(self):
         """Return number of peaks in the spectrum."""
         if self.mz_list is not None:
