@@ -17,7 +17,7 @@ from pyimzml.ImzMLParser import PortableSpectrumReader
 from massflow.module.spectrum import Spectrum
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 from massflow.tools.logger import get_logger
-logger = get_logger("ms_module")
+logger = get_logger("massflow.module.spectrum_imzml")
 
 class SpectrumImzML(Spectrum):
     """

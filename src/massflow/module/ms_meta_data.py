@@ -9,7 +9,7 @@ import numpy as np
 
 from massflow.tools.logger import get_logger
 
-logger = get_logger("meta_data")
+logger = get_logger("massflow.module.meta_data")
 
 META_INDEX = {
     # --- Image Size and Coordinates ---

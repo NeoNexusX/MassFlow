@@ -5,7 +5,7 @@ import shutil
 from typing import Optional, Any, Dict
 from massflow.tools.logger import get_logger
 
-logger = get_logger("R Environment")
+logger = get_logger("massflow.r_preprocess")
 
 _DEFAULT_R_HOME = None
 

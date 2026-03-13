@@ -2,7 +2,7 @@ from contextlib import contextmanager
 import pyimzml.ImzMLParser
 from massflow.tools.logger import get_logger
 
-logger = get_logger("imzml_patch")
+logger = get_logger("massflow.tools")
 
 @contextmanager
 def risky_imzml_loader():
@@ -15,7 +15,7 @@ def risky_imzml_loader():
 
     原理:
         pyimzml 的 _get_cv_param 函数在遇到 None 元素时会报错 (AttributeError)。
-        在进入上下文时替换该函数，遇到 None 直接返回 None，从而绕过报错。
+        在进入上下文时替换该函数，遇到 None 直接返回 None,从而绕过报错。
         退出上下文时自动还原。
     """
 

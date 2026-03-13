@@ -16,7 +16,7 @@ from massflow.tools.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 
-logger = get_logger("ms_data_manager")
+logger = get_logger("massflow.datamanager")
 
 
 class MSDataManager(ABC):

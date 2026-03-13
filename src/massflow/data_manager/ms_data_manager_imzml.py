@@ -17,7 +17,7 @@ from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_meta_data_imzml import MetaDataImzMl
 from massflow.tools.funs import is_valid_file
 
-logger = get_logger("ms_data_manager_imzml")
+logger = get_logger("massflow.datamanager")
 
 
 class MSDataManagerImzML(MSDataManager):

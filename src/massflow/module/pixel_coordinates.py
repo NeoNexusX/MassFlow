@@ -1,7 +1,7 @@
 from typing import Union,Sequence
 from massflow.tools.logger import get_logger
 
-logger = get_logger("ms_module")
+logger = get_logger("massflow.module.pixel_coordinates")
 
 class PixelCoordinates:
     """

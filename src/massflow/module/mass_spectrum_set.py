@@ -17,7 +17,7 @@ from massflow.module.ms_meta_data_imzml import MetaDataImzMl
 from massflow.module.spectrum import Spectrum
 
 
-logger = get_logger("ms_module")
+logger = get_logger("massflow.module.mass_spectrum_set")
 
 class MassSpectrumSet:
     """

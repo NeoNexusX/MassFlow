@@ -8,7 +8,7 @@ from massflow.preprocess.batch_pre_fun import BatchPreprocess
 from massflow.preprocess.helper.peak_align_helper import compute_reference
 from massflow.r_preprocess.adapter import CardinalAdapter
 
-logger = get_logger("dm_pre_fun")
+logger = get_logger("massflow.preprocess")
 
 class Preprocess:
     """

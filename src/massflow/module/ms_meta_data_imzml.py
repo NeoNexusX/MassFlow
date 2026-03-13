@@ -6,7 +6,7 @@ License: See LICENSE file in project root
 """
 from massflow.module.ms_meta_data import MetaDataBase, MetaField
 from massflow.tools.logger import get_logger
-logger = get_logger("module")
+logger = get_logger("massflow.module.meta_data_imzml")
 
 class MetaDataImzMl(MetaDataBase):
     """ImzML metadata wrapper that loads and caches frequently used fields."""

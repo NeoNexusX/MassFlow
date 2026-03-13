@@ -4,7 +4,7 @@ from massflow.module.pixel_coordinates import PixelCoordinates
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 from massflow.tools.logger import get_logger
 
-logger = get_logger("ms_module")
+logger = get_logger("massflow.module.spectrum")
 
 
 class Spectrum:

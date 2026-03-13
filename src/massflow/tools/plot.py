@@ -5,7 +5,7 @@ from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
 from massflow.module.spectrum import Spectrum
 from massflow.tools.logger import get_logger
 
-logger = get_logger("tools.plot")
+logger = get_logger("massflow.tools")
 
 def plot_spectrum(
     base: Optional["Spectrum"] = None,

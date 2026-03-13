@@ -44,7 +44,7 @@ from massflow.preprocess.helper.baseline_correction_helper import baseline_corre
 from massflow.preprocess.helper.est_noise_helper import estimator
 from massflow.preprocess.helper.peak_pick_helper import peak_pick_fun
 
-logger = get_logger("ms_preprocess")
+logger = get_logger("massflow.preprocess")
 
 class SpectrumPreprocess:
     """

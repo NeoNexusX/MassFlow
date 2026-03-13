@@ -7,7 +7,7 @@ from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
 from massflow.preprocess.helper.filter_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
 
-logger = get_logger("batch_pre_fun")
+logger = get_logger("massflow.preprocess")
 
 class BatchPreprocess:
     """
