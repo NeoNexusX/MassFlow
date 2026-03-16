@@ -6,7 +6,6 @@ from massflow.data_manager.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.tools.logger import get_logger
 from massflow.preprocess.batch_pre_fun import BatchPreprocess
 from massflow.preprocess.helper.peak_align_helper import compute_reference
-from massflow.r_preprocess.adapter import CardinalAdapter
 
 logger = get_logger("massflow.preprocess")
 
@@ -27,7 +26,7 @@ class Preprocess:
 
     @staticmethod
     def _log_progress(total_batches: int,
-                           batch_idx: int) -> None:
+                      batch_idx: int) -> None:
         """
         Calculate number of already processed batches based on total batches and batch index.
         """
@@ -62,6 +61,21 @@ class Preprocess:
         processed_data_manager.load_head_data()
 
         return processed_data_manager
+
+    @staticmethod
+    def _get_cardinal_adapter():
+        """
+        Lazy import for optional R/Cardinal backend.
+        """
+        try:
+            from massflow.r_preprocess.adapter import CardinalAdapter  # pylint: disable=import-outside-toplevel
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            raise ImportError(
+                "Cardinal backend requires optional R dependencies. "
+                "Please install with `pip install massflow[r]` and ensure R packages "
+                "'Cardinal' and 'S4Vectors' are available."
+            ) from e
+        return CardinalAdapter
 
     @staticmethod
     def peak_align(data_manager: MSDataManager,
@@ -110,13 +124,14 @@ class Preprocess:
         )
 
         if backend == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
-            return CardinalAdapter.align(data_manager=data_manager,
-                                         reference=ref,
-                                         tolerance=tolerance,
-                                         units=units,
-                                         binfun=binfun,
-                                         binratio=binratio,
-                                         temp_dir=temp_dir)
+            cardinal_adapter = Preprocess._get_cardinal_adapter()
+            return cardinal_adapter.align(data_manager=data_manager,
+                                          reference=ref,
+                                          tolerance=tolerance,
+                                          units=units,
+                                          binfun=binfun,
+                                          binratio=binratio,
+                                          temp_dir=temp_dir)
 
         if ref is None or tolerance is None:
             ref, tolerance = compute_reference(data_manager=data_manager,
@@ -185,11 +200,12 @@ class Preprocess:
         )
 
         if backend == "cardinal" and isinstance(data_manager, MSDataManagerImzML):
-            return CardinalAdapter.peak_pick(data_manager=data_manager,
-                                                method=method,
-                                                snr=snr,
-                                                return_type=return_type,
-                                                temp_dir=temp_dir)
+            cardinal_adapter = Preprocess._get_cardinal_adapter()
+            return cardinal_adapter.peak_pick(data_manager=data_manager,
+                                              method=method,
+                                              snr=snr,
+                                              return_type=return_type,
+                                              temp_dir=temp_dir)
 
         return Preprocess._process_in_batches(
             data_manager=data_manager,
