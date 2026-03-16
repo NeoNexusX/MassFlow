@@ -5,7 +5,6 @@ from massflow.tools.logger import get_logger
 logger = get_logger("massflow")
 
 def main():
-    logger.info("Hello from massflow!")
     file_path = "data/example.imzML"
     ms = MassSpectrumSet()
     with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=file_path) as manager:

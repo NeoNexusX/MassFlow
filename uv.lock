@@ -561,11 +561,6 @@ dependencies = [
     { name = "uuid" },
 ]
 
-[package.optional-dependencies]
-r = [
-    { name = "rpy2" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "black" },
@@ -586,11 +581,9 @@ requires-dist = [
     { name = "pympler", specifier = ">=1.1" },
     { name = "pywavelets", specifier = ">=1.9.0" },
     { name = "rpy2", specifier = ">=3.6.4" },
-    { name = "rpy2", marker = "extra == 'r'", specifier = ">=3.6.4" },
     { name = "scipy", specifier = ">=1.16.3" },
     { name = "uuid", specifier = ">=1.30" },
 ]
-provides-extras = ["r"]
 
 [package.metadata.requires-dev]
 dev = [

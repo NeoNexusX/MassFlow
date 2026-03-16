@@ -122,8 +122,7 @@ class LoggerManager:
         self._configure_root_logger()
 
         self.initialized = True
-        self.get_logger("main").info(
-            f"Logger initialized with level {log_level} and log directory '{self.log_dir}' ")
+        self.get_logger("massflow").info(f"Logger initialized with level {log_level} and log directory '{self.log_dir}' ")
         return self
 
 
