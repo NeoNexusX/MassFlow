@@ -9,7 +9,6 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 import numpy as np
-from pyimzml.metadata import ParamGroup
 from pyimzml.ImzMLParser import ImzMLParser
 from massflow.tools.logger import get_logger
 from massflow.data_manager.ms_data_manager import MSDataManager
@@ -126,7 +125,7 @@ class MSDataManagerImzML(MSDataManager):
         self.loaded_hook()
 
     def extract_metadata(self):
-        """Iterate `meta_index` and populate matching attributes from the parser."""
+        """Extract parser metadata and batch-populate `MetaDataImzMl` fields."""
 
         logger.info("Extracting metadata...")
 
@@ -134,50 +133,13 @@ class MSDataManagerImzML(MSDataManager):
             logger.error("Parser is not initialized. Please set parser or filepath first.")
             raise ValueError("Parser is not initialized. Please set parser or filepath first.")
 
-        for accession_id, prop_name in self.ms.meta.meta_index.items():  # type: ignore
-            param_value = self.find_meta_by_accession_id(accession_id)
-            if param_value is not None:
-                setattr(self.ms.meta, prop_name, param_value)
+        if not isinstance(self.ms.meta, MetaDataImzMl):
+            logger.error("ms.meta is not MetaDataImzMl; cannot populate from ImzML parser.")
+            raise TypeError("ms.meta is not MetaDataImzMl; cannot populate from ImzML parser.")
+
+        self.ms.meta.populate_from_parser(self.parser)
 
         logger.info("Metadata extraction completed.")
-
-    def find_meta_by_accession_id(
-        self, accession_id: str
-    ):
-        """Search the predefined metadata areas for the given accession identifier."""
-
-        search_areas = [
-            self.parser.metadata.file_description,  # File description (data type, creation time, etc.) #type: ignore
-            self.parser.metadata.scan_settings,  # Scan settings (scan mode, m/z range, etc.)#type: ignore
-            self.parser.metadata.instrument_configurations,  # Instrument configuration (model, ion source, etc.)#type: ignore
-            self.parser.metadata.samples,  # Sample information (sample name, preparation, etc.) #type: ignore
-            self.parser.metadata.softwares,  # Software information (parser, version, etc.) #type: ignore
-            self.parser.metadata.data_processings,  # Data processing (peak picking, normalization, etc.) #type: ignore
-            self.parser.metadata.referenceable_param_groups,  # Referenceable parameter groups (shared metadata) #type: ignore
-        ]
-
-        for area in search_areas:
-            if area is None:
-                continue
-
-            result = self._search_in_area(area, accession_id)
-            if result is not None:
-                return result
-
-        return None
-
-    def _search_in_area(self, area, accession_id):
-        """Search a single parameter area (ParamGroup or dict) for the given accession identifier."""
-        if isinstance(area, ParamGroup):
-            if accession_id in area:
-                return area[accession_id]
-
-        elif isinstance(area, dict):
-            for param_group in area.values():
-                if accession_id in param_group:
-                    return param_group[accession_id]
-
-        return None
 
     def close(self):
         """

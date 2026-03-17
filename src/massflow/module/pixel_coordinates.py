@@ -1,7 +1,8 @@
-from typing import Union,Sequence
+from typing import Union, Sequence
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.module.pixel_coordinates")
+
 
 class PixelCoordinates:
     """
@@ -15,10 +16,9 @@ class PixelCoordinates:
         z (int): Z coordinate.
     """
 
-    def __init__(self, 
-                 x: Union[int,Sequence[int],"PixelCoordinates"], 
-                 y: int=0, 
-                 z: int=0):
+    def __init__(
+        self, x: Union[int, Sequence[int], "PixelCoordinates"], y: int = 0, z: int = 0
+    ):
         """
         Initialize pixel coordinates.
 
@@ -37,22 +37,26 @@ class PixelCoordinates:
         self._z = None
 
         if isinstance(x, (list, tuple)) and len(x) == 3:
-            self.x, self.y, self.z = x
+            self._x, self._y, self._z = x
 
         elif isinstance(x, PixelCoordinates):
-            self.x = x.x
-            self.y = x.y
-            self.z = x.z 
+            self._x = x._x
+            self._y = x._y
+            self._z = x._z
 
         elif isinstance(x, int):
-            self.x = x 
-            self.y = y
-            self.z = z
+            self._x = x
+            self._y = y
+            self._z = z
 
         else:
-            logger.error("List x must have exactly three elements with x, y, z coordinates.")
-            raise ValueError("List x must have exactly three elements with x, y, z coordinates..")
-        
+            logger.error(
+                "List x must have exactly three elements with x, y, z coordinates."
+            )
+            raise ValueError(
+                "List x must have exactly three elements with x, y, z coordinates.."
+            )
+
     @property
     def x(self) -> int:
         """
@@ -79,7 +83,7 @@ class PixelCoordinates:
         Returns:
             int: Y coordinate.
         """
-        if self._y is  not None:
+        if self._y is not None:
             return self._y
         else:
             logger.error("Y coordinate is not set.")
@@ -87,7 +91,7 @@ class PixelCoordinates:
 
     @y.setter
     def y(self, value: int):
-        if isinstance(value,int):
+        if isinstance(value, int):
             self._y = value
 
     @property
@@ -103,7 +107,7 @@ class PixelCoordinates:
 
     @z.setter
     def z(self, value: int):
-        if isinstance(value,int):
+        if isinstance(value, int):
             self._z = value
 
     def get_tuple(self) -> tuple:

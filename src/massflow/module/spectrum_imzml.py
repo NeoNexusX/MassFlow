@@ -83,7 +83,9 @@ class SpectrumImzML(Spectrum):
                 # logger.debug(f"Lazy loading spectrum index {self._index} from ImzML file")
                 with open(self._ibd_path, 'rb') as f:
                     mz_list, intensity = self._reader.read_spectrum_from_file(f, self._index)
-                    if self._mz_list is None:
+                    if self.shared_mz_list is not None:
+                        self._mz_list = self.shared_mz_list
+                    elif self._mz_list is None:
                         self._mz_list = mz_list.copy()
                     self._intensity = intensity.copy()
         else:
