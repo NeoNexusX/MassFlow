@@ -25,7 +25,7 @@ def noise_data_manager(data_file_path="Data/other/Example_read/example.imzML") -
     # dm.target_locs = [(1, 1), (width, subset_height)]
 
     dm.load_head_data()
-    for _ in dm.get_batch_generator(batch_size=512):
+    for _ in dm.batch_generator(batch_size=512):
         pass
     return dm
 

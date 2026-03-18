@@ -18,7 +18,7 @@ def normalize_data_manager(data_file_path="Data/other/Example_read/example.imzML
     dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
     dm.load_head_data()
 
-    for _ in dm.get_batch_generator(batch_size=512):
+    for _ in dm.batch_generator(batch_size=512):
         pass
 
     logger.info("data pre-load finished!")

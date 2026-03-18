@@ -12,6 +12,7 @@ Classes:
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
+from contextlib import nullcontext
 from typing import Optional
 from pyimzml.ImzMLParser import PortableSpectrumReader
 from massflow.module.spectrum import Spectrum
@@ -72,25 +73,29 @@ class SpectrumImzML(Spectrum):
                          shared_mz_list=shared_mz_list,
                          sort_by_mz=sort_by_mz,)
 
-    def _resolve_data(self):
+    def resolve_data(self, **kwargs):
         """
         Internal hook to resolve/load data.
         Base implementation handles loading from swap file if available.
         """
-        # this part cant use logger because it may be called x100000
-        if self._reader is not None and self._ibd_path is not None and self._index is not None:
-            if self._intensity is None:
-                # logger.debug(f"Lazy loading spectrum index {self._index} from ImzML file")
-                with open(self._ibd_path, 'rb') as f:
-                    mz_list, intensity = self._reader.read_spectrum_from_file(f, self._index)
-                    if self.shared_mz_list is not None:
-                        self._mz_list = self.shared_mz_list
-                    elif self._mz_list is None:
-                        self._mz_list = mz_list.copy()
-                    self._intensity = intensity.copy()
-        else:
+        if self._intensity is not None:
+            return
+
+        if self._reader is None or self._ibd_path is None or self._index is None:
             logger.error("ImzML spectrum reader or ibd_path or index not properly set.")
             raise ValueError("ImzML spectrum reader or ibd_path or index not properly set.")
+
+        file_handle = kwargs.get("file_handle")
+
+        with nullcontext(file_handle) if file_handle is not None else open(self._ibd_path, "rb") as f:
+            mz_list, intensity = self._reader.read_spectrum_from_file(f, self._index)
+
+        if self.shared_mz_list is not None:
+            self._mz_list = self.shared_mz_list
+        elif self._mz_list is None:
+            self._mz_list = mz_list.copy()
+
+        self._intensity = intensity.copy()
 
     def swap_out2disk(self, writer: ImzMLWriter):
         """Write spectrum data to disk using ImzMLWriter."""

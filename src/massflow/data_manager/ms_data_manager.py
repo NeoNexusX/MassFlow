@@ -10,10 +10,12 @@ import random
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
+from typing import Generator
 import numpy as np
 from massflow.tools.logger import get_logger
 from massflow.module.mass_spectrum_set import MassSpectrumSet
+from massflow.module.spectrum import Spectrum
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 
 logger = get_logger("massflow.datamanager")
@@ -40,7 +42,7 @@ class MSDataManager(ABC):
         self.ms = MassSpectrumSet() if ms is None else ms
 
         # Multi-threading control part
-        self.max_threads = max_threads
+        self._max_threads = max_threads
         self._threads_executor = None
 
         # data type part
@@ -82,6 +84,7 @@ class MSDataManager(ABC):
 
 
 ############# Data define part #############
+
     @property
     def imzml_filepath(self) -> str:
         """Return full .imzML path derived from the base path."""
@@ -93,6 +96,19 @@ class MSDataManager(ABC):
         Return full .ibd path derived from the base path.
         """
         return f"{self.file_base_path}.ibd"
+
+    @property
+    def max_threads(self) -> int:
+        return self._max_threads
+
+    @max_threads.setter
+    def max_threads(self, value: int):
+        if value != self._max_threads:
+            self._max_threads = value
+            if self._threads_executor is not None:
+                logger.info(f"Recreating ThreadPoolExecutor with max_workers={self._max_threads}")
+                self._threads_executor.shutdown(wait=True)
+                self._threads_executor = ThreadPoolExecutor(max_workers=self._max_threads)
 
     @property
     def threads_executor(self) -> ThreadPoolExecutor:
@@ -146,49 +162,11 @@ class MSDataManager(ABC):
     def load_head_data(self):
         """Load data from the configured input file path."""
 
+    @abstractmethod
+    def batch_generator(self, batch_size: int = 256, max_threads: int = 0) -> Generator[list[Spectrum], None, None]:
+        """Get a multi-threaded batch generator."""
 
 ############# Method part #############
-
-    def get_batch_generator(self, batch_size: int = 256, max_threads: int = 0):
-        """Get a multi-threaded batch generator."""
-        # update max_threads if needed
-        if max_threads != 0 and max_threads != self.max_threads:
-            self.max_threads = max_threads
-            # reload thread pool executor
-            if self.threads_executor is not None:
-                self.threads_executor.shutdown(wait=True)
-            self.threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
-
-        total_length = len(self.ms)
-
-        # Nested function for processing a mini-batch
-        def process_mini_batch(mini_batch):
-            """Process a mini-batch."""
-            for sp in mini_batch:
-                _ = sp.intensity  # Trigger the loading of spectrum intensity data
-
-        # Batch processing logic
-        for i in range(0, total_length, batch_size):
-            batch = self.ms[i : i + batch_size]  # Extract the current batch
-
-            if self.threads_executor is not None:
-                # Split the batch into mini-batches based on the number of threads
-                mini_batch_size = max(1, len(batch) // self.max_threads)
-                mini_batches = [ batch[j : j + mini_batch_size] for j in range(0, len(batch), mini_batch_size)]
-
-                # Multi-threaded processing of each mini-batch
-                futures = []
-                for mini_batch in mini_batches:
-                    future = self.threads_executor.submit(process_mini_batch, mini_batch)
-                    futures.append(future)
-
-                # Wait for all mini-batch tasks to complete
-                for future in as_completed(futures):
-                    future.result()  # Ensure all data in the mini-batch has been processed
-
-            # Yield the fully processed batch
-            yield batch
-
 
     def inspect_data(self, inspect_target=None):
         """Inspect the data structure of the MSI object."""

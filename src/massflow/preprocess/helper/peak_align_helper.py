@@ -171,7 +171,7 @@ def estimate_domain(
     ref_method = "x" if units == "relative" else "abs"
     stats = []  # Stores (min_mz, max_mz, resolution)
 
-    for batch in data_manager.get_batch_generator(batch_size=batch_size):
+    for batch in data_manager.batch_generator(batch_size=batch_size):
         for spec in batch:
             # Ensure numpy array for type checkers and np.isfinite
             mz_list = np.asarray(spec.mz_list, dtype=np.float64)
@@ -261,7 +261,7 @@ def bin_peaks(
     peaks_acc = np.zeros(domain.size, dtype=np.float64)  # Peak-position accumulator
     counts = np.zeros(domain.size, dtype=np.int64)  # Counter
 
-    for batch in data_manager.get_batch_generator(batch_size=batch_size):
+    for batch in data_manager.batch_generator(batch_size=batch_size):
         for spec in batch:
             raw_peaks = np.array(spec.mz_list, dtype=np.float64)
 

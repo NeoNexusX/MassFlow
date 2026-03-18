@@ -17,7 +17,7 @@ def baseline_data_manager(data_file_path="Data/other/Example_read/example.imzML"
     dm = MSDataManagerImzML(mass_data, filepath=data_file_path)
     dm.load_head_data()
     #dm.inspect_data()
-    for _ in dm.get_batch_generator(batch_size=512):
+    for _ in dm.batch_generator(batch_size=512):
         pass
     logger.info("data pre-load finished!")
     return dm
@@ -127,7 +127,7 @@ class TestAllBaseline:
 
         dm_subset.target_locs = [(1, 1), (width, subset_height)]
         dm_subset.load_head_data()
-        for _ in dm_subset.get_batch_generator(batch_size=512):
+        for _ in dm_subset.batch_generator(batch_size=512):
             pass
 
         validate_baseline_data(dm_subset, method="asls", batch_size=BATCH_SIZE)

@@ -50,7 +50,7 @@ class Preprocess:
 
         total_batches = Preprocess._total_batches(data_manager, batch_size)
 
-        for batch_idx, batch in enumerate(data_manager.get_batch_generator(batch_size=batch_size), start=1):
+        for batch_idx, batch in enumerate(data_manager.batch_generator(batch_size=batch_size), start=1):
             processed_batch = batch_func(batch_spectra=batch, **batch_kwargs)
             data_manager.clear_batch_data_memory(batch=batch)
             processed_data_manager.swap_batch_data_out2disk(batch=processed_batch, writer=writer)

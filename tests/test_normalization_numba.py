@@ -21,7 +21,7 @@ def norm_data_manager(data_file_path="Data/other/Example_read/example.imzML") ->
     # Note: Using full data load similar to noise reduction test for real-world simulation
     dm.load_head_data()
     # Force generator iteration to ensure data is likely cached/ready if applicable
-    for _ in dm.get_batch_generator(batch_size=512):
+    for _ in dm.batch_generator(batch_size=512):
         pass
     return dm
 

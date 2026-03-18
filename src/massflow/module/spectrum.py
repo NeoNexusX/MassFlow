@@ -49,7 +49,7 @@ class Spectrum:
         # sort part , do not use _sort_by_mz
         self._sort_by_mz = sort_by_mz
 
-    def _resolve_data(self):
+    def resolve_data(self, **kwargs):
         """Method to swap data."""
 
     # lazy load properties
@@ -70,8 +70,7 @@ class Spectrum:
 
     @mz_list.setter
     def mz_list(self, value):
-        if value is None or isinstance(value, np.ndarray):
-            self._mz_list = value
+        self._mz_list = value
 
     @property
     def intensity(self):
@@ -82,7 +81,7 @@ class Spectrum:
             np.ndarray: Array of intensity values.
         """
         if self._intensity is None:
-            self._resolve_data()
+            self.resolve_data()
 
         return self._intensity
 
@@ -98,11 +97,9 @@ class Spectrum:
     def sort_by_mz(self, value: bool = True):
         if value:
             # make sure both mz_list and intensity are not None
-            if (
-                self._sort_by_mz is False
+            if (self._sort_by_mz is False
                 and self.mz_list is not None
-                and self.intensity is not None
-            ):
+                and self.intensity is not None):
                 # sort the data by mz
                 sorted_indices = np.argsort(self.mz_list)
                 self._mz_list = self.mz_list[sorted_indices]
@@ -286,6 +283,7 @@ class Spectrum:
             logger.error("coordinates is not initialized.")
             raise AttributeError("coordinates is not initialized.")
         return self.coordinate.z
+
 
     def swap_out2disk(self, writer: ImzMLWriter):
         """Method to swap data."""

@@ -8,13 +8,18 @@ continuous data.
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
+import os
+from contextlib import nullcontext
+from concurrent.futures import as_completed
+from typing import Generator
 import numpy as np
 from pyimzml.ImzMLParser import ImzMLParser
-from massflow.tools.logger import get_logger
 from massflow.data_manager.ms_data_manager import MSDataManager
+from massflow.module.spectrum import Spectrum
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_meta_data_imzml import MetaDataImzMl
 from massflow.tools.funs import is_valid_file
+from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.datamanager")
 
@@ -162,6 +167,49 @@ class MSDataManagerImzML(MSDataManager):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    def batch_generator(self, batch_size: int = 256, max_threads: int = 0) -> Generator[list[Spectrum], None, None]:
+        """Get a multi-threaded batch generator that yields lists of Spectrum objects."""
+        # update max_threads if needed
+        if max_threads != 0 and max_threads != self.max_threads:
+            self.max_threads = max_threads
+
+        total_length = len(self.ms)
+        has_ibd_file = hasattr(self, "ibd_filepath") and os.path.exists(self.ibd_filepath)
+
+        # Nested function for processing a mini-batch
+        def process_mini_batch(mini_batch, file_handle=None):
+            """Process a mini-batch with optional resolve kwargs."""
+            with  nullcontext(file_handle) if file_handle is  None else file_handle as f:
+                for sp in mini_batch:
+                    sp.resolve_data(file_handle=f)
+
+        # Batch processing logic
+        for i in range(0, total_length, batch_size):
+            batch = self.ms[i : i + batch_size]  # Extract the current batch
+
+            if self.threads_executor is not None:
+                # Split the batch into mini-batches based on the number of threads
+                mini_batch_size = max(1, len(batch) // self.max_threads)
+                mini_batches = [batch[j : j + mini_batch_size] for j in range(0, len(batch), mini_batch_size)]
+
+                # Multi-threaded processing of each mini-batch
+                futures = []
+                for mini_batch in mini_batches:
+                    file_handle= open(self.ibd_filepath, "rb")  if has_ibd_file else None
+
+                    future = self.threads_executor.submit(
+                        process_mini_batch,
+                        mini_batch,
+                        file_handle)
+                    futures.append(future)
+
+                # Wait for all mini-batch tasks to complete
+                for future in as_completed(futures):
+                    future.result()  # Ensure all data in the mini-batch has been processed
+
+            # Yield the fully processed batch
+            yield batch
 
 ####### hook part #########
     def preload_hook(self, *args, **kwargs):

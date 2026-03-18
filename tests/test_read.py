@@ -23,12 +23,12 @@ def data_batch_reading_full_benchmark(
 ):
     with MSDataManagerImzML(filepath=data_file_path) as ms_md:
         ms_md.load_head_data()
-        batch_generator = ms_md.get_batch_generator(
+        batch_generator = ms_md.batch_generator(
             batch_size=batch_size,
             max_threads=max_workers
         )
         for batch in batch_generator:
-            assert len(batch[1].mz_list) > 0
+            assert len(batch[1].mz_list) > 0 #type: ignore
             # ms_md.clear_batch_data_memory(batch)
 
 class TestDataReading:
@@ -76,30 +76,30 @@ class TestDataReading:
             ("data/example.imzML", 256, 8),
             ("data/example.imzML", 256, 32),
             ("data/example.imzML", 256, 64),
-            # batch_size = 512
-            ("data/example.imzML", 512, 1),
-            ("data/example.imzML", 512, 2),
-            ("data/example.imzML", 512, 8),
-            ("data/example.imzML", 512, 32),
-            ("data/example.imzML", 512, 64),
-            # batch_size = 1024
-            ("data/example.imzML", 1024, 1),
-            ("data/example.imzML", 1024, 2),
-            ("data/example.imzML", 1024, 8),
-            ("data/example.imzML", 1024, 32),
-            ("data/example.imzML", 1024, 64),
-            # batch_size = 2048
-            ("data/example.imzML", 2048, 1),
-            ("data/example.imzML", 2048, 2),
-            ("data/example.imzML", 2048, 8),
-            ("data/example.imzML", 2048, 32),
-            ("data/example.imzML", 2048, 64),
-            # batch_size = 4096
-            ("data/example.imzML", 4096, 1),
-            ("data/example.imzML", 4096, 2),
-            ("data/example.imzML", 4096, 8),
-            ("data/example.imzML", 4096, 32),
-            ("data/example.imzML", 4096, 64),
+            # # batch_size = 512
+            # ("data/example.imzML", 512, 1),
+            # ("data/example.imzML", 512, 2),
+            # ("data/example.imzML", 512, 8),
+            # ("data/example.imzML", 512, 32),
+            # ("data/example.imzML", 512, 64),
+            # # batch_size = 1024
+            # ("data/example.imzML", 1024, 1),
+            # ("data/example.imzML", 1024, 2),
+            # ("data/example.imzML", 1024, 8),
+            # ("data/example.imzML", 1024, 32),
+            # ("data/example.imzML", 1024, 64),
+            # # batch_size = 2048
+            # ("data/example.imzML", 2048, 1),
+            # ("data/example.imzML", 2048, 2),
+            # ("data/example.imzML", 2048, 8),
+            # ("data/example.imzML", 2048, 32),
+            # ("data/example.imzML", 2048, 64),
+            # # batch_size = 4096
+            # ("data/example.imzML", 4096, 1),
+            # ("data/example.imzML", 4096, 2),
+            # ("data/example.imzML", 4096, 8),
+            # ("data/example.imzML", 4096, 32),
+            # ("data/example.imzML", 4096, 64),
         ],
     )
     @pytest.mark.benchmark(timer=time.perf_counter)

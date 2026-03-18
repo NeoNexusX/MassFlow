@@ -110,7 +110,7 @@ class TestDataSwap:
         dm_raw.load_head_data()
         dm_raw.inspect_data()
         # load data check
-        batch_generator = dm_raw.get_batch_generator()
+        batch_generator = dm_raw.batch_generator()
         for batch in batch_generator:
             assert len(batch[1]) > 0
 
