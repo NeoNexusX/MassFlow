@@ -130,11 +130,12 @@ class Spectrum:
         if self.mz_list is not None and len(self.mz_list) > 0:
             mz_min, mz_max = min(self.mz_list), max(self.mz_list)
             intensity_max = max(self.intensity) if self.intensity is not None else 0
+
             return (f"  MS len: {len(self)}\r\n"
                     f"  MS range: {mz_min} - {mz_max}\r\n"
                     f"  MS coord: {self.coordinate}\r\n"
-                    f"  max and min mz_list: {mz_max} - {mz_min}\r\n"
                     f"  max intensity: {intensity_max}\r\n")
+
         return f"  MS len: 0\r\n  MS coord: {self.coordinate}\r\n"
 
     def __len__(self):
@@ -248,12 +249,14 @@ class Spectrum:
             logger.error(f"mode {mode} is not supported. use 'new' or 'update'")
             raise ValueError(f"mode {mode} is not supported. use 'new' or 'update'")
 
+
     def is_sorted(self):
         # Check if the mz_list is sorted in ascending order.
         if self.mz_list is not None and self.intensity is not None:
             return np.all(self.mz_list[:-1] <= self.mz_list[1:])
 
         return False
+
 
     def clear_data(self):
         """Clear loaded data from memory (for lazy loading)."""

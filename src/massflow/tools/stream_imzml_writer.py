@@ -528,6 +528,9 @@ class ImzMLWriter:
 
     def finish(self) -> None:
         """close() 的别名"""
+        if getattr(self, "_finished", False):
+            return
+        self._finished = True
         self.ibd.close()
         self._write_xml()
         self.xml.close()

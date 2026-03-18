@@ -139,7 +139,7 @@ class BatchPreprocess:
                 # Copy data into buffer
                 valid_len = lengths[i]
                 intensities_padded[i, :valid_len] = s.intensity.astype(np.float32, copy=False) # type: ignore
-                 
+
             smoothed = smoother(
                 intensities_padded,
                 method=method,
@@ -162,7 +162,7 @@ class BatchPreprocess:
                 valid_len = lengths[i]
                 # Trim result back to original length
                 denoised_intensity = smoothed[i, :valid_len]
-                
+
                 denoised_spectra.append(
                     SpectrumImzML(
                         coordinates=spectrum.coordinate,
@@ -193,7 +193,7 @@ class BatchPreprocess:
             denoised_spectra.append(denoised)
 
         return denoised_spectra
-    
+
     @staticmethod
     def normalization_batch(
         batch_spectra: Sequence[Spectrum],

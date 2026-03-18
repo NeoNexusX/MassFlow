@@ -5,6 +5,7 @@ from massflow.data_manager.ms_data_manager import MSDataManager
 from massflow.data_manager.ms_data_manager_imzml import MSDataManagerImzML
 from massflow.tools.logger import get_logger
 from massflow.preprocess.batch_pre_fun import BatchPreprocess
+from massflow.preprocess.async_pipeline import AsyncPreprocessPipeline
 from massflow.preprocess.helper.peak_align_helper import compute_reference
 
 logger = get_logger("massflow.preprocess")
@@ -13,6 +14,30 @@ class Preprocess:
     """
     Data Manager Preprocessing Functions
     """
+    @staticmethod
+    def pipeline(
+        data_manager: MSDataManager,
+        *,
+        batch_size: int = 256,
+        temp_dir: str = "./temp_pipeline_data",
+        queue_ab_size: int = 3,
+        queue_bc_size: int = 3,
+        keep_order: bool = False,
+    ) -> AsyncPreprocessPipeline:
+        """Build a lazy async preprocess pipeline.
+
+        Registered operations will be lazily reordered by canonical operation order,
+        and only executed when ``start()`` is called on the returned pipeline.
+        """
+        return AsyncPreprocessPipeline(
+            data_manager=data_manager,
+            batch_size=batch_size,
+            temp_dir=temp_dir,
+            queue_ab_size=queue_ab_size,
+            queue_bc_size=queue_bc_size,
+            keep_order=keep_order,
+        )
+
     @staticmethod
     def _total_batches(data_manager: MSDataManager,
                        batch_size: int) -> int:
