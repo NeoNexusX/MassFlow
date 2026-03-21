@@ -137,13 +137,9 @@ class AsyncPreprocessPipeline:
                 if stop_event.is_set():
                     break
                 queue_ab.put(BatchChunk(index=batch_idx, batch=batch))
+                logger.info(f"Stage A: Enqueued batch {batch_idx} with {len(batch)} spectra.")
         except BaseException as exc:  # pylint: disable=broad-exception-caught
-            self._set_error(
-                error_holder=error_holder,
-                error_lock=error_lock,
-                stop_event=stop_event,
-                exc=exc,
-            )
+            self._set_error(error_holder=error_holder,error_lock=error_lock,stop_event=stop_event,exc=exc)
         finally:
             queue_ab.put(None)
 
@@ -177,13 +173,9 @@ class AsyncPreprocessPipeline:
 
                 chunk.batch = current_batch
                 queue_bc.put(chunk)
+
         except BaseException as exc:  # pylint: disable=broad-exception-caught
-            self._set_error(
-                error_holder=error_holder,
-                error_lock=error_lock,
-                stop_event=stop_event,
-                exc=exc,
-            )
+            self._set_error(error_holder=error_holder,error_lock=error_lock,stop_event=stop_event,exc=exc,)
             queue_bc.put(None)
 
     def _flush_chunk(
@@ -280,6 +272,7 @@ class AsyncPreprocessPipeline:
                         written_batches=written_batches,
                         total_batches=total_batches,
                     )
+                    logger.info(f"Stage C: Received batch {chunk.index} with {len(chunk.batch)} spectra. pending batches: {len(pending)}")
                     continue
 
                 pending[chunk.index] = chunk
@@ -291,6 +284,7 @@ class AsyncPreprocessPipeline:
                     written_batches=written_batches,
                     total_batches=total_batches,
                 )
+
         except BaseException as exc:  # pylint: disable=broad-exception-caught
             self._set_error(
                 error_holder=error_holder,

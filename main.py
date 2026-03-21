@@ -17,11 +17,11 @@ def main():
         processed_data_manager = (
             Preprocess.pipeline(
                 data_manager=data_manager,
-                batch_size=256,
+                batch_size=128,
                 temp_dir="./temp_noise_async_data",
-                queue_ab_size=10,
+                queue_ab_size=5,
                 queue_bc_size=10,
-                keep_order=True,
+                keep_order=False,
             )
             .noise_reduction(
                 method="ma_loop",
