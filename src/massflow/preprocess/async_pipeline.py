@@ -137,7 +137,6 @@ class AsyncPreprocessPipeline:
                 if stop_event.is_set():
                     break
                 queue_ab.put(BatchChunk(index=batch_idx, batch=batch))
-                logger.info(f"Stage A: Enqueued batch {batch_idx} with {len(batch)} spectra.")
         except BaseException as exc:  # pylint: disable=broad-exception-caught
             self._set_error(error_holder=error_holder,error_lock=error_lock,stop_event=stop_event,exc=exc)
         finally:
@@ -272,7 +271,6 @@ class AsyncPreprocessPipeline:
                         written_batches=written_batches,
                         total_batches=total_batches,
                     )
-                    logger.info(f"Stage C: Received batch {chunk.index} with {len(chunk.batch)} spectra. pending batches: {len(pending)}")
                     continue
 
                 pending[chunk.index] = chunk
