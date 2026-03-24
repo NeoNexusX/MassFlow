@@ -70,11 +70,18 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 # 安装依赖：
 uv sync 
-uv pip install -e .
+
+# 安装可选 R 后端依赖（需要本机已安装 R）：
+uv sync --extra r
 
 # 运行代码
 uv run python main.py
 ```
+
+- `uv sync` 默认会安装当前项目本身，并以可编辑模式（等价于 `pip install -e .`）安装；如需关闭可编辑安装可使用 `--no-editable`。
+- 默认安装（`uv sync`）不包含 R/Cardinal 后端依赖。
+- 开发依赖位于 `pyproject.toml` 的 `dependency-groups.dev`，安装命令为 `uv sync --group dev`。
+- 如需使用 Cardinal 后端（`backend="cardinal"`），请安装 `r` 可选依赖，并确保系统可找到 R（已加入 PATH 或设置 `R_HOME`）。
 
 - 请先阅读贡献指南：`docs/en/contribution.md` 和 `docs/zh/contribution.md`
 - 命名规范：`docs/en/naming-conventions.md` 和 `docs/zh/naming-conventions.md`

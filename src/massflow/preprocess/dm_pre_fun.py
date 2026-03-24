@@ -97,7 +97,7 @@ class Preprocess:
         except Exception as e:  # pylint: disable=broad-exception-caught
             raise ImportError(
                 "Cardinal backend requires optional R dependencies. "
-                "Please install with `pip install massflow[r]` and ensure R packages "
+                "Please install with `uv sync --extra r` (or `pip install massflow[r]`) and ensure R packages "
                 "'Cardinal' and 'S4Vectors' are available."
             ) from e
         return CardinalAdapter

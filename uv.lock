@@ -546,7 +546,7 @@ wheels = [
 [[package]]
 name = "massflow"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "colorama" },
     { name = "h5py" },
@@ -556,9 +556,13 @@ dependencies = [
     { name = "pyimzml" },
     { name = "pympler" },
     { name = "pywavelets" },
-    { name = "rpy2" },
     { name = "scipy" },
     { name = "uuid" },
+]
+
+[package.optional-dependencies]
+r = [
+    { name = "rpy2" },
 ]
 
 [package.dev-dependencies]
@@ -580,10 +584,11 @@ requires-dist = [
     { name = "pyimzml", specifier = ">=1.5.5" },
     { name = "pympler", specifier = ">=1.1" },
     { name = "pywavelets", specifier = ">=1.9.0" },
-    { name = "rpy2", specifier = ">=3.6.4" },
+    { name = "rpy2", marker = "extra == 'r'", specifier = ">=3.6.4" },
     { name = "scipy", specifier = ">=1.16.3" },
     { name = "uuid", specifier = ">=1.30" },
 ]
+provides-extras = ["r"]
 
 [package.metadata.requires-dev]
 dev = [

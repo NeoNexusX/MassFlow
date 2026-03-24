@@ -72,9 +72,15 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 uv sync 
 uv pip install -e .
 
+# Install optional R backend dependencies (requires local R):
+uv sync --extra r
+
 #run the code
 uv run python main.py
 ```
+
+- Default installation (`uv sync`) does not include R/Cardinal backend dependencies.
+- If you need Cardinal backend (`backend="cardinal"`), install extra dependency group `r` and make sure R is installed and available in PATH (or set `R_HOME`).
 
 - please read Contribution Guide: `docs/en/contribution.md` and `docs/zh/contribution.md`  first 
 - Naming Conventions: `docs/en/naming-conventions.md` and `docs/zh/naming-conventions.md`
