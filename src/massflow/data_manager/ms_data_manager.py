@@ -290,7 +290,7 @@ class MSDataManager(ABC):
 
     def swap_matrix_data_out2disk(
         self,
-        mz_data: np.ndarray,
+        mz_data: np.ndarray | None,
         intensity_matrix: np.ndarray,
         lengths: np.ndarray,
         coordinates: np.ndarray

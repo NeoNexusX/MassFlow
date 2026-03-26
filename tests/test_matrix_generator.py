@@ -105,9 +105,7 @@ class TestMatrixGenerator:
     @pytest.fixture(scope="class")
     def ms_raw_data(self):
 
-        # filepath = r"./data/example.imzML"
-        filepath = r"/Users/dre/Desktop/data/20170105_ADP_larvae_2-2_NEDC001_400x300_20x20.imzML"
-        # filepath = r"/Users/dre/Desktop/data/Example_read/example.imzML"
+        filepath = r"./data/example.imzML"
         if not os.path.exists(filepath):
             pytest.skip(f"Original data not found at {filepath}")
 
