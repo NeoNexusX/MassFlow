@@ -168,6 +168,10 @@ class MSDataManager(ABC):
     def batch_generator(self, batch_size: int = 256, max_threads: int = 0) -> Generator[list[Spectrum], None, None]:
         """Get a multi-threaded batch generator."""
 
+    @abstractmethod
+    def matrix_generator(self, batch_size: int = 256, include_mz: bool = True, max_threads: int = 0):
+        """Get a multi-threaded matrix generator."""
+
 ############# Method part #############
 
     def inspect_data(self, inspect_target=None):
@@ -284,6 +288,30 @@ class MSDataManager(ABC):
         for spec in batch:
             spec.swap_out2disk(writer=writer)
 
+    def swap_matrix_data_out2disk(
+        self,
+        mz_data: np.ndarray,
+        intensity_matrix: np.ndarray,
+        lengths: np.ndarray,
+        coordinates: np.ndarray
+    ):
+        """swap out a matrix of spectra to disk to free memory."""
+        if mz_data is None:
+            logger.error("mz_data is None. Cannot swap matrix data to disk without m/z information.")
+            raise ValueError("mz_data is None. Cannot swap matrix data to disk without m/z information.")
+
+        if not np.issubdtype(coordinates.dtype, np.integer):
+            coordinates = coordinates.astype(np.int32, copy=False)
+
+        is_shared_mz = mz_data.ndim == 1
+
+        for i,(intensity_row, length, coord) in enumerate(zip(intensity_matrix, lengths, coordinates)):
+            length = int(length)
+
+            mz = mz_data[:length] if is_shared_mz else mz_data[i, :length]
+            intensity = intensity_row[:length]
+
+            self.writer.add_spectrum(mz, intensity, tuple(coord.tolist()))
 
     def __enter__(self):
         return self

@@ -19,6 +19,7 @@ from massflow.module.spectrum import Spectrum
 from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_meta_data_imzml import MetaDataImzMl
 from massflow.tools.funs import is_valid_file
+import massflow.tools.read_matrix as matrix_tools
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.datamanager")
@@ -210,6 +211,80 @@ class MSDataManagerImzML(MSDataManager):
 
             # Yield the fully processed batch
             yield batch
+
+    def matrix_generator(
+        self,
+        batch_size: int = 256,
+        include_mz: bool = True,
+        max_threads: int = 0,
+    ):
+        """
+        Read data directly from .ibd into pre-allocated NumPy matrices.
+
+        Args:
+            include_mz: For Processed data only, True returns mz_matrix, False returns None.
+
+        Yields:
+            (mz_data, intensity_matrix, lengths, coordinates)
+
+            mz_data varies by mode:
+                - Continuous → shared_mz (1-D)
+                - Processed + include_mz → mz_matrix (2-D)
+        """
+        # Thread pool management
+        if max_threads != 0 and max_threads != self.max_threads:
+            self.max_threads = max_threads
+
+        # Extract file layout in one pass
+        layout = matrix_tools.extract_ibd_layout(
+            self.parser,
+            self.ibd_filepath,
+            out_intensity_dtype=self.intensity_dtype,
+            out_mz_dtype=self.mz_dtype,
+        )
+
+        # Determine data mode
+        is_continuous: bool = bool(self.ms.meta and self.ms.meta.continuous)
+        shared_mz: np.ndarray | None = (np.asarray(self.ms.shared_mz_list, dtype=self.mz_dtype) if is_continuous else None)
+
+        # Filter target spectrum indices
+        target_indices = matrix_tools.filter_target_indices(layout.coordinates, self.target_locs)
+        total = len(target_indices)
+        if total == 0:
+            return
+
+        # Batch iteration
+        for batch_start in range(0, total, batch_size):
+            batch_end = min(batch_start + batch_size, total)
+            batch_idx = target_indices[batch_start:batch_end]
+            n = len(batch_idx)
+
+            # Batch metadata
+            lengths, max_len, coords = matrix_tools.batch_lengths_and_coords(layout, batch_idx)
+
+            # Prepare mz container
+            if is_continuous:
+                mz_data = shared_mz
+            else:
+                mz_data = np.zeros((n, max_len), dtype=self.mz_dtype) if include_mz else None
+
+            # Continuous mode + disk contiguous
+            if (is_continuous and n > 1 and matrix_tools.is_disk_contiguous(layout, batch_idx, max_len)):
+                intensity = matrix_tools.read_contiguous_block(layout, batch_idx, n, max_len)
+                yield (mz_data, intensity, lengths, coords)
+                continue
+
+            # Fragmented multi-threaded reading
+            intensity = np.zeros((n, max_len), dtype=self.intensity_dtype)
+            matrix_tools.read_fragmented_block(
+                layout,
+                batch_idx,
+                intensity,
+                mz_data if (not is_continuous and include_mz) else None,
+                self.threads_executor,
+                self.max_threads,
+            )
+            yield (mz_data, intensity, lengths, coords)
 
 ####### hook part #########
     def preload_hook(self, *args, **kwargs):
