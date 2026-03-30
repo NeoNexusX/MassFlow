@@ -23,7 +23,7 @@ def run_pipeline_once(batch_size, queue_ab_size, queue_bc_size):
                 queue_ab_size=queue_ab_size,
                 queue_bc_size=queue_bc_size,
             )
-            .noise_reduction(method="ma_numba", window=10)
+            .noise_reduction(method="ma_numba", window=5)
             .start()
         )
         processed_data_manager.close()
@@ -50,4 +50,4 @@ class TestAsyncPipelineProfile:
             iterations=1,
             warmup_rounds=1,
         )
-        drop_caches()
+        # drop_caches()

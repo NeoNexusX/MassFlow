@@ -1,6 +1,6 @@
 from typing import Optional
 import numpy as np
-from numba import jit, prange, set_num_threads
+from numba import jit,njit, prange, set_num_threads
 from scipy.signal import savgol_coeffs
 from scipy.spatial import cKDTree  # type: ignore
 from scipy import stats
@@ -12,78 +12,89 @@ logger = get_logger("massflow.preprocess.noise_reduction_numba")
 # ==================== JIT-accelerated kernels ====================
 
 
-@jit(nopython=True, fastmath=True, cache=True)
-def _ma_loop_core_edge(signal: np.ndarray, window: int) -> np.ndarray:
+@njit(fastmath=True, cache=True)
+def _ma_loop_core_edge(
+    signal: np.ndarray,
+    window: int,
+    valid_len: int,
+    out: np.ndarray,
+) -> None:
     """
     Core Moving Average routine using an explicit sliding window loop (O(N)).
     Simulates mode='edge' padding manually.
     """
-    n = signal.size
-    res = np.empty(n, dtype=np.float32)
+    if valid_len <= 0:
+        return
+
     radius = window // 2
+    inv_window = 1.0 / window
 
     # Initialize running sum for the first element (index 0)
-    current_sum = 0.0
+    left_edge = signal[0]
+    right_edge = signal[valid_len - 1]
 
-    # Calculate initial sum centered at 0: range [-radius, radius]
-    for j in range(-radius, radius + 1):
-        idx = j
-        if idx < 0:
-            val = signal[0]
-        elif idx >= n:
-            val = signal[n - 1]
-        else:
-            val = signal[idx]
-        current_sum += val
+    # Initial centered window around i=0:
+    # [-radius, 0] are all clamped to signal[0], then [1, radius] are data
+    # points (or clamped to right edge when signal is shorter than window).
+    current_sum = left_edge * (radius + 1)
+    right_limit = radius
+    if valid_len - 1 < right_limit:
+        right_limit = valid_len - 1
 
-    res[0] = current_sum / window
+    for j in range(1, right_limit + 1):
+        current_sum += signal[j]
+
+    right_padding = radius - (valid_len - 1)
+    if right_padding > 0:
+        current_sum += right_edge * right_padding
+
+    out[0] = current_sum * inv_window
 
     # Slide the window
-    for i in range(1, n):
+    for i in range(1, valid_len):
         leaving_idx = i - 1 - radius
         entering_idx = i + radius
 
         if leaving_idx < 0:
-            leaving_val = signal[0]
+            leaving_val = left_edge
         else:
             leaving_val = signal[leaving_idx]
 
-        if entering_idx >= n:
-            entering_val = signal[n - 1]
+        if entering_idx >= valid_len:
+            entering_val = right_edge
         else:
             entering_val = signal[entering_idx]
 
         current_sum = current_sum - leaving_val + entering_val
-        res[i] = current_sum / window
-
-    return res
+        out[i] = current_sum * inv_window
 
 
-@jit(nopython=True, parallel=True, cache=True)
-def _ma_loop_batch_jit(
-    intensity: np.ndarray, window: int, lengths: Optional[np.ndarray] = None
+@njit(parallel=True, cache=True,fastmath=True,)
+def _ma_batch_jit(
+    intensity: np.ndarray,
+    window: int,
+    lengths: Optional[np.ndarray] = None
 ) -> np.ndarray:
     """Batch entry point for ma_numba."""
     if intensity.ndim == 1:
-        return _ma_loop_core_edge(intensity, window)
+        n = intensity.size
+        res_1d = np.empty(n, dtype=np.float32)
+        _ma_loop_core_edge(intensity, window, n, res_1d)
+        return res_1d
 
     n_pixels, n_mz = intensity.shape
     res = np.empty((n_pixels, n_mz), dtype=np.float32)
 
-    if lengths is None:
-        for p in prange(n_pixels): # pylint: disable=not-an-iterable
-            res[p] = _ma_loop_core_edge(intensity[p], window)
-    else:
-        for p in prange(n_pixels): # pylint: disable=not-an-iterable
-            valid_len = lengths[p]
-            processed = _ma_loop_core_edge(intensity[p, :valid_len], window)
-            res[p, :valid_len] = processed
+    for p in prange(n_pixels): # pylint: disable=not-an-iterable
+        valid_len = lengths[p] if lengths else n_mz
+        _ma_loop_core_edge(intensity[p], window, valid_len, res[p])
     return res
 
 
-@jit(nopython=True, fastmath=True, cache=True)
+@njit(fastmath=True, cache=True)
 def _savgol_1d_core(signal: np.ndarray,
-                    kernels: np.ndarray) -> np.ndarray:
+                    kernels: np.ndarray
+) -> np.ndarray:
 
     """Core 1D Savitzky-Golay routine handling position-dependent convolution kernels."""
     n = signal.size
@@ -107,7 +118,7 @@ def _savgol_1d_core(signal: np.ndarray,
     return res
 
 
-@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, cache=True, parallel=True)
 def savgol_batch_jit(
     data: np.ndarray, kernels: np.ndarray, lengths: Optional[np.ndarray] = None
 ) -> np.ndarray:
@@ -131,7 +142,7 @@ def savgol_batch_jit(
         return res
 
 
-@jit(nopython=True, fastmath=True, cache=True)
+@njit(fastmath=True, cache=True)
 def _convolve1d_core_edge(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     """Core 1D convolution routine with edge padding."""
     n = signal.size
@@ -152,7 +163,7 @@ def _convolve1d_core_edge(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     return res
 
 
-@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, cache=True, parallel=True)
 def convolve1d_batch_jit(
     data: np.ndarray, kernel: np.ndarray, lengths: Optional[np.ndarray] = None
 ) -> np.ndarray:
@@ -174,7 +185,7 @@ def convolve1d_batch_jit(
         return res
 
 
-@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, cache=True, parallel=True)
 def _ns_gaussian_kernel(
     neigh_intensity: np.ndarray, dists: np.ndarray, sd: float
 ) -> np.ndarray:
@@ -198,7 +209,7 @@ def _ns_gaussian_kernel(
     return out
 
 
-@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, cache=True, parallel=True)
 def _ns_bilateral_kernel(
     neigh_intensity: np.ndarray,
     dists: np.ndarray,
@@ -244,22 +255,17 @@ def smooth_signal_ma_numba(
     numba_max_threads: Optional[int] = None,
 ) -> np.ndarray:
     """
-    Numba implementation using explicit loops (primitive operations).
     Performance is O(N) per spectrum, similar to the numpy cumsum trick,
-    but fully compiled without objmode.
     """
     if numba_max_threads is not None:
         set_num_threads(numba_max_threads)
 
-    if window < 1:
-        raise ValueError("window must be >= 1")
-    if window % 2 == 0:
-        window += 1
+    window =  window + 1 if window % 2 == 0 else window
 
     if intensity.dtype != np.float32:
         intensity = intensity.astype(np.float32)
 
-    return _ma_loop_batch_jit(intensity, window, lengths)
+    return _ma_batch_jit(intensity, window, lengths)
 
 
 # --- Python wrapper layer (handles kernel pre‑computation) ---
@@ -364,7 +370,7 @@ def smooth_signal_gaussian_numba(
 def smooth_ns_signal_gaussian_numba(
     intensity: np.ndarray,
     index: np.ndarray,
-    k: int = 5,
+    window: int = 5,
     p: int = 1,
     sd: float | None = None,
     numba_max_threads: Optional[int] = None,
@@ -376,7 +382,7 @@ def smooth_ns_signal_gaussian_numba(
     """
     if numba_max_threads is not None:
         set_num_threads(numba_max_threads)
-    neigh_intensity, dists, _ = ns_signal_pre(intensity, index, k=k, p=p)
+    neigh_intensity, dists, _ = ns_signal_pre(intensity, index, k=window, p=p)
     dists_max = np.max(dists, axis=1)
     sd_val = np.median(dists_max) / 2.0 if sd is None else sd
     if sd_val <= 0:
@@ -388,9 +394,9 @@ def smooth_ns_signal_gaussian_numba(
 def smooth_ns_signal_bi_numba(
     intensity: np.ndarray,
     index: np.ndarray,
-    k: int = 5,
+    window: int = 5,
     p: int = 2,
-    sd_dist: float | None = None,
+    sd: float | None = None,
     sd_intensity: float | None = None,
     numba_max_threads: Optional[int] = None,
 ) -> np.ndarray:
@@ -402,9 +408,9 @@ def smooth_ns_signal_bi_numba(
     """
     if numba_max_threads is not None:
         set_num_threads(numba_max_threads)
-    neigh_intensity, dists, _ = ns_signal_pre(intensity, index, k=k, p=p)
+    neigh_intensity, dists, _ = ns_signal_pre(intensity, index, k=window, p=p)
     dists_max = np.max(dists, axis=1)
-    sd_dist_val = np.median(dists_max) / 2.0 if sd_dist is None else sd_dist
+    sd_dist_val = np.median(dists_max) / 2.0 if sd is None else sd
     if sd_dist_val <= 0:
         raise ValueError("sd_dist must be positive")
     center = np.asarray(intensity, dtype=np.float64)
