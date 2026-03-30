@@ -1,14 +1,24 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Protocol, Self, Sequence
+from typing import Any, Callable, Literal, Optional, Protocol, Self, Sequence
 
 import numpy as np
 
 from massflow.preprocess.batch_pre_fun import BatchPreprocess
+from massflow.r_preprocess.adapter import CardinalAdapter
 
+TaskScope = Literal["batch", "dataset"]
+Backend = Literal["python", "cardinal"]
 
 class _TaskRegistrar(Protocol):
-    def _register_task(self, name: str, apply_fn: Callable[..., Sequence[Any]], **kwargs) -> Self:
+    def _register_task(
+        self,
+        name: str,
+        *,
+        scope: TaskScope = "batch",
+        apply_fn: Callable[..., Sequence[Any]] | Callable[..., Any],
+        **kwargs: Any,
+    ) -> Self:
         ...
 
 
@@ -32,13 +42,11 @@ class PreprocessorAPI(_TaskRegistrar):
         decreasing: bool = True,
         numba_max_threads: Optional[int] = None,
     ) -> Self:
-        """Register baseline correction task.
-
-        Parameters mirror `BatchPreprocess.baseline_correction_batch` except `batch_spectra`.
-        """
+        """Register baseline correction batch task."""
         return self._register_task(
             "baseline_correction",
-            BatchPreprocess.baseline_correction_batch,
+            scope="batch",
+            apply_fn=BatchPreprocess.baseline_correction_batch,
             method=method,
             smooth=smooth,
             span=span,
@@ -70,13 +78,11 @@ class PreprocessorAPI(_TaskRegistrar):
         threshold_mode: str = "soft",
         numba_max_threads: Optional[int] = 10,
     ) -> Self:
-        """Register noise reduction task.
-
-        Parameters mirror `BatchPreprocess.noise_reduction_batch` except `batch_spectra`.
-        """
+        """Register noise reduction batch task."""
         return self._register_task(
             "noise_reduction",
-            BatchPreprocess.noise_reduction_batch,
+            scope="batch",
+            apply_fn=BatchPreprocess.noise_reduction_batch,
             method=method,
             window=window,
             sd=sd,
@@ -99,13 +105,11 @@ class PreprocessorAPI(_TaskRegistrar):
         scale: float = 1.0,
         numba_max_threads: Optional[int] = None,
     ) -> Self:
-        """Register normalization task.
-
-        Parameters mirror `BatchPreprocess.normalization_batch` except `batch_spectra`.
-        """
+        """Register normalization batch task."""
         return self._register_task(
             "normalization",
-            BatchPreprocess.normalization_batch,
+            scope="batch",
+            apply_fn=BatchPreprocess.normalization_batch,
             scale_method=scale_method,
             method=method,
             scale=scale,
@@ -115,20 +119,37 @@ class PreprocessorAPI(_TaskRegistrar):
     def peak_align(
         self,
         *,
-        ref: np.ndarray,
-        tolerance: float,
+        reference: np.ndarray | None = None,
+        tolerance: float | None = None,
         units: str = "ppm",
+        backend: Backend = "python",
+        binfun: str = "median",
+        binratio: float = 2.0,
+        clear_memory: bool = False,
     ) -> Self:
-        """Register peak alignment task.
+        """Register peak alignment task."""
+        if backend == "cardinal":
+            return self._register_task(
+                "peak_align",
+                scope="dataset",
+                apply_fn=CardinalAdapter.peak_align,
+                reference=reference,
+                tolerance=tolerance,
+                units=units,
+                binfun=binfun,
+                binratio=binratio,
+            )
 
-        Parameters mirror `BatchPreprocess.peak_align_batch` except `batch_spectra`.
-        """
         return self._register_task(
             "peak_align",
-            BatchPreprocess.peak_align_batch,
-            ref=ref,
+            scope="dataset",
+            apply_fn=BatchPreprocess.peak_align_batch,
+            reference=reference,
             tolerance=tolerance,
             units=units,
+            binfun=binfun,
+            binratio=binratio,
+            clear_memory=clear_memory,
         )
 
     def peak_pick(
@@ -140,18 +161,28 @@ class PreprocessorAPI(_TaskRegistrar):
         snr: float = 2.0,
         return_type: str = "height",
         use_numba: bool = True,
+        backend: Backend = "python",
     ) -> Self:
-        """Register peak picking task.
+        """Register peak picking task."""
+        if backend == "cardinal":
+            method = "diff" if method == "origin" else method
+            return self._register_task(
+                "peak_pick",
+                scope="dataset",
+                apply_fn=CardinalAdapter.peak_pick,
+                method=method,
+                snr=snr,
+                return_type=return_type,
+            )
 
-        Parameters mirror `BatchPreprocess.peak_pick_batch` except `batch_spectra`.
-        """
         return self._register_task(
-            "peak_pick",
-            BatchPreprocess.peak_pick_batch,
-            width=width,
-            method=method,
-            relheight=relheight,
-            snr=snr,
-            return_type=return_type,
-            use_numba=use_numba,
-        )
+                "peak_pick",
+                scope="batch",
+                apply_fn=BatchPreprocess.peak_pick_batch,
+                width=width,
+                method=method,
+                relheight=relheight,
+                snr=snr,
+                return_type=return_type,
+                use_numba=use_numba,
+            )

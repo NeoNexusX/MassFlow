@@ -17,7 +17,7 @@ class BatchPreprocess:
     @staticmethod
     def peak_align_batch(
         batch_spectra: Sequence[Spectrum],
-        ref: np.ndarray,
+        reference: np.ndarray,
         tolerance: float,
         units: str = "ppm",
     ) -> Sequence[SpectrumImzML]:
@@ -33,7 +33,7 @@ class BatchPreprocess:
         Returns:
         - Aligned spectra as a sequence of SpectrumImzML objects.
         """
-        if ref is None or tolerance is None:
+        if reference is None or tolerance is None:
             logger.error(
                 "Reference m/z axis and tolerance must be provided for alignment."
             )
@@ -42,7 +42,7 @@ class BatchPreprocess:
         aligned_spectra = []
         for spectrum in batch_spectra:
             aligned_spectrum = SpectrumPreprocess.peak_align_spectrum(
-                spectrum=spectrum, ref=ref, tolerance=tolerance, units=units
+                spectrum=spectrum, reference=reference, tolerance=tolerance, units=units
             )
             aligned_spectra.append(aligned_spectrum)
         return aligned_spectra

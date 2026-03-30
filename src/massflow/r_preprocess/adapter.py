@@ -11,7 +11,7 @@ class CardinalAdapter:
     Preprocessing adapter, calling the R language Cardinal package for data preprocessing.
     """
     @staticmethod
-    def align(data_manager: MSDataManagerImzML,
+    def peak_align(data_manager: MSDataManagerImzML,
               reference=None,
               tolerance=None,
               units: str = "ppm",

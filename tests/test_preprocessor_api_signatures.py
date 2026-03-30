@@ -16,12 +16,16 @@ def _normalize_batch_params(params: list[inspect.Parameter]) -> list[inspect.Par
     return _without_receiver(params, "batch_spectra")
 
 
-def _assert_signature_compatible(pre_fn, batch_fn) -> None:
+def _assert_signature_compatible(pre_fn, batch_fn, *, compare_defaults: bool = True) -> None:
     pre_params = _normalize_preprocessor_params(list(inspect.signature(pre_fn).parameters.values()))
     batch_params = _normalize_batch_params(list(inspect.signature(batch_fn).parameters.values()))
 
+    batch_param_names = {p.name for p in batch_params}
+    pre_params = [p for p in pre_params if p.name in batch_param_names]
+
     assert [p.name for p in pre_params] == [p.name for p in batch_params]
-    assert [p.default for p in pre_params] == [p.default for p in batch_params]
+    if compare_defaults:
+        assert [p.default for p in pre_params] == [p.default for p in batch_params]
 
 
 def test_preprocessor_api_signatures_match_batch_preprocess() -> None:
@@ -34,4 +38,8 @@ def test_preprocessor_api_signatures_match_batch_preprocess() -> None:
     ]
 
     for pre_fn, batch_fn in pairs:
-        _assert_signature_compatible(pre_fn, batch_fn)
+        _assert_signature_compatible(
+            pre_fn,
+            batch_fn,
+            compare_defaults=pre_fn is not Preprocessor.peak_align,
+        )

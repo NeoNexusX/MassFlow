@@ -5,7 +5,7 @@ import numpy as np
 from massflow.tools.logger import get_logger
 from massflow.module import MassSpectrumSet
 from massflow.data_manager import MSDataManagerImzML
-from massflow.preprocess.dm_pre_fun import Preprocess
+from massflow.preprocess import Preprocessor
 from massflow.r_preprocess import set_default_r_home
 
 logger = get_logger("test_peak_alignment")
@@ -17,13 +17,6 @@ ROUND = 1
 
 set_default_r_home("r_home_path_here")  # set R_HOME path here
 
-@pytest.fixture(scope="module")
-def data_manager(filepath=FILEPATH) -> MSDataManagerImzML:
-    mass_data = MassSpectrumSet()
-    dm = MSDataManagerImzML(mass_data, filepath=filepath)
-    dm.load_head_data()
-    return dm
-
 def run_alignment_task(
     dm: MSDataManagerImzML,
     units: str,
@@ -33,14 +26,17 @@ def run_alignment_task(
     backend_method: str = "python",
 ) -> MSDataManagerImzML:
 
-    align_manager = Preprocess.peak_align(
-        data_manager=dm,
-        ref=None,
-        units=units,
-        tolerance=tolerance,
-        binfun=binfun,
-        binratio=binratio,
-        backend=backend_method,
+    align_manager = (
+        Preprocessor(dm)
+        .peak_align(
+            reference=None,
+            units=units,
+            tolerance=tolerance,
+            binfun=binfun,
+            binratio=binratio,
+            backend=backend_method,
+        )
+        .start()
     )
     return align_manager
 
@@ -138,6 +134,12 @@ def compare_align_result(
 
 class TestPeakAlignment:
     """test peak alignment functionality"""
+    @pytest.fixture(scope="class")
+    def data_manager(self) -> MSDataManagerImzML:
+        mass_data = MassSpectrumSet()
+        dm = MSDataManagerImzML(mass_data, filepath=FILEPATH)
+        dm.load_head_data()
+        return dm
 
     @pytest.mark.parametrize("units, tolerance", [("ppm", None)])
     @pytest.mark.parametrize("binfun", ["median"])
