@@ -13,7 +13,7 @@ logger = get_logger("massflow.preprocess.noise_reduction_numba")
 
 
 @njit(fastmath=True, cache=True)
-def _ma_loop_core_edge(
+def _ma_core(
     signal: np.ndarray,
     window: int,
     valid_len: int,
@@ -69,7 +69,7 @@ def _ma_loop_core_edge(
         out[i] = current_sum * inv_window
 
 
-@njit(parallel=True, cache=True,fastmath=True,)
+@jit(nopython=True, parallel=True, cache=True,fastmath=True,)
 def _ma_batch_jit(
     intensity: np.ndarray,
     window: int,
@@ -79,15 +79,16 @@ def _ma_batch_jit(
     if intensity.ndim == 1:
         n = intensity.size
         res_1d = np.empty(n, dtype=np.float32)
-        _ma_loop_core_edge(intensity, window, n, res_1d)
+        _ma_core(intensity, window, n, res_1d)
         return res_1d
 
     n_pixels, n_mz = intensity.shape
     res = np.empty((n_pixels, n_mz), dtype=np.float32)
 
     for p in prange(n_pixels): # pylint: disable=not-an-iterable
-        valid_len = lengths[p] if lengths else n_mz
-        _ma_loop_core_edge(intensity[p], window, valid_len, res[p])
+        valid_len = lengths[p] if lengths is not None else n_mz
+        _ma_core(intensity[p], window, valid_len, res[p])
+
     return res
 
 
