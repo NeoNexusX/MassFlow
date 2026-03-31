@@ -5,6 +5,8 @@ from massflow.tools.logger import get_logger
 from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
+from massflow.tools.batch2matrix import batch_to_matrix, matrix_to_batch
+from massflow.preprocess.helper.peak_align_helper import align_spectra_parallel
 
 logger = get_logger("massflow.preprocess")
 
@@ -45,6 +47,37 @@ class BatchPreprocess:
                 spectrum=spectrum, reference=reference, tolerance=tolerance, units=units
             )
             aligned_spectra.append(aligned_spectrum)
+        return aligned_spectra
+
+    @staticmethod
+    def peak_align_parallel(
+        batch_spectra: Sequence[Spectrum],
+        reference: np.ndarray,
+        tolerance: float,
+        units: str = "ppm",
+    ) -> Sequence[SpectrumImzML]:
+        """
+        Parallel peak alignment for a batch of spectra.
+        """
+        if reference is None or tolerance is None:
+            logger.error(
+                "Reference m/z axis and tolerance must be provided for alignment."
+            )
+            raise ValueError("Reference m/z axis and tolerance are required.")
+
+        mz_matrix, intensity_matrix, lengths = batch_to_matrix(batch_spectra)
+        tolerance = tolerance*1e-6 if units == "ppm" else tolerance
+
+        aligned_intensity = align_spectra_parallel(
+            mz_matrix=mz_matrix,
+            intensity_matrix=intensity_matrix,
+            lengths=lengths,
+            reference=reference,
+            tolerance=tolerance,
+            units=units
+        )
+
+        aligned_spectra = matrix_to_batch(batch_spectra, reference, aligned_intensity, lengths)
         return aligned_spectra
 
     @staticmethod

@@ -492,6 +492,12 @@ def compute_reference(
 
     return reference, tolerance
 
+def parallel_compute_reference():
+    """
+    Parallel compute_reference.
+    """
+    pass
+
 def align_spectrum(
     spectrum: Spectrum,
     reference: NDArray,
@@ -518,4 +524,26 @@ def align_spectrum(
         mz_list=reference,
         intensity=aligned_intensity,
         coordinates=spectrum.coordinate,
+    )
+
+def align_spectra_parallel(
+    mz_matrix: NDArray[np.float64],
+    intensity_matrix: NDArray[np.float64],
+    lengths: NDArray[np.int32],
+    reference: NDArray[np.float64],
+    tolerance: float,
+    units: str = "ppm"
+) -> NDArray[np.float64]:
+    """Align a matrix of spectra to a reference m/z axis."""
+    norm_units = _normalize_units(units)
+    tol_method = "x" if norm_units == "relative" else "abs"
+    code = get_method_code(tol_method)
+
+    return compute.align_spectra_parallel_jit(
+        mz_matrix=mz_matrix,
+        intensity_matrix=intensity_matrix,
+        lengths=lengths,
+        reference=reference,
+        tolerance=tolerance,
+        code=code,
     )

@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.typing import NDArray
-from numba import jit
+from numba import jit, prange
 from massflow.tools.logger import get_logger
 
 logger = get_logger("peak_align_compute")
@@ -155,6 +155,45 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
 
     return aligned
 
+@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+def align_spectra_parallel_jit(
+    mz_matrix: NDArray[np.float64],
+    intensity_matrix: NDArray[np.float64],
+    lengths: NDArray[np.int32],
+    reference: NDArray[np.float64],
+    tolerance: float,
+    code: int,
+) -> NDArray[np.float64]:
+    """Align a batch of spectra in parallel over the spectrum axis.
 
+    Args:
+        mz_matrix: Padded m/z matrix, shape (n_spectra, max_len).
+        intensity_matrix: Padded intensity matrix, shape (n_spectra, max_len).
+        lengths: Valid lengths for each spectrum.
+        reference: Shared reference m/z axis.
+        tolerance: Matching tolerance in absolute or relative units.
+        code: Distance method code (0/1/2).
 
+    Returns:
+        NDArray[np.float64]: Aligned intensities, shape (n_spectra, n_ref).
+    """
+    n_spectra = mz_matrix.shape[0]
+    n_ref = reference.size
+    aligned = np.zeros((n_spectra, n_ref), dtype=np.float64)
 
+    for s in prange(n_spectra):  # pylint: disable=not-an-iterable
+        valid_len = int(lengths[s])
+        if valid_len <= 0:
+            continue
+
+        mz_list = mz_matrix[s, :valid_len]
+        intensity = intensity_matrix[s, :valid_len]
+        aligned[s] = align_spectrum_jit(
+            mz_list=mz_list,
+            intensity=intensity,
+            reference=reference,
+            tolerance=tolerance,
+            code=code,
+        )
+
+    return aligned

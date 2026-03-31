@@ -10,12 +10,12 @@ from massflow.r_preprocess import set_default_r_home
 
 logger = get_logger("test_peak_alignment")
 
-FILEPATH = r"picked.imzML"
+FILEPATH = r"/Users/dre/Desktop/data/20170105_ADP_larvae_2-2_NEDC001_400x300_20x20.imzML"
 MZ_RANGES = [(500, 600)]
 TOLERANCE = 0.10
 ROUND = 1
 
-set_default_r_home("r_home_path_here")  # set R_HOME path here
+set_default_r_home("/Library/Frameworks/R.framework/Resources")  # set R_HOME path here
 
 def run_alignment_task(
     dm: MSDataManagerImzML,
