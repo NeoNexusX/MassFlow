@@ -1,6 +1,6 @@
 from typing import Optional
 import numpy as np
-from numba import jit,njit, prange, set_num_threads
+from numba import njit, prange, set_num_threads
 from scipy.signal import savgol_coeffs
 from scipy.spatial import cKDTree  # type: ignore
 from scipy import stats
@@ -69,19 +69,13 @@ def _ma_core(
         out[i] = current_sum * inv_window
 
 
-@jit(nopython=True, parallel=True, cache=True,fastmath=True,)
+@njit(parallel=True, cache=True,fastmath=True)
 def _ma_batch_jit(
     intensity: np.ndarray,
     window: int,
     lengths: Optional[np.ndarray] = None
 ) -> np.ndarray:
     """Batch entry point for ma_numba."""
-    if intensity.ndim == 1:
-        n = intensity.size
-        res_1d = np.empty(n, dtype=np.float32)
-        _ma_core(intensity, window, n, res_1d)
-        return res_1d
-
     n_pixels, n_mz = intensity.shape
     res = np.empty((n_pixels, n_mz), dtype=np.float32)
 

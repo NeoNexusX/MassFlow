@@ -31,9 +31,9 @@ def run_pipeline_once(batch_size, queue_ab_size, queue_bc_size):
 class TestAsyncPipelineProfile:
     """Memory and runtime profile tests for async pipeline and each internal stage."""
 
-    @pytest.mark.parametrize("batch_size", [128])
-    @pytest.mark.parametrize("queue_ab_size", [1])
-    @pytest.mark.parametrize("queue_bc_size", [1])
+    @pytest.mark.parametrize("batch_size", [1024])
+    @pytest.mark.parametrize("queue_ab_size", [2])
+    @pytest.mark.parametrize("queue_bc_size", [2])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_async_pipeline_benchmark(
         self,
@@ -50,4 +50,4 @@ class TestAsyncPipelineProfile:
             iterations=1,
             warmup_rounds=1,
         )
-        # drop_caches()
+        drop_caches()
