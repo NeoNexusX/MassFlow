@@ -1,6 +1,7 @@
 from typing import Optional
 import numpy as np
-from numba import jit, prange, set_num_threads
+from numba import jit, prange
+from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
 
 # -----------------------------------------------------------------------------
 # Core Calculation Kernels (Helpers)
@@ -157,8 +158,7 @@ def normalizer_numba(
         lengths: (Optional) 1D int array of valid lengths per spectrum.
         numba_max_threads: Max threads to use.
     """
-    if numba_max_threads is not None:
-        set_num_threads(numba_max_threads)
+    apply_numba_runtime(override_workers=numba_max_threads)
 
     # Ensure float, but prefer float32 for speed if input is already float32
     if intensity.dtype not in [np.float32, np.float64]:

@@ -68,7 +68,7 @@ class PreprocessorAPI(_TaskRegistrar):
         delta: float = 1.0,
         wavelet: str = "db4",
         threshold_mode: str = "soft",
-        numba_max_threads: Optional[int] = 1,
+        numba_max_threads: Optional[int] = None,
     ) -> Self:
         """Register noise reduction task.
 

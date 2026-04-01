@@ -1,10 +1,11 @@
 from typing import Optional
 import numpy as np
-from numba import njit, prange, set_num_threads
+from numba import njit, prange
 from scipy.signal import savgol_coeffs
 from scipy.spatial import cKDTree  # type: ignore
 from scipy import stats
 from massflow.tools.logger import get_logger
+from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
 
 logger = get_logger("massflow.preprocess.noise_reduction_numba")
 
@@ -19,34 +20,19 @@ def _ma_core(
     valid_len: int,
     out: np.ndarray,
 ) -> None:
-    """
-    Core Moving Average routine using an explicit sliding window loop (O(N)).
-    Simulates mode='edge' padding manually.
-    """
+
     if valid_len <= 0:
         return
 
     radius = window // 2
     inv_window = 1.0 / window
-
-    # Initialize running sum for the first element (index 0)
     left_edge = signal[0]
     right_edge = signal[valid_len - 1]
 
-    # Initial centered window around i=0:
-    # [-radius, 0] are all clamped to signal[0], then [1, radius] are data
-    # points (or clamped to right edge when signal is shorter than window).
+    # Initialize running sum for the first element
     current_sum = left_edge * (radius + 1)
-    right_limit = radius
-    if valid_len - 1 < right_limit:
-        right_limit = valid_len - 1
-
-    for j in range(1, right_limit + 1):
-        current_sum += signal[j]
-
-    right_padding = radius - (valid_len - 1)
-    if right_padding > 0:
-        current_sum += right_edge * right_padding
+    for j in range(1, radius + 1):
+        current_sum += signal[j] if j < valid_len else right_edge
 
     out[0] = current_sum * inv_window
 
@@ -55,21 +41,14 @@ def _ma_core(
         leaving_idx = i - 1 - radius
         entering_idx = i + radius
 
-        if leaving_idx < 0:
-            leaving_val = left_edge
-        else:
-            leaving_val = signal[leaving_idx]
+        leaving_val = left_edge if leaving_idx < 0 else signal[leaving_idx]
+        entering_val = right_edge if entering_idx >= valid_len else signal[entering_idx]
 
-        if entering_idx >= valid_len:
-            entering_val = right_edge
-        else:
-            entering_val = signal[entering_idx]
-
-        current_sum = current_sum - leaving_val + entering_val
+        current_sum += entering_val - leaving_val
         out[i] = current_sum * inv_window
 
 
-@njit(parallel=True, cache=True,fastmath=True)
+@njit(parallel=True, cache=True, fastmath=False)
 def _ma_batch_jit(
     intensity: np.ndarray,
     window: int,
@@ -252,13 +231,9 @@ def smooth_signal_ma_numba(
     """
     Performance is O(N) per spectrum, similar to the numpy cumsum trick,
     """
-    if numba_max_threads is not None:
-        set_num_threads(numba_max_threads)
+    apply_numba_runtime(override_workers=numba_max_threads)
 
     window =  window + 1 if window % 2 == 0 else window
-
-    if intensity.dtype != np.float32:
-        intensity = intensity.astype(np.float32)
 
     return _ma_batch_jit(intensity, window, lengths)
 
@@ -309,8 +284,7 @@ def smooth_signal_savgol_numba(
         If ``polyorder`` is greater than or equal to the effective window
         length.
     """
-    if numba_max_threads is not None:
-        set_num_threads(numba_max_threads)
+    apply_numba_runtime(override_workers=numba_max_threads)
 
     actual_window = max(3, window + (1 - window % 2))
     if polyorder >= actual_window:
@@ -338,8 +312,7 @@ def smooth_signal_gaussian_numba(
     """
     Numba-accelerated Gaussian smoothing.
     """
-    if numba_max_threads is not None:
-        set_num_threads(numba_max_threads)
+    apply_numba_runtime(override_workers=numba_max_threads)
 
     if window < 1:
         raise ValueError("window must be >= 1")
@@ -375,8 +348,7 @@ def smooth_ns_signal_gaussian_numba(
     Estimates a default spatial scale from neighbour distances when sd is
     None, then applies the parallel Gaussian kernel.
     """
-    if numba_max_threads is not None:
-        set_num_threads(numba_max_threads)
+    apply_numba_runtime(override_workers=numba_max_threads)
     neigh_intensity, dists, _ = ns_signal_pre(intensity, index, k=window, p=p)
     dists_max = np.max(dists, axis=1)
     sd_val = np.median(dists_max) / 2.0 if sd is None else sd
@@ -401,8 +373,7 @@ def smooth_ns_signal_bi_numba(
     MAD-based estimate for sd_intensity, then applies the parallel bilateral
     kernel.
     """
-    if numba_max_threads is not None:
-        set_num_threads(numba_max_threads)
+    apply_numba_runtime(override_workers=numba_max_threads)
     neigh_intensity, dists, _ = ns_signal_pre(intensity, index, k=window, p=p)
     dists_max = np.max(dists, axis=1)
     sd_dist_val = np.median(dists_max) / 2.0 if sd is None else sd

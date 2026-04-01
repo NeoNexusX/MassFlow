@@ -106,7 +106,7 @@ class BatchPreprocess:
 
         Parameters:
         - batch_spectra: Sequence of Spectrum objects to be denoised.
-                - method: One of {'ma','ma_numba','gaussian','gaussian_numba','savgol','savgol_numba','wavelet','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
+        - method: One of {'ma','ma_numba','gaussian','gaussian_numba','savgol','savgol_numba','wavelet','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
         - window: Window size or neighbor count depending on method.
         - sd: Gaussian scale parameter.
         - sd_intensity: Intensity scale for bilateral method.
