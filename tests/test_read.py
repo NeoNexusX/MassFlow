@@ -1,4 +1,5 @@
 import time
+import os
 import subprocess
 import pytest
 from massflow.data_manager import MSDataManagerImzML
@@ -9,7 +10,9 @@ logger = get_logger("test_read")
 ROUND = 5
 
 def drop_caches():
-    subprocess.run(['sudo', 'purge'], check=True)
+    if os.name == "nt":
+        return
+    subprocess.run(["sudo", "purge"], check=True)
 
 def data_reading_benchmark(data_file_path="data/example.imzML"):
     with MSDataManagerImzML(filepath=data_file_path) as ms_md:

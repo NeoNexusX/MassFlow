@@ -1,4 +1,5 @@
 import time
+import os
 import subprocess
 import pytest
 from massflow.data_manager import MSDataManagerImzML
@@ -10,7 +11,9 @@ ROUND = 1
 
 
 def drop_caches():
-    subprocess.run(['sudo', 'purge'], check=True)
+    if os.name == "nt":
+        return
+    subprocess.run(["sudo", "purge"], check=True)
 
 
 def run_pipeline_once(batch_size, queue_ab_size, queue_bc_size):

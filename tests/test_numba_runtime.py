@@ -6,7 +6,6 @@ from massflow.preprocess.numba.numba_runtime import (
     detect_performance_core_workers,
     get_global_numba_runtime,
     get_logical_cpu_count,
-    optimize_numba_runtime_for_platform,
     set_global_numba_runtime,
 )
 
@@ -84,15 +83,3 @@ def test_detect_performance_core_workers_returns_positive_int() -> None:
     count = detect_performance_core_workers()
     assert isinstance(count, int)
     assert count >= 1
-
-
-def test_optimize_numba_runtime_for_platform_respects_cap() -> None:
-    applied = optimize_numba_runtime_for_platform(max_workers=1)
-    assert applied == 1
-    assert get_global_numba_runtime()["max_workers"] == 1
-    assert get_num_threads() == 1
-
-
-def test_optimize_numba_runtime_for_platform_validates_cap() -> None:
-    with pytest.raises(ValueError):
-        optimize_numba_runtime_for_platform(max_workers=0)

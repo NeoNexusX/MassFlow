@@ -50,11 +50,11 @@ def speed_process(
     logger.info(f"numba treads set to {get_global_numba_runtime()['max_workers']}\r\n"
                 f"numba system info: {get_num_threads()} threads")
 
-    total_batches = get_batch_total_num(data_manager, batch_size)
+    # total_batches = get_batch_total_num(data_manager, batch_size)
 
     for batch_idx, batch in enumerate(data_manager.batch_generator(batch_size=batch_size), start=1):
         _ = batch_func(batch_spectra=batch, **batch_kwargs)
-        log_process(total_batches, batch_idx)
+        # log_process(total_batches, batch_idx)
 
 
 def get_batch_total_num(data_manager: MSDataManager,

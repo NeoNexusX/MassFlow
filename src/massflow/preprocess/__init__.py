@@ -4,7 +4,6 @@ from massflow.preprocess.numba.numba_runtime import (
     detect_performance_core_workers,
     get_global_numba_runtime,
     get_logical_cpu_count,
-    optimize_numba_runtime_for_platform,
     set_global_numba_runtime,
 )
 
@@ -16,6 +15,5 @@ __all__ = [
     "detect_performance_core_workers",
     "get_global_numba_runtime",
     "get_logical_cpu_count",
-    "optimize_numba_runtime_for_platform",
     "set_global_numba_runtime",
 ]
