@@ -35,12 +35,13 @@ class TestNoiseReductionAPI:
         batch_kwargs = {
             "method": method,
             "window": 5,
+
         }
 
         benchmark.pedantic(
             speed_process,
-            args=(ms_raw_data, 512, BatchPreprocess.noise_reduction_batch, batch_kwargs),
+            args=(ms_raw_data, 4096, BatchPreprocess.noise_reduction_batch, batch_kwargs,8),
             rounds=ROUNDS,
             iterations=1,
-            warmup_rounds=1,
+            warmup_rounds=1, 
         )

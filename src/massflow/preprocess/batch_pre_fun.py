@@ -1,4 +1,5 @@
 from typing import Sequence
+import time
 import numpy as np
 from massflow.module import SpectrumImzML, Spectrum
 from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
@@ -136,12 +137,12 @@ class BatchPreprocess:
             max_len = np.max(lengths)
             n_spectra = len(batch_spectra)
 
-            intensities_padded = np.zeros((n_spectra, max_len), dtype=np.float32)
+            intensities_padded = np.empty((n_spectra, max_len), dtype=np.float32)
 
             for i, s in enumerate(batch_spectra):
                 # Copy data into buffer
                 valid_len = lengths[i]
-                intensities_padded[i, :valid_len] = s.intensity.astype(np.float32, copy=False)  # type: ignore
+                intensities_padded[i, :valid_len] = s.intensity # type: ignore
 
             smoothed = smoother(
                 intensities_padded,
