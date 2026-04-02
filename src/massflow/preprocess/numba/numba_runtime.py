@@ -11,7 +11,7 @@ from numba import get_num_threads, set_num_threads
 
 _NUMBA_RUNTIME_STATE: dict[str, Optional[int]] = {"max_workers": None}
 
-
+# Core detection logic part
 def get_logical_cpu_count() -> int:
     """Return the logical CPU count visible to the current process."""
     return int(count) if (count := os.cpu_count()) and count > 0 else 1
@@ -84,6 +84,8 @@ def detect_performance_core_workers() -> int:
     return detected if detected is not None else get_logical_cpu_count() // 2
 
 
+# Thread control part
+
 def _set_threads_if_needed(target: int) -> None:
     if not isinstance(target, int):
         raise TypeError("max_workers must be an integer or None")
@@ -91,24 +93,6 @@ def _set_threads_if_needed(target: int) -> None:
         raise ValueError("max_workers must be >= 1")
     if get_num_threads() != target:
         set_num_threads(target)
-
-
-def optimize_numba_runtime_for_platform(max_workers: Optional[int] = None) -> int:
-    """
-    Auto-tune Numba default workers using detected performance-core count.
-    If max_workers is provided, the detected worker count is capped by it.
-    """
-    detected = detect_performance_core_workers()
-
-    if max_workers is not None:
-        if not isinstance(max_workers, int):
-            raise TypeError("max_workers must be an integer or None")
-        if max_workers < 1:
-            raise ValueError("max_workers must be >= 1")
-        detected = min(detected, max_workers)
-
-    set_global_numba_runtime(detected)
-    return detected
 
 
 def set_global_numba_runtime(
@@ -139,8 +123,7 @@ def apply_numba_runtime(override_workers: Optional[int] = None) -> int:
     else:
         target = _NUMBA_RUNTIME_STATE["max_workers"]
         if target is None:
-            target = optimize_numba_runtime_for_platform()
-            _NUMBA_RUNTIME_STATE["max_workers"] = target
+            target = detect_performance_core_workers()
 
     _set_threads_if_needed(target)
     return target
