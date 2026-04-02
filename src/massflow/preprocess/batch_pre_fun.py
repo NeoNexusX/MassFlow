@@ -1,11 +1,11 @@
-from typing import Optional, Sequence
+from typing import Sequence
 import numpy as np
 from massflow.module import SpectrumImzML, Spectrum
-from massflow.tools.logger import get_logger
 from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
 
+from massflow.tools.logger import get_logger
 logger = get_logger("massflow.preprocess")
 
 
@@ -42,7 +42,9 @@ class BatchPreprocess:
         aligned_spectra = []
         for spectrum in batch_spectra:
             aligned_spectrum = SpectrumPreprocess.peak_align_spectrum(
-                spectrum=spectrum, ref=ref, tolerance=tolerance, units=units
+                spectrum=spectrum,
+                ref=ref,
+                tolerance=tolerance, units=units
             )
             aligned_spectra.append(aligned_spectrum)
         return aligned_spectra
@@ -100,13 +102,13 @@ class BatchPreprocess:
         delta: float = 1.0,
         wavelet: str = "db4",
         threshold_mode: str = "soft",
-        numba_max_threads: Optional[int] = None,
     ) -> Sequence[SpectrumImzML]:
         """Perform noise reduction on a batch of spectra.
 
         Parameters:
         - batch_spectra: Sequence of Spectrum objects to be denoised.
-        - method: One of {'ma','ma_numba','gaussian','gaussian_numba','savgol','savgol_numba','wavelet','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
+        - method: One of {'ma','ma_numba','gaussian','gaussian_numba','savgol',
+            'savgol_numba','wavelet','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
         - window: Window size or neighbor count depending on method.
         - sd: Gaussian scale parameter.
         - sd_intensity: Intensity scale for bilateral method.
@@ -117,7 +119,6 @@ class BatchPreprocess:
         - delta: Sample spacing for Savitzky-Golay.
         - wavelet: Wavelet family for wavelet denoising.
         - threshold_mode: 'soft' or 'hard' thresholding.
-        - numba_max_threads: Maximum number of threads for Numba parallel execution.
 
         Returns:
         - Sequence of denoised spectra as SpectrumImzML objects.
@@ -156,7 +157,6 @@ class BatchPreprocess:
                 wavelet=wavelet,
                 threshold_mode=threshold_mode,
                 lengths=lengths,  # Pass valid lengths
-                numba_max_threads=numba_max_threads,
             )
 
             denoised_spectra: list[SpectrumImzML] = []
@@ -202,7 +202,6 @@ class BatchPreprocess:
         scale_method: str = "none",
         method: str = "tic",
         scale: float = 1.0,
-        numba_max_threads: Optional[int] = None,
     ) -> Sequence[SpectrumImzML]:
         """Normalize a batch of spectra.
 
@@ -211,7 +210,6 @@ class BatchPreprocess:
         - scale_method: 'none' or 'unit' min-max scaling.
         - method: One of {'tic', 'rms', 'median'}.
         - scale: Cardinal-like amplitude scaling factor applied after normalization.
-        - numba_max_threads: Maximum number of threads for Numba parallel execution.
 
         Returns:
         - Sequence of normalized spectra as SpectrumImzML objects.
@@ -251,7 +249,6 @@ class BatchPreprocess:
                     scale=scale,
                     scale_method=scale_method,
                     lengths=lengths,
-                    numba_max_threads=numba_max_threads,
                 )
 
                 # 3. Reconstruct SpectrumImzML objects
@@ -300,7 +297,6 @@ class BatchPreprocess:
         baseline_scale: float = 1.0,
         m: int | None = None,
         decreasing: bool = True,
-        numba_max_threads: Optional[int] = None,
     ) -> Sequence[SpectrumImzML]:
         """Perform baseline correction on a batch of spectra.
 
@@ -318,7 +314,6 @@ class BatchPreprocess:
         - baseline_scale: Scale factor in (0, 1] applied to estimated baseline.
         - m: SNIP window half-size (>= 1); used when method='snip'.
         - decreasing: SNIP decreasing rule; used when method='snip'.
-        - numba_max_threads: Maximum number of threads for Numba parallel execution.
 
         Returns:
         - Sequence of baseline-corrected spectra.
@@ -342,7 +337,6 @@ class BatchPreprocess:
                 baseline_scale=baseline_scale,
                 m=m,
                 decreasing=decreasing,
-                numba_max_threads=numba_max_threads,
             )
             corrected_spectra.append(corrected)
 

@@ -5,7 +5,6 @@ from scipy.signal import savgol_coeffs
 from scipy.spatial import cKDTree  # type: ignore
 from scipy import stats
 from massflow.tools.logger import get_logger
-from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
 
 logger = get_logger("massflow.preprocess.noise_reduction_numba")
 
@@ -226,13 +225,10 @@ def smooth_signal_ma_numba(
     intensity: np.ndarray,
     window: int = 5,
     lengths: Optional[np.ndarray] = None,
-    numba_max_threads: Optional[int] = None,
 ) -> np.ndarray:
     """
     Performance is O(N) per spectrum, similar to the numpy cumsum trick,
     """
-    apply_numba_runtime(override_workers=numba_max_threads)
-
     window =  window + 1 if window % 2 == 0 else window
 
     return _ma_batch_jit(intensity, window, lengths)
@@ -246,7 +242,6 @@ def smooth_signal_savgol_numba(
     deriv: int = 0,
     delta: float = 1.0,
     lengths: Optional[np.ndarray] = None,
-    numba_max_threads: Optional[int] = None,
 ) -> np.ndarray:
     """
     This function wraps the JIT-compiled Savitzky-Golay implementation and
@@ -284,8 +279,6 @@ def smooth_signal_savgol_numba(
         If ``polyorder`` is greater than or equal to the effective window
         length.
     """
-    apply_numba_runtime(override_workers=numba_max_threads)
-
     actual_window = max(3, window + (1 - window % 2))
     if polyorder >= actual_window:
         raise ValueError("polyorder must be < window")
@@ -307,13 +300,10 @@ def smooth_signal_gaussian_numba(
     window: int = 5,
     sd: Optional[float] = None,
     lengths: Optional[np.ndarray] = None,
-    numba_max_threads: Optional[int] = None,
 ) -> np.ndarray:
     """
     Numba-accelerated Gaussian smoothing.
     """
-    apply_numba_runtime(override_workers=numba_max_threads)
-
     if window < 1:
         raise ValueError("window must be >= 1")
 
@@ -341,14 +331,12 @@ def smooth_ns_signal_gaussian_numba(
     window: int = 5,
     p: int = 1,
     sd: float | None = None,
-    numba_max_threads: Optional[int] = None,
 ) -> np.ndarray:
     """Neighbourhood-smoothing Gaussian (Numba) entry point.
 
     Estimates a default spatial scale from neighbour distances when sd is
     None, then applies the parallel Gaussian kernel.
     """
-    apply_numba_runtime(override_workers=numba_max_threads)
     neigh_intensity, dists, _ = ns_signal_pre(intensity, index, k=window, p=p)
     dists_max = np.max(dists, axis=1)
     sd_val = np.median(dists_max) / 2.0 if sd is None else sd
@@ -365,7 +353,6 @@ def smooth_ns_signal_bi_numba(
     p: int = 2,
     sd: float | None = None,
     sd_intensity: float | None = None,
-    numba_max_threads: Optional[int] = None,
 ) -> np.ndarray:
     """Neighbourhood-smoothing bilateral (Numba) entry point.
 
@@ -373,7 +360,6 @@ def smooth_ns_signal_bi_numba(
     MAD-based estimate for sd_intensity, then applies the parallel bilateral
     kernel.
     """
-    apply_numba_runtime(override_workers=numba_max_threads)
     neigh_intensity, dists, _ = ns_signal_pre(intensity, index, k=window, p=p)
     dists_max = np.max(dists, axis=1)
     sd_dist_val = np.median(dists_max) / 2.0 if sd is None else sd

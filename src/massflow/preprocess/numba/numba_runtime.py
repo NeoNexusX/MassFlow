@@ -54,6 +54,7 @@ def _detect_linux_intel_performance_workers() -> Optional[int]:
             encoding="utf-8", errors="ignore"
         ):
             return None
+
     except OSError:
         return None
 
@@ -80,7 +81,7 @@ def detect_performance_core_workers() -> int:
     elif sys_name == "Linux":
         detected = _detect_linux_intel_performance_workers()
 
-    return detected if detected is not None else get_logical_cpu_count()
+    return detected if detected is not None else get_logical_cpu_count() // 2
 
 
 def _set_threads_if_needed(target: int) -> None:
@@ -93,8 +94,8 @@ def _set_threads_if_needed(target: int) -> None:
 
 
 def optimize_numba_runtime_for_platform(max_workers: Optional[int] = None) -> int:
-    """Auto-tune Numba default workers using detected performance-core count.
-
+    """
+    Auto-tune Numba default workers using detected performance-core count.
     If max_workers is provided, the detected worker count is capped by it.
     """
     detected = detect_performance_core_workers()
@@ -129,13 +130,17 @@ def get_global_numba_runtime() -> dict[str, Optional[int]]:
     return dict(_NUMBA_RUNTIME_STATE)
 
 
-def apply_numba_runtime(override_workers: Optional[int] = None) -> Optional[int]:
-    """Apply per-call worker override, otherwise use global runtime setting."""
-    target = (
-        override_workers
-        if override_workers is not None
-        else _NUMBA_RUNTIME_STATE["max_workers"]
-    )
-    if target is not None:
-        _set_threads_if_needed(target)
+def apply_numba_runtime(override_workers: Optional[int] = None) -> int:
+    """Apply per-call worker override, otherwise use global runtime setting.
+    If the global setting is not initialized, it will optimize it once.
+    """
+    if override_workers is not None:
+        target = override_workers
+    else:
+        target = _NUMBA_RUNTIME_STATE["max_workers"]
+        if target is None:
+            target = optimize_numba_runtime_for_platform()
+            _NUMBA_RUNTIME_STATE["max_workers"] = target
+
+    _set_threads_if_needed(target)
     return target

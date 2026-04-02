@@ -496,7 +496,6 @@ def smoother(
     wavelet: str = "db4",
     threshold_mode: str = "soft",
     lengths: Optional[np.ndarray] = None,
-    numba_max_threads: Optional[int] = None,
 ):
     """
     Unified smoothing entry for multiple methods.
@@ -519,7 +518,6 @@ def smoother(
         wavelet (str): Wavelet family for wavelet denoising.
         threshold_mode (str): 'soft' or 'hard' for wavelet thresholding.
         lengths (Optional[np.ndarray]): Array of valid lengths for each spectrum in a 2D batch.
-        numba_max_threads (Optional[int]): Maximum number of threads for Numba parallel execution.
 
     Returns:
         np.ndarray: Smoothed intensity array.
@@ -572,5 +570,4 @@ def smoother(
         wavelet=wavelet,
         threshold_mode=threshold_mode,
         lengths=lengths,
-        numba_max_threads=numba_max_threads,
     )

@@ -1,6 +1,9 @@
+from typing import Optional
+from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
 from massflow.module import MassSpectrumSet
 from massflow.data_manager import MSDataManagerImzML,MSDataManager
 from massflow.tools import get_logger
+from massflow.preprocess.numba.numba_runtime import get_global_numba_runtime, get_num_threads
 
 logger = get_logger("massflow.tools.dm_process")
 
@@ -10,7 +13,10 @@ def dm_process(
     batch_func,
     batch_kwargs: dict,
     temp_dir: str,
+    numba_max_threads: Optional[int] = None,
 ) -> MSDataManagerImzML:
+
+    apply_numba_runtime(override_workers=numba_max_threads)
 
     processed_ms = MassSpectrumSet()
     processed_data_manager = MSDataManagerImzML(processed_ms, temp_dir=temp_dir)
@@ -37,7 +43,12 @@ def speed_process(
     batch_size: int,
     batch_func,
     batch_kwargs: dict,
+    numba_max_threads: Optional[int] = None,
 ) :
+
+    apply_numba_runtime(override_workers=numba_max_threads)
+    logger.info(f"numba treads set to {get_global_numba_runtime()['max_workers']}\r\n"
+                f"numba system info: {get_num_threads()} threads")
 
     total_batches = get_batch_total_num(data_manager, batch_size)
 

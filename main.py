@@ -14,11 +14,10 @@ def main():
 
         logger.info("Start async pipeline noise reduction with ma_loop")
         processed_data_manager = (
-            Preprocessor(data_manager)
+            Preprocessor(data_manager, numba_max_threads=10)
             .noise_reduction(
                 method="ma_loop",
                 window=10,
-                numba_max_threads=10,
             )
             .start()
         )

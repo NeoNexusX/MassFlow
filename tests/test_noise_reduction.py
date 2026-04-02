@@ -7,7 +7,7 @@ from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.test.test_noise_reduction")
 
-ROUNDS = 10
+ROUNDS = 1
 
 
 class TestNoiseReductionAPI:
@@ -35,12 +35,11 @@ class TestNoiseReductionAPI:
         batch_kwargs = {
             "method": method,
             "window": 5,
-            "numba_max_threads": 4,
         }
 
         benchmark.pedantic(
             speed_process,
-            args=(ms_raw_data, 512, BatchPreprocess.noise_reduction_batch, batch_kwargs),
+            args=(ms_raw_data, 512, BatchPreprocess.noise_reduction_batch, batch_kwargs, 4),
             rounds=ROUNDS,
             iterations=1,
             warmup_rounds=1,

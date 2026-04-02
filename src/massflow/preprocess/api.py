@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Protocol, Self, Sequence
-
+from typing import Any, Callable, Protocol, Self, Sequence
 import numpy as np
-
 from massflow.preprocess.batch_pre_fun import BatchPreprocess
 
 
@@ -30,7 +28,6 @@ class PreprocessorAPI(_TaskRegistrar):
         baseline_scale: float = 1.0,
         m: int | None = None,
         decreasing: bool = True,
-        numba_max_threads: Optional[int] = None,
     ) -> Self:
         """Register baseline correction task.
 
@@ -51,7 +48,6 @@ class PreprocessorAPI(_TaskRegistrar):
             baseline_scale=baseline_scale,
             m=m,
             decreasing=decreasing,
-            numba_max_threads=numba_max_threads,
         )
 
     def noise_reduction(
@@ -68,7 +64,6 @@ class PreprocessorAPI(_TaskRegistrar):
         delta: float = 1.0,
         wavelet: str = "db4",
         threshold_mode: str = "soft",
-        numba_max_threads: Optional[int] = None,
     ) -> Self:
         """Register noise reduction task.
 
@@ -88,7 +83,6 @@ class PreprocessorAPI(_TaskRegistrar):
             delta=delta,
             wavelet=wavelet,
             threshold_mode=threshold_mode,
-            numba_max_threads=numba_max_threads,
         )
 
     def normalization(
@@ -97,7 +91,6 @@ class PreprocessorAPI(_TaskRegistrar):
         scale_method: str = "none",
         method: str = "tic",
         scale: float = 1.0,
-        numba_max_threads: Optional[int] = None,
     ) -> Self:
         """Register normalization task.
 
@@ -109,7 +102,6 @@ class PreprocessorAPI(_TaskRegistrar):
             scale_method=scale_method,
             method=method,
             scale=scale,
-            numba_max_threads=numba_max_threads,
         )
 
     def peak_align(
