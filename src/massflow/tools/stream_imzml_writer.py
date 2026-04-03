@@ -413,6 +413,97 @@ class ImzMLWriter:
         )
         self.spectra.append(s)
 
+    def swap_flat_out2disk(
+        self,
+        mz_flat: Optional[np.ndarray],
+        intensity_flat: np.ndarray,
+        lengths: np.ndarray,
+        coords: np.ndarray,
+        user_params_list: Optional[List[List]] = None
+    ) -> None:
+        """
+        Write a batch of spectra efficiently to disk via pre-computed flat arrays.
+
+        Args:
+            mz_flat: 1D array of total m/z values for the batch (processed) or shared m/z array (continuous).
+            intensity_flat: 1D array of total intensity values for the batch.
+            lengths: Number of points for each spectrum in the batch.
+            coords: Array of spatial coordinates (x, y, [z]) for each spectrum.
+            user_params_list: Optional list of userParams for each spectrum.
+        """
+        if len(lengths) == 0:
+            return
+
+        is_continuous = self.mode == "continuous"
+        num_spectra = len(lengths)
+        if user_params_list is None:
+            user_params_list = [[] for _ in range(num_spectra)]
+
+        mz_bytes_per_elem = self.mz_dtype.itemsize
+        int_bytes_per_elem = self.intensity_dtype.itemsize
+
+        cumulative_lengths = np.zeros(num_spectra, dtype=np.int64)
+        if num_spectra > 1:
+            cumulative_lengths[1:] = np.cumsum(lengths[:-1])
+
+        if is_continuous:
+            # Continuous mode
+            if getattr(self, "first_mz", None) is None:
+                if mz_flat is None:
+                    raise ValueError("mz_flat cannot be None for first spectrum in continuous mode")
+                # Write shared m/z array exactly once 
+                self.first_mz = self._write_binary_fast(mz_flat, self.mz_dtype)
+            
+            mz_offset_shared, mz_len_shared, mz_enc_len_shared = self.first_mz
+            mz_offsets = np.full(num_spectra, mz_offset_shared, dtype=np.int64)
+            mz_lens = np.full(num_spectra, mz_len_shared, dtype=np.int64)
+            mz_enc_lens = np.full(num_spectra, mz_enc_len_shared, dtype=np.int64)
+
+            # intensities logic
+            int_start_offset = self.ibd.tell()
+            if intensity_flat.dtype != self.intensity_dtype:
+                intensity_flat = intensity_flat.astype(self.intensity_dtype, copy=False)
+            
+            self.ibd.write(intensity_flat.tobytes())
+            
+            int_offsets = int_start_offset + cumulative_lengths * int_bytes_per_elem
+            int_lens = lengths
+            int_enc_lens = int_lens * int_bytes_per_elem
+
+        else:
+            # Processed / auto mode
+            if mz_flat is None:
+                raise ValueError("mz_flat cannot be None for processed data in swap_flat_out2disk")
+                
+            mz_start_offset = self.ibd.tell()
+            if mz_flat.dtype != self.mz_dtype:
+                mz_flat = mz_flat.astype(self.mz_dtype, copy=False)
+            self.ibd.write(mz_flat.tobytes())
+            
+            mz_offsets = mz_start_offset + cumulative_lengths * mz_bytes_per_elem
+            mz_lens = lengths
+            mz_enc_lens = mz_lens * mz_bytes_per_elem
+            
+            # Write all intensity data at once
+            int_start_offset = self.ibd.tell()
+            if intensity_flat.dtype != self.intensity_dtype:
+                intensity_flat = intensity_flat.astype(self.intensity_dtype, copy=False)
+            self.ibd.write(intensity_flat.tobytes())
+            int_offsets = int_start_offset + cumulative_lengths * int_bytes_per_elem
+            int_lens = lengths
+            int_enc_lens = int_lens * int_bytes_per_elem
+
+        # Skip computing stats to stick to max IO perf strategy
+        for i in range(num_spectra):
+            s = _Spectrum(
+                coords=tuple(coords[i]),
+                mz_len=mz_lens[i], mz_offset=mz_offsets[i], mz_enc_len=mz_enc_lens[i],
+                int_len=int_lens[i], int_offset=int_offsets[i], int_enc_len=int_enc_lens[i],
+                mz_min=0, mz_max=0, mz_base=0, int_base=0, int_tic=0,
+                userParams=user_params_list[i]
+            )
+            self.spectra.append(s)
+
     def _write_xml(self) -> None:
         """Write imzML XML file"""
         # The following variables are passed to the template engine via locals(), Pylint cannot recognize

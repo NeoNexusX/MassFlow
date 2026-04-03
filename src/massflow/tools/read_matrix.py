@@ -15,11 +15,11 @@ class IbdFileLayout:
     ibd_path: str
 
     # Offset and length of each spectrum — from parser
-    intensity_offsets: Sequence[int]
-    intensity_lengths: Sequence[int]
-    mz_offsets: Sequence[int]
-    mz_lengths: Sequence[int]
-    coordinates: Sequence[tuple[int, int, int]]
+    intensity_offsets: np.ndarray
+    intensity_lengths: np.ndarray
+    mz_offsets: np.ndarray
+    mz_lengths: np.ndarray
+    coordinates: np.ndarray
 
     # dtype on disk
     file_intensity_dtype: np.dtype
@@ -69,11 +69,11 @@ def extract_ibd_layout(
 
     return IbdFileLayout(
         ibd_path=ibd_path,
-        intensity_offsets=parser.intensityOffsets,
-        intensity_lengths=parser.intensityLengths,
-        mz_offsets=parser.mzOffsets,
-        mz_lengths=parser.mzLengths,
-        coordinates=parser.coordinates,
+        intensity_offsets=np.asarray(parser.intensityOffsets, dtype=np.int64),
+        intensity_lengths=np.asarray(parser.intensityLengths, dtype=np.int32),
+        mz_offsets=np.asarray(parser.mzOffsets, dtype=np.int64),
+        mz_lengths=np.asarray(parser.mzLengths, dtype=np.int32),
+        coordinates=np.asarray(parser.coordinates, dtype=np.int32),
         file_intensity_dtype=_PRECISION_DTYPE.get(parser.intensityPrecision, np.dtype(np.float32)),
         file_mz_dtype=_PRECISION_DTYPE.get(parser.mzPrecision, np.dtype(np.float64)),
         out_intensity_dtype=out_intensity_dtype,
@@ -84,40 +84,40 @@ def extract_ibd_layout(
 
 # Index filtering
 def filter_target_indices(
-    coordinates: Sequence[tuple[int, int, int]],
+    coordinates: Sequence[tuple[int, int, int]] | np.ndarray,
     target_locs: Optional[tuple[list[int], list[int]]] = None,
-) -> list[int]:
+) -> np.ndarray:
     """Filter spectrum indices by spatial window."""
+    coords = np.asarray(coordinates)
+
     if target_locs is None:
-        return list(range(len(coordinates)))
+        return np.arange(coords.shape[0], dtype=np.int64)
 
     (x1, y1), (x2, y2) = target_locs
-    return [
-        i for i, (x, y, *_) in enumerate(coordinates)
-        if x1 <= x <= x2 and y1 <= y <= y2
-    ]
+    mask = (
+        (coords[:, 0] >= x1)
+        & (coords[:, 0] <= x2)
+        & (coords[:, 1] >= y1)
+        & (coords[:, 1] <= y2)
+    )
+    return np.nonzero(mask)[0].astype(np.int64, copy=False)
 
 # Batch metadata
 def batch_lengths_and_coords(
     layout: IbdFileLayout,
-    batch_indices: Sequence[int],
+    batch_indices: Sequence[int] | np.ndarray,
 ) -> tuple[np.ndarray, int, np.ndarray]:
     """Calculate length array, maximum length, and coordinate matrix for a batch."""
-    lengths = np.array(
-        [layout.intensity_lengths[i] for i in batch_indices],
-        dtype=np.int32,
-    )
+    idx = np.asarray(batch_indices, dtype=np.intp)
+    lengths = np.take(layout.intensity_lengths, idx).astype(np.int32, copy=False)
     max_len = int(np.max(lengths))
-    coords = np.array(
-        [layout.coordinates[i] for i in batch_indices],
-        dtype=np.int32,
-    )
+    coords = np.take(layout.coordinates, idx, axis=0).astype(np.int32, copy=False)
     return lengths, max_len, coords
 
 # Contiguity detection
 def is_disk_contiguous(
     layout: IbdFileLayout,
-    batch_indices: Sequence[int],
+    batch_indices: Sequence[int] | np.ndarray,
     max_length: int,
 ) -> bool:
     """Check if all intensity data in the batch is physically contiguous on disk."""
@@ -133,7 +133,7 @@ def is_disk_contiguous(
 # Contiguous block reading (Strategy A)
 def read_contiguous_block(
     layout: IbdFileLayout,
-    batch_indices: Sequence[int],
+    batch_indices: Sequence[int] | np.ndarray,
     batch_size: int,
     max_length: int,
 ) -> np.ndarray:
@@ -154,7 +154,7 @@ def read_contiguous_block(
 # Fragmented multi-threaded reading (Strategy B)
 def read_fragmented_block(
     layout: IbdFileLayout,
-    batch_indices: Sequence[int],
+    batch_indices: Sequence[int] | np.ndarray,
     intensity_out: np.ndarray,
     mz_out: Optional[np.ndarray],
     executor: ThreadPoolExecutor,
@@ -172,8 +172,13 @@ def read_fragmented_block(
         mz_out: Pre-allocated mz matrix (for Processed + include_mz);
                 None to skip mz reading.
         executor: Thread pool.
-        max_threads: Number of threads (for splitting mini-batches).
+        max_threads: Number of threads (for splitting mini-batches), must be >= 2.
     """
+    if max_threads < 2:
+        raise ValueError("Single-thread mode is not supported for fragmented matrix reads. Set max_threads >= 2.")
+    if executor is None:
+        raise ValueError("A ThreadPoolExecutor is required for fragmented matrix reads.")
+
     batch_size = len(batch_indices)
     chunk = max(1, (batch_size + max_threads - 1) // max_threads)
 

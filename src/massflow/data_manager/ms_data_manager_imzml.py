@@ -20,6 +20,7 @@ from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_meta_data_imzml import MetaDataImzMl
 from massflow.tools.funs import is_valid_file
 import massflow.tools.read_matrix as matrix_tools
+import massflow.tools.read_flat as flat_tools
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.datamanager")
@@ -169,14 +170,42 @@ class MSDataManagerImzML(MSDataManager):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def batch_generator(self, batch_size: int = 256, max_threads: int = 0) -> Generator[list[Spectrum], None, None]:
-        """Get a multi-threaded batch generator that yields lists of Spectrum objects."""
-        # update max_threads if needed
+    def _ensure_multithread_mode(self, max_threads: int = 0) -> None:
+        """Apply thread configuration and reject single-thread mode for direct I/O generators."""
         if max_threads != 0 and max_threads != self.max_threads:
             self.max_threads = max_threads
 
+        if self.max_threads < 2:
+            raise ValueError("Single-thread mode is not supported. Please set max_threads >= 2.")
+
+    def _prepare_direct_read_context(
+        self,
+        max_threads: int,
+    ) -> tuple[matrix_tools.IbdFileLayout, bool, np.ndarray | None, np.ndarray]:
+        """Build and return common context shared by matrix and flat generators."""
+        self._ensure_multithread_mode(max_threads)
+
+        layout = matrix_tools.extract_ibd_layout(
+            self.parser,
+            self.ibd_filepath,
+            out_intensity_dtype=np.dtype(self.intensity_dtype),
+            out_mz_dtype=np.dtype(self.mz_dtype),
+        )
+        is_continuous: bool = bool(self.ms.meta and self.ms.meta.continuous)
+        shared_mz: np.ndarray | None = (
+            np.asarray(self.ms.shared_mz_list, dtype=self.mz_dtype) if is_continuous else None
+        )
+        target_indices = matrix_tools.filter_target_indices(layout.coordinates, self.target_locs)
+
+        return layout, is_continuous, shared_mz, target_indices
+
+    def batch_generator(self, batch_size: int = 256, max_threads: int = 0) -> Generator[list[Spectrum], None, None]:
+        """Get a multi-threaded batch generator that yields lists of Spectrum objects."""
+        self._ensure_multithread_mode(max_threads)
+
         total_length = len(self.ms)
         has_ibd_file = hasattr(self, "ibd_filepath") and os.path.exists(self.ibd_filepath)
+        executor = self.threads_executor
 
         # Nested function for processing a mini-batch
         def process_mini_batch(mini_batch, file_handle=None):
@@ -189,25 +218,24 @@ class MSDataManagerImzML(MSDataManager):
         for i in range(0, total_length, batch_size):
             batch = self.ms[i : i + batch_size]  # Extract the current batch
 
-            if self.threads_executor is not None:
-                # Split the batch into mini-batches based on the number of threads
-                mini_batch_size = max(1, len(batch) // self.max_threads)
-                mini_batches = [batch[j : j + mini_batch_size] for j in range(0, len(batch), mini_batch_size)]
+            # Split the batch into mini-batches based on the number of threads
+            mini_batch_size = max(1, (len(batch) + self.max_threads - 1) // self.max_threads)
+            mini_batches = [batch[j : j + mini_batch_size] for j in range(0, len(batch), mini_batch_size)]
 
-                # Multi-threaded processing of each mini-batch
-                futures = []
-                for mini_batch in mini_batches:
-                    file_handle= open(self.ibd_filepath, "rb")  if has_ibd_file else None
+            # Multi-threaded processing of each mini-batch
+            futures = []
+            for mini_batch in mini_batches:
+                file_handle= open(self.ibd_filepath, "rb")  if has_ibd_file else None
 
-                    future = self.threads_executor.submit(
-                        process_mini_batch,
-                        mini_batch,
-                        file_handle)
-                    futures.append(future)
+                future = executor.submit(
+                    process_mini_batch,
+                    mini_batch,
+                    file_handle)
+                futures.append(future)
 
-                # Wait for all mini-batch tasks to complete
-                for future in as_completed(futures):
-                    future.result()  # Ensure all data in the mini-batch has been processed
+            # Wait for all mini-batch tasks to complete
+            for future in as_completed(futures):
+                future.result()  # Ensure all data in the mini-batch has been processed
 
             # Yield the fully processed batch
             yield batch
@@ -231,24 +259,7 @@ class MSDataManagerImzML(MSDataManager):
                 - Continuous → shared_mz (1-D)
                 - Processed + include_mz → mz_matrix (2-D)
         """
-        # Thread pool management
-        if max_threads != 0 and max_threads != self.max_threads:
-            self.max_threads = max_threads
-
-        # Extract file layout in one pass
-        layout = matrix_tools.extract_ibd_layout(
-            self.parser,
-            self.ibd_filepath,
-            out_intensity_dtype=np.dtype(self.intensity_dtype),
-            out_mz_dtype=np.dtype(self.mz_dtype),
-        )
-
-        # Determine data mode
-        is_continuous: bool = bool(self.ms.meta and self.ms.meta.continuous)
-        shared_mz: np.ndarray | None = (np.asarray(self.ms.shared_mz_list, dtype=self.mz_dtype) if is_continuous else None)
-
-        # Filter target spectrum indices
-        target_indices = matrix_tools.filter_target_indices(layout.coordinates, self.target_locs)
+        layout, is_continuous, shared_mz, target_indices = self._prepare_direct_read_context(max_threads)
         total = len(target_indices)
         if total == 0:
             return
@@ -285,6 +296,70 @@ class MSDataManagerImzML(MSDataManager):
                 self.max_threads,
             )
             yield (mz_data, intensity, lengths, coords)
+
+    def flat_generator(
+        self,
+        batch_size: int = 256,
+        include_mz: bool = True,
+        max_threads: int = 0,
+    ) -> Generator[tuple, Any, None]:
+        """
+        Read data directly from .ibd into a flat 1D array.
+
+        Args:
+            batch_size: The number of spectra per batch.
+            include_mz: For Processed data only, True returns mz_flat, False returns None for mz.
+            max_threads: Number of threads to use, must be >= 2.
+
+        Yields:
+            (mz_data, intensity_flat, lengths, coordinates)
+
+            mz_data varies by mode:
+                - Continuous → shared_mz (1-D, not flattened per spectrum)
+                - Processed + include_mz → mz_flat (1-D flat array)
+        """
+        layout, is_continuous, shared_mz, target_indices = self._prepare_direct_read_context(max_threads)
+        total = len(target_indices)
+        if total == 0:
+            return
+
+        # Batch iteration
+        for batch_start in range(0, total, batch_size):
+            batch_end = min(batch_start + batch_size, total)
+            batch_idx = target_indices[batch_start:batch_end]
+
+            # Batch metadata
+            lengths, coords, total_elements = flat_tools.batch_lengths_and_coords_flat(layout, batch_idx)
+
+            # Prepare mz container and check contiguous for continuous mode
+            if is_continuous:
+                mz_data = shared_mz
+                actual_bytes = (layout.intensity_offsets[batch_idx[-1]] + layout.intensity_lengths[batch_idx[-1]] * layout.intensity_element_bytes) - layout.intensity_offsets[batch_idx[0]]
+                if actual_bytes == total_elements * layout.intensity_element_bytes:
+                    intensity_flat = flat_tools.read_contiguous_block_flat(layout, batch_idx, total_elements)
+                    yield (mz_data, intensity_flat, lengths, coords)
+                    continue
+            else:
+                mz_data = np.empty(total_elements, dtype=self.mz_dtype) if include_mz else None
+
+            # Calculate offsets for fragmented reading
+            offsets = np.empty(len(lengths), dtype=np.int64)
+            offsets[0] = 0
+            if len(lengths) > 1:
+                np.cumsum(lengths[:-1], dtype=np.int64, out=offsets[1:])
+
+            # Fragmented multi-threaded reading
+            intensity_flat = np.empty(total_elements, dtype=self.intensity_dtype)
+            flat_tools.read_fragmented_block_flat(
+                layout,
+                batch_idx,
+                intensity_flat,
+                mz_data if (not is_continuous and include_mz) else None,
+                offsets,
+                self.threads_executor,
+                self.max_threads,
+            )
+            yield (mz_data, intensity_flat, lengths, coords)
 
 ####### hook part #########
     def preload_hook(self, *args, **kwargs):

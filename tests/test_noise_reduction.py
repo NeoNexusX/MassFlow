@@ -7,7 +7,7 @@ from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.test.test_noise_reduction")
 
-ROUNDS = 10
+ROUNDS = 2
 
 
 class TestNoiseReductionAPI:

@@ -173,6 +173,10 @@ class MSDataManager(ABC):
     def matrix_generator(self, batch_size: int = 256, include_mz: bool = True, max_threads: int = 0) -> Generator[tuple, Any, None]:
         ...
 
+    @abstractmethod
+    def flat_generator(self, batch_size: int = 256, include_mz: bool = True, max_threads: int = 0) -> Generator[tuple, Any, None]:
+        ...
+
 
 ############# Method part #############
     def inspect_data(self, inspect_target=None):
