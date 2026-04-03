@@ -308,7 +308,7 @@ class MSDataManager(ABC):
         is_shared_mz = mz_data.ndim == 1
 
         for i,(intensity_row, length, coord) in enumerate(zip(intensity_matrix, lengths, coordinates)):
-            length = int(length)
+            length = int(len(mz_data)) if is_shared_mz else int(length)
 
             mz = mz_data[:length] if is_shared_mz else mz_data[i, :length]
             intensity = intensity_row[:length]

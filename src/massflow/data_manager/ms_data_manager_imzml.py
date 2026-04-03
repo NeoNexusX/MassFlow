@@ -266,7 +266,7 @@ class MSDataManagerImzML(MSDataManager):
             if is_continuous:
                 mz_data = shared_mz
             else:
-                mz_data = np.zeros((n, max_len), dtype=self.mz_dtype) if include_mz else None
+                mz_data = np.zeros((n, max_len), dtype=self.mz_dtype) if include_mz else None # 将np.zeros换成np.empty以节省内存分配时间，但要确保后续代码正确填充mz_data而不是留下未初始化的值。 TODO
 
             # Continuous mode + disk contiguous
             if (is_continuous and n > 1 and matrix_tools.is_disk_contiguous(layout, batch_idx, max_len)):

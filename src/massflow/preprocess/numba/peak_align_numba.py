@@ -197,3 +197,122 @@ def align_spectra_parallel_jit(
         )
 
     return aligned
+
+@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+def estimate_domain_stats_parallel_jit(
+    mz_matrix: NDArray[np.float64],
+    lengths: NDArray[np.int32],
+    method_code: int,
+):
+    """Estimate (min_mz, max_mz, resolution) for each spectrum row in parallel.
+
+    Args:
+        mz_matrix: Padded m/z matrix, shape (n_spectra, max_len).
+        lengths: Valid lengths for each spectrum.
+        method_code: 0='x', 1='y', 2='abs'.
+
+    Returns:
+        tuple of 1-D arrays:
+            mins: shape (n_spectra,)
+            maxs: shape (n_spectra,)
+            resolutions: shape (n_spectra,)
+    """
+    n_spectra = mz_matrix.shape[0]
+    mins = np.full(n_spectra, np.nan, dtype=np.float64)
+    maxs = np.full(n_spectra, np.nan, dtype=np.float64)
+    resolutions = np.full(n_spectra, np.nan, dtype=np.float64)
+    eps = np.finfo(np.float64).eps
+
+    for s in prange(n_spectra):  # pylint: disable=not-an-iterable
+        valid_len = int(lengths[s])
+        if valid_len <= 1:
+            continue
+
+        row = mz_matrix[s, :valid_len]
+
+        finite_count = 0
+        for i in range(valid_len):
+            if np.isfinite(row[i]):
+                finite_count += 1
+
+        if finite_count <= 1:
+            continue
+
+        vals = np.empty(finite_count, dtype=np.float64)
+        k = 0
+        for i in range(valid_len):
+            v = row[i]
+            if np.isfinite(v):
+                vals[k] = v
+                k += 1
+
+        vals = np.sort(vals)
+        mins[s] = vals[0]
+        maxs[s] = vals[finite_count - 1]
+
+        best = np.inf
+        if method_code == 2:
+            # Absolute resolution: min positive diff
+            for i in range(1, finite_count):
+                d = vals[i] - vals[i - 1]
+                if d > eps and d < best:
+                    best = d
+        else:
+            # Relative resolution: min positive |2*(b-a)/(b+a)|
+            for i in range(1, finite_count):
+                a = vals[i - 1]
+                b = vals[i]
+                den = b + a
+                if den == 0.0:
+                    continue
+                r = 2.0 * (b - a) / den
+                ar = abs(r)
+                if ar > eps and ar < best:
+                    best = ar
+
+        if best != np.inf:
+            resolutions[s] = best
+
+    return mins, maxs, resolutions
+
+
+@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+def search_nearest_matrix_parallel_jit(
+    mz_matrix: NDArray[np.float64],
+    lengths: NDArray[np.int32],
+    targets: NDArray[np.float64],
+    tolerance: float,
+    code: int,
+    nomatch_value: int = -1,
+) -> NDArray[np.int64]:
+    """Parallel nearest-bin search for a batch of spectra.
+
+    Args:
+        mz_matrix: Padded m/z matrix, shape (n_spectra, max_len).
+        lengths: Valid lengths for each spectrum.
+        targets: Sorted reference/domain axis.
+        tolerance: Match tolerance.
+        code: Distance method code.
+        nomatch_value: Fallback index when no match.
+
+    Returns:
+        NDArray[np.int64]: Bin index matrix, shape (n_spectra, max_len).
+    """
+    n_spectra, max_len = mz_matrix.shape
+    out = np.full((n_spectra, max_len), nomatch_value, dtype=np.int64)
+
+    for s in prange(n_spectra):  # pylint: disable=not-an-iterable
+        valid_len = int(lengths[s])
+        if valid_len <= 0:
+            continue
+
+        out[s, :valid_len] = search_nearest_jit(
+            queries=mz_matrix[s, :valid_len],
+            targets=targets,
+            tolerance=tolerance,
+            code=code,
+            nomatch_value=nomatch_value,
+            force_nearest=False,
+        )
+
+    return out

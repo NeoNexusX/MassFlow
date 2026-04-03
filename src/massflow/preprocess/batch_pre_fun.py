@@ -5,7 +5,6 @@ from massflow.tools.logger import get_logger
 from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
-from massflow.tools.batch2matrix import batch_to_matrix, matrix_to_batch
 from massflow.preprocess.helper.peak_align_helper import align_spectra_parallel
 
 logger = get_logger("massflow.preprocess")
@@ -51,7 +50,9 @@ class BatchPreprocess:
 
     @staticmethod
     def peak_align_parallel(
-        batch_spectra: Sequence[Spectrum],
+        mz_data: np.ndarray,
+        intensity_matrix: np.ndarray,
+        lengths: np.ndarray,
         reference: np.ndarray,
         tolerance: float,
         units: str = "ppm",
@@ -60,25 +61,23 @@ class BatchPreprocess:
         Parallel peak alignment for a batch of spectra.
         """
         if reference is None or tolerance is None:
-            logger.error(
-                "Reference m/z axis and tolerance must be provided for alignment."
-            )
-            raise ValueError("Reference m/z axis and tolerance are required.")
+            logger.error("Reference m/z axis and tolerance must be provided for alignment.")
+            raise ValueError("Reference m/z axis and tolerance are required for alignment.")
 
-        mz_matrix, intensity_matrix, lengths = batch_to_matrix(batch_spectra)
+        if mz_data.ndim == 1 and intensity_matrix.ndim > 1:
+            logger.error("Continuous data requires peak picking before alignment.")
+            raise ValueError("Continuous data requires peak picking before alignment.")
+
         tolerance = tolerance*1e-6 if units == "ppm" else tolerance
 
-        aligned_intensity = align_spectra_parallel(
-            mz_matrix=mz_matrix,
+        return align_spectra_parallel(
+            mz_matrix=mz_data,
             intensity_matrix=intensity_matrix,
             lengths=lengths,
             reference=reference,
             tolerance=tolerance,
             units=units
         )
-
-        aligned_spectra = matrix_to_batch(batch_spectra, reference, aligned_intensity, lengths)
-        return aligned_spectra
 
     @staticmethod
     def peak_pick_batch(
