@@ -46,7 +46,7 @@ class Preprocessor(PreprocessorAPI):
         "noise_reduction": 20,
         "normalization": 30,
         "peak_pick": 40,
-        "peak_align": 60,
+        "peak_align": 50,
     }
 
     def __init__(

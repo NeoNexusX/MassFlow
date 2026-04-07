@@ -5,17 +5,17 @@ import numpy as np
 from massflow.tools.logger import get_logger
 from massflow.module import MassSpectrumSet
 from massflow.data_manager import MSDataManagerImzML
-from massflow.preprocess import Preprocessor
+from massflow.preprocess.preprocessor import Preprocessor
 from massflow.r_preprocess import set_default_r_home
 
 logger = get_logger("test_peak_alignment")
 
-FILEPATH = r"/Users/dre/Desktop/data/20170105_ADP_larvae_2-2_NEDC001_400x300_20x20.imzML"
+FILEPATH = r"picked.imzML"
 MZ_RANGES = [(500, 600)]
 TOLERANCE = 0.10
 ROUND = 1
 
-set_default_r_home("/Library/Frameworks/R.framework/Resources")  # set R_HOME path here
+set_default_r_home("r_home_path_here")  # set R_HOME path here
 
 def run_alignment_task(
     dm: MSDataManagerImzML,
@@ -23,22 +23,22 @@ def run_alignment_task(
     binfun: str,
     binratio: int,
     tolerance: Optional[float] = None,
-    backend_method: str = "python",
+    backend: str = "python",
 ) -> MSDataManagerImzML:
 
-    align_manager = (
+    aligned_manager = (
         Preprocessor(dm)
         .peak_align(
-            reference=None,
             units=units,
-            tolerance=tolerance,
             binfun=binfun,
             binratio=binratio,
-            backend=backend_method,
+            tolerance=tolerance,
+            backend=backend,
         )
         .start()
     )
-    return align_manager
+
+    return aligned_manager
 
 def validate_align_result(
     result_manager: MSDataManagerImzML, original_manager: MSDataManagerImzML
@@ -144,7 +144,7 @@ class TestPeakAlignment:
     @pytest.mark.parametrize("units, tolerance", [("ppm", None)])
     @pytest.mark.parametrize("binfun", ["median"])
     @pytest.mark.parametrize("binratio", [2])
-    @pytest.mark.parametrize("backend_method", ["python", "cardinal"])
+    @pytest.mark.parametrize("backend", ["python", "cardinal"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_peak_alignment_benchmark(
         self,
@@ -154,14 +154,14 @@ class TestPeakAlignment:
         tolerance: Optional[float],
         binfun: str,
         binratio: int,
-        backend_method: str,
+        backend: str,
     ) -> None:
         """
         Performance Test: Run peak alignment benchmark.
         """
         dm_align = benchmark.pedantic(
             run_alignment_task,
-            args=(data_manager, units, binfun, binratio, tolerance, backend_method),
+            args=(data_manager, units, binfun, binratio, tolerance, backend),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=0,
@@ -187,11 +187,11 @@ class TestPeakAlignment:
         """
 
         py_align_manager = run_alignment_task(
-            data_manager, units, binfun, binratio, tolerance, backend_method="python"
+            data_manager, units, binfun, binratio, tolerance, backend="python"
         )
 
         r_align_manager = run_alignment_task(
-            data_manager, units, binfun, binratio, tolerance, backend_method="cardinal"
+            data_manager, units, binfun, binratio, tolerance, backend="cardinal"
         )
 
         validate_align_result(py_align_manager, data_manager)

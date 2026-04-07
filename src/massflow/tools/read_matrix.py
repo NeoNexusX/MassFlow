@@ -210,4 +210,4 @@ def read_fragmented_block(
         end = min(i + chunk, batch_size)
         mini_batches.append((batch_indices[i:end], i))
 
-    list(executor.map(_read_chunk, mini_batches)) # map/future TODO
+    list(executor.map(_read_chunk, mini_batches))

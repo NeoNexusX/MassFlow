@@ -12,13 +12,13 @@ class CardinalAdapter:
     """
     @staticmethod
     def peak_align(data_manager: MSDataManagerImzML,
-              reference=None,
-              tolerance=None,
-              units: str = "ppm",
-              binfun: str = "min",
-              binratio: float = 2.0,
-              temp_dir: str = "./temp_align_data"
-              ) -> MSDataManagerImzML:
+                   reference=None,
+                   tolerance=None,
+                   units: str = "ppm",
+                   binfun: str = "min",
+                   binratio: float = 2.0,
+                   temp_dir: str = "./temp_align_data"
+                   ) -> MSDataManagerImzML:
         """
         Call Cardinal::peakAlign for peak alignment.
         """

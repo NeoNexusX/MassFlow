@@ -2,12 +2,11 @@ from typing import Literal, Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
-from numba import set_num_threads
 
-from massflow.tools.logger import get_logger
 from massflow.module import Spectrum, SpectrumImzML
 from massflow.data_manager import MSDataManager
 import massflow.preprocess.numba.peak_align_numba as compute
+from massflow.tools.logger import get_logger
 
 logger = get_logger("peak_alignment")
 
@@ -110,16 +109,6 @@ def generate_relative_sequence(start: float, end: float, step: float) -> NDArray
     indices = np.arange(count, dtype=np.float64)
 
     return start * np.power(ratio, indices)
-
-def _aggregate_resolution_step(resolutions: NDArray[np.float64], binfun: str) -> float:
-    """Aggregate per-spectrum resolution into a global step."""
-    if binfun == "median":
-        return float(np.nanmedian(resolutions))
-    if binfun == "min":
-        return float(np.nanmin(resolutions))
-    if binfun == "max":
-        return float(np.nanmax(resolutions))
-    return float(np.nanmean(resolutions))
 
 def calc_diff(x: NDArray, y: Optional[NDArray] = None, method: str = "y") -> NDArray:
     """Calculate relative or absolute differences between array elements."""
@@ -233,89 +222,6 @@ def estimate_domain(
         step = round(step, 4)  # Round to 4 decimal places
         step = max(MIN_ABSOLUTE_RES, step)  # Ensure not below the minimum resolution
         tolerance = round(step * binratio, 4)  # tolerance = step * binratio
-        domain = np.arange(mz_min, mz_max + step, step, dtype=np.float64)
-
-    return domain, tolerance
-
-def estimate_domain_parallel(
-    data_manager: MSDataManager,
-    binfun: str = "median",
-    binratio: float = 2.0,
-    units: str = "relative",
-    batch_size: int = 256,
-    matrix_max_threads: int = 0,
-) -> Tuple[NDArray, float]:
-    """Parallel domain estimation based on matrix_generator batches."""
-    ref_method = "x" if units == "relative" else "abs"
-    method_code = get_method_code(ref_method)
-
-    stats_batches: list[NDArray[np.float64]] = []
-
-    for mz_data, _, lengths, _ in data_manager.matrix_generator(
-        batch_size=batch_size,
-        include_mz=True,
-        max_threads=matrix_max_threads,
-    ):
-        if mz_data is None:
-            continue
-
-        lengths_arr = np.asarray(lengths, dtype=np.int32)
-        if lengths_arr.size == 0:
-            continue
-
-        mz_arr = np.asarray(mz_data, dtype=np.float64)
-
-        # Continuous mode: shared m/z axis (1-D)
-        if mz_arr.ndim == 1:
-            n_spec = int(lengths_arr.size)
-            batch_stats = np.full((n_spec, 3), np.nan, dtype=np.float64)
-
-            valid_mz = mz_arr[np.isfinite(mz_arr)]
-            if valid_mz.size > 0:
-                res = estimate_resolution(valid_mz, method=ref_method)
-                batch_stats[:, 0] = float(np.min(valid_mz))
-                batch_stats[:, 1] = float(np.max(valid_mz))
-                batch_stats[:, 2] = float(res)
-
-            stats_batches.append(batch_stats)
-            continue
-
-        # Processed mode: per-spectrum m/z matrix (2-D)
-        if mz_arr.ndim != 2:
-            raise ValueError(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1 or 2.")
-
-        mins, maxs, resolutions = compute.estimate_domain_stats_parallel_jit(
-            mz_matrix=mz_arr,
-            lengths=lengths_arr,
-            method_code=method_code,
-        )
-        stats_batches.append(np.column_stack((mins, maxs, resolutions)))
-
-    if not stats_batches:
-        raise ValueError("No matrix batches available for domain estimation.")
-
-    stats_arr = np.vstack(stats_batches)
-
-    mz_min = float(np.floor(np.nanmin(stats_arr[:, 0])))
-    mz_max = float(np.ceil(np.nanmax(stats_arr[:, 1])))
-    resolutions = stats_arr[:, 2]
-
-    step = _aggregate_resolution_step(resolutions, binfun)
-
-    logger.info(
-        f"[parallel] Estimated domain stats: min_mz={mz_min}, max_mz={mz_max}, "
-        f"step={step} (method={binfun})"
-    )
-
-    if units == "relative":
-        step = round(2.0 * step, 6) * 0.5
-        step = max(MIN_RELATIVE_RES, step)
-        tolerance = round(2.0 * (step * binratio), 6) * 0.5
-        domain = generate_relative_sequence(mz_min, mz_max, step)
-    else:
-        step = round(step, 4)
-        step = max(MIN_ABSOLUTE_RES, step)
-        tolerance = round(step * binratio, 4)
         domain = np.arange(mz_min, mz_max + step, step, dtype=np.float64)
 
     return domain, tolerance
@@ -542,154 +448,6 @@ def merge_peaks(
     valid = ~np.isnan(mz_list)
     return mz_list[valid]
 
-def _accumulate_best_matches_for_spectrum(
-    raw_peaks: NDArray[np.float64],
-    bin_indices: NDArray[np.int64],
-    domain: NDArray[np.float64],
-    tol_method: str,
-    peaks_acc: NDArray[np.float64],
-    counts: NDArray[np.int64],
-) -> None:
-    """Apply original one-to-many conflict resolution and accumulate results."""
-    valid_mask = bin_indices >= 0
-    if not np.any(valid_mask):
-        return
-
-    valid_bins = bin_indices[valid_mask].astype(np.int64)
-    valid_peaks = raw_peaks[valid_mask]
-
-    dists = np.abs(calc_diff(valid_peaks, domain[valid_bins], method=tol_method))
-
-    n_valid = valid_bins.size
-    sort_arr = np.empty(n_valid, dtype=[("bin", "i8"), ("dist", "f8"), ("idx", "i8")])
-    sort_arr["bin"] = valid_bins
-    sort_arr["dist"] = dists
-    sort_arr["idx"] = np.arange(n_valid)
-
-    # Keep exactly same semantics as serial code: sort by (bin, dist), then first of each bin
-    sort_arr.sort(order=["bin", "dist"], kind="stable")
-    _, unique_indices = np.unique(sort_arr["bin"], return_index=True)
-
-    best_matches = sort_arr[unique_indices]
-    matched_bins = best_matches["bin"]
-    matched_peaks = valid_peaks[best_matches["idx"]]
-
-    np.add.at(peaks_acc, matched_bins, matched_peaks)
-    np.add.at(counts, matched_bins, 1)
-
-
-def bin_peaks_parallel(
-    data_manager: MSDataManager,
-    domain: NDArray,
-    tolerance: float,
-    tol_method: str = "abs",
-    batch_size: int = 256,
-    matrix_max_threads: int = 0,
-) -> NDArray:
-    """Parallel binning using matrix_generator + parallel nearest search."""
-    logger.info(
-        f"[parallel] Binning peaks: {len(data_manager.ms)} spectra, "
-        f"domain size {domain.size}, tolerance {tolerance}"
-    )
-
-    code = get_method_code(tol_method)
-    peaks_acc = np.zeros(domain.size, dtype=np.float64)
-    counts = np.zeros(domain.size, dtype=np.int64)
-
-    for mz_data, _, lengths, _ in data_manager.matrix_generator(
-        batch_size=batch_size,
-        include_mz=True,
-        max_threads=matrix_max_threads,
-    ):
-        if mz_data is None:
-            continue
-
-        lengths_arr = np.asarray(lengths, dtype=np.int32)
-        if lengths_arr.size == 0:
-            continue
-
-        mz_arr = np.asarray(mz_data, dtype=np.float64)
-
-        # Continuous mode: shared m/z for all spectra in this batch
-        if mz_arr.ndim == 1:
-            raw_peaks = mz_arr
-            if raw_peaks.size == 0:
-                continue
-
-            bin_indices = compute.search_nearest_jit(
-                queries=raw_peaks,
-                targets=domain,
-                tolerance=tolerance,
-                code=code,
-                nomatch_value=-1,
-                force_nearest=False,
-            )
-
-            tmp_peaks_acc = np.zeros_like(peaks_acc)
-            tmp_counts = np.zeros_like(counts)
-            _accumulate_best_matches_for_spectrum(
-                raw_peaks=raw_peaks,
-                bin_indices=bin_indices,
-                domain=domain,
-                tol_method=tol_method,
-                peaks_acc=tmp_peaks_acc,
-                counts=tmp_counts,
-            )
-
-            n_spec = int(lengths_arr.size)
-            if n_spec > 0:
-                peaks_acc += tmp_peaks_acc * n_spec
-                counts += tmp_counts * n_spec
-            continue
-
-        # Processed mode: per-spectrum m/z matrix
-        if mz_arr.ndim != 2:
-            raise ValueError(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1 or 2.")
-
-        nearest_idx = compute.search_nearest_matrix_parallel_jit(
-            mz_matrix=mz_arr,
-            lengths=lengths_arr,
-            targets=domain,
-            tolerance=tolerance,
-            code=code,
-            nomatch_value=-1,
-        )
-
-        n_spectra = mz_arr.shape[0]
-        for s in range(n_spectra):
-            valid_len = int(lengths_arr[s])
-            if valid_len <= 0:
-                continue
-
-            raw_peaks = mz_arr[s, :valid_len]
-            bin_indices = nearest_idx[s, :valid_len]
-
-            _accumulate_best_matches_for_spectrum(
-                raw_peaks=raw_peaks,
-                bin_indices=bin_indices,
-                domain=domain,
-                tol_method=tol_method,
-                peaks_acc=peaks_acc,
-                counts=counts,
-            )
-
-    nonzero = counts != 0
-    peaks_acc[nonzero] /= counts[nonzero]
-    peaks_acc[~nonzero] = np.nan
-
-    valid_mask = ~np.isnan(peaks_acc)
-    valid_peaks = peaks_acc[valid_mask]
-    valid_counts = counts[valid_mask]
-
-    reference = merge_peaks(
-        mz_list=valid_peaks,
-        counts=valid_counts,
-        tolerance=tolerance,
-        tol_method=tol_method,
-    )
-
-    return reference
-
 def compute_reference(
     data_manager: MSDataManager,
     reference: Optional[NDArray] = None,
@@ -736,57 +494,6 @@ def compute_reference(
 
     return reference, tolerance
 
-def compute_reference_parallel(
-    data_manager: MSDataManager,
-    reference: Optional[NDArray] = None,
-    binfun: str = "median",
-    binratio: float = 2.0,
-    tolerance: Optional[float] = None,
-    units: str = "ppm",
-    batch_size: int = 256,
-    matrix_max_threads: int = 2,
-    numba_max_threads: int = 4,
-) -> Tuple[NDArray, float]:
-    """Parallel version of compute_reference based on matrix_generator."""
-    logger.info(
-        f"[parallel] Computing reference: units={units}, binfun={binfun}, binratio={binratio}"
-    )
-
-    set_num_threads(numba_max_threads)
-
-    norm_units = _normalize_units(units)
-    tol_method = "x" if norm_units == "relative" else "abs"
-
-    domain, estimate_tolerance = estimate_domain_parallel(
-        data_manager=data_manager,
-        binfun=binfun,
-        binratio=binratio,
-        units=norm_units,
-        batch_size=batch_size,
-        matrix_max_threads=matrix_max_threads,
-    )
-
-    logger.info(
-        f"[parallel] Domain estimated: size={domain.size}, estimate_tolerance={estimate_tolerance}"
-    )
-
-    tolerance = estimate_tolerance if tolerance is None else (tolerance * 1e-6 if units == "ppm" else tolerance)
-
-    if reference is not None:
-        return reference, tolerance
-
-    reference = bin_peaks_parallel(
-        data_manager=data_manager,
-        domain=domain,
-        tolerance=tolerance,
-        tol_method=tol_method,
-        batch_size=batch_size,
-        matrix_max_threads=matrix_max_threads,
-    )
-
-    logger.info(f"[parallel] Reference computed: final size={reference.size}")
-    return reference, tolerance
-
 def align_spectrum(
     spectrum: Spectrum,
     reference: NDArray,
@@ -813,28 +520,4 @@ def align_spectrum(
         mz_list=reference,
         intensity=aligned_intensity,
         coordinates=spectrum.coordinate,
-    )
-
-def align_spectra_parallel(
-    mz_matrix: NDArray[np.float64],
-    intensity_matrix: NDArray[np.float64],
-    lengths: NDArray[np.int32],
-    reference: NDArray[np.float64],
-    tolerance: float,
-    units: str = "ppm",
-    numba_max_threads: int = 4,
-) -> NDArray[np.float64]:
-    """Align a matrix of spectra to a reference m/z axis."""
-    norm_units = _normalize_units(units)
-    tol_method = "x" if norm_units == "relative" else "abs"
-    code = get_method_code(tol_method)
-    set_num_threads(numba_max_threads)
-
-    return compute.align_spectra_parallel_jit(
-        mz_matrix=mz_matrix,
-        intensity_matrix=intensity_matrix,
-        lengths=lengths,
-        reference=reference,
-        tolerance=tolerance,
-        code=code,
     )
