@@ -7,7 +7,9 @@ from typing import Any, Callable, Optional, Sequence
 
 from massflow.data_manager import MSDataManager, MSDataManagerImzML
 from massflow.module import MassSpectrumSet, Spectrum
-from massflow.preprocess.api import PreprocessorAPI
+from massflow.preprocess.api import PreprocessorAPI, TaskScope
+from massflow.preprocess.helper.peak_align_helper import compute_reference
+from massflow.preprocess.batch_pre_fun import BatchPreprocess
 from massflow.tools.logger import get_logger
 from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
 
@@ -24,16 +26,21 @@ class BatchChunk:
 
 @dataclass(slots=True)
 class PreprocessTask:
-    """Lazy task registration model for batch preprocessing."""
+    """Lazy task registration model for batch/dataset preprocessing."""
 
     name: str
-    apply_fn: Callable[..., Sequence[Spectrum]]
+    apply_fn: Callable[..., Sequence[Spectrum]] | Callable[..., MSDataManagerImzML]
+    scope: TaskScope = "batch"
     kwargs: dict[str, Any] = field(default_factory=dict)
     sequence: int = 0
 
-
 class Preprocessor(PreprocessorAPI):
-    """Three-stage asynchronous preprocessing pipeline with bounded queues."""
+    """
+    Hybrid preprocessing executor.
+
+    - batch tasks are executed by 3-stage async pipeline
+    - dataset tasks are executed on whole data manager (for peak align and cardinal backends)
+    """
 
     _OPERATION_ORDER: dict[str, int] = {
         "baseline_correction": 10,
@@ -42,7 +49,6 @@ class Preprocessor(PreprocessorAPI):
         "peak_pick": 40,
         "peak_align": 50,
     }
-
 
     def __init__(
         self,
@@ -72,11 +78,22 @@ class Preprocessor(PreprocessorAPI):
         self._tasks: list[PreprocessTask] = []
         self._task_sequence = 0
 
-    def _register_task(self, name: str, apply_fn: Callable[..., Sequence[Spectrum]], **kwargs) -> "Preprocessor":
+    def _register_task(
+        self,
+        name: str,
+        *,
+        scope: TaskScope = "batch",
+        apply_fn: Callable[..., Sequence[Spectrum]] | Callable[..., MSDataManagerImzML],
+        **kwargs: Any,
+    ) -> "Preprocessor":
+        if scope == "batch" and apply_fn is None:
+            raise ValueError(f"Batch task {name} requires apply_fn.")
+
         self._task_sequence += 1
         self._tasks.append(
             PreprocessTask(
                 name=name,
+                scope=scope,
                 apply_fn=apply_fn,
                 kwargs=kwargs,
                 sequence=self._task_sequence,
@@ -91,7 +108,7 @@ class Preprocessor(PreprocessorAPI):
         ordered = sorted(self._tasks, key=sort_key)
 
         if ordered:
-            task_names = [task.name for task in ordered]
+            task_names = [f"{task.name}:{task.scope}" for task in ordered]
             logger.info(f"async_pipeline_task_order: {task_names}")
 
         return ordered
@@ -112,6 +129,7 @@ class Preprocessor(PreprocessorAPI):
     def _stage_a_reader(
         self,
         *,
+        data_manager: MSDataManager,
         queue_ab: Queue[Optional[BatchChunk]],
         stop_event: Event,
         error_holder: list[BaseException],
@@ -119,7 +137,7 @@ class Preprocessor(PreprocessorAPI):
     ) -> None:
         """Stage A: producer; reads batch and pushes to queue_ab."""
         try:
-            for batch_idx, batch in enumerate(self.data_manager.batch_generator(batch_size=self.batch_size), start=0):
+            for batch_idx, batch in enumerate(data_manager.batch_generator(batch_size=self.batch_size), start=0):
                 if stop_event.is_set():
                     break
                 queue_ab.put(BatchChunk(index=batch_idx, batch=batch))
@@ -131,14 +149,14 @@ class Preprocessor(PreprocessorAPI):
     def _stage_b_processor(
         self,
         *,
-        ordered_tasks: list[PreprocessTask],
+        tasks: list[PreprocessTask],
         queue_ab: Queue[Optional[BatchChunk]],
         queue_bc: Queue[Optional[BatchChunk]],
         stop_event: Event,
         error_holder: list[BaseException],
         error_lock: Lock,
     ) -> None:
-        """Stage B: middleware; runs ordered preprocessing tasks."""
+        """Stage B: middleware; runs ordered preprocessing tasks for each batch."""
         try:
             apply_numba_runtime(override_workers=self.numba_max_threads)
             while True:
@@ -152,7 +170,7 @@ class Preprocessor(PreprocessorAPI):
 
                 current_batch = chunk.batch
 
-                for task in ordered_tasks:
+                for task in tasks:
                     next_batch = list(task.apply_fn(batch_spectra=current_batch, **task.kwargs))
                     self.data_manager.clear_batch_data_memory(current_batch)
                     current_batch = next_batch
@@ -211,7 +229,7 @@ class Preprocessor(PreprocessorAPI):
 
         missing = [idx for idx in range(expected_index, max(pending.keys()) + 1) if idx not in pending]
         raise RuntimeError(
-            f"Pipeline ended with missing chunks in keep_order mode. "
+            "Pipeline ended with missing chunks in keep_order mode. "
             f"expected_index={expected_index}, pending={sorted(pending.keys())}, missing={missing}"
         )
 
@@ -278,16 +296,17 @@ class Preprocessor(PreprocessorAPI):
                 exc=exc,
             )
 
-    def start(self) -> MSDataManagerImzML:
-        if len(self._tasks) == 0:
-            raise ValueError("No preprocessing task registered. Please register tasks before start().")
-
-        ordered_tasks = self._sorted_tasks()
-        total_batches = (len(self.data_manager.ms) + self.batch_size - 1) // self.batch_size
+    def _run_batch_task(
+        self,
+        *,
+        data_manager: MSDataManager,
+        tasks: list[PreprocessTask],
+    ) -> MSDataManagerImzML:
+        total_batches = (len(data_manager.ms) + self.batch_size - 1) // self.batch_size
 
         processed_ms = MassSpectrumSet()
         processed_data_manager = MSDataManagerImzML(processed_ms, temp_dir=self.temp_dir)
-        processed_data_manager.copy_meta(self.data_manager)
+        processed_data_manager.copy_meta(data_manager)
         writer = processed_data_manager.writer
 
         queue_ab: Queue[Optional[BatchChunk]] = Queue(maxsize=self.queue_ab_size)
@@ -300,6 +319,7 @@ class Preprocessor(PreprocessorAPI):
         t_a = Thread(
             target=self._stage_a_reader,
             kwargs={
+                "data_manager": data_manager,
                 "queue_ab": queue_ab,
                 "stop_event": stop_event,
                 "error_holder": error_holder,
@@ -311,7 +331,7 @@ class Preprocessor(PreprocessorAPI):
         t_b = Thread(
             target=self._stage_b_processor,
             kwargs={
-                "ordered_tasks": ordered_tasks,
+                "tasks": tasks,
                 "queue_ab": queue_ab,
                 "queue_bc": queue_bc,
                 "stop_event": stop_event,
@@ -346,8 +366,116 @@ class Preprocessor(PreprocessorAPI):
 
         if error_holder:
             processed_data_manager.close_writer()
+            processed_data_manager.close()
             raise RuntimeError("Async preprocessing pipeline failed.") from error_holder[0]
 
         processed_data_manager.close_writer()
         processed_data_manager.load_head_data()
         return processed_data_manager
+
+    def _prepare_peak_align_task(
+        self,
+        *,
+        data_manager: MSDataManager,
+        task: PreprocessTask,
+    ) -> PreprocessTask:
+        """Resolve python peak align parameters and build a batch task."""
+        kwargs = dict(task.kwargs)
+
+        units = kwargs.get("units", "ppm")
+        reference = kwargs.get("reference")
+        tolerance = kwargs.get("tolerance")
+
+        if reference is None or tolerance is None:
+            reference, tol_internal = compute_reference(
+                data_manager=data_manager,
+                reference=reference,
+                tolerance=tolerance,
+                units=units,
+                binfun=kwargs.get("binfun", "median"),
+                binratio=kwargs.get("binratio", 2.0),
+                clear_memory=kwargs.get("clear_memory", False),
+                batch_size=self.batch_size,
+            )
+
+            kwargs["reference"] = reference
+            kwargs["tolerance"] = tol_internal * 1e6 if units == "ppm" else tol_internal
+
+        kwargs.pop("binfun", None)
+        kwargs.pop("binratio", None)
+        kwargs.pop("clear_memory", None)
+
+        return PreprocessTask(
+            name=task.name,
+            scope="batch",
+            apply_fn=task.apply_fn,
+            kwargs=kwargs,
+            sequence=task.sequence,
+        )
+
+    def _run_dataset_task(
+        self,
+        *,
+        data_manager: MSDataManager,
+        task: PreprocessTask,
+    ) -> MSDataManagerImzML:
+        """Execute whole-dataset task."""
+        if task.name == "peak_align" and task.apply_fn is BatchPreprocess.peak_align_batch:
+            prepared_task = self._prepare_peak_align_task(
+                data_manager=data_manager,
+                task=task,
+            )
+            return self._run_batch_task(
+                data_manager=data_manager,
+                tasks=[prepared_task],
+            )
+
+        if task.name == "peak_align" or task.name == "peak_pick":
+            return task.apply_fn(data_manager=data_manager, **task.kwargs)
+        else:
+            raise NotImplementedError(f"Dataset task {task.name} with backend Cardinal is not supported.")
+
+    def start(self) -> MSDataManagerImzML:
+        """Execute registered tasks and return new data manager with processed data. """
+        if len(self._tasks) == 0:
+            raise ValueError("No preprocessing task registered. Please register tasks before start().")
+
+        ordered_tasks = self._sorted_tasks()
+        current_data_manager: MSDataManager = self.data_manager
+        task_cursor = 0
+
+        while task_cursor < len(ordered_tasks):
+            batch_tasks: list[PreprocessTask] = []
+
+            while task_cursor < len(ordered_tasks) and ordered_tasks[task_cursor].scope == "batch":
+                batch_tasks.append(ordered_tasks[task_cursor])
+                task_cursor += 1
+
+            if batch_tasks:
+                next_data_manager = self._run_batch_task(
+                    data_manager=current_data_manager,
+                    tasks=batch_tasks,
+                )
+
+                if current_data_manager is not self.data_manager:
+                    current_data_manager.close()
+
+                current_data_manager = next_data_manager
+
+            if task_cursor >= len(ordered_tasks):
+                break
+
+            dataset_task = ordered_tasks[task_cursor]
+            task_cursor += 1
+
+            next_data_manager = self._run_dataset_task(
+                data_manager=current_data_manager,
+                task=dataset_task,
+            )
+
+            if current_data_manager is not self.data_manager:
+                current_data_manager.close()
+
+            current_data_manager = next_data_manager
+
+        return current_data_manager

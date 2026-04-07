@@ -1,10 +1,12 @@
 from typing import Literal, Optional, Tuple
+
 import numpy as np
 from numpy.typing import NDArray
-from massflow.tools.logger import get_logger
+
 from massflow.module import Spectrum, SpectrumImzML
 from massflow.data_manager import MSDataManager
 import massflow.preprocess.numba.peak_align_numba as compute
+from massflow.tools.logger import get_logger
 
 logger = get_logger("peak_alignment")
 

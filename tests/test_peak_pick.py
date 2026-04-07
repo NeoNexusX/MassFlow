@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 from massflow.module import MassSpectrumSet
 from massflow.data_manager import MSDataManagerImzML
-from massflow.preprocess.dm_pre_fun import Preprocess
+from massflow.preprocess.preprocessor import Preprocessor
 from massflow.r_preprocess import set_default_r_home
 from massflow.tools.logger import get_logger
 
@@ -30,16 +30,21 @@ def run_pick_test(
     ) -> MSDataManagerImzML:
     """Run peak picking test using old or new method."""
 
-    return Preprocess.peak_pick(data_manager=data,
-                                width=width,
-                                method=method,
-                                relheight=relheight,
-                                snr=snr,
-                                return_type=return_type,
-                                batch_size=batch_size,
-                                use_numba=use_numba,
-                                backend=backend,
-                                )
+    return (
+        Preprocessor(
+            data,
+            batch_size=batch_size,)
+        .peak_pick(
+            width=width,
+            method=method,
+            relheight=relheight,
+            snr=snr,
+            return_type=return_type,
+            use_numba=use_numba,
+            backend=backend,
+        )
+        .start()
+    )
 
 def compare_pick_result(
     py_manager: MSDataManagerImzML,

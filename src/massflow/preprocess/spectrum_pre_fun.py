@@ -170,7 +170,7 @@ class SpectrumPreprocess:
 
     @staticmethod
     def peak_align_spectrum(spectrum: Spectrum,
-                            ref: np.ndarray,
+                            reference: np.ndarray,
                             tolerance: float,
                             units: str = 'ppm',
                             ) -> SpectrumImzML:
@@ -180,7 +180,7 @@ class SpectrumPreprocess:
 
         Parameters:
             spectrum : A single spectrum to align.
-            ref (np.ndarray): External reference m/z axis.
+            reference (np.ndarray): External reference m/z axis.
                 must be provided (for single spectrum).
             units (str): Units for tolerance and resolution ('ppm' or 'mz'). Default is 'ppm'.
             tolerance (float): The tolerance window for peak matching.
@@ -190,16 +190,16 @@ class SpectrumPreprocess:
             SpectrumImzML: The aligned spectrum.
 
         Raises:
-            ValueError: If required parameters (ref, tolerance) are missing for single spectrum alignment.
+            ValueError: If required parameters (reference, tolerance) are missing for single spectrum alignment.
         """
 
-        if spectrum is None or ref is None or tolerance is None:
-            raise ValueError("For single spectrum alignment, 'spectrum', 'ref', and 'tolerance' must be provided.")
+        if spectrum is None or reference is None or tolerance is None:
+            raise ValueError("For single spectrum alignment, 'spectrum', 'reference', and 'tolerance' must be provided.")
 
         tolerance = tolerance * 1e-6 if units == "ppm" else tolerance
 
         return align_spectrum(spectrum=spectrum,
-                              reference=ref,
+                              reference=reference,
                               tolerance=tolerance,
                               units=units)
 

@@ -154,7 +154,3 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
                 processed_mask[i] = True
 
     return aligned
-
-
-
-
