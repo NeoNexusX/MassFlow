@@ -161,12 +161,13 @@ IMZML_TEMPLATE = """\
 
 PLACEHOLDER_SHA1 = "0" * 40
 
+
 class ImzMLWriter:
     """
     High-performance imzML writer - Drop-in Replacement for pyimzml.ImzMLWriter
-    
+
     Extremely optimized for "Swap to Disk" scenarios, write speed approaching physical disk limits.
-    
+
     Optimization strategies:
     1. Completely remove SHA-1/MD5 hash calculation (use fixed placeholder)
     2. Optionally skip statistics calculation (min/max/base peak/TIC)
@@ -178,8 +179,8 @@ class ImzMLWriter:
     def __init__(
         self,
         output_filename: str,
-        mz_dtype: np.dtype = np.float64, #type: ignore
-        intensity_dtype: np.dtype = np.float32, #type: ignore
+        mz_dtype: np.dtype = np.float64,  # type: ignore
+        intensity_dtype: np.dtype = np.float32,  # type: ignore
         mode: str = "auto",
         spec_type: str = "centroid",
         scan_direction: str = "top_down",
@@ -206,8 +207,8 @@ class ImzMLWriter:
         self._finished = False
 
         # Open files
-        self.xml = open(self.filename, 'w') # pylint: disable=W1514
-        self.ibd = open(self.ibd_filename, 'wb')
+        self.xml = open(self.filename, "w")  # pylint: disable=W1514
+        self.ibd = open(self.ibd_filename, "wb")
 
         # UUID
         self.uuid = uuid_module.uuid4()
@@ -223,10 +224,9 @@ class ImzMLWriter:
 
         # Initialize template engine
         self.wheezy_engine = Engine(
-            loader=DictLoader({'imzml': IMZML_TEMPLATE}),
-            extensions=[CoreExtension()]
+            loader=DictLoader({"imzml": IMZML_TEMPLATE}), extensions=[CoreExtension()]
         )
-        self.imzml_template = self.wheezy_engine.get_template('imzml')
+        self.imzml_template = self.wheezy_engine.get_template("imzml")
 
         # Spectrum data list
         self.spectra: List[_Spectrum] = []
@@ -262,20 +262,24 @@ class ImzMLWriter:
 
     def _set_polarity(self, polarity: Optional[str]) -> None:
         """Set polarity"""
-        if polarity is None or polarity.lower() in ('positive', 'negative'):
+        if polarity is None or polarity.lower() in ("positive", "negative"):
             self.polarity = polarity.lower() if polarity else None
         else:
-            raise ValueError(f"Invalid polarity: {polarity}. Must be 'positive', 'negative', or None")
+            raise ValueError(
+                f"Invalid polarity: {polarity}. Must be 'positive', 'negative', or None"
+            )
 
-    def _write_binary_fast(self, data: np.ndarray, target_dtype: np.dtype) -> Tuple[int, int, int]:
+    def _write_binary_fast(
+        self, data: np.ndarray, target_dtype: np.dtype
+    ) -> Tuple[int, int, int]:
         """
         Fast binary write - Core optimization method
-        
+
         Optimization strategies:
         1. Use np.asarray instead of np.array to avoid unnecessary copying
         2. If dtype matches and array is C-contiguous, directly use data.data buffer
         3. Skip rounding operation in compression
-        
+
         Returns: (offset, length, encoded_length)
         """
         offset = self.ibd.tell()
@@ -285,19 +289,17 @@ class ImzMLWriter:
             data = data.astype(target_dtype, copy=False)
 
         # Ensure C-contiguous (most numpy arrays already are)
-        if not data.flags['C_CONTIGUOUS']:
+        if not data.flags["C_CONTIGUOUS"]:
             data = np.ascontiguousarray(data)
 
-        # Get raw bytes
-        raw_bytes = data.tobytes()
+        if isinstance(self.mz_compression, NoCompression):
+            # Fast path: avoid allocating an intermediate bytes object.
+            self.ibd.write(memoryview(data))
+            return offset, len(data), data.nbytes
 
-        # Compression (if needed)
-        if not isinstance(self.mz_compression, NoCompression):
-            raw_bytes = self.mz_compression.compress(raw_bytes)
-
-        # Write directly without hash calculation
+        # Compressed path
+        raw_bytes = self.mz_compression.compress(data.tobytes())
         self.ibd.write(raw_bytes)
-
         return offset, len(data), len(raw_bytes)
 
     def _write_mz(self, mzs: np.ndarray) -> Tuple[int, int, int]:
@@ -312,29 +314,40 @@ class ImzMLWriter:
         if intensities.dtype != self.intensity_dtype:
             intensities = intensities.astype(self.intensity_dtype, copy=False)
 
-        if not intensities.flags['C_CONTIGUOUS']:
+        if not intensities.flags["C_CONTIGUOUS"]:
             intensities = np.ascontiguousarray(intensities)
 
-        raw_bytes = intensities.tobytes()
+        if isinstance(self.intensity_compression, NoCompression):
+            # Fast path: avoid allocating an intermediate bytes object.
+            self.ibd.write(memoryview(intensities))
+            return offset, len(intensities), intensities.nbytes
 
-        # Compression
-        if not isinstance(self.intensity_compression, NoCompression):
-            raw_bytes = self.intensity_compression.compress(raw_bytes)
-
+        raw_bytes = self.intensity_compression.compress(intensities.tobytes())
         self.ibd.write(raw_bytes)
-
         return offset, len(intensities), len(raw_bytes)
+
+    def _write_uncompressed_block(
+        self, data: np.ndarray, target_dtype: np.dtype
+    ) -> Tuple[int, np.ndarray]:
+        """Write a contiguous ndarray block via memoryview and return start offset + normalized array."""
+        if data.dtype != target_dtype:
+            data = data.astype(target_dtype, copy=False)
+        if not data.flags["C_CONTIGUOUS"]:
+            data = np.ascontiguousarray(data)
+        offset = self.ibd.tell()
+        self.ibd.write(memoryview(data))
+        return offset, data
 
     def add_spectrum(
         self,
         mzs: np.ndarray,
         intensities: np.ndarray,
         coords: Union[Tuple[int, int], Tuple[int, int, int]],
-        userParams: Optional[List] = None # pylint: disable=C0103
+        userParams: Optional[List] = None,  # pylint: disable=C0103
     ) -> None:
         """
         Add a mass spectrum
-        
+
         Parameters:
             mzs: m/z array
             intensities: Intensity array
@@ -363,7 +376,11 @@ class ImzMLWriter:
 
         elif self.mode == "auto":
             # Auto mode: Use simplified cache strategy
-            mz_key = (len(mzs), mzs[0] if len(mzs) > 0 else 0, mzs[-1] if len(mzs) > 0 else 0)
+            mz_key = (
+                len(mzs),
+                mzs[0] if len(mzs) > 0 else 0,
+                mzs[-1] if len(mzs) > 0 else 0,
+            )
             if mz_key in self._lru_cache:
                 mz_offset, mz_len, mz_enc_len = self._lru_cache[mz_key]
             else:
@@ -409,7 +426,7 @@ class ImzMLWriter:
             mz_base=mz_base,
             int_base=int_base,
             int_tic=int_tic,
-            userParams=userParams
+            userParams=userParams,
         )
         self.spectra.append(s)
 
@@ -419,7 +436,7 @@ class ImzMLWriter:
         intensity_flat: np.ndarray,
         lengths: np.ndarray,
         coords: np.ndarray,
-        user_params_list: Optional[List[List]] = None
+        user_params_list: Optional[List[List]] = None,
     ) -> None:
         """
         Write a batch of spectra efficiently to disk via pre-computed flat arrays.
@@ -442,30 +459,31 @@ class ImzMLWriter:
         mz_bytes_per_elem = self.mz_dtype.itemsize
         int_bytes_per_elem = self.intensity_dtype.itemsize
 
-        cumulative_lengths = np.zeros(num_spectra, dtype=np.int64)
+        cumulative_lengths = np.empty(num_spectra, dtype=np.int64)
+        cumulative_lengths[0] = 0
         if num_spectra > 1:
-            cumulative_lengths[1:] = np.cumsum(lengths[:-1])
+            np.cumsum(lengths[:-1], dtype=np.int64, out=cumulative_lengths[1:])
 
         if is_continuous:
             # Continuous mode
             if getattr(self, "first_mz", None) is None:
                 if mz_flat is None:
-                    raise ValueError("mz_flat cannot be None for first spectrum in continuous mode")
-                # Write shared m/z array exactly once 
+                    raise ValueError(
+                        "mz_flat cannot be None for first spectrum in continuous mode")
+                # Write shared m/z array exactly once
                 self.first_mz = self._write_binary_fast(mz_flat, self.mz_dtype)
-            
-            mz_offset_shared, mz_len_shared, mz_enc_len_shared = self.first_mz
+
+            first_mz = self.first_mz
+            if first_mz is None:
+                raise ValueError("first_mz is unexpectedly None in continuous mode")
+            mz_offset_shared, mz_len_shared, mz_enc_len_shared = first_mz
             mz_offsets = np.full(num_spectra, mz_offset_shared, dtype=np.int64)
             mz_lens = np.full(num_spectra, mz_len_shared, dtype=np.int64)
             mz_enc_lens = np.full(num_spectra, mz_enc_len_shared, dtype=np.int64)
 
             # intensities logic
-            int_start_offset = self.ibd.tell()
-            if intensity_flat.dtype != self.intensity_dtype:
-                intensity_flat = intensity_flat.astype(self.intensity_dtype, copy=False)
-            
-            self.ibd.write(intensity_flat.tobytes())
-            
+            int_start_offset, intensity_flat = self._write_uncompressed_block(intensity_flat, self.intensity_dtype)
+
             int_offsets = int_start_offset + cumulative_lengths * int_bytes_per_elem
             int_lens = lengths
             int_enc_lens = int_lens * int_bytes_per_elem
@@ -473,22 +491,22 @@ class ImzMLWriter:
         else:
             # Processed / auto mode
             if mz_flat is None:
-                raise ValueError("mz_flat cannot be None for processed data in swap_flat_out2disk")
-                
-            mz_start_offset = self.ibd.tell()
-            if mz_flat.dtype != self.mz_dtype:
-                mz_flat = mz_flat.astype(self.mz_dtype, copy=False)
-            self.ibd.write(mz_flat.tobytes())
-            
+                raise ValueError(
+                    "mz_flat cannot be None for processed data in swap_flat_out2disk"
+                )
+
+            mz_start_offset, mz_flat = self._write_uncompressed_block(
+                mz_flat, self.mz_dtype
+            )
+
             mz_offsets = mz_start_offset + cumulative_lengths * mz_bytes_per_elem
             mz_lens = lengths
             mz_enc_lens = mz_lens * mz_bytes_per_elem
-            
+
             # Write all intensity data at once
-            int_start_offset = self.ibd.tell()
-            if intensity_flat.dtype != self.intensity_dtype:
-                intensity_flat = intensity_flat.astype(self.intensity_dtype, copy=False)
-            self.ibd.write(intensity_flat.tobytes())
+            int_start_offset, intensity_flat = self._write_uncompressed_block(
+                intensity_flat, self.intensity_dtype
+            )
             int_offsets = int_start_offset + cumulative_lengths * int_bytes_per_elem
             int_lens = lengths
             int_enc_lens = int_lens * int_bytes_per_elem
@@ -497,10 +515,18 @@ class ImzMLWriter:
         for i in range(num_spectra):
             s = _Spectrum(
                 coords=tuple(coords[i]),
-                mz_len=mz_lens[i], mz_offset=mz_offsets[i], mz_enc_len=mz_enc_lens[i],
-                int_len=int_lens[i], int_offset=int_offsets[i], int_enc_len=int_enc_lens[i],
-                mz_min=0, mz_max=0, mz_base=0, int_base=0, int_tic=0,
-                userParams=user_params_list[i]
+                mz_len=mz_lens[i],
+                mz_offset=mz_offsets[i],
+                mz_enc_len=mz_enc_lens[i],
+                int_len=int_lens[i],
+                int_offset=int_offsets[i],
+                int_enc_len=int_enc_lens[i],
+                mz_min=0,
+                mz_max=0,
+                mz_base=0,
+                int_base=0,
+                int_tic=0,
+                userParams=user_params_list[i],
             )
             self.spectra.append(s)
 
@@ -534,7 +560,7 @@ class ImzMLWriter:
             "one_way": "1000411",
             "random_access": "1000412",
             "horizontal_line": "1000480",
-            "vertical_line": "1000481"
+            "vertical_line": "1000481",
         }
         obo_names = {
             "line_bottom_up": "linescan bottom up",
@@ -549,7 +575,7 @@ class ImzMLWriter:
             "one_way": "one way",
             "random_access": "random access",
             "horizontal_line": "horizontal line scan",
-            "vertical_line": "vertical line scan"
+            "vertical_line": "vertical line scan",
         }
 
         uuid = ("{%s}" % self.uuid).upper()
@@ -585,8 +611,14 @@ class ImzMLWriter:
         从 MS metadata 创建 ImzMLWriter 实例
         """
         spec_type = "profile" if meta.profile_spectrum is not None else "centroid"
-        scan_direction = meta.scan_direction if meta.scan_direction is not None else "top_down"
-        line_scan_direction = meta.line_scan_direction if meta.line_scan_direction is not None else "line_left_right"
+        scan_direction = (
+            meta.scan_direction if meta.scan_direction is not None else "top_down"
+        )
+        line_scan_direction = (
+            meta.line_scan_direction
+            if meta.line_scan_direction is not None
+            else "line_left_right"
+        )
         scan_pattern = meta.scan_pattern if meta.scan_pattern is not None else "one_way"
         scan_type = meta.scan_type if meta.scan_type is not None else "horizontal_line"
 
@@ -599,8 +631,8 @@ class ImzMLWriter:
 
         return cls(
             output_filename=output_filename,
-            mz_dtype=mz_dtype, # type: ignore
-            intensity_dtype=intensity_dtype,# type: ignore
+            mz_dtype=mz_dtype,  # type: ignore
+            intensity_dtype=intensity_dtype,  # type: ignore
             mode=mode,
             spec_type=spec_type,
             scan_direction=scan_direction,
@@ -608,7 +640,6 @@ class ImzMLWriter:
             scan_pattern=scan_pattern,
             scan_type=scan_type,
         )
-
 
     def close(self) -> None:
         """Close the writer and finalize files"""

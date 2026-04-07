@@ -53,7 +53,7 @@ class PreprocessorAPI(_TaskRegistrar):
     def noise_reduction(
         self,
         *,
-        method: str = "ma",
+        method: str = "ma_numba",
         window: int = 5,
         sd: float | None = None,
         sd_intensity: float | None = None,

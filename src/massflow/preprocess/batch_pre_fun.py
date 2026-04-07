@@ -1,5 +1,4 @@
 from typing import Sequence
-import time
 import numpy as np
 from massflow.module import SpectrumImzML, Spectrum
 from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
@@ -92,7 +91,7 @@ class BatchPreprocess:
     @staticmethod
     def noise_reduction_batch(
         batch_spectra: Sequence[Spectrum],
-        method: str = "ma",
+        method: str = "ma_numba",
         window: int = 5,
         sd: float | None = None,
         sd_intensity: float | None = None,
@@ -108,18 +107,17 @@ class BatchPreprocess:
 
         Parameters:
         - batch_spectra: Sequence of Spectrum objects to be denoised.
-        - method: One of {'ma','ma_numba','gaussian','gaussian_numba','savgol',
-            'savgol_numba','wavelet','gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
-        - window: Window size or neighbor count depending on method.
-        - sd: Gaussian scale parameter.
-        - sd_intensity: Intensity scale for bilateral method.
-        - p: Minkowski metric for NS queries.
-        - coef: Custom kernel for 'ma'.
+        - method: One of {'ma_numba', 'gaussian_numba', 'savgol_numba'}.
+        - window: Smoothing window size.
+        - sd: Gaussian scale parameter (for gaussian_numba).
+        - sd_intensity: Reserved for API compatibility.
+        - p: Reserved for API compatibility.
+        - coef: Reserved for API compatibility.
         - polyorder: Polynomial order for Savitzky-Golay.
         - deriv: Derivative order for Savitzky-Golay.
         - delta: Sample spacing for Savitzky-Golay.
-        - wavelet: Wavelet family for wavelet denoising.
-        - threshold_mode: 'soft' or 'hard' thresholding.
+        - wavelet: Reserved for API compatibility.
+        - threshold_mode: Reserved for API compatibility.
 
         Returns:
         - Sequence of denoised spectra as SpectrumImzML objects.
@@ -127,73 +125,50 @@ class BatchPreprocess:
         if not batch_spectra:
             return []
 
-        # Specialized 2D Numba acceleration path for savgol_numba, gaussian_numba, ma_numba:
-        # At the batch level, first stack spectra into a (n_spectra, n_mz) matrix,
-        # then call the smoother once to trigger the parallel implementation
-        # in noise_reduction_numba.
-        if method in {"savgol_numba", "gaussian_numba", "ma_numba"}:
-            # Handle variable lengths via padding
-            lengths = np.array([s.intensity.size for s in batch_spectra], dtype=np.int32)  # type: ignore
-            max_len = np.max(lengths)
-            n_spectra = len(batch_spectra)
+        method_norm = (method or "").strip().lower()
+        supported_methods = {"savgol_numba", "gaussian_numba", "ma_numba"}
+        if method_norm not in supported_methods:
+            raise ValueError("noise_reduction_batch only supports: savgol_numba, gaussian_numba, ma_numba")
 
-            intensities_padded = np.empty((n_spectra, max_len), dtype=np.float32)
+        lengths = np.array([s.intensity.size for s in batch_spectra], dtype=np.int64)  # type: ignore
+        total_len = int(np.sum(lengths))
+        intensity_flat = np.empty(total_len, dtype=np.float32)
 
-            for i, s in enumerate(batch_spectra):
-                # Copy data into buffer
-                valid_len = lengths[i]
-                intensities_padded[i, :valid_len] = s.intensity # type: ignore
+        offset = 0
+        for spectrum, valid_len in zip(batch_spectra, lengths):
+            end = offset + int(valid_len)
+            intensity_flat[offset:end] = spectrum.intensity.astype(np.float32, copy=False)  # type: ignore
+            offset = end
 
-            smoothed = smoother(
-                intensities_padded,
-                method=method,
-                window=window,
-                sd=sd,
-                sd_intensity=sd_intensity,
-                p=p,
-                coef=coef,
-                polyorder=polyorder,
-                deriv=deriv,
-                delta=delta,
-                wavelet=wavelet,
-                threshold_mode=threshold_mode,
-                lengths=lengths,  # Pass valid lengths
-            )
+        smoothed_flat = smoother(
+            intensity_flat,
+            method=method_norm,
+            window=window,
+            sd=sd,
+            sd_intensity=sd_intensity,
+            p=p,
+            coef=coef,
+            polyorder=polyorder,
+            deriv=deriv,
+            delta=delta,
+            wavelet=wavelet,
+            threshold_mode=threshold_mode,
+            lengths=lengths,
+        )
 
-            denoised_spectra: list[SpectrumImzML] = []
-            for i, spectrum in enumerate(batch_spectra):
-                valid_len = lengths[i]
-                # Trim result back to original length
-                denoised_intensity = smoothed[i, :valid_len]
-
-                denoised_spectra.append(
-                    SpectrumImzML(
-                        coordinates=spectrum.coordinate,
-                        mz_list=spectrum.mz_list,
-                        intensity=denoised_intensity,
-                    )
-                )
-
-            return denoised_spectra
-
-        # Other methods (including the original savgol) still use the per-spectrum 1D path to keep the API semantics consistent
         denoised_spectra: list[SpectrumImzML] = []
-        for spectrum in batch_spectra:
-            denoised = SpectrumPreprocess.noise_reduction_spectrum(
-                data=spectrum,
-                method=method,
-                window=window,
-                sd=sd,
-                sd_intensity=sd_intensity,
-                p=p,
-                coef=coef,
-                polyorder=polyorder,
-                deriv=deriv,
-                delta=delta,
-                wavelet=wavelet,
-                threshold_mode=threshold_mode,
+        offset = 0
+        for spectrum, valid_len in zip(batch_spectra, lengths):
+            end = offset + int(valid_len)
+            denoised_intensity = smoothed_flat[offset:end].copy()
+            denoised_spectra.append(
+                SpectrumImzML(
+                    coordinates=spectrum.coordinate,
+                    mz_list=spectrum.mz_list,
+                    intensity=denoised_intensity,
+                )
             )
-            denoised_spectra.append(denoised)
+            offset = end
 
         return denoised_spectra
 

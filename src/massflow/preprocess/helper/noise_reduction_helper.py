@@ -10,7 +10,7 @@ import pywt
 from scipy.signal import savgol_filter
 from scipy.stats import norm
 from scipy import stats
-from scipy import signal, linalg
+from scipy import signal as scipy_signal, linalg
 from massflow.preprocess.numba.noise_reduction_numba import ns_signal_pre
 from massflow.tools.logger import get_logger
 from massflow.module import Spectrum
@@ -38,9 +38,12 @@ def _input_validation(
     Unified validation and normalization for smoothing-related parameters.
     """
     # Validate intensity (must be non-empty 1D NumPy array)
-    if not isinstance(intensity, np.ndarray) or intensity.size == 0:
+    if (not isinstance(intensity, np.ndarray)
+        or intensity.ndim != 1
+        or intensity.size == 0
+    ):
         logger.error("intensity must be a numpy array")
-        raise TypeError("intensity must be a numpy array")
+        raise TypeError("intensity must be a non-empty 1D numpy array")
 
     # Index check (if provided, must be 1D and match intensity length)
     if index is not None:
@@ -460,7 +463,7 @@ def smooth_signal_loess(intensity: np.ndarray, window: int = 5):
     q, _ = linalg.qr(v, mode="economic")  # type: ignore
 
     alpha = np.dot(q[halfw - 1,], q.transpose())  # type: ignore
-    yhat = signal.lfilter(alpha * weight, 1, y)
+    yhat = scipy_signal.lfilter(alpha * weight, 1, y)
     yhat[int(halfw + 1) - 1 : -halfw] = yhat[int(window - 1) - 1 : -1]  # type: ignore
 
     x1 = np.arange(1.0, (window - 1.0) + 1)
@@ -482,8 +485,10 @@ def smooth_signal_loess(intensity: np.ndarray, window: int = 5):
 
 
 def smoother(
-    intensity: np.ndarray,
+    intensity: Optional[np.ndarray] = None,
     index: Optional[np.ndarray] = None,
+    *,
+    flat: Optional[np.ndarray] = None,
     method: str = "ma",
     window: int = 5,
     sd: Optional[float] = None,
@@ -501,7 +506,8 @@ def smoother(
     Unified smoothing entry for multiple methods.
 
     Parameters:
-        intensity (np.ndarray): 1D intensity array.
+        intensity (Optional[np.ndarray]): Legacy 1D intensity input.
+        flat (Optional[np.ndarray]): Flat 1D intensity input. When provided, it is preferred over `intensity`.
         index (Optional[np.ndarray]): 1D coordinate array aligned with `intensity` for NS methods.
         method (str): One of {'ma','ma_numba','gaussian','gaussian_numba','savgol','savgol_numba','wavelet',
         'gaussian_ns','gaussian_ns_numba','bi_ns','bi_ns_numba'}.
@@ -517,14 +523,14 @@ def smoother(
             This is only used if deriv > 0. Default is 1.0.
         wavelet (str): Wavelet family for wavelet denoising.
         threshold_mode (str): 'soft' or 'hard' for wavelet thresholding.
-        lengths (Optional[np.ndarray]): Array of valid lengths for each spectrum in a 2D batch.
+        lengths (Optional[np.ndarray]): Array of valid lengths for each spectrum in flat mode.
 
     Returns:
         np.ndarray: Smoothed intensity array.
 
     Raises:
         ValueError: If `method` is unsupported or parameter combinations are invalid.
-        TypeError: If `intensity` is invalid or `coef` is not 1D.
+        TypeError: If input intensity is invalid or `coef` is not 1D.
     """
     def _dispatch_with_supported_kwargs(func: Callable[..., Any], **kwargs: Any) -> np.ndarray:
         supported = signature(func).parameters
@@ -535,7 +541,11 @@ def smoother(
     # Normalize method and validate supported set
     method_norm = (method or "ma").strip().lower()
 
-    _input_validation(intensity, index, window=window, sd=sd, k=window if "ns" in method_norm else None, p=p)
+    input_signal = flat if flat is not None else intensity
+    if input_signal is None:
+        raise TypeError("Either flat or intensity must be provided")
+
+    _input_validation(input_signal, index, window=window, sd=sd, k=window if "ns" in method_norm else None, p=p)
 
     method_map: dict[str, Callable[..., Any]] = {
         "ma": smooth_signal_ma,
@@ -557,7 +567,8 @@ def smoother(
 
     return _dispatch_with_supported_kwargs(
         target_func,
-        intensity=intensity,
+        intensity=input_signal,
+        flat=input_signal,
         index=index,
         window=window,
         sd=sd,

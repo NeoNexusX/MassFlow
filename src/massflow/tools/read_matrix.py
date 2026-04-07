@@ -213,6 +213,6 @@ def read_fragmented_block(
     mini_batches: list[tuple[Sequence[int], int]] = []
     for i in range(0, batch_size, chunk):
         end = min(i + chunk, batch_size)
-        mini_batches.append((batch_indices[i:end], i))
+        mini_batches.append((batch_indices[i:end], i)) #type: ignore
 
     list(executor.map(_read_chunk, mini_batches))

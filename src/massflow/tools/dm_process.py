@@ -41,7 +41,7 @@ def dm_process(
 def speed_process(
     data_manager: MSDataManagerImzML,
     batch_size: int,
-    batch_func,
+    func,
     batch_kwargs: dict,
     numba_max_threads: Optional[int] = None,
 ) :
@@ -53,9 +53,22 @@ def speed_process(
     # total_batches = get_batch_total_num(data_manager, batch_size)
 
     for batch_idx, batch in enumerate(data_manager.batch_generator(batch_size=batch_size,max_threads=16), start=1):
-        _ = batch_func(batch_spectra=batch, **batch_kwargs)
+        _ = func(batch_spectra=batch, **batch_kwargs)
         # log_process(total_batches, batch_idx)
 
+def flat_speed_process(
+    flats,
+    func,
+    batch_kwargs: dict,
+    numba_max_threads: Optional[int] = None,
+) :
+
+    apply_numba_runtime(override_workers=numba_max_threads)
+    logger.info(f"numba treads set to {get_global_numba_runtime()['max_workers']}\r\n"
+                f"numba system info: {get_num_threads()} threads")
+
+    for batch_idx, batch in enumerate(flats, start=1):
+        _ = func(flat=batch, **batch_kwargs)
 
 def get_batch_total_num(data_manager: MSDataManager,
                        batch_size: int) -> int:

@@ -83,7 +83,7 @@ class MSDataManager(ABC):
             self.target_locs = target_locs
         else:
             max_coord = int(np.iinfo(np.int32).max)
-            self.target_locs = ([0, 0], [int(np.iinfo(np.int32).max), int(np.iinfo(np.int32).max)])
+            self.target_locs = ([0, 0], [max_coord, max_coord])
 
 
 ############# Data define part #############
@@ -318,6 +318,35 @@ class MSDataManager(ABC):
             intensity = intensity_row[:length]
 
             self.writer.add_spectrum(mz, intensity, tuple(coord.tolist()))
+
+
+    def swap_flat_data_out2disk(
+        self,
+        mz_flat: np.ndarray | None,
+        intensity_flat: np.ndarray,
+        lengths: np.ndarray,
+        coordinates: np.ndarray,
+        user_params_list: list[list] | None = None,
+    ):
+        """Swap out a flat batch of spectra to disk in imzML/ibd form."""
+        if len(lengths) == 0:
+            return
+
+        if (intensity_flat.ndim != 1 or lengths.ndim != 1
+            or (mz_flat is not None and mz_flat.ndim != 1)):
+            logger.error("intensity_flat/lengths/mz_flat must be 1-D arrays.")
+            raise ValueError("intensity_flat/lengths/mz_flat must be 1-D arrays.")
+
+        if not np.issubdtype(lengths.dtype, np.integer):
+            lengths = lengths.astype(np.int64, copy=False)
+
+        self.writer.swap_flat_out2disk(
+            mz_flat=mz_flat,
+            intensity_flat=intensity_flat,
+            lengths=lengths,
+            coords=coordinates,
+            user_params_list=user_params_list,
+        )
 
 
     def __enter__(self):
