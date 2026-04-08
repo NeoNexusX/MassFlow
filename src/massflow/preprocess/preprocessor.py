@@ -3,25 +3,29 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from queue import Queue
 from threading import Event, Lock, Thread
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional
+
+import numpy as np
 
 from massflow.data_manager import MSDataManager, MSDataManagerImzML
-from massflow.module import MassSpectrumSet, Spectrum
+from massflow.module import MassSpectrumSet
 from massflow.preprocess.api import PreprocessorAPI, TaskScope
-from massflow.preprocess.helper.peak_align_helper import compute_reference
-from massflow.preprocess.batch_pre_fun import BatchPreprocess
-from massflow.tools.logger import get_logger
+from massflow.preprocess.helper.peak_align_parallel import compute_reference_parallel
+from massflow.preprocess.flat_pre_fun import FlatPreprocess, FlatBatchResult
 from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
+from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.preprocess.async_pipeline")
 
-
 @dataclass(slots=True)
-class BatchChunk:
+class FlatChunk:
     """Transport object between pipeline stages."""
 
     index: int
-    batch: list[Spectrum]
+    mz_data: Optional[np.ndarray] # 把这三个字段打包成 FlatBatchResult TODO
+    intensity: np.ndarray
+    lengths: np.ndarray
+    coordinates: np.ndarray
 
 
 @dataclass(slots=True)
@@ -29,7 +33,7 @@ class PreprocessTask:
     """Lazy task registration model for batch/dataset preprocessing."""
 
     name: str
-    apply_fn: Callable[..., Sequence[Spectrum]] | Callable[..., MSDataManagerImzML]
+    apply_fn: Callable[..., FlatBatchResult] | Callable[..., MSDataManagerImzML]
     scope: TaskScope = "batch"
     kwargs: dict[str, Any] = field(default_factory=dict)
     sequence: int = 0
@@ -83,12 +87,9 @@ class Preprocessor(PreprocessorAPI):
         name: str,
         *,
         scope: TaskScope = "batch",
-        apply_fn: Callable[..., Sequence[Spectrum]] | Callable[..., MSDataManagerImzML],
+        apply_fn: Callable[..., FlatBatchResult] | Callable[..., MSDataManagerImzML],
         **kwargs: Any,
     ) -> "Preprocessor":
-        if scope == "batch" and apply_fn is None:
-            raise ValueError(f"Batch task {name} requires apply_fn.")
-
         self._task_sequence += 1
         self._tasks.append(
             PreprocessTask(
@@ -130,17 +131,28 @@ class Preprocessor(PreprocessorAPI):
         self,
         *,
         data_manager: MSDataManager,
-        queue_ab: Queue[Optional[BatchChunk]],
+        queue_ab: Queue[Optional[FlatChunk]],
         stop_event: Event,
         error_holder: list[BaseException],
         error_lock: Lock,
     ) -> None:
-        """Stage A: producer; reads batch and pushes to queue_ab."""
+        """Stage A: producer; reads flat and pushes to queue_ab."""
         try:
-            for batch_idx, batch in enumerate(data_manager.batch_generator(batch_size=self.batch_size), start=0):
+            for batch_idx, (mz_data, intensity, lengths, coords) in enumerate(
+                data_manager.flat_generator(batch_size=self.batch_size, include_mz=True),
+                start=0
+            ):
                 if stop_event.is_set():
                     break
-                queue_ab.put(BatchChunk(index=batch_idx, batch=batch))
+                queue_ab.put(
+                    FlatChunk(
+                        index=batch_idx,
+                        mz_data=np.asarray(mz_data), # 上游已经保证了这些数据应该是numpy数组了吧，是不是可以不做转换呢 TODO
+                        intensity=np.asarray(intensity),
+                        lengths=np.asarray(lengths, dtype=np.int32),
+                        coordinates=np.asarray(coords),
+                    )
+                )
         except BaseException as exc:  # pylint: disable=broad-exception-caught
             self._set_error(error_holder=error_holder,error_lock=error_lock,stop_event=stop_event,exc=exc)
         finally:
@@ -150,8 +162,8 @@ class Preprocessor(PreprocessorAPI):
         self,
         *,
         tasks: list[PreprocessTask],
-        queue_ab: Queue[Optional[BatchChunk]],
-        queue_bc: Queue[Optional[BatchChunk]],
+        queue_ab: Queue[Optional[FlatChunk]],
+        queue_bc: Queue[Optional[FlatChunk]],
         stop_event: Event,
         error_holder: list[BaseException],
         error_lock: Lock,
@@ -168,15 +180,24 @@ class Preprocessor(PreprocessorAPI):
                 if stop_event.is_set():
                     continue
 
-                current_batch = chunk.batch
+                current_chunk = chunk
 
                 for task in tasks:
-                    next_batch = list(task.apply_fn(batch_spectra=current_batch, **task.kwargs))
-                    self.data_manager.clear_batch_data_memory(current_batch)
-                    current_batch = next_batch
+                    output = task.apply_fn(
+                        mz_data=current_chunk.mz_data,
+                        intensity=current_chunk.intensity,
+                        lengths=current_chunk.lengths,
+                        **task.kwargs,
+                    )
+                    current_chunk = FlatChunk(
+                        index=current_chunk.index,
+                        mz_data=output.mz_data,
+                        intensity=output.intensity,
+                        lengths=output.lengths,
+                        coordinates=current_chunk.coordinates,
+                    )
 
-                chunk.batch = current_batch
-                queue_bc.put(chunk)
+                queue_bc.put(current_chunk)
 
         except BaseException as exc:  # pylint: disable=broad-exception-caught
             self._set_error(error_holder=error_holder,error_lock=error_lock,stop_event=stop_event,exc=exc,)
@@ -185,14 +206,17 @@ class Preprocessor(PreprocessorAPI):
     def _flush_chunk(
         self,
         *,
-        chunk: BatchChunk,
+        chunk: FlatChunk,
         processed_data_manager: MSDataManagerImzML,
-        writer,
         written_batches: int,
         total_batches: int,
     ) -> int:
-        processed_data_manager.swap_batch_data_out2disk(batch=chunk.batch, writer=writer)
-        processed_data_manager.clear_batch_data_memory(batch=chunk.batch)
+        processed_data_manager.swap_flat_data_out2disk(
+            mz_flat=chunk.mz_data,
+            intensity_flat=chunk.intensity,
+            lengths=chunk.lengths,
+            coordinates=chunk.coordinates,
+        )
         written_batches += 1
 
         if total_batches <= 10 or written_batches % max(1, total_batches // 10) == 0 or written_batches == total_batches:
@@ -201,89 +225,31 @@ class Preprocessor(PreprocessorAPI):
 
         return written_batches
 
-    def _flush_pending_in_order(
-        self,
-        *,
-        pending: dict[int, BatchChunk],
-        expected_index: int,
-        processed_data_manager: MSDataManagerImzML,
-        writer,
-        written_batches: int,
-        total_batches: int,
-    ) -> tuple[int, int]:
-        while expected_index in pending:
-            ordered_chunk = pending.pop(expected_index)
-            written_batches = self._flush_chunk(
-                chunk=ordered_chunk,
-                processed_data_manager=processed_data_manager,
-                writer=writer,
-                written_batches=written_batches,
-                total_batches=total_batches,
-            )
-            expected_index += 1
-        return expected_index, written_batches
-
-    def _ensure_no_pending_gap(self, *, pending: dict[int, BatchChunk], expected_index: int) -> None:
-        if not pending:
-            return
-
-        missing = [idx for idx in range(expected_index, max(pending.keys()) + 1) if idx not in pending]
-        raise RuntimeError(
-            "Pipeline ended with missing chunks in keep_order mode. "
-            f"expected_index={expected_index}, pending={sorted(pending.keys())}, missing={missing}"
-        )
-
     def _stage_c_writer(
         self,
         *,
-        queue_bc: Queue[Optional[BatchChunk]],
+        queue_bc: Queue[Optional[FlatChunk]],
         stop_event: Event,
         error_holder: list[BaseException],
         error_lock: Lock,
         processed_data_manager: MSDataManagerImzML,
-        writer,
         total_batches: int,
     ) -> None:
         """Stage C: consumer; persist processed chunks, optionally keeping order."""
         written_batches = 0
-        expected_index = 0
-        pending: dict[int, BatchChunk] = {}
 
         try:
             while True:
                 chunk = queue_bc.get()
                 if chunk is None:
-                    if self.keep_order:
-                        expected_index, written_batches = self._flush_pending_in_order(
-                            pending=pending,
-                            expected_index=expected_index,
-                            processed_data_manager=processed_data_manager,
-                            writer=writer,
-                            written_batches=written_batches,
-                            total_batches=total_batches,
-                        )
-                        self._ensure_no_pending_gap(pending=pending, expected_index=expected_index)
                     break
 
                 if stop_event.is_set():
                     continue
 
-                if not self.keep_order:
-                    written_batches = self._flush_chunk(
-                        chunk=chunk,
-                        processed_data_manager=processed_data_manager,
-                        writer=writer,
-                        written_batches=written_batches,
-                        total_batches=total_batches,
-                    )
-                    continue
-
-                pending[chunk.index] = chunk
-                expected_index, written_batches = self._flush_pending_in_order(
-                    pending=pending,
-                    expected_index=expected_index,
+                written_batches = self._flush_chunk(
+                    chunk=chunk,
                     processed_data_manager=processed_data_manager,
-                    writer=writer,
                     written_batches=written_batches,
                     total_batches=total_batches,
                 )
@@ -296,7 +262,7 @@ class Preprocessor(PreprocessorAPI):
                 exc=exc,
             )
 
-    def _run_batch_task(
+    def _run_flat_batch_task(
         self,
         *,
         data_manager: MSDataManager,
@@ -307,10 +273,9 @@ class Preprocessor(PreprocessorAPI):
         processed_ms = MassSpectrumSet()
         processed_data_manager = MSDataManagerImzML(processed_ms, temp_dir=self.temp_dir)
         processed_data_manager.copy_meta(data_manager)
-        writer = processed_data_manager.writer
 
-        queue_ab: Queue[Optional[BatchChunk]] = Queue(maxsize=self.queue_ab_size)
-        queue_bc: Queue[Optional[BatchChunk]] = Queue(maxsize=self.queue_bc_size)
+        queue_ab: Queue[Optional[FlatChunk]] = Queue(maxsize=self.queue_ab_size)
+        queue_bc: Queue[Optional[FlatChunk]] = Queue(maxsize=self.queue_bc_size)
 
         stop_event = Event()
         error_holder: list[BaseException] = []
@@ -325,7 +290,6 @@ class Preprocessor(PreprocessorAPI):
                 "error_holder": error_holder,
                 "error_lock": error_lock,
             },
-            name="massflow-stage-a-reader",
             daemon=True,
         )
         t_b = Thread(
@@ -338,7 +302,6 @@ class Preprocessor(PreprocessorAPI):
                 "error_holder": error_holder,
                 "error_lock": error_lock,
             },
-            name="massflow-stage-b-processor",
             daemon=True,
         )
         t_c = Thread(
@@ -349,10 +312,8 @@ class Preprocessor(PreprocessorAPI):
                 "error_holder": error_holder,
                 "error_lock": error_lock,
                 "processed_data_manager": processed_data_manager,
-                "writer": writer,
                 "total_batches": total_batches,
             },
-            name="massflow-stage-c-writer",
             daemon=True,
         )
 
@@ -387,14 +348,13 @@ class Preprocessor(PreprocessorAPI):
         tolerance = kwargs.get("tolerance")
 
         if reference is None or tolerance is None:
-            reference, tol_internal = compute_reference(
+            reference, tol_internal = compute_reference_parallel(
                 data_manager=data_manager,
                 reference=reference,
                 tolerance=tolerance,
                 units=units,
                 binfun=kwargs.get("binfun", "median"),
                 binratio=kwargs.get("binratio", 2.0),
-                clear_memory=kwargs.get("clear_memory", False),
                 batch_size=self.batch_size,
             )
 
@@ -403,7 +363,6 @@ class Preprocessor(PreprocessorAPI):
 
         kwargs.pop("binfun", None)
         kwargs.pop("binratio", None)
-        kwargs.pop("clear_memory", None)
 
         return PreprocessTask(
             name=task.name,
@@ -420,12 +379,12 @@ class Preprocessor(PreprocessorAPI):
         task: PreprocessTask,
     ) -> MSDataManagerImzML:
         """Execute whole-dataset task."""
-        if task.name == "peak_align" and task.apply_fn is BatchPreprocess.peak_align_batch:
+        if task.name == "peak_align" and task.apply_fn is FlatPreprocess.peak_align_flat:
             prepared_task = self._prepare_peak_align_task(
                 data_manager=data_manager,
                 task=task,
             )
-            return self._run_batch_task(
+            return self._run_flat_batch_task(
                 data_manager=data_manager,
                 tasks=[prepared_task],
             )
@@ -452,7 +411,7 @@ class Preprocessor(PreprocessorAPI):
                 task_cursor += 1
 
             if batch_tasks:
-                next_data_manager = self._run_batch_task(
+                next_data_manager = self._run_flat_batch_task(
                     data_manager=current_data_manager,
                     tasks=batch_tasks,
                 )

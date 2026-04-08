@@ -65,7 +65,7 @@ def estimate_resolution(
     a, b = xs[:-1], xs[1:]
     rx = 2.0 * (b - a) / (b + a)
 
-    eps = np.finfo(float).eps
+    eps = np.finfo(float).eps # pylint: disable=no-member
     dx = dx[dx > eps]
     rx = rx[np.abs(rx) > eps]
 

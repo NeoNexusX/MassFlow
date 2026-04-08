@@ -2,7 +2,6 @@ from typing import Sequence
 import numpy as np
 from massflow.module import SpectrumImzML, Spectrum
 from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
-from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
 
 from massflow.tools.logger import get_logger

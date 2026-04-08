@@ -3,6 +3,7 @@ from typing import Optional
 
 import pytest
 import numpy as np
+from numba import set_num_threads
 
 from massflow.tools.logger import get_logger
 from massflow.module import MassSpectrumSet
@@ -13,10 +14,8 @@ from massflow.preprocess.helper.peak_align_parallel import compute_reference_par
 
 logger = get_logger("test_peak_alignment")
 
-FILEPATH = r"/Users/dre/Desktop/data/20170105_ADP_larvae_2-2_NEDC001_400x300_20x20/20170105_ADP_larvae_2-2_NEDC001_400x300_20x20.imzML"
-# FILEPATH = r"/Users/dre/Desktop/data/ME_Drosophila_Sagittal_Head_DAN_AIF/2023-10-30_ME_Drosophila_Sagittal_Head_DAN_AIF_600-1200_30NCE_100-400_34at_3umss_133x233.imzML"
-MZ_RANGES = [(10, 1000)]
-TOLERANCE = 1e-7
+# FILEPATH = r"/Users/dre/Desktop/data/20170105_ADP_larvae_2-2_NEDC001_400x300_20x20/20170105_ADP_larvae_2-2_NEDC001_400x300_20x20.imzML"
+FILEPATH = r"/Users/dre/Desktop/data/ME_Drosophila_Sagittal_Head_DAN_AIF/2023-10-30_ME_Drosophila_Sagittal_Head_DAN_AIF_600-1200_30NCE_100-400_34at_3umss_133x233.imzML"
 ROUND = 2
 
 def run_compute_reference_series(dm, units, binfun, binratio, tolerance):
@@ -25,7 +24,8 @@ def run_compute_reference_series(dm, units, binfun, binratio, tolerance):
 
 def run_compute_reference_parallel(dm, units, binfun, binratio, tolerance, numba_max_threads):
     """Run compute_reference in parallel mode"""
-    return compute_reference_parallel(dm, units=units, binfun=binfun, binratio=binratio, tolerance=tolerance, numba_max_threads=numba_max_threads)
+    set_num_threads(numba_max_threads)
+    return compute_reference_parallel(dm, units=units, binfun=binfun, binratio=binratio, tolerance=tolerance)
 
 def run_alignment_series(
     dm: MSDataManagerImzML,
@@ -33,6 +33,7 @@ def run_alignment_series(
     tolerance: Optional[float] = None,
     reference: Optional[np.ndarray] = None,
 ) -> MSDataManagerImzML:
+    """Run peak alignment in series mode"""
     tolerance = tolerance * 1e6 if units == "ppm" else tolerance
 
     for batch in dm.batch_generator(batch_size=256):
@@ -50,16 +51,17 @@ def run_alignment_parallel(
     reference: Optional[np.ndarray] = None,
     numba_max_threads: int = 4,
 ) -> MSDataManagerImzML:
+    """Run peak alignment in parallel mode"""
+    set_num_threads(numba_max_threads)
 
-    for mz_data, intensity_matrix, lengths, _ in dm.matrix_generator(batch_size=256):
+    for mz_data, intensity_flat, lengths, _ in dm.flat_generator(batch_size=256):
         _ = align_spectra_parallel(
             mz_data,
-            intensity_matrix,
+            intensity_flat,
             lengths=lengths,
             reference=reference,
             tolerance=tolerance,
-            units=units,
-            numba_max_threads=numba_max_threads,
+            units=units
         )
 
 class TestPeakAlignment:
@@ -148,6 +150,6 @@ class TestPeakAlignment:
     def test_reference_rightness(self, data_manager: MSDataManagerImzML):
         """Test that the reference spectrum is computed correctly"""
         reference, tolerance = compute_reference(data_manager, units="ppm", binfun="median", binratio=2, tolerance=None)
-        parallel_reference, parallel_tolerance = compute_reference_parallel(data_manager, units="ppm", binfun="median", binratio=2, tolerance=None, numba_max_threads=4)
+        parallel_reference, parallel_tolerance = compute_reference_parallel(data_manager, units="ppm", binfun="median", binratio=2, tolerance=None)
         assert np.array_equal(reference, parallel_reference), "Reference arrays are not exactly equal!"
         assert tolerance == parallel_tolerance, "Tolerances are not exactly equal!"

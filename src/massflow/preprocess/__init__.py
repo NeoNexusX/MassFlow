@@ -1,5 +1,5 @@
 from massflow.preprocess.batch_pre_fun import BatchPreprocess
-from massflow.preprocess.preprocessor import Preprocessor, BatchChunk, PreprocessTask
+from massflow.preprocess.preprocessor import Preprocessor, FlatChunk, PreprocessTask
 from massflow.preprocess.numba.numba_runtime import (
     detect_performance_core_workers,
     get_global_numba_runtime,
@@ -9,7 +9,7 @@ from massflow.preprocess.numba.numba_runtime import (
 
 __all__ = [
     "BatchPreprocess",
-    "BatchChunk",
+    "FlatChunk",
     "Preprocessor",
     "PreprocessTask",
     "detect_performance_core_workers",

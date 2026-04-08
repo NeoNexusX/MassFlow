@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Literal, Optional, Protocol, Self, Sequence
-
+from typing import Any, Callable, Literal, Protocol, Self
 import numpy as np
-from massflow.preprocess.batch_pre_fun import BatchPreprocess
+
+from massflow.preprocess.flat_pre_fun import FlatPreprocess
 from massflow.r_preprocess.adapter import CardinalAdapter
 
 TaskScope = Literal["batch", "dataset"]
 Backend = Literal["python", "cardinal"]
+
 
 class _TaskRegistrar(Protocol):
     def _register_task(
@@ -15,48 +16,21 @@ class _TaskRegistrar(Protocol):
         name: str,
         *,
         scope: TaskScope = "batch",
-        apply_fn: Callable[..., Sequence[Any]] | Callable[..., Any],
+        apply_fn: Callable[..., Any],
         **kwargs: Any,
     ) -> Self:
         ...
 
 
 class PreprocessorAPI(_TaskRegistrar):
-    """Chainable task registration APIs for `Preprocessor`."""
+    """Chainable task registration APIs for `Preprocessor` (flat-first)."""
 
-    def baseline_correction(
-        self,
-        *,
-        method: str = "asls",
-        smooth: str = "none",
-        span: float = 0.1,
-        s: float | None = 0.0,
-        upper: bool = False,
-        width: int = 5,
-        lam: float = 1e7,
-        p: float = 0.01,
-        niter: int = 15,
-        baseline_scale: float = 1.0,
-        m: int | None = None,
-        decreasing: bool = True,
-    ) -> Self:
-        """Register baseline correction batch task."""
+    def baseline_correction(self, **kwargs: Any) -> Self:
         return self._register_task(
             "baseline_correction",
             scope="batch",
-            apply_fn=BatchPreprocess.baseline_correction_batch,
-            method=method,
-            smooth=smooth,
-            span=span,
-            s=s,
-            upper=upper,
-            width=width,
-            lam=lam,
-            p=p,
-            niter=niter,
-            baseline_scale=baseline_scale,
-            m=m,
-            decreasing=decreasing,
+            apply_fn=FlatPreprocess.baseline_correction_flat,
+            **kwargs,
         )
 
     def noise_reduction(
@@ -74,11 +48,11 @@ class PreprocessorAPI(_TaskRegistrar):
         wavelet: str = "db4",
         threshold_mode: str = "soft",
     ) -> Self:
-        """Register noise reduction batch task."""
+        """Register noise reduction flat task."""
         return self._register_task(
             "noise_reduction",
             scope="batch",
-            apply_fn=BatchPreprocess.noise_reduction_batch,
+            apply_fn=FlatPreprocess.noise_reduction_flat,
             method=method,
             window=window,
             sd=sd,
@@ -92,21 +66,28 @@ class PreprocessorAPI(_TaskRegistrar):
             threshold_mode=threshold_mode,
         )
 
-    def normalization(
-        self,
-        *,
-        scale_method: str = "none",
-        method: str = "tic",
-        scale: float = 1.0,
-    ) -> Self:
-        """Register normalization batch task."""
+    def normalization(self, **kwargs: Any) -> Self:
         return self._register_task(
             "normalization",
             scope="batch",
-            apply_fn=BatchPreprocess.normalization_batch,
-            scale_method=scale_method,
-            method=method,
-            scale=scale,
+            apply_fn=FlatPreprocess.normalization_flat,
+            **kwargs,
+        )
+
+    def peak_pick(self, *, backend: Backend = "python", **kwargs: Any) -> Self:
+        if backend == "cardinal":
+            return self._register_task(
+                "peak_pick",
+                scope="dataset",
+                apply_fn=CardinalAdapter.peak_pick,
+                **kwargs,
+            )
+
+        return self._register_task(
+            "peak_pick",
+            scope="batch",
+            apply_fn=FlatPreprocess.peak_pick_flat,
+            **kwargs,
         )
 
     def peak_align(
@@ -118,9 +99,8 @@ class PreprocessorAPI(_TaskRegistrar):
         backend: Backend = "python",
         binfun: str = "median",
         binratio: float = 2.0,
-        clear_memory: bool = False,
     ) -> Self:
-        """Register peak alignment task."""
+        """Register peak alignment flat task."""
         if backend == "cardinal":
             return self._register_task(
                 "peak_align",
@@ -135,47 +115,11 @@ class PreprocessorAPI(_TaskRegistrar):
 
         return self._register_task(
             "peak_align",
-            scope="dataset",
-            apply_fn=BatchPreprocess.peak_align_batch,
+            scope="batch",
+            apply_fn=FlatPreprocess.peak_align_flat,
             reference=reference,
             tolerance=tolerance,
             units=units,
             binfun=binfun,
             binratio=binratio,
-            clear_memory=clear_memory,
         )
-
-    def peak_pick(
-        self,
-        *,
-        width: int | Sequence[int] = 2,
-        method: str = "origin",
-        relheight: float = 0.012,
-        snr: float = 2.0,
-        return_type: str = "height",
-        use_numba: bool = True,
-        backend: Backend = "python",
-    ) -> Self:
-        """Register peak picking task."""
-        if backend == "cardinal":
-            method = "diff" if method == "origin" else method
-            return self._register_task(
-                "peak_pick",
-                scope="dataset",
-                apply_fn=CardinalAdapter.peak_pick,
-                method=method,
-                snr=snr,
-                return_type=return_type,
-            )
-
-        return self._register_task(
-                "peak_pick",
-                scope="batch",
-                apply_fn=BatchPreprocess.peak_pick_batch,
-                width=width,
-                method=method,
-                relheight=relheight,
-                snr=snr,
-                return_type=return_type,
-                use_numba=use_numba,
-            )
