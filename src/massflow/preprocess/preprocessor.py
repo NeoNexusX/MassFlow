@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from queue import Queue
 from threading import Event, Lock, Thread
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import numpy as np
 
@@ -22,7 +22,7 @@ class FlatChunk:
     """Transport object between pipeline stages."""
 
     index: int
-    mz_data: Optional[np.ndarray] # 把这三个字段打包成 FlatBatchResult TODO
+    mz_data: Optional[np.ndarray]
     intensity: np.ndarray
     lengths: np.ndarray
     coordinates: np.ndarray
@@ -147,7 +147,7 @@ class Preprocessor(PreprocessorAPI):
                 queue_ab.put(
                     FlatChunk(
                         index=batch_idx,
-                        mz_data=np.asarray(mz_data), # 上游已经保证了这些数据应该是numpy数组了吧，是不是可以不做转换呢 TODO
+                        mz_data=np.asarray(mz_data),
                         intensity=np.asarray(intensity),
                         lengths=np.asarray(lengths, dtype=np.int32),
                         coordinates=np.asarray(coords),
@@ -183,7 +183,8 @@ class Preprocessor(PreprocessorAPI):
                 current_chunk = chunk
 
                 for task in tasks:
-                    output = task.apply_fn(
+                    batch_apply_fn = cast(Callable[..., FlatBatchResult], task.apply_fn)
+                    output = batch_apply_fn(
                         mz_data=current_chunk.mz_data,
                         intensity=current_chunk.intensity,
                         lengths=current_chunk.lengths,
@@ -225,6 +226,41 @@ class Preprocessor(PreprocessorAPI):
 
         return written_batches
 
+    def _flush_pending_in_order(
+        self,
+        *,
+        pending: dict[int, FlatChunk],
+        expected_index: int,
+        processed_data_manager: MSDataManagerImzML,
+        written_batches: int,
+        total_batches: int,
+    ) -> tuple[int, int]:
+        while expected_index in pending:
+            ordered_chunk = pending.pop(expected_index)
+            written_batches = self._flush_chunk(
+                chunk=ordered_chunk,
+                processed_data_manager=processed_data_manager,
+                written_batches=written_batches,
+                total_batches=total_batches,
+            )
+            expected_index += 1
+        return expected_index, written_batches
+
+    def _ensure_no_pending_gap(
+        self,
+        *,
+        pending: dict[int, FlatChunk],
+        expected_index: int,
+    ) -> None:
+        if not pending:
+            return
+
+        missing = [idx for idx in range(expected_index, max(pending.keys()) + 1) if idx not in pending]
+        raise RuntimeError(
+            "Pipeline ended with missing chunks in keep_order mode. "
+            f"expected_index={expected_index}, pending={sorted(pending.keys())}, missing={missing}"
+        )
+
     def _stage_c_writer(
         self,
         *,
@@ -237,18 +273,40 @@ class Preprocessor(PreprocessorAPI):
     ) -> None:
         """Stage C: consumer; persist processed chunks, optionally keeping order."""
         written_batches = 0
+        expected_index = 0
+        pending: dict[int, FlatChunk] = {}
 
         try:
             while True:
                 chunk = queue_bc.get()
                 if chunk is None:
+                    if self.keep_order:
+                        expected_index, written_batches = self._flush_pending_in_order(
+                            pending=pending,
+                            expected_index=expected_index,
+                            processed_data_manager=processed_data_manager,
+                            written_batches=written_batches,
+                            total_batches=total_batches,
+                        )
+                        self._ensure_no_pending_gap(pending=pending, expected_index=expected_index)
                     break
 
                 if stop_event.is_set():
                     continue
 
-                written_batches = self._flush_chunk(
-                    chunk=chunk,
+                if not self.keep_order:
+                    written_batches = self._flush_chunk(
+                        chunk=chunk,
+                        processed_data_manager=processed_data_manager,
+                        written_batches=written_batches,
+                        total_batches=total_batches,
+                    )
+                    continue
+
+                pending[chunk.index] = chunk
+                expected_index, written_batches = self._flush_pending_in_order(
+                    pending=pending,
+                    expected_index=expected_index,
                     processed_data_manager=processed_data_manager,
                     written_batches=written_batches,
                     total_batches=total_batches,
@@ -290,6 +348,7 @@ class Preprocessor(PreprocessorAPI):
                 "error_holder": error_holder,
                 "error_lock": error_lock,
             },
+            name="massflow-stage-a-reader",
             daemon=True,
         )
         t_b = Thread(
@@ -302,6 +361,7 @@ class Preprocessor(PreprocessorAPI):
                 "error_holder": error_holder,
                 "error_lock": error_lock,
             },
+            name="massflow-stage-b-processor",
             daemon=True,
         )
         t_c = Thread(
@@ -314,6 +374,7 @@ class Preprocessor(PreprocessorAPI):
                 "processed_data_manager": processed_data_manager,
                 "total_batches": total_batches,
             },
+            name="massflow-stage-c-writer",
             daemon=True,
         )
 
@@ -348,7 +409,7 @@ class Preprocessor(PreprocessorAPI):
         tolerance = kwargs.get("tolerance")
 
         if reference is None or tolerance is None:
-            reference, tol_internal = compute_reference_parallel(
+            reference, tolerance = compute_reference_parallel(
                 data_manager=data_manager,
                 reference=reference,
                 tolerance=tolerance,
@@ -357,9 +418,11 @@ class Preprocessor(PreprocessorAPI):
                 binratio=kwargs.get("binratio", 2.0),
                 batch_size=self.batch_size,
             )
+        else:
+            tolerance = tolerance * 1e-6 if units == "ppm" else tolerance
 
-            kwargs["reference"] = reference
-            kwargs["tolerance"] = tol_internal * 1e6 if units == "ppm" else tol_internal
+        kwargs["reference"] = reference
+        kwargs["tolerance"] = tolerance
 
         kwargs.pop("binfun", None)
         kwargs.pop("binratio", None)
@@ -390,7 +453,8 @@ class Preprocessor(PreprocessorAPI):
             )
 
         if task.name == "peak_align" or task.name == "peak_pick":
-            return task.apply_fn(data_manager=data_manager, **task.kwargs)
+            dataset_apply_fn = cast(Callable[..., MSDataManagerImzML], task.apply_fn)
+            return dataset_apply_fn(data_manager=data_manager, **task.kwargs)
         else:
             raise NotImplementedError(f"Dataset task {task.name} with backend Cardinal is not supported.")
 
@@ -406,6 +470,7 @@ class Preprocessor(PreprocessorAPI):
         while task_cursor < len(ordered_tasks):
             batch_tasks: list[PreprocessTask] = []
 
+            # prepare consecutive batch tasks to run in the pipeline together, then run dataset task separately for better performance
             while task_cursor < len(ordered_tasks) and ordered_tasks[task_cursor].scope == "batch":
                 batch_tasks.append(ordered_tasks[task_cursor])
                 task_cursor += 1
@@ -437,4 +502,4 @@ class Preprocessor(PreprocessorAPI):
 
             current_data_manager = next_data_manager
 
-        return current_data_manager
+        return cast(MSDataManagerImzML, current_data_manager)

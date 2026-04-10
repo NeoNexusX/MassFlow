@@ -237,6 +237,7 @@ class ImzMLWriter:
         # LRU cache needed for auto mode (maintain compatibility)
         self._lru_cache: OrderedDict = OrderedDict()
         self._lru_maxlen = 10
+        self._auto_detected_mode: Optional[str] = None
 
         # Polarity setting
         self._set_polarity(polarity)
@@ -430,6 +431,34 @@ class ImzMLWriter:
         )
         self.spectra.append(s)
 
+    def _update_auto_mode_from_flat(
+        self,
+        mz_flat: np.ndarray,
+        lengths: np.ndarray
+    ) -> None:
+        """Detect mode based on flat array shapes - used for swap_flat_out2disk auto mode"""
+        total_points = int(np.sum(lengths, dtype=np.int64))
+        max_len = int(np.max(lengths))
+        mz_size = int(mz_flat.size)
+
+        if mz_size == total_points:
+            detected_mode = "processed"
+        elif mz_size == max_len and np.all(lengths == max_len):
+            detected_mode = "continuous"
+        else:
+            raise ValueError(
+                "Cannot infer auto mode from flat arrays: "
+                f"mz_size={mz_size}, total_points={total_points}, max_len={max_len}."
+            )
+
+        if self._auto_detected_mode is None:
+            self._auto_detected_mode = detected_mode
+        elif self._auto_detected_mode != detected_mode:
+            raise ValueError(
+                "Inconsistent auto mode across batches: "
+                f"previous={self._auto_detected_mode}, current={detected_mode}."
+            )
+
     def swap_flat_out2disk(
         self,
         mz_flat: Optional[np.ndarray],
@@ -451,10 +480,24 @@ class ImzMLWriter:
         if len(lengths) == 0:
             return
 
-        is_continuous = self.mode == "continuous"
+        if mz_flat is None:
+            raise ValueError("mz_flat cannot be None for swap_flat_out2disk")
+
         num_spectra = len(lengths)
         if user_params_list is None:
             user_params_list = [[] for _ in range(num_spectra)]
+
+        if self.mode == "continuous":
+            is_continuous = True
+        elif self.mode == "processed":
+            is_continuous = False
+        else:
+            if mz_flat is None:
+                raise ValueError("mz_flat cannot be None for auto mode in swap_flat_out2disk")
+
+            self._update_auto_mode_from_flat(mz_flat, lengths)
+
+            is_continuous = self._auto_detected_mode == "continuous"
 
         mz_bytes_per_elem = self.mz_dtype.itemsize
         int_bytes_per_elem = self.intensity_dtype.itemsize
@@ -584,7 +627,10 @@ class ImzMLWriter:
 
         # 确定模式
         if self.mode == "auto":
-            mode = "processed" if len(self._lru_cache) > 1 else "continuous"
+            if self._auto_detected_mode is not None:
+                mode = self._auto_detected_mode
+            else:
+                mode = "processed" if len(self._lru_cache) > 1 else "continuous"
         else:
             mode = self.mode
 
@@ -622,9 +668,9 @@ class ImzMLWriter:
         scan_pattern = meta.scan_pattern if meta.scan_pattern is not None else "one_way"
         scan_type = meta.scan_type if meta.scan_type is not None else "horizontal_line"
 
-        if meta.continuous is not None:
+        if bool(getattr(meta, "continuous", None)):
             mode = "continuous"
-        elif meta.processed is not None:
+        elif bool(getattr(meta, "processed", None)):
             mode = "processed"
         else:
             mode = "auto"

@@ -1,5 +1,5 @@
 import time
-from typing import Optional
+from typing import Optional, Literal
 import pytest
 import numpy as np
 from massflow.tools.logger import get_logger
@@ -9,6 +9,8 @@ from massflow.preprocess.preprocessor import Preprocessor
 from massflow.r_preprocess import set_default_r_home
 
 logger = get_logger("test_peak_alignment")
+
+Backend = Literal["python", "cardinal"]
 
 FILEPATH = r"picked.imzML"
 MZ_RANGES = [(500, 600)]
@@ -23,7 +25,7 @@ def run_alignment_task(
     binfun: str,
     binratio: int,
     tolerance: Optional[float] = None,
-    backend: str = "python",
+    backend: Backend = "python",
 ) -> MSDataManagerImzML:
 
     aligned_manager = (

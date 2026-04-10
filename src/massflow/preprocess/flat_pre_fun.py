@@ -84,7 +84,7 @@ class FlatPreprocess:
             logger.error("Reference m/z axis and tolerance must be provided for alignment.")
             raise ValueError("Reference m/z axis and tolerance are required.")
 
-        aligned_2d = align_spectra_parallel( # 后续改成输出直接就是 1d 的形式，减少内存占用 TODO
+        aligned_2d = align_spectra_parallel(
             mz_data=mz_data,
             intensity=intensity,
             lengths=lengths,
@@ -93,7 +93,9 @@ class FlatPreprocess:
             units=units,
         )
 
+        n_spec = int(lengths.size)
         ref_len = int(reference.size)
+        out_lengths = np.full(n_spec, ref_len, dtype=np.int32)
         out_intensity = aligned_2d.reshape(-1)
 
-        return FlatBatchResult(mz_data=reference, intensity=out_intensity, lengths=ref_len)
+        return FlatBatchResult(mz_data=reference, intensity=out_intensity, lengths=out_lengths)

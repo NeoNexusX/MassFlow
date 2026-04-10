@@ -266,7 +266,7 @@ def accumulate_best_matches_for_spectrum_jit(
 
         peak = raw_peaks[i]
         target = domain[b]
-        dist = _scalar_diff_inf_jit(peak, target, method_code)
+        dist = _scalar_diff_inf_jit(peak, target, method_code) # type: ignore
         if np.isnan(dist):
             dist = np.inf
 
