@@ -25,6 +25,7 @@ def _normalization_flat_from_flat_batches(
 ):
     for mz_flat, intensity_flat, lengths, ref in flat_batches:
         kwargs = {
+            "mz_data": mz_flat,
             "intensity": intensity_flat,
             "method": method,
             "scale": scale,
@@ -121,6 +122,7 @@ class TestNormalizationAPI:
         intensity_flat = np.concatenate([spectrum.intensity.astype(np.float32, copy=False) for spectrum in batch])
 
         flat_result = FlatPreprocess.normalization_flat(
+            mz_data=None, # type: ignore
             intensity=intensity_flat,
             method=flat_method,
             scale=1.0,
@@ -130,13 +132,13 @@ class TestNormalizationAPI:
         offset = 0
         for spectrum, valid_len in zip(batch_result, lengths):
             end = offset + int(valid_len)
-            flat_slice = flat_result[offset:end]
+            flat_slice = flat_result.intensity[offset:end]
             assert spectrum.intensity is not None
             np.testing.assert_allclose(
                 spectrum.intensity,
                 flat_slice,
-                rtol=1e-5,
-                atol=1e-5,
+                rtol=1e-6,
+                atol=1e-6,
             )
             offset = end
 
@@ -147,6 +149,7 @@ class TestNormalizationAPI:
         intensity_flat = np.concatenate([spectrum.intensity.astype(np.float64, copy=False) for spectrum in batch])
 
         normalized_flat = FlatPreprocess.normalization_flat(
+            mz_data=None, # type: ignore
             intensity=intensity_flat,
             method=method,
             scale=None,
@@ -156,7 +159,7 @@ class TestNormalizationAPI:
         offset = 0
         for valid_len in lengths:
             end = offset + int(valid_len)
-            y = normalized_flat[offset:end]
+            y = normalized_flat.intensity[offset:end]
             if method == "tic_numba":
                 assert np.isclose(np.sum(y), float(valid_len), rtol=1e-6)
             else:
@@ -171,6 +174,7 @@ class TestNormalizationAPI:
 
         scale_target = 3.5
         normalized_flat = FlatPreprocess.normalization_flat(
+            mz_data=None, # type: ignore
             intensity=intensity_flat,
             method=method,
             scale=scale_target,
@@ -180,7 +184,7 @@ class TestNormalizationAPI:
         offset = 0
         for valid_len in lengths:
             end = offset + int(valid_len)
-            y = normalized_flat[offset:end]
+            y = normalized_flat.intensity[offset:end]
             if method == "tic_numba":
                 assert np.isclose(np.sum(y), scale_target, rtol=1e-6)
             else:
@@ -201,6 +205,7 @@ class TestNormalizationAPI:
 
         scale_target = 3.5
         normalized_flat = FlatPreprocess.normalization_flat(
+            mz_data=mz_flat,
             intensity=intensity_flat,
             method="ref_numba",
             scale=scale_target,
@@ -214,13 +219,13 @@ class TestNormalizationAPI:
         for valid_len in lengths:
             end = offset + int(valid_len)
             mz_slice = mz_flat if is_shared_mz else mz_flat[offset:end]
-            y = normalized_flat[offset:end]
+            y = normalized_flat.intensity[offset:end]
 
             idx = int(np.argmin(np.abs(mz_slice - ref)))
             if np.abs(mz_slice[idx] - ref) <= 0.1 and intensity_flat[offset + idx] > 0.0:
                 logger.info(
                        f"scaling to target={scale_target},y[idx]={y[idx]}"
                 )
-                assert np.isclose(y[idx], scale_target, rtol=1e-5, atol=1e-5)
+                assert np.isclose(y[idx], scale_target, rtol=1e-6, atol=1e-6)
 
             offset = end

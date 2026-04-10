@@ -4,7 +4,6 @@ import numpy as np
 from massflow.preprocess.helper.baseline_correction_helper import baseline_corrector
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
-from massflow.preprocess.helper.baseline_correction_helper import baseline_corrector
 from massflow.preprocess.helper.peak_align_parallel import align_spectra_parallel
 from massflow.tools.logger import get_logger
 
@@ -65,12 +64,14 @@ class FlatPreprocess:
             baseline_scale=baseline_scale,
             m=m,
             decreasing=decreasing,
+            lengths=lengths,
         )
+
         return FlatBatchResult(mz_data=mz_data, intensity=baselined_intensity, lengths=lengths)
 
     @staticmethod
     def noise_reduction_flat(
-        mz_data: np.ndarray | None,
+        mz_data: np.ndarray,
         intensity: np.ndarray,
         lengths: np.ndarray,
         method: str = "ma_numba",
@@ -142,14 +143,15 @@ class FlatPreprocess:
 
     @staticmethod
     def normalization_flat(
+        mz_data: np.ndarray,
         intensity: np.ndarray,
+        lengths: np.ndarray,
         method: str = "tic_numba",
         scale: float | None = None,
         mz_flat: np.ndarray | None = None,
         ref: float | None = None,
         ref_tolerance: float = 0.1,
-        lengths: Optional[np.ndarray] = None,
-    ) -> np.ndarray:
+    ) -> FlatBatchResult:
         """Perform flat-mode normalization and return processed flat intensity.
 
         Supported methods are limited to:
@@ -164,7 +166,7 @@ class FlatPreprocess:
         if method_norm not in supported_methods:
             raise ValueError("normalization_flat only supports: tic_numba, rms_numba, ref_numba")
 
-        return normalizer(
+        normalized_intensity = normalizer(
             intensity=intensity,
             method=method_norm,
             scale=scale,
@@ -174,48 +176,4 @@ class FlatPreprocess:
             lengths=lengths,
         )
 
-    @staticmethod
-    def baseline_reduction_flat(
-        intensity: np.ndarray,
-        method: str = "locmin_numba",
-        smooth: str = "none",
-        span: float = 0.1,
-        s: float | None = 0.0,
-        upper: bool = False,
-        width: int = 5,
-        lam: float = 1e7,
-        p: float = 0.01,
-        niter: int = 15,
-        baseline_scale: float = 1.0,
-        m: int | None = None,
-        decreasing: bool = True,
-        lengths: Optional[np.ndarray] = None,
-    ) -> np.ndarray:
-        """Perform flat-mode baseline reduction and return corrected flat intensity.
-
-        Supported methods are limited to:
-        - ``locmin_numba``
-        - ``snip_numba``
-        """
-        method_norm = (method or "").strip().lower()
-        supported_methods = {"locmin_numba", "snip_numba"}
-        if method_norm not in supported_methods:
-            raise ValueError("baseline_reduction_flat only supports: locmin_numba, snip_numba")
-
-        corrected, _ = baseline_corrector(
-            intensity=intensity,
-            method=method_norm,
-            smooth=smooth,
-            span=span,
-            s=s,
-            upper=upper,
-            width=width,
-            lam=lam,
-            p=p,
-            niter=niter,
-            baseline_scale=baseline_scale,
-            m=m,
-            decreasing=decreasing,
-            lengths=lengths,
-        )
-        return corrected
+        return FlatBatchResult(mz_data=mz_data, intensity=np.asarray(normalized_intensity), lengths=lengths)

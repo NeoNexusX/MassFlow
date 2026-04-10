@@ -23,13 +23,14 @@ def main():
             max_threads=16,
         ):
             normalized_flat = FlatPreprocess.normalization_flat(
+                mz_data=mz_flat,
                 intensity=intensity_flat,
-                method="tic_numba",
                 lengths=lengths,
+                method="tic_numba",
             )
             processed_data_manager.swap_flat_data_out2disk(
                 mz_flat=mz_flat,
-                intensity_flat=normalized_flat,
+                intensity_flat=normalized_flat.intensity,
                 lengths=lengths,
                 coordinates=coordinates,
             )

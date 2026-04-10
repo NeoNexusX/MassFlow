@@ -32,7 +32,7 @@ def run_alignment_series(
     units: str,
     tolerance: Optional[float] = None,
     reference: Optional[np.ndarray] = None,
-) -> MSDataManagerImzML:
+) -> None:
     """Run peak alignment in series mode"""
     tolerance = tolerance * 1e6 if units == "ppm" else tolerance
 
@@ -50,7 +50,7 @@ def run_alignment_parallel(
     tolerance: Optional[float] = None,
     reference: Optional[np.ndarray] = None,
     numba_max_threads: int = 4,
-) -> MSDataManagerImzML:
+) -> None:
     """Run peak alignment in parallel mode"""
     set_num_threads(numba_max_threads)
 

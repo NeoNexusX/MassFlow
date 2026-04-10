@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Literal, Protocol, Self, Sequence
+from typing import Any, Callable, Literal, Protocol, Self
 import numpy as np
 
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
@@ -25,12 +25,38 @@ class _TaskRegistrar(Protocol):
 class PreprocessorAPI(_TaskRegistrar):
     """Chainable task registration APIs for `Preprocessor` (flat-first)."""
 
-    def baseline_correction(self, **kwargs: Any) -> Self:
+    def baseline_correction(
+            self,
+            *,
+            method: str = "locmin_numba",
+            smooth: str = "none",
+            span: float = 0.1,
+            s: float | None = 0.0,
+            upper: bool = False,
+            width: int = 5,
+            lam: float = 1e7,
+            p: float = 0.01,
+            niter: int = 15,
+            baseline_scale: float = 1.0,
+            m: int | None = None,
+            decreasing: bool = True,
+        ) -> Self:
         return self._register_task(
             "baseline_correction",
             scope="batch",
-            apply_fn=FlatPreprocess.baseline_correction_flat,
-            **kwargs,
+            apply_fn=FlatPreprocess.baseline_reduction_flat,
+            method=method,
+            smooth=smooth,
+            span=span,
+            s=s,
+            upper=upper,
+            width=width,
+            lam=lam,
+            p=p,
+            niter=niter,
+            baseline_scale=baseline_scale,
+            m=m,
+            decreasing=decreasing,
         )
 
     def noise_reduction(
@@ -69,15 +95,22 @@ class PreprocessorAPI(_TaskRegistrar):
     def normalization(
         self,
         *,
-        method: str = "tic",
-        scale: float = 1.0,
+        method: str = "tic_numba",
+        scale: float | None = None,
+        mz_flat: np.ndarray | None = None,
+        ref: float | None = None,
+        ref_tolerance: float = 0.1,
     ) -> Self:
         """Register normalization batch task."""
         return self._register_task(
             "normalization",
             scope="batch",
             apply_fn=FlatPreprocess.normalization_flat,
-            **kwargs,
+            method=method,
+            scale=scale,
+            mz_flat=mz_flat,
+            ref=ref,
+            ref_tolerance=ref_tolerance,
         )
 
     def peak_pick(self, *, backend: Backend = "python", **kwargs: Any) -> Self:

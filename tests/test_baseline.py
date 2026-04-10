@@ -21,6 +21,7 @@ def _baseline_reduction_flat_from_flat_batches(
 ):
     for intensity_flat, lengths in flat_batches:
         _ = FlatPreprocess.baseline_reduction_flat(
+            mz_data=None, # type: ignore
             intensity=intensity_flat,
             method=method,
             width=width,

@@ -26,6 +26,7 @@ def _noise_reduction_flat_from_flat_batches(
 ):
     for intensity_flat, lengths in flat_batches:
         _ = FlatPreprocess.noise_reduction_flat(
+            mz_data=None, # type: ignore
             intensity=intensity_flat,
             method=method,
             window=window,
@@ -126,6 +127,7 @@ class TestNoiseReductionAPI:
             [spectrum.intensity.astype(np.float32, copy=False) for spectrum in batch]
         )
         flat_result = FlatPreprocess.noise_reduction_flat(
+            mz_data=None, # type: ignore
             intensity=intensity_flat,
             method=flat_method,
             window=5,
@@ -135,7 +137,7 @@ class TestNoiseReductionAPI:
         offset = 0
         for spectrum_batch, valid_len in zip(batch_result, lengths):
             end = offset + int(valid_len)
-            flat_slice = flat_result[offset:end]
+            flat_slice = flat_result.intensity[offset:end]
             assert spectrum_batch.intensity is not None
             np.testing.assert_allclose(
                 spectrum_batch.intensity,
