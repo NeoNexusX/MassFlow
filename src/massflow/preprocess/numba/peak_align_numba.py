@@ -3,7 +3,7 @@ from numpy.typing import NDArray
 from numba import jit
 from massflow.tools.logger import get_logger
 
-logger = get_logger("peak_align_compute")
+logger = get_logger("massflow.peak_align_numba")
 
 @jit(nopython=True, fastmath=True, cache=True)
 def scalar_diff_jit(val1, val2, method_code):

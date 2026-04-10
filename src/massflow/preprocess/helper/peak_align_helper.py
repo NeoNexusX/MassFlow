@@ -8,7 +8,7 @@ from massflow.data_manager import MSDataManager
 import massflow.preprocess.numba.peak_align_numba as compute
 from massflow.tools.logger import get_logger
 
-logger = get_logger("peak_alignment")
+logger = get_logger("massflow.peak_alignment")
 
 MIN_RELATIVE_RES = 5e-7  # 0.5 ppm
 MIN_ABSOLUTE_RES = 1e-4  # 0.0001 Da

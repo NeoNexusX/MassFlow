@@ -8,7 +8,7 @@ from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess.preprocessor import Preprocessor
 from massflow.r_preprocess import set_default_r_home
 
-logger = get_logger("test_peak_alignment")
+logger = get_logger("massflow.test_peak_alignment")
 
 Backend = Literal["python", "cardinal"]
 
