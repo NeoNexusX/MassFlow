@@ -256,53 +256,6 @@ plot_spectrum(
 ```
 ![RMS example]()
 
-### median_normalize
-
-```python
-preprocess.normalizer_helper.median_normalize(
-  intensity: np.ndarray,
-  scale_method: str = "none",
-  scale: float = 1.0
-) -> np.ndarray
-```
-- 描述：按中位数归一化。当 median > 0 时除以 median（使 median=1），再应用幅度缩放 `scale`，最后可选 `'unit'` min-max 缩放。
-- 参数：
-  - `scale_method`：`'none' | 'unit'`（归一化后可选 min-max 到 [0,1]）
-  - `scale`：归一化后的幅度缩放因子（默认 1.0）
-    - 必须为有限且非负的数。
-- 返回值：
-  - `intensity`：一维数组；在幅度缩放/可选 unit 缩放之前其 median 等于 1
-- 异常：
-  - `ValueError`：median ≤ 0；不支持的 `scale_method`。
-  - `TypeError`：输入不是非空的一维数组。
-
-示例（先降噪再做 Median 归一化）：
-
-```python
-denoised = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="savgol",
-    window=11,
-    polyorder=3,
-)
-med_origin = float(np.median(denoised.intensity))
-normalized_med = SpectrumPreprocess.normalization_spectrum(
-    data=denoised,
-    method="median",
-    scale_method="none",
-)
-med_after = float(np.median(normalized_med.intensity))
-print(f"Median_value_after={med_after:.6f}")
-
-plot_spectrum(
-    base=normalized_med,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5 / med_origin),
-    title_suffix="Median_normalized_none",
-)
-```
-![Median example]()
-
 ### apply_scaling
 
 ```python
@@ -326,7 +279,7 @@ preprocess.normalizer_helper.apply_scaling(
 ```python
 normalized_unit = SpectrumPreprocess.normalization_spectrum(
     data=denoised,
-    method="tic",          # 或 "median"
+  method="tic",          # 或 "rms"
     scale_method="unit"    # min-max 缩放到 [0, 1]
 )
 plot_spectrum(

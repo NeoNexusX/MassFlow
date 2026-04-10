@@ -2,24 +2,30 @@ from typing import Optional
 import numpy as np
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
-from massflow.preprocess.numba.baseline_correction_numba import snip_baseline_numba
+from scipy.interpolate import UnivariateSpline
+from massflow.preprocess.numba.baseline_correction_numba import (
+    baseline_locmin_numba,
+    baseline_snip_numba,
+    local_maxima_numba,
+)
+from massflow.preprocess.numba.noise_reduction_numba import smooth_lowess_numba
+from massflow.tools import dispatch_with_supported_kwargs
 from massflow.tools.logger import get_logger
 
 logger = get_logger("preprocesss")
 
 
-def _input_validation(intensity: np.ndarray, index: Optional[np.ndarray] = None):
+def _input_validation(intensity: np.ndarray, baseline_scale: float = 1.0):
     """
     Validate input parameters for baseline_correction functions.
 
     Parameters:
         intensity (np.ndarray): 1D intensity array to be preprocessed.
-        index (Optional[np.ndarray]): 1D index array (e.g., m/z values). If None,
-            will be generated as np.arange(len(intensity)).
+        baseline_scale (float): Scale factor applied to estimated baseline.
 
     Raises:
         TypeError: If intensity is not a numpy array.
-        ValueError: If intensity is not 1D or empty.
+        ValueError: If intensity is not 1D/empty, or baseline_scale is invalid.
     """
     # Validate intensity array
     if not isinstance(intensity, np.ndarray):
@@ -30,13 +36,16 @@ def _input_validation(intensity: np.ndarray, index: Optional[np.ndarray] = None)
         logger.error("intensity must be a non-empty 1D array")
         raise ValueError("intensity must be a non-empty 1D array")
 
-    if index is not None and (index.ndim != 1 or index.size != intensity.size):
-        logger.error("index must be a 1D array with the same length as intensity")
-        raise ValueError("index must be a 1D array with the same length as intensity")
+    if not np.isfinite(baseline_scale) or not 0.0 < float(baseline_scale) <= 1.0:
+        logger.error("baseline_scale must be a finite number in (0,1]")
+        raise ValueError("baseline_scale must be a finite number in (0,1]")
 
 
 def asls_baseline(
-    intensity: np.ndarray, lam: float = 1e5, p: float = 0.001, niter: int = 15
+    intensity: np.ndarray,
+    lam: float = 1e5,
+    p: float = 0.001,
+    niter: int = 15
 ) -> np.ndarray:
     """
     Asymmetric Least Squares (ASLS) baseline correction using sparse solver.
@@ -48,22 +57,24 @@ def asls_baseline(
         niter (int): Iteration count.
 
     Returns:
-        np.ndarray: Estimated baseline stored as float32 (internal computations use float64).
+        np.ndarray: Estimated baseline with the same dtype as input `intensity`
+            (internal computations use float64).
     """
     # Parameter validation
     if not np.isfinite(lam) or lam <= 0:
         logger.error("lam must be a positive finite number for ASLS")
         raise ValueError("lam must be a positive finite number for ASLS")
-    if not np.isfinite(p) or not (0.0 < p < 1.0):
+    if not np.isfinite(p) or not 0.0 < p < 1.0:
         logger.error("p must be in (0,1) for ASLS")
         raise ValueError("p must be in (0,1) for ASLS")
     if not isinstance(niter, (int, np.integer)) or niter < 1:
         logger.error("niter must be a positive integer for ASLS")
         raise ValueError("niter must be a positive integer for ASLS")
 
+    target_dtype = intensity.dtype
     n = intensity.size
     if n == 0:
-        return np.array([], dtype=np.float32)
+        return np.array([], dtype=target_dtype)
 
     ones_n_minus_2 = np.ones(n - 2)
     d = diags(
@@ -86,11 +97,13 @@ def asls_baseline(
         # asymmetric weights: points above baseline get smaller weight
         w = p * (intensity > baseline) + (1.0 - p) * (intensity <= baseline)
 
-    return np.asarray(baseline, dtype=np.float32)
+    return np.asarray(baseline, dtype=target_dtype)
 
 
 def snip_baseline(
-    intensity: np.ndarray, m: Optional[int] = None, decreasing: bool = True
+    intensity: np.ndarray,
+    m: Optional[int] = None,
+    decreasing: bool = True
 ) -> np.ndarray:
     """
     Statistics-sensitive Non-linear Iterative Peak-clipping (SNIP) baseline estimation.
@@ -115,12 +128,13 @@ def snip_baseline(
     # Validate input shape and length
     if intensity.ndim != 1:
         raise ValueError("intensity must be a 1D array")
+    target_dtype = intensity.dtype
     n = int(intensity.size)
     if n == 0:
-        return np.array([], dtype=np.float32)
+        return np.array([], dtype=target_dtype)
     if n < 3:
         # Too short to apply SNIP; return a copy as baseline
-        return np.asarray(intensity, dtype=np.float32)
+        return np.asarray(intensity, dtype=target_dtype)
 
     # Validate m when provided
     if m is not None and not isinstance(m, (int, np.integer)):
@@ -159,64 +173,7 @@ def snip_baseline(
             z[p : n - p] = np.minimum(cur, clip_val)
             baseline[p : n - p] = z[p : n - p]
 
-    return np.asarray(baseline, dtype=np.float32)
-
-
-def _local_extrema_mask(
-    y: np.ndarray, width: int = 5, upper: bool = False
-) -> np.ndarray:
-    """
-    - r = |width // 2|, check window [i - r, i + r].
-    - For maxima: all left neighbors strictly less; right neighbors not strictly greater.
-    - For minima: apply the same on -y.
-    - Endpoints are excluded; caller can add them explicitly.
-
-    Parameters:
-        y (np.ndarray): 1D array.
-        width (int): Neighborhood width; defaults to 5.
-        upper (bool): True for maxima, False for minima.
-
-    Returns:
-        np.ndarray: Boolean mask of local extrema (length n).
-    """
-    n = int(y.size)
-    mask = np.zeros(n, dtype=bool)
-    if n == 0:
-        return mask
-
-    # Validate width
-    if not isinstance(width, (int, np.integer)):
-        logger.error("width must be an integer for local extrema detection")
-        raise TypeError("width must be an integer for local extrema detection")
-    if width < 3:
-        logger.error("width must be >= 3 for local extrema detection")
-        raise ValueError("width must be >= 3 for local extrema detection")
-
-    r = abs(int(width) // 2)
-    if r <= 0 or n < 2 * r + 1:
-        logger.warning(
-            "Local extrema detection skipped: width=%d too large for n=%d (need at least %d).",
-            int(width),
-            int(n),
-            int(2 * r + 1),
-        )
-        return mask
-
-    # For minima, mirror the data as in R: localMaxima(-x, ...)
-    x = y if upper else -y
-
-    # Vectorized computation using sliding_window_view
-    window = 2 * r + 1
-    win = np.lib.stride_tricks.sliding_window_view(x, window_shape=window)
-    center = win[:, r]
-    max_left = win[:, :r].max(axis=1)
-    max_right = win[:, r + 1 :].max(axis=1)
-    min_window = win.min(axis=1)
-
-    ext = (center > min_window) & (max_left < center) & (max_right <= center)
-    mask[r : n - r] = ext
-
-    return mask
+    return np.asarray(baseline, dtype=target_dtype)
 
 
 def locmin_baseline(
@@ -239,21 +196,22 @@ def locmin_baseline(
         intensity (np.ndarray): Input 1D spectrum.
         smooth (str): 'none' | 'loess' | 'spline'. Default 'none'.
         span (float): Loess span proportion (0 < span <= 1). Default 0.1.
-        s (Optional[float]): Spline smoothing target residual sum of squares; 0.0 means interpolation.
+        s (float): Spline smoothing target residual sum of squares; 0.0 means interpolation.
         upper (bool): If True, anchor at local maxima; otherwise local minima.
         width (int): Neighborhood width for extrema detection (default 5).
 
     Returns:
-        np.ndarray: Estimated baseline stored as float32.
+        np.ndarray: Estimated baseline with the same dtype as input `intensity`.
     """
-    n = int(intensity.size)
+    target_dtype = intensity.dtype
+    n = intensity.size
     if n == 0:
-        return np.array([], dtype=np.float32)
+        return np.array([], dtype=target_dtype)
     if n < 3:
         val = np.nanmax(intensity) if upper else np.nanmin(intensity)
         if not np.isfinite(val):
             val = 0.0
-        return np.full((n,), float(val), dtype=np.float32)
+        return np.full((n,), float(val), dtype=target_dtype)
 
     # Validate smoothing parameters
     smooth_kind = (smooth or "none").strip().lower()
@@ -261,28 +219,23 @@ def locmin_baseline(
         logger.error("smooth must be one of 'none', 'loess', or 'spline'")
         raise ValueError("smooth must be one of 'none', 'loess', or 'spline'")
     if smooth_kind == "loess":
-        if not np.isfinite(span):
-            logger.error("span must be a finite number for loess smoothing")
-            raise ValueError("span must be a finite number for loess smoothing")
-        if not (0.0 < float(span) <= 1.0):
-            logger.error("span must be in (0,1] for loess smoothing")
-            raise ValueError("span must be in (0,1] for loess smoothing")
-    if smooth_kind == "spline":
-        if s is not None and not np.isfinite(float(s)):
-            logger.error("s must be a finite number for spline smoothing")
-            raise ValueError("s must be a finite number for spline smoothing")
-        if s is not None and float(s) < 0.0:
-            logger.error("s must be >= 0 for spline smoothing")
-            raise ValueError("s must be >= 0 for spline smoothing")
-
+        if not np.isfinite(span) or not (0.0 < span <= 1.0): # pylint: disable=superfluous-parens
+            logger.error("span must be a finite number in (0,1] for loess smoothing")
+            raise ValueError("span must be a finite number in (0,1] for loess smoothing")
+    if smooth_kind == "spline": #有限且非负数
+        if s is not None and (not np.isfinite(s) or s < 0.0):
+            logger.error("s must be a finite number >= 0 for spline smoothing")
+            raise ValueError("s must be a finite number >= 0 for spline smoothing")
     # Fill NaNs for robust processing
     med = np.nanmedian(intensity)
     if not np.isfinite(med):
         med = 0.0
     y_filled = np.where(np.isfinite(intensity), intensity, med)
 
-    # Local extrema mask using window width
-    mask = _local_extrema_mask(y_filled, width=width, upper=upper)
+    # Local extrema mask using numba local maxima: minima are maxima on -signal.
+    width_eff = 3 if width < 3 else int(width)
+    extrema_input = y_filled if upper else -y_filled
+    mask, _ = local_maxima_numba(extrema_input, width=width_eff)
     locs_inner = np.where(mask)[0]
 
     # Always include endpoints
@@ -295,32 +248,25 @@ def locmin_baseline(
 
         smooth_kind = (smooth or "none").strip().lower()
         if smooth_kind == "loess":
-            from massflow.preprocess.helper.noise_reduction_helper import smooth_signal_loess
-
             span = float(span)
-            window = int(max(5, min(n, round(span * n))))
-            if window % 2 == 0:
-                window += 1
-            baseline = smooth_signal_loess(baseline, window=window)
+            _, baseline_smooth = smooth_lowess_numba(y=baseline, f=span)
+            baseline = baseline_smooth
         elif smooth_kind == "spline":
-            from scipy.interpolate import UnivariateSpline
-
             s_val = float(s) if s is not None else 0.0
             spl = UnivariateSpline(x, baseline, s=max(0.0, s_val))
             baseline = spl(x)
 
-        return np.asarray(baseline, dtype=np.float32)
+        return np.asarray(baseline, dtype=target_dtype)
 
     # Fallback when insufficient anchors: constant baseline
     val = np.nanmax(intensity) if upper else np.nanmin(intensity)
     if not np.isfinite(val):
         val = 0.0
-    return np.full((n,), float(val), dtype=np.float32)
+    return np.full((n,), float(val), dtype=target_dtype)
 
 
 def baseline_corrector(
     intensity: np.ndarray,
-    index: Optional[np.ndarray] = None,
     method: str = "asls",
     smooth: str = "none",
     span: float = 0.1,
@@ -333,15 +279,15 @@ def baseline_corrector(
     baseline_scale: float = 1.0,
     m: Optional[int] = None,
     decreasing: bool = True,
-    numba_max_threads: Optional[int] = 4,
+    lengths: Optional[np.ndarray] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Baseline estimation and correction for a single 1D intensity array.
 
     Parameters:
-        intensity (np.ndarray): Input 1D intensity array.
-        index (Optional[np.ndarray]): Optional 1D index (e.g., m/z). If provided, length must match `intensity`.
-        method (str): 'locmin', 'snip', 'snip_numba', or 'asls'.
+        intensity (np.ndarray): Input 1D intensity array maybe flat.
+        method (str): Baseline method key. Supported keys are 'locmin', 'locmin_numba','snip', 'snip_numba', and 'asls'.
+            Unknown keys fall back to 'asls'.
         smooth (str): LocMin smoothing method ('none', 'gaussian', etc.), used when method='locmin'.
         span (float): LocMin smoothing span (fraction of data), used when method='locmin'.
         s (float, optional): LocMin smoothing strength, used when method='locmin'.
@@ -353,55 +299,60 @@ def baseline_corrector(
         baseline_scale (float): Scale factor in (0,1] applied to estimated baseline.
         m (int): SNIP window half-size, used when method in {'snip','snip_numba'}.
         decreasing (bool): SNIP decreasing rule, used when method in {'snip','snip_numba'}.
-        numba_max_threads (Optional[int]): Maximum number of threads for numba parallel execution.
+        lengths (np.ndarray, optional): Segment lengths for flat input. Used when
+            method='locmin_numba' to process concatenated spectra correctly.
+
+    Notes:
+        - Baseline function arguments are dispatched via `_dispatch_with_supported_kwargs`.
+        - Only parameters present in the selected baseline function signature are forwarded.
 
     Returns:
-        tuple[np.ndarray, np.ndarray]: (corrected, scaled_baseline), both stored as float32 (internal computations use float64).
+        tuple[np.ndarray, np.ndarray]: (corrected, scaled_baseline), returned with
+            the same dtype as input `intensity`; internal computations use float64.
 
     Raises:
-        ValueError: If `method` is unsupported.
+        TypeError: If `intensity` is not a numpy array.
+        ValueError: If `intensity` is invalid or `baseline_scale` is out of range.
     """
-    _input_validation(intensity, index)
+    _input_validation(intensity, baseline_scale=baseline_scale)
+    target_dtype = intensity.dtype
+    xi = np.asarray(intensity, dtype=np.float64)
 
-    # Normalize and validate method
+    # Normalize method name (no explicit whitelist validation)
     method_norm = (method or "locmin").strip().lower()
-    if method_norm not in {"locmin", "snip", "snip_numba", "asls"}:
-        logger.error(
-            "Unsupported baseline method: %s. Use one of: locmin, snip, snip_numba, asls", method
-        )
-        raise ValueError(f"Unsupported baseline method: {method}")
 
-    # Validate baseline_scale
-    if not np.isfinite(baseline_scale) or not (0.0 < float(baseline_scale) <= 1.0):
-        logger.error("baseline_scale must be a finite number in (0,1]")
-        raise ValueError("baseline_scale must be a finite number in (0,1]")
+    # Estimate baseline via method dispatch with kwargs filtered by target signature.
+    method_map = {
+        "locmin": locmin_baseline,
+        "locmin_numba": baseline_locmin_numba,
+        "snip": snip_baseline,
+        "snip_numba": baseline_snip_numba,
+        "asls": asls_baseline,
+    }
 
-    # Width will be validated inside locmin_baseline/_local_extrema_mask for single-source of truth
-
-    xi = np.array(intensity, dtype=np.float64, copy=True)
-    xi = np.ascontiguousarray(xi)
-
-    # Estimate baseline via helper functions
-    if method_norm == "locmin":
-        baseline = locmin_baseline(
-            xi, smooth=smooth, span=span, s=s, upper=upper, width=width
-        )
-    elif method_norm == "snip":
-        baseline = snip_baseline(xi, m=m, decreasing=decreasing)
-    elif method_norm == "snip_numba":
-        baseline = snip_baseline_numba(
-            xi, m=m, decreasing=decreasing, numba_max_threads=numba_max_threads
-        )
-    else:
-        baseline = asls_baseline(xi, lam=lam, p=p, niter=niter)
+    baseline_func = method_map.get(method_norm, asls_baseline)
+    baseline = dispatch_with_supported_kwargs(
+        baseline_func,
+        intensity=xi,
+        smooth=smooth,
+        span=span,
+        s=s,
+        upper=upper,
+        width=width,
+        lam=lam,
+        p=p,
+        niter=niter,
+        m=m,
+        decreasing=decreasing,
+        lengths=lengths,
+    )
 
     # Scale baseline and subtract
-    scale = float(baseline_scale)
-    scaled_baseline = scale * baseline
+    scaled_baseline = baseline_scale * baseline
     corrected = xi - scaled_baseline
     corrected = np.maximum(corrected, 0.0)
 
-    corrected32 = corrected.astype(np.float32)
-    scaled_baseline32 = scaled_baseline.astype(np.float32)
+    corrected_out = corrected.astype(target_dtype, copy=False)
+    scaled_baseline_out = scaled_baseline.astype(target_dtype, copy=False)
 
-    return corrected32, scaled_baseline32
+    return corrected_out, scaled_baseline_out

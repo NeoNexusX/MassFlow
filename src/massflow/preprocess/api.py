@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Literal, Protocol, Self
+from typing import Any, Callable, Literal, Protocol, Self, Sequence
 import numpy as np
 
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
@@ -66,7 +66,13 @@ class PreprocessorAPI(_TaskRegistrar):
             threshold_mode=threshold_mode,
         )
 
-    def normalization(self, **kwargs: Any) -> Self:
+    def normalization(
+        self,
+        *,
+        method: str = "tic",
+        scale: float = 1.0,
+    ) -> Self:
+        """Register normalization batch task."""
         return self._register_task(
             "normalization",
             scope="batch",

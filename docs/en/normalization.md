@@ -253,52 +253,6 @@ plot_spectrum(
 ```
 ![RMS example]()
 
-### median_normalize
-```python
-preprocess.normalizer_helper.median_normalize(
-  intensity: np.ndarray,
-  scale_method: str = "none",
-  scale: float = 1.0
-) -> np.ndarray
-```
-- Description: Normalize by the median. Divides by the median when median > 0, then applies amplitude scaling `scale`, followed by optional `'unit'` min-max scaling.
-- Parameters:
-  - `scale_method`: `'none' | 'unit'` (min-max scaling to [0, 1] applied after normalization)
-  - `scale`: Amplitude scaling factor applied after normalization (default 1.0)
-    - Must be a finite non-negative number.
-- Returns:
-  - `intensity`: 1D numpy array; median equals 1 before amplitude/optional unit scaling
-- Exceptions:
-  - `ValueError`: median ≤ 0; unsupported `scale_method`.
-  - `TypeError`: input not a non-empty 1D array.
-
-Example: (after Savitzky-Golay denoising)
-
-```python
-denoised = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="savgol",
-    window=11,
-    polyorder=3,
-)
-med_origin = float(np.median(denoised.intensity))
-normalized_med = SpectrumPreprocess.normalization_spectrum(
-    data=denoised,
-    method="median",
-    scale_method="none",
-)
-med_after = float(np.median(normalized_med.intensity))
-print(f"Median_value_after={med_after:.6f}")
-
-plot_spectrum(
-    base=normalized_med,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5 / med_origin),
-    title_suffix="Median_normalized_none",
-)
-```
-![Median example]()
-
 ### apply_scaling
 ```python
 preprocess.normalizer_helper.apply_scaling(
@@ -321,7 +275,7 @@ preprocess.normalizer_helper.apply_scaling(
 ```python
 normalized_unit = SpectrumPreprocess.normalization_spectrum(
     data=denoised,
-    method="tic",          # or "median"
+  method="tic",          # or "rms"
     scale_method="unit"    # min-max scaling to [0, 1]
 )
 plot_spectrum(

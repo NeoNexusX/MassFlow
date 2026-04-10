@@ -4,6 +4,7 @@ from numba import njit, prange
 from scipy.signal import savgol_coeffs
 from scipy.spatial import cKDTree  # type: ignore
 from scipy import stats
+from massflow.tools.funs import prepare_flat_inputs, lengths_to_offsets
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.preprocess.noise_reduction_numba")
@@ -47,21 +48,11 @@ def _ma_core(
         out[i] = current_sum * inv_window
 
 
-@njit(cache=True)
-def _lengths_to_offsets(lengths: np.ndarray) -> np.ndarray:
-    n = lengths.size
-    offsets = np.empty(n + 1, dtype=np.int64)
-    offsets[0] = 0
-    for i in range(n):
-        offsets[i + 1] = offsets[i] + lengths[i]
-    return offsets
-
-
 @njit(parallel=True, cache=True, fastmath=True)
 def _ma_flat_jit(flat: np.ndarray, window: int, lengths: np.ndarray) -> np.ndarray:
     """Flat batch entry point for ma_numba."""
-    res = np.empty(flat.size, dtype=np.float32)
-    offsets = _lengths_to_offsets(lengths)
+    res = np.empty(flat.size, dtype=flat.dtype)
+    offsets = lengths_to_offsets(lengths)
 
     for p in prange(lengths.size):  # pylint: disable=not-an-iterable
         start = offsets[p]
@@ -82,7 +73,7 @@ def _savgol_1d_core(signal: np.ndarray,
     n = signal.size
     window = kernels.shape[0]
     half = window // 2
-    res = np.empty(n, dtype=np.float32)
+    res = np.empty(n, dtype=signal.dtype)
     for i in range(n):
         if i < half:
             pos = i
@@ -93,7 +84,7 @@ def _savgol_1d_core(signal: np.ndarray,
 
         k_weights = kernels[pos]
         start = i - pos
-        val = 0.0
+        val = np.float64(0.0)
         for j in range(window):
             val += signal[start + j] * k_weights[j]
         res[i] = val
@@ -103,8 +94,8 @@ def _savgol_1d_core(signal: np.ndarray,
 @njit(fastmath=True, cache=True, parallel=True)
 def savgol_flat_jit(flat: np.ndarray, kernels: np.ndarray, lengths: np.ndarray) -> np.ndarray:
     """Flat Savitzky-Golay entry point. Parallel over spectra segments."""
-    res = np.empty(flat.size, dtype=np.float32)
-    offsets = _lengths_to_offsets(lengths)
+    res = np.empty(flat.size, dtype=flat.dtype)
+    offsets = lengths_to_offsets(lengths)
     for p in prange(lengths.size):  # pylint: disable=not-an-iterable
         start = offsets[p]
         end = offsets[p + 1]
@@ -119,10 +110,10 @@ def _convolve1d_core_edge(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     n = signal.size
     k_len = kernel.size
     half = k_len // 2
-    res = np.empty(n, dtype=np.float32)
+    res = np.empty(n, dtype=signal.dtype)
 
     for i in range(n):
-        val = 0.0
+        val = np.float64(0.0)
         for j in range(k_len):
             idx = i - half + j
             if idx < 0:
@@ -137,8 +128,8 @@ def _convolve1d_core_edge(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
 @njit(fastmath=True, cache=True, parallel=True)
 def convolve1d_flat_jit(flat: np.ndarray, kernel: np.ndarray, lengths: np.ndarray) -> np.ndarray:
     """Flat convolution entry point. Parallel over spectra segments."""
-    res = np.empty(flat.size, dtype=np.float32)
-    offsets = _lengths_to_offsets(lengths)
+    res = np.empty(flat.size, dtype=flat.dtype)
+    offsets = lengths_to_offsets(lengths)
     for p in prange(lengths.size):  # pylint: disable=not-an-iterable
         start = offsets[p]
         end = offsets[p + 1]
@@ -206,30 +197,238 @@ def _ns_bilateral_kernel(
     return out
 
 
+@njit(cache=True, fastmath=True)
+def _lowest_numba(
+    x: np.ndarray,
+    y: np.ndarray,
+    xs: float,
+    nleft: int,
+    nright: int,
+    w: np.ndarray,
+    userw: bool,
+    rw: np.ndarray,
+    range_x: float,
+) -> tuple[float, bool, int]:
+    """Local weighted fit at a single x position (LOWESS lowest step)."""
+    n = x.size
+    h = max(xs - x[nleft], x[nright] - xs)
+    h9 = 0.999 * h
+    h1 = 0.001 * h
+
+    weight_sum = 0.0
+    j = nleft
+    while j < n:
+        wj = 0.0
+        r = abs(x[j] - xs)
+        if r <= h9:
+            if r <= h1:
+                wj = 1.0
+            else:
+                t = 1.0 - (r / h) ** 3
+                wj = t * t * t
+            if userw:
+                wj *= rw[j]
+            weight_sum += wj
+        elif x[j] > xs:
+            break
+        w[j] = wj
+        j += 1
+
+    nrt = j - 1
+    if weight_sum <= 0.0:
+        return 0.0, False, nrt
+
+    for j in range(nleft, nrt + 1):
+        w[j] /= weight_sum
+
+    if h > 0.0:
+        x_center = 0.0
+        for j in range(nleft, nrt + 1):
+            x_center += w[j] * x[j]
+        b = xs - x_center
+        c = 0.0
+        for j in range(nleft, nrt + 1):
+            dx = x[j] - x_center
+            c += w[j] * dx * dx
+        if np.sqrt(c) > 0.001 * range_x:
+            b /= c
+            for j in range(nleft, nrt + 1):
+                w[j] *= b * (x[j] - x_center) + 1.0
+
+    ys = 0.0
+    for j in range(nleft, nrt + 1):
+        ys += w[j] * y[j]
+    return ys, True, nrt
+
+
+@njit(cache=True, fastmath=True)
+def _lowess_core(
+    x: np.ndarray,
+    y: np.ndarray,
+    f: float,
+    nsteps: int,
+    delta: float,
+) -> np.ndarray:
+    """Numba LOWESS core (lowest + clowess pipeline)."""
+    n = x.size
+    ys = np.empty(n, dtype=np.float64)
+    if n == 0:
+        return ys
+    if n == 1:
+        ys[0] = y[0]
+        return ys
+
+    ns = max(2, min(n, int(f * n + 1.0e-7)))
+    rw = np.ones(n, dtype=np.float64)
+    res = np.empty(n, dtype=np.float64)
+    w = np.zeros(n, dtype=np.float64)
+    range_x = x[n - 1] - x[0]
+
+    it = 0
+    while it <= nsteps:
+        nleft = 0
+        nright = ns - 1
+        last = -1
+        i = 0
+
+        while True:
+            if nright < n - 1:
+                d1 = x[i] - x[nleft]
+                d2 = x[nright + 1] - x[i]
+                if d1 > d2:
+                    nleft += 1
+                    nright += 1
+                    continue
+
+            yi, ok, _ = _lowest_numba(
+                x, y, x[i], nleft, nright, w, it > 0, rw, range_x
+            )
+            ys[i] = yi if ok else y[i]
+
+            if last < i - 1:
+                denom = x[i] - x[last]
+                if denom != 0.0:
+                    for j in range(last + 1, i):
+                        alpha = (x[j] - x[last]) / denom
+                        ys[j] = alpha * ys[i] + (1.0 - alpha) * ys[last]
+                else:
+                    for j in range(last + 1, i):
+                        ys[j] = ys[i]
+
+            last = i
+            cut = x[last] + delta
+            i_scan = last + 1
+            while i_scan < n:
+                if x[i_scan] > cut:
+                    break
+                if x[i_scan] == x[last]:
+                    ys[i_scan] = ys[last]
+                    last = i_scan
+                i_scan += 1
+
+            next_i = i_scan - 1
+            i = last + 1 if (last + 1) > next_i else next_i
+            if last >= n - 1:
+                break
+
+        for k in range(n):
+            res[k] = y[k] - ys[k]
+
+        if it >= nsteps:
+            break
+
+        sc = 0.0
+        for k in range(n):
+            rk = abs(res[k])
+            rw[k] = rk
+            sc += rk
+        sc /= n
+
+        cmad = 6.0 * np.median(rw)
+        if cmad < 1.0e-7 * sc:
+            break
+
+        c9 = 0.999 * cmad
+        c1 = 0.001 * cmad
+        for k in range(n):
+            rk = abs(res[k])
+            if rk <= c1:
+                rw[k] = 1.0
+            elif rk <= c9:
+                t = 1.0 - (rk / cmad) ** 2
+                rw[k] = t * t
+            else:
+                rw[k] = 0.0
+
+        it += 1
+
+    return ys
+
+
 
 # ==================== Non-JIT wrappers and preprocessing ====================
 
-
-def _prepare_intensity_inputs(
-    intensity: np.ndarray,
-    lengths: Optional[np.ndarray],
+def smooth_lowess_numba(
+    x: Optional[np.ndarray] = None,
+    y: Optional[np.ndarray] = None,
+    f: float = 2.0 / 3.0,
+    iter_count: int = 3,
+    delta: Optional[float] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Normalize flat input and lengths for flat-mode kernels."""
-    if intensity is None or not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
-        raise ValueError("intensity must be a 1D numpy array")
+    """
+    LOWESS wrapper compatible with R-style arguments.
+    Returns sorted x and smoothed y aligned to sorted x.
+    
+    Parameters:
+        x: x-coordinates. If None, automatically generated as np.arange(y.size).
+        y: y-coordinates (required).
+        f: smoothing parameter (0 < f <= 1).
+        iter_count: number of robustness iterations.
+        delta: distance to consider points as tied in x.
+    """
+    if y is None:
+        raise ValueError("y must not be None")
 
-    intensity_arr = intensity.astype(np.float32, copy=False)
+    # Auto-generate x if not provided
+    if x is None:
+        x = np.arange(y.size, dtype=np.float64)
 
-    if lengths is None:
-        lengths_arr = np.array([intensity_arr.size], dtype=np.int64)
+    x_dtype = x.dtype
+    y_dtype = y.dtype
+
+    if x.size == 0:
+        return x, y
+    if (x.ndim != 1
+        or y.ndim != 1
+        or x.size != y.size
+        or not np.isfinite(f)
+        or f <= 0.0
+        or not isinstance(iter_count, (int, np.integer))
+        or iter_count < 0
+    ):
+        raise ValueError(
+            "x and y must be 1D arrays with same length; "
+            "f must be finite and > 0; "
+            "iter_count (R iter) must be an integer >= 0"
+        )
+
+    # Keep original input dtypes for output, but run LOWESS in float64.
+    x64 = np.ascontiguousarray(x.astype(np.float64, copy=False))
+    y64 = np.ascontiguousarray(y.astype(np.float64, copy=False))
+
+    # order = np.argsort(x_arr)
+    # x_arr = np.ascontiguousarray(x_arr[order])
+    # y_arr = np.ascontiguousarray(y_arr[order])
+
+    if delta is None:
+        delta_val = 0.01 * (x64[-1] - x64[0]) if x64.size > 1 else 0.0
     else:
-        lengths_arr = np.asarray(lengths, dtype=np.int64)
-        if lengths_arr.ndim != 1:
-            raise ValueError("lengths must be a 1D array")
-        if int(np.sum(lengths_arr)) != intensity_arr.size:
-            raise ValueError("sum(lengths) must equal intensity.size")
+        delta_val = float(delta)
+        if not np.isfinite(delta_val) or delta_val < 0.0:
+            raise ValueError("delta must be finite and >= 0")
 
-    return intensity_arr, lengths_arr
+    y_fit64 = _lowess_core(x64, y64, float(f), int(iter_count), float(delta_val))
+    return x.astype(x_dtype, copy=False), y_fit64.astype(y_dtype, copy=False)
 
 
 def smooth_signal_ma_numba(
@@ -242,12 +441,11 @@ def smooth_signal_ma_numba(
         raise ValueError("window must be >= 1")
 
     window = window + 1 if window % 2 == 0 else window
-    intensity_arr, lengths_arr = _prepare_intensity_inputs(intensity, lengths)
+    intensity_arr, lengths_arr = prepare_flat_inputs(intensity, lengths)
 
     return _ma_flat_jit(intensity_arr, window, lengths_arr)
 
 
-# --- Python wrapper layer (handles kernel pre‑computation) ---
 def smooth_signal_savgol_numba(
     intensity: np.ndarray,
     window: int = 5,
@@ -261,13 +459,13 @@ def smooth_signal_savgol_numba(
     if polyorder >= actual_window:
         raise ValueError("polyorder must be < window")
 
-    intensity_arr, lengths_arr = _prepare_intensity_inputs(intensity, lengths)
+    intensity_arr, lengths_arr = prepare_flat_inputs(intensity, lengths)
 
-    kernels = np.zeros((actual_window, actual_window), dtype=np.float32)
+    kernels = np.zeros((actual_window, actual_window), dtype=np.float64)
     for pos in range(actual_window):
         kernels[pos] = savgol_coeffs(
             actual_window, polyorder, deriv=deriv, delta=delta, pos=pos, use="dot"
-        ).astype(np.float32)
+        ).astype(np.float64)
 
     return savgol_flat_jit(intensity_arr, kernels, lengths_arr)
 
@@ -291,11 +489,11 @@ def smooth_signal_gaussian_numba(
     if sd <= 0:
         raise ValueError("sd must be positive")
 
-    intensity_arr, lengths_arr = _prepare_intensity_inputs(intensity, lengths)
+    intensity_arr, lengths_arr = prepare_flat_inputs(intensity, lengths)
 
     # Generate Gaussian kernel
-    x = np.arange(-(window // 2), window // 2 + 1, dtype=np.float32)
-    kernel = np.exp(-0.5 * (x / sd) ** 2).astype(np.float32)
+    x = np.arange(-(window // 2), window // 2 + 1, dtype=np.float64)
+    kernel = np.exp(-0.5 * (x / sd) ** 2).astype(np.float64)
     kernel /= kernel.sum()
 
     return convolve1d_flat_jit(intensity_arr, kernel, lengths_arr)
@@ -313,13 +511,14 @@ def smooth_ns_signal_gaussian_numba(
     Estimates a default spatial scale from neighbour distances when sd is
     None, then applies the parallel Gaussian kernel.
     """
+    input_dtype = np.asarray(intensity).dtype
     neigh_intensity, dists, _ = ns_signal_pre(intensity, index, k=window, p=p)
     dists_max = np.max(dists, axis=1)
     sd_val = np.median(dists_max) / 2.0 if sd is None else sd
     if sd_val <= 0:
         raise ValueError("sd must be positive")
     result64 = _ns_gaussian_kernel(neigh_intensity, dists, float(sd_val))
-    return result64.astype(np.float32)
+    return result64.astype(input_dtype)
 
 
 def smooth_ns_signal_bi_numba(
@@ -336,6 +535,7 @@ def smooth_ns_signal_bi_numba(
     MAD-based estimate for sd_intensity, then applies the parallel bilateral
     kernel.
     """
+    input_dtype = np.asarray(intensity).dtype
     neigh_intensity, dists, _ = ns_signal_pre(intensity, index, k=window, p=p)
     dists_max = np.max(dists, axis=1)
     sd_dist_val = np.median(dists_max) / 2.0 if sd is None else sd
@@ -348,7 +548,7 @@ def smooth_ns_signal_bi_numba(
     result64 = _ns_bilateral_kernel(
         neigh_intensity, dists, center, float(sd_dist_val), float(sd_int_val)
     )
-    return result64.astype(np.float32)
+    return result64.astype(input_dtype)
 
 
 def ns_signal_pre(

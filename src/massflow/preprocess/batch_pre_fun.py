@@ -145,7 +145,6 @@ class BatchPreprocess:
     @staticmethod
     def normalization_batch(
         batch_spectra: Sequence[Spectrum],
-        scale_method: str = "none",
         method: str = "tic",
         scale: float = 1.0,
     ) -> Sequence[SpectrumImzML]:
@@ -153,7 +152,6 @@ class BatchPreprocess:
 
         Parameters:
         - batch_spectra: Sequence of Spectrum objects to be normalized.
-        - scale_method: 'none' or 'unit' min-max scaling.
         - method: One of {'tic', 'rms', 'median'}.
         - scale: Cardinal-like amplitude scaling factor applied after normalization.
 
@@ -163,66 +161,18 @@ class BatchPreprocess:
         if not batch_spectra:
             return []
 
-        # -----------------------------------------------------------------
-        # Path A: High Performance Batching (Numba)
-        # Try to use the direct Numba backend if available and method is supported.
-        # -----------------------------------------------------------------
-        numba_supported_methods = {"tic_numba", "rms_numba", "median_numba"}
+        method_norm = (method or "tic").strip().lower()
+        supported_methods = {"tic", "rms", "median"}
+        if method_norm not in supported_methods:
+            logger.error("normalization_batch only supports tic/rms/median. ")
+            raise ValueError("normalization_batch only supports: tic, rms, median. ")
 
-        # Check availability of Numba implementation locally
-        if method in numba_supported_methods:
-            # 1. Construct 2D Matrix with padding
-            n_spectra = len(batch_spectra)
-
-            # Calculate lengths for each spectrum
-            lengths = np.array([s.intensity.size for s in batch_spectra], dtype=np.int32)  # type: ignore
-            max_len = np.max(lengths) if n_spectra > 0 else 0
-
-            if max_len > 0:
-                intensities_padded = np.zeros((n_spectra, max_len), dtype=np.float32)
-
-                # Fill the matrix
-                for i, s in enumerate(batch_spectra):
-                    valid_len = lengths[i]
-                    if valid_len > 0:
-                        intensities_padded[i, :valid_len] = s.intensity.astype(np.float32, copy=False)  # type: ignore
-
-                # 2. Call the Numba kernel directly (normalizer_numba)
-                # It accepts the 2D matrix and 'lengths' for efficient batch processing
-                normalized_matrix = normalizer(
-                    intensities_padded,
-                    method=method,
-                    scale=scale,
-                    scale_method=scale_method,
-                    lengths=lengths,
-                )
-
-                # 3. Reconstruct SpectrumImzML objects
-                normalized_spectra_numba: list[SpectrumImzML] = []
-                for i, spectrum in enumerate(batch_spectra):
-                    valid_len = lengths[i]
-
-                    # Slice back to original length
-                    processed_intensity = normalized_matrix[i, :valid_len]
-
-                    normalized_spectra_numba.append(
-                        SpectrumImzML(
-                            coordinates=spectrum.coordinate,
-                            mz_list=spectrum.mz_list,
-                            intensity=processed_intensity,
-                        )
-                    )
-                return normalized_spectra_numba
-
-        # -----------------------------------------------------------------
-        # Path B: Fallback (Sequential Loop)
-        # Delegate to SpectrumPreprocess.normalization_spectrum for each spectrum.
-        # -----------------------------------------------------------------
         normalized_spectra: list[SpectrumImzML] = []
         for spectrum in batch_spectra:
-            # Re-use the single spectrum processing logic
             normalized_spectrum = SpectrumPreprocess.normalization_spectrum(
-                data=spectrum, method=method, scale=scale, scale_method=scale_method
+                data=spectrum,
+                method=method_norm,
+                scale=scale,
             )
             normalized_spectra.append(normalized_spectrum)
 

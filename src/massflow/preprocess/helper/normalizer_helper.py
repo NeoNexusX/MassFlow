@@ -1,20 +1,32 @@
+from typing import Any, Callable, Optional
 import numpy as np
 from massflow.tools.logger import get_logger
-from typing import Optional
 from massflow.preprocess.numba.normalization_numba import normalizer_numba
+from massflow.tools.funs import dispatch_with_supported_kwargs
 
 logger = get_logger("preprocesss")
 
 
 def _input_validation(
-    intensity:np.ndarray,
-    index: Optional[np.ndarray] = None):
+    intensity: np.ndarray,
+    index: Optional[np.ndarray] = None,
+    scale: Optional[float] = None,
+    ref_tolerance: float = 0.1,
+    method_norm: Optional[str] = None,
+    mz_flat: Optional[np.ndarray] = None,
+    ref: Optional[float] = None,
+):
     """
     Validate input parameters for normalization functions.
     
     Parameters:
         intensity (np.ndarray): 1D intensity array to be preprocessed.
         index (Optional[np.ndarray]): 1D index array (e.g., m/z values).
+        scale (Optional[float]): Scale factor to validate.
+        ref_tolerance (float): Ref matching tolerance to validate.
+        method_norm (Optional[str]): Normalized method name.
+        mz_flat (Optional[np.ndarray]): Flat m/z array used by ref_numba.
+        ref (Optional[float]): Reference m/z value used by ref_numba.
 
     """
     # Validate intensity array
@@ -30,23 +42,36 @@ def _input_validation(
         logger.error("index must be a 1D array with the same length as intensity")
         raise ValueError("index must be a 1D array with the same length as intensity")
 
+    if scale is not None and (not np.isfinite(scale) or float(scale) < 0.0):
+        logger.error("scale must be a finite non-negative number")
+        raise ValueError("scale must be a finite non-negative number")
+
+    if not np.isfinite(ref_tolerance) or float(ref_tolerance) < 0.0:
+        logger.error("ref_tolerance must be a finite non-negative number")
+        raise ValueError("ref_tolerance must be a finite non-negative number")
+
+    if method_norm == "ref_numba":
+        if mz_flat is None:
+            logger.error("mz_flat is required when method='ref_numba'")
+            raise ValueError("mz_flat is required when method='ref_numba'")
+        if ref is None:
+            logger.error("ref is required when method='ref_numba'")
+            raise ValueError("ref is required when method='ref_numba'")
+
 def tic_normalize(
         intensity: np.ndarray,
-        scale_method: str = 'none',
-        scale: float = 1.0
+    scale: Optional[float] = None
 ):
     """
     Total Ion Current (TIC) normalization.
 
     Parameters:
         intensity (np.ndarray): Input 1D intensity array.
-        scale_method (str): Optional scaling after normalization:
-            - 'none': no additional scaling
-            - 'unit': min-max scale to [0, 1]
-        scale (float): Cardinal-like amplitude scaling factor applied after normalization.
+        scale (Optional[float]): Amplitude scaling factor applied after normalization.
+            If None, defaults to current spectrum length.
 
     Returns:
-        np.ndarray: TIC-normalized intensity array. Sum equals `scale` (if scale_method='none').
+        np.ndarray: TIC-normalized intensity array. Sum equals `scale`.
 
     Raises:
         ValueError: If TIC (sum of intensity) is not greater than 0.
@@ -59,29 +84,24 @@ def tic_normalize(
         logger.error("TIC value is not greater than 0, cannot normalize data")
         raise ValueError("TIC value is not greater than 0, cannot normalize data")
     # Apply amplitude scaling (cardinal-style)
-    norm_intensity = norm_intensity * float(scale)
-    # Apply scaling method
-    norm_intensity = apply_scaling(norm_intensity, scale_method)
-
+    scale_val = float(intensity.size) if scale is None else float(scale)
+    norm_intensity = norm_intensity * scale_val
     return norm_intensity
 
 def rms_normalize(
         intensity: np.ndarray,
-        scale_method: str = 'none',
-        scale: float = 1.0
+    scale: Optional[float] = None
 ):
     """
     Root Mean Square (RMS) normalization.
 
     Parameters:
         intensity (np.ndarray): Input 1D intensity array.
-        scale_method (str): Optional scaling after normalization:
-            - 'none': no additional scaling
-            - 'unit': min-max scale to [0, 1]
-        scale (float): Cardinal-like amplitude scaling factor applied after normalization.
+        scale (Optional[float]): Amplitude scaling factor applied after normalization.
+            If None, defaults to current spectrum length.
 
     Returns:
-        np.ndarray: RMS-normalized intensity array. RMS equals `scale` (if scale_method='none').
+        np.ndarray: RMS-normalized intensity array. RMS equals `scale`.
 
     Raises:
         ValueError: If RMS of intensity is not greater than 0.
@@ -98,90 +118,17 @@ def rms_normalize(
         raise ValueError("RMS value is not greater than 0, cannot normalize data")
     norm_intensity = intensity / b
     # Apply amplitude scaling (cardinal-style)
-    norm_intensity = norm_intensity * float(scale)
-    # Apply optional scaling
-    norm_intensity = apply_scaling(norm_intensity, scale_method)
+    scale_val = float(intensity.size) if scale is None else float(scale)
+    norm_intensity = norm_intensity * scale_val
     return norm_intensity
-
-def median_normalize(
-        intensity: np.ndarray,
-        scale_method: str = 'none',
-        scale: float = 1.0
-):
-    """
-    Median normalization.
-
-    Parameters:
-        intensity (np.ndarray): Input 1D intensity array.
-        scale_method (str): Optional scaling after normalization:
-            - 'none': no additional scaling
-            - 'unit': min-max scale to [0, 1]
-        scale (float): Cardinal-like amplitude scaling factor applied after normalization.
-
-    Returns:
-        np.ndarray: Median-normalized intensity array. Median equals `scale` (if scale_method='none').
-
-    Raises:
-        ValueError: If median of intensity is not greater than 0.
-    """
-    med = float(np.median(intensity))
-    # Apply median normalization
-    if med > 0.0:
-        norm_intensity = intensity / med
-    else:
-        logger.error("Median value is not greater than 0, cannot normalize data")
-        raise ValueError("Median value is not greater than 0, cannot normalize data")
-    # Apply amplitude scaling (cardinal-style)
-    norm_intensity = norm_intensity * float(scale)
-    # Apply scaling method
-    norm_intensity = apply_scaling(norm_intensity, scale_method)
-
-    return norm_intensity
-
-def apply_scaling(
-        intensity: np.ndarray,
-        scale_method: str
-):
-    """
-    Apply scaling transformation to intensity data.
-
-    Parameters:
-        intensity (np.ndarray): Input intensity array after primary normalization.
-        scale_method (str): Scaling method to apply:
-                          - 'none': No additional scaling
-                          - 'unit': Scale to 0-1 range using min-max normalization
-
-    Returns:
-        np.ndarray: Scaled intensity array.
-
-    Raises:
-        ValueError: If scale_method is not supported.
-    """
-    method_norm = (scale_method or 'none').strip().lower()
-    if method_norm == 'none':
-        return intensity
-    elif method_norm == 'unit':
-        # Min-max scaling to [0, 1] range
-        if intensity.size == 0:
-            return intensity
-        intensity_min = np.min(intensity)
-        intensity_max = np.max(intensity)
-        if intensity_max - intensity_min > 0:
-            return (intensity - intensity_min) / (intensity_max - intensity_min)
-        else:
-        # If all values are the same, return original values
-            return intensity
-
-    else:
-        logger.error(f"Unsupported scale_method: {method_norm}. Supported methods are: 'none', 'unit'")
-        raise ValueError(f"Unsupported scale_method: {method_norm}. Supported methods are: 'none', 'unit'")
 
 def normalizer(
     intensity: np.ndarray,
-    scale_method: str = 'none',
     method: str = "tic",
-    scale: float = 1.0,
-    numba_max_threads: Optional[int] = None,
+    scale: Optional[float] = None,
+    mz_flat: Optional[np.ndarray] = None,
+    ref: Optional[float] = None,
+    ref_tolerance: float = 0.1,
     lengths: Optional[np.ndarray] = None,
 ):
     """
@@ -189,54 +136,55 @@ def normalizer(
 
     Parameters:
         intensity (np.ndarray): Input 1D intensity array.
-        scale_method (str): Optional scaling after normalization:
-            - 'none': no additional scaling
-            - 'unit': min-max scale to [0, 1]
         method (str): Normalization method.
-            - Python backend: 'tic', 'rms', 'median'
-            - Numba backend: 'tic_numba', 'rms_numba', 'median_numba'
-        scale (float): Cardinal-like amplitude scaling factor (applied after normalization).
+            - Python backend: 'tic', 'rms'
+            - Numba backend: 'tic_numba', 'rms_numba', 'ref_numba'
+        scale (Optional[float]): Amplitude scaling factor (applied after normalization).
+            If None, default is per-spectrum length for tic/rms, and 1 for ref.
+        mz_flat (Optional[np.ndarray]): Flat mz array used in ref_numba mode.
+        ref (Optional[float]): Reference mz value used in ref_numba mode.
+        ref_tolerance (float): Matching tolerance used in ref_numba mode.
         numba_max_threads (Optional[int]): Thread cap when using the numba backend.
         lengths: Optional[np.ndarray]: Optional array of lengths for normalization.
     Returns:
-        np.ndarray: Normalized (and optionally scaled) intensity array.
+        np.ndarray: Normalized intensity array.
 
     Raises:
         ValueError: If `method` is not supported.
     """
-    # Basic validation
-    if not np.isfinite(scale) or float(scale) < 0.0:
-        logger.error("scale must be a finite non-negative number")
-        raise ValueError("scale must be a finite non-negative number")
-
     # Normalize and validate method
     method_norm = (method or "tic").strip().lower()
-    scale_method_norm = (scale_method or 'none').strip().lower()
-    
-    # Check if Numba backend is requested via suffix
-    is_numba = method_norm.endswith("_numba")
-    base_method = method_norm.replace("_numba", "") if is_numba else method_norm
-    
-    supported = {"tic", "rms", "median"}
-    if base_method not in supported:
-        logger.error("Unsupported normalization method: %s. Use one of: tic, rms, median (suffix _numba for acceleration)", method)
+
+    method_map: dict[str, Callable[..., Any]] = {
+        "tic": tic_normalize,
+        "rms": rms_normalize,
+        "tic_numba": normalizer_numba,
+        "rms_numba": normalizer_numba,
+        "ref_numba": normalizer_numba,
+    }
+
+    target_func = method_map.get(method_norm)
+    if target_func is None:
+        logger.error("Unsupported normalization method: %s. Use one of: tic, rms, ref_numba", method)
         raise ValueError(f"Unsupported normalization method: {method}")
 
-    if is_numba:
-        return normalizer_numba(
-            intensity,
-            method=base_method,
-            scale=scale,
-            scale_method=scale_method_norm,
-            numba_max_threads=numba_max_threads,
-            lengths=lengths,
-        )
-    else:
-        _input_validation(intensity)
-        # Python Backend Dispatch
-        if base_method == "tic":
-            return tic_normalize(intensity, scale_method=scale_method_norm, scale=scale)
-        elif base_method == "rms":
-            return rms_normalize(intensity, scale_method=scale_method_norm, scale=scale)
-        else:  # base_method == "median"
-            return median_normalize(intensity, scale_method=scale_method_norm, scale=scale)
+    _input_validation(
+        intensity,
+        scale=scale,
+        ref_tolerance=ref_tolerance,
+        method_norm=method_norm,
+        mz_flat=mz_flat,
+        ref=ref,
+    )
+
+    base_method = method_norm.replace("_numba", "")
+    return dispatch_with_supported_kwargs(
+        target_func,
+        intensity=intensity,
+        method=base_method,
+        scale=scale,
+        mz_flat=mz_flat,
+        ref=ref,
+        ref_tolerance=ref_tolerance,
+        lengths=lengths,
+    )

@@ -134,15 +134,13 @@ class SpectrumPreprocess:
     @staticmethod
     def normalization_spectrum(
         data: Union[Spectrum, SpectrumImzML],
-        scale_method: str = "none",
         method: str = "tic",
         scale: float = 1.0,
     ) -> SpectrumImzML:
-        """Normalize a single spectrum using TIC, RMS, or Median, with optional scaling.
+        """Normalize a single spectrum using TIC, RMS, or Median.
 
         Parameters:
             data (Spectrum | SpectrumImzML): Spectrum to normalize.
-            scale_method (str): 'none' or 'unit' min-max scaling.
             method (str): One of {'tic', 'rms', 'median'}.
             scale (float): Cardinal-like amplitude scaling factor applied after normalization.
 
@@ -157,7 +155,6 @@ class SpectrumPreprocess:
         intensity = data.intensity
         norm_intensity = normalizer(
             intensity,  # type: ignore
-            scale_method=scale_method,
             method=method,
             scale=scale,
         )
@@ -262,7 +259,6 @@ class SpectrumPreprocess:
 
         corrected_intensity, _ = baseline_corrector(
             intensity,
-            index=index,
             method=method,
             lam=lam,
             p=p,

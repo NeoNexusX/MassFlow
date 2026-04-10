@@ -1,92 +1,105 @@
 import time
 import pytest
-import numpy as np
-from massflow.module import MassSpectrumSet, Spectrum
+
 from massflow.data_manager import MSDataManagerImzML
-from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
+from massflow.preprocess import BatchPreprocess
+from massflow.preprocess.flat_pre_fun import FlatPreprocess
+from massflow.tools.dm_process import speed_process
 from massflow.tools.logger import get_logger
 
 logger = get_logger("test_baseline")
 
-
-@pytest.fixture(scope="session")
-def denoised_spec() -> Spectrum:
-    ms = MassSpectrumSet()
-    with MSDataManagerImzML(ms, filepath="data/neg-gz4.imzML") as ms_md:
-        ms_md.load_head_data()
-        ms_md.inspect_data()
-        sp = ms[0]
-        denoised = SpectrumPreprocess.noise_reduction_spectrum(
-            data=sp,
-            method="gaussian",
-            window=11,
-        )
-    return denoised
+ROUNDS = 5
+BATCH_BASELINE_METHODS = ["locmin", "snip"]
+FLAT_BASELINE_METHODS = ["locmin_numba", "snip_numba"]
 
 
-def _baseline_once(spectrum: Spectrum, method: str):
-    if method == "asls":
-        corrected, baseline = SpectrumPreprocess.baseline_correction_spectrum(
-            data=spectrum,
-            method="asls",
-            lam=1e7,
-            p=0.01,
-            niter=15,
-            baseline_scale=1.0,
+def _baseline_reduction_flat_from_flat_batches(
+    flat_batches,
+    method: str,
+    width: int,
+):
+    for intensity_flat, lengths in flat_batches:
+        _ = FlatPreprocess.baseline_reduction_flat(
+            intensity=intensity_flat,
+            method=method,
+            width=width,
+            lengths=lengths,
         )
-    elif method == "locmin":
-        corrected, baseline = SpectrumPreprocess.baseline_correction_spectrum(
-            data=spectrum,
-            method="locmin",
-            smooth="none",
-            span=None, #type: ignore
-            upper=False,
-            width=11,
-            baseline_scale=1.0,
-        )
-    else:
-        corrected, baseline = SpectrumPreprocess.baseline_correction_spectrum(
-            data=spectrum,
-            method="snip",
-            m=50,
-            decreasing=True,
-            baseline_scale=1.0,
-        )
-    return corrected, baseline
 
 
 class TestBaseline:
+    """
+    Baseline correction benchmark tests.
+            use:
+            uv run pytest ./tests/test_baseline.py -k "test_baseline_speed or test_baseline_flat_speed" -q
+    """
 
-    @pytest.mark.parametrize("method", ["asls", "locmin", "snip"])
+    @pytest.fixture(scope="module", params=["data/baseline_test.ibd"])
+    def ms_raw_data(self, request) -> MSDataManagerImzML:
+        """Fixture providing batch-readable data manager cache for baseline benchmarks."""
+        data_file_path = request.param
+        dm = MSDataManagerImzML(filepath=data_file_path)
+        dm.load_head_data()
+        for _ in dm.batch_generator(batch_size=512):
+            pass
+        return dm
+
+    @pytest.fixture(scope="module", params=["data/baseline_test.ibd"])
+    def flat_caches(self, request):
+        """Fixture providing pre-generated flat arrays and lengths for flat benchmarks."""
+        data_file_path = request.param
+        dm = MSDataManagerImzML(filepath=data_file_path)
+        dm.load_head_data()
+
+        caches = []
+        for _, intensity_flat, lengths, _ in dm.flat_generator(
+            batch_size=4096, include_mz=False, max_threads=16
+        ):
+            caches.append((intensity_flat, lengths))
+
+        return caches
+
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_baseline_correction_invariants(self, benchmark, method, denoised_spec):
-        spec = denoised_spec
-        mz0 = spec.mz_list.copy()
-        int0 = spec.intensity.copy()
+    @pytest.mark.parametrize("method", BATCH_BASELINE_METHODS)
+    def test_baseline_speed(self, benchmark, method, ms_raw_data):
+        """Benchmark batch baseline correction via speed_process."""
+        logger.info(f"Benchmarking batch baseline correction method={method}")
 
-        def bench_callable():
-            return _baseline_once(spec, method)
+        batch_kwargs = {
+            "method": method,
+            "width": 5,
+            "smooth": "none",
+        }
 
-        result = benchmark.pedantic(
-            bench_callable,
-            rounds=3,
+        benchmark.pedantic(
+            speed_process,
+            args=(
+                ms_raw_data,
+                1024,
+                BatchPreprocess.baseline_correction_batch,
+                batch_kwargs,
+            ),
+            rounds=ROUNDS,
             iterations=1,
             warmup_rounds=1,
         )
 
-        corrected, baseline = result
+    @pytest.mark.benchmark(timer=time.perf_counter)
+    @pytest.mark.parametrize("method", FLAT_BASELINE_METHODS)
+    def test_baseline_flat_speed(self, benchmark, method, flat_caches):
+        """Benchmark flat numba baseline reduction via baseline_reduction_flat."""
+        logger.info(f"Benchmarking flat baseline reduction method={method}")
 
-        x = spec.intensity
-        y = corrected.intensity
-        b = baseline
+        flat_kwargs = {
+            "method": method,
+            "width": 5,
+        }
 
-        assert np.array_equal(spec.mz_list, mz0)
-        assert np.array_equal(spec.intensity, int0)
-
-        assert x.shape == y.shape == b.shape
-        assert np.all(np.isfinite(b))
-        assert np.all(y >= 0.0)
-
-        # expected = np.maximum(x - b, 0.0)
-        # assert np.allclose(y, expected, rtol=1e-12, atol=0.0)
-
+        benchmark.pedantic(
+            _baseline_reduction_flat_from_flat_batches,
+            args=(flat_caches, flat_kwargs["method"], flat_kwargs["width"]),
+            rounds=ROUNDS,
+            iterations=1,
+            warmup_rounds=1,
+        )
