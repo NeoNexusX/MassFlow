@@ -30,11 +30,10 @@ def run_compute_reference_parallel(dm, units, binfun, binratio, tolerance, numba
 def run_alignment_series(
     dm: MSDataManagerImzML,
     units: str,
-    tolerance: Optional[float] = None,
-    reference: Optional[np.ndarray] = None,
+    tolerance: float,
+    reference: np.ndarray,
 ) -> None:
     """Run peak alignment in series mode"""
-    tolerance = tolerance * 1e6 if units == "ppm" else tolerance
 
     for batch in dm.batch_generator(batch_size=256):
         _ = BatchPreprocess.peak_align_batch(
@@ -47,8 +46,8 @@ def run_alignment_series(
 def run_alignment_parallel(
     dm: MSDataManagerImzML,
     units: str,
-    tolerance: Optional[float] = None,
-    reference: Optional[np.ndarray] = None,
+    tolerance: float,
+    reference: np.ndarray,
     numba_max_threads: int = 4,
 ) -> None:
     """Run peak alignment in parallel mode"""
