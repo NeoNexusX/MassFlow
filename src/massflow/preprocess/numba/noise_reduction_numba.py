@@ -493,7 +493,7 @@ def smooth_signal_gaussian_numba(
 
     # Generate Gaussian kernel
     x = np.arange(-(window // 2), window // 2 + 1, dtype=np.float64)
-    kernel = np.exp(-0.5 * (x / sd) ** 2).astype(np.float64)
+    kernel = np.exp(-0.5 * (x / sd) ** 2)
     kernel /= kernel.sum()
 
     return convolve1d_flat_jit(intensity_arr, kernel, lengths_arr)

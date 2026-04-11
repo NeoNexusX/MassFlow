@@ -22,11 +22,11 @@ def main():
             include_mz=True,
             max_threads=16,
         ):
-            normalized_flat = FlatPreprocess.normalization_flat(
+            normalized_flat = FlatPreprocess.noise_reduction_flat(
                 mz_data=mz_flat,
                 intensity=intensity_flat,
                 lengths=lengths,
-                method="tic_numba",
+                method="ma_numba",
             )
             processed_data_manager.swap_flat_data_out2disk(
                 mz_flat=mz_flat,
@@ -43,18 +43,15 @@ def main():
             f"Processed spectra: {len(processed_data_manager.ms)}"
         )
 
-        if len(processed_data_manager.ms) == 0:
-            logger.warning("No spectra found in the processed dataset")
-            processed_data_manager.close()
-            return
-
         processed_spectrum = processed_data_manager.ms[0]
         plot_spectrum(
             base=processed_spectrum,
-            mz_range=(200, 400),
+            target=data_manager.ms[0],
+            mz_range=(400, 410),
+            overlay=True,
             metrics_box=False,
         )
-
+        
         processed_data_manager.close()
 
 if __name__ == "__main__":
