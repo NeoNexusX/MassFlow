@@ -376,7 +376,7 @@ class SpectrumPreprocess:
 
         return estimator(
             intensity,# type: ignore
-            index,# type: ignore
+            None,# type: ignore
             nbins=nbins,
             overlap=overlap,
             method=method,
@@ -400,7 +400,8 @@ class SpectrumPreprocess:
 
         signal_level = np.percentile(spectrum.intensity, 95)# type: ignore
 
-        noise = SpectrumPreprocess.noise_estimation_spectrum(spectrum, method=method)
+        logger.info(f"Signal level (95th percentile): {signal_level:.2f}")
+        noise = np.mean(SpectrumPreprocess.noise_estimation_spectrum(spectrum, method=method))
 
         logger.info(f"SNR: signal_level:{signal_level}, noise:{noise}")
         return signal_level / noise

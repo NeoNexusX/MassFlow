@@ -20,7 +20,7 @@ def _input_validation(intensity,index,nbins,overlap):
     if intensity is None or intensity.ndim != 1:
         logger.error("x.intensity must be a 1D numpy array")
         raise TypeError("x.intensity must be a 1D numpy array")
-    if index is not None and (index.ndim !=1 or len(index)!=len(intensity)):
+    if index is not None and (index.ndim !=1):
         logger.error("index must be a 1D numpy array of the same length as intensity")
         raise TypeError("index must be a 1D numpy array of the same length as intensity")
     if nbins < 1:
