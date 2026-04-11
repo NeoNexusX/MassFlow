@@ -113,20 +113,46 @@ class PreprocessorAPI(_TaskRegistrar):
             ref_tolerance=ref_tolerance,
         )
 
-    def peak_pick(self, *, backend: Backend = "python", **kwargs: Any) -> Self:
+    def peak_pick(
+        self,
+        *,
+        width: int = 5,
+        method: str = "quantile",
+        snr: float = 2.0,
+        return_type: str = "height",
+        prominence: float | None = None,
+        relheight: float | None = None,
+        nbins: int = 1,
+        overlap: float = 0.5,
+        backend: Backend = "python",
+    ) -> Self:
         if backend == "cardinal":
             return self._register_task(
                 "peak_pick",
                 scope="dataset",
                 apply_fn=CardinalAdapter.peak_pick,
-                **kwargs,
+                width=width,
+                method=method,
+                snr=snr,
+                return_type=return_type,
+                prominence=prominence,
+                relheight=relheight,
+                nbins=nbins,
+                overlap=overlap,
             )
 
         return self._register_task(
             "peak_pick",
             scope="batch",
             apply_fn=FlatPreprocess.peak_pick_flat,
-            **kwargs,
+            width=width,
+            method=method,
+            snr=snr,
+            return_type=return_type,
+            prominence=prominence,
+            relheight=relheight,
+            nbins=nbins,
+            overlap=overlap,
         )
 
     def peak_align(

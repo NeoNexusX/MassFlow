@@ -441,7 +441,7 @@ def smooth_signal_ma_numba(
         raise ValueError("window must be >= 1")
 
     window = window + 1 if window % 2 == 0 else window
-    intensity_arr, lengths_arr = prepare_flat_inputs(intensity, lengths)
+    _, intensity_arr, lengths_arr = prepare_flat_inputs(None, intensity, lengths)
 
     return _ma_flat_jit(intensity_arr, window, lengths_arr)
 
@@ -459,7 +459,7 @@ def smooth_signal_savgol_numba(
     if polyorder >= actual_window:
         raise ValueError("polyorder must be < window")
 
-    intensity_arr, lengths_arr = prepare_flat_inputs(intensity, lengths)
+    _, intensity_arr, lengths_arr = prepare_flat_inputs(None, intensity, lengths)
 
     kernels = np.zeros((actual_window, actual_window), dtype=np.float64)
     for pos in range(actual_window):
@@ -489,7 +489,7 @@ def smooth_signal_gaussian_numba(
     if sd <= 0:
         raise ValueError("sd must be positive")
 
-    intensity_arr, lengths_arr = prepare_flat_inputs(intensity, lengths)
+    _, intensity_arr, lengths_arr = prepare_flat_inputs(None, intensity, lengths)
 
     # Generate Gaussian kernel
     x = np.arange(-(window // 2), window // 2 + 1, dtype=np.float64)

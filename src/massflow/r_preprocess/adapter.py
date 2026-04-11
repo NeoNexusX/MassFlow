@@ -41,10 +41,10 @@ class CardinalAdapter:
 
         # Read source imzML as Cardinal MSImagingExperiment.
         imzml_filepath = data_manager.imzml_filepath
-        r_massdata = r_env.cardinal.readImzML(imzml_filepath)
+        r_massdata = r_env.cardinal.readImzML(imzml_filepath) # type: ignore
 
         # Run Cardinal peak alignment in R.
-        aligned_massdata = r_env.cardinal.peakAlign(
+        aligned_massdata = r_env.cardinal.peakAlign( # type: ignore
             r_massdata,
             ref=r_reference,
             tolerance=r_tol,
@@ -55,7 +55,7 @@ class CardinalAdapter:
 
         # Persist aligned result to output imzML and reload Python-side headers.
         aligned_filepath = dm_cardinal.imzml_filepath
-        r_env.cardinal.writeMSIData(aligned_massdata, file=aligned_filepath, bundle=False)
+        r_env.cardinal.writeMSIData(aligned_massdata, file=aligned_filepath, bundle=False) # type: ignore
 
 
         with risky_imzml_loader():
@@ -66,9 +66,14 @@ class CardinalAdapter:
 
     @staticmethod
     def peak_pick(data_manager: MSDataManagerImzML,
-                  method: str = "mad", # "diff", "sd", "mad", "quantile", "filter", "cwt"
-                  snr: float = 3.0,
+                  width: int = 5,
+                  method: str = "quantile", # "diff", "sd", "mad", "quantile", "filter", "cwt"
+                  snr: float = 2.0,
                   return_type: str = "height", # "height", "area"
+                  prominence: float | None = None,
+                  relheight: float | None = None,
+                  nbins: int = 1,
+                  overlap: float = 0.5,
                   temp_dir: str = "./temp_pick_data"
                   ) -> MSDataManagerImzML:
         """
@@ -82,30 +87,32 @@ class CardinalAdapter:
         dm_cardinal = MSDataManagerImzML(ms_cardinal, temp_dir=temp_dir)
         dm_cardinal.copy_meta(data_manager)
 
-        # Cardinal expects SNR as a numeric vector.
-        r_snr = r_env.float_vector([snr])
-
         logger.info(f"Starting peak picking using Cardinal::peakPick (method={method}, SNR={snr}, type={return_type})")
 
         # Read source imzML as Cardinal MSImagingExperiment.
         imzml_filepath = data_manager.imzml_filepath
-        r_massdata = r_env.cardinal.readImzML(imzml_filepath)
+        r_massdata = r_env.cardinal.readImzML(imzml_filepath) # type: ignore
 
         # Run Cardinal peak picking in R.
-        picked_massdata = r_env.cardinal.peakPick(
+        picked_massdata = r_env.cardinal.peakPick( # type: ignore
             r_massdata,
+            width=width,
             method=method,
-            SNR=r_snr,
+            SNR=snr,
             type=return_type,
+            prominence=prominence if prominence is not None else r_env.robjects.NULL,
+            relheight=relheight if relheight is not None else r_env.robjects.NULL,
+            nbins=nbins,
+            overlap=overlap
         )
 
         # Materialize delayed computation and mark result as processed.
-        picked_massdata_realize = r_env.cardinal.process(picked_massdata)
+        picked_massdata_realize = r_env.cardinal.process(picked_massdata) # type: ignore
         dm_cardinal.ms.meta.processed = True
 
         # Persist picked result to output imzML and reload Python-side headers.
         picked_filepath = dm_cardinal.imzml_filepath
-        r_env.cardinal.writeMSIData(picked_massdata_realize, file=picked_filepath, bundle=False)
+        r_env.cardinal.writeMSIData(picked_massdata_realize, file=picked_filepath, bundle=False) # type: ignore
 
         with risky_imzml_loader():
             dm_cardinal.load_head_data()

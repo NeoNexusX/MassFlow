@@ -15,13 +15,18 @@ def dispatch_with_supported_kwargs(func: Callable[..., Any], **kwargs: Any) -> n
     return np.asarray(result)
 
 def prepare_flat_inputs(
+    mz_data: Optional[np.ndarray],
     intensity: np.ndarray,
     lengths: Optional[np.ndarray],
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Validate 1D flat input and optional lengths, preserving the input dtype."""
     if intensity is None or not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
         raise ValueError("intensity must be a 1D numpy array")
 
+    if mz_data is None or not isinstance(mz_data, np.ndarray) or mz_data.ndim != 1:
+        raise ValueError("mz_data must be a 1D numpy array if provided")
+
+    mz_arr = mz_data
     intensity_arr = intensity
 
     if lengths is None:
@@ -35,7 +40,28 @@ def prepare_flat_inputs(
         if int(np.sum(lengths_arr)) != intensity_arr.size:
             raise ValueError("sum(lengths) must equal intensity.size")
 
-    return intensity_arr, lengths_arr
+    return mz_arr, intensity_arr, lengths_arr
+
+def infer_shared_mz(
+    mz_data: np.ndarray,
+    lengths: np.ndarray
+) -> bool:
+    """Infer if mz_data is shared across spectra based on its length and the lengths array."""
+    total_points = int(np.sum(lengths, dtype=np.int64))
+    max_len = int(np.max(lengths)) if lengths.size > 0 else 0
+    is_shared_mz = mz_data.size != total_points
+
+    if is_shared_mz:
+        if mz_data.size < max_len:
+            raise ValueError(
+                "Shared m/z axis is shorter than at least one spectrum length: "
+                f"mz_size={mz_data.size}, max_len={max_len}."
+            )
+    elif mz_data.size != total_points:
+        raise ValueError(
+            f"mz_data size ({mz_data.size}) does not match sum(lengths) ({total_points})."
+        )
+    return is_shared_mz
 
 @njit(cache=True)
 def lengths_to_offsets(lengths: np.ndarray) -> np.ndarray:

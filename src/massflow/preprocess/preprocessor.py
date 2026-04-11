@@ -10,7 +10,7 @@ import numpy as np
 from massflow.data_manager import MSDataManager, MSDataManagerImzML
 from massflow.module import MassSpectrumSet
 from massflow.preprocess.api import PreprocessorAPI, TaskScope
-from massflow.preprocess.helper.peak_align_parallel import compute_reference_parallel
+from massflow.preprocess.helper.peak_align_helper import reference_computer
 from massflow.preprocess.flat_pre_fun import FlatPreprocess, FlatBatchResult
 from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
 from massflow.tools.logger import get_logger
@@ -409,7 +409,7 @@ class Preprocessor(PreprocessorAPI):
         tolerance = kwargs.get("tolerance")
 
         if reference is None or tolerance is None:
-            reference, tolerance = compute_reference_parallel(
+            reference, tolerance = reference_computer(
                 data_manager=data_manager,
                 reference=reference,
                 tolerance=tolerance,

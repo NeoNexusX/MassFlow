@@ -177,7 +177,7 @@ def normalizer_numba(
             the full input is treated as one spectrum.
     """
 
-    intensity_arr, lengths_arr = prepare_flat_inputs(intensity, lengths)
+    _, intensity_arr, lengths_arr = prepare_flat_inputs(None, intensity, lengths)
 
     # Map Method
     method_clean = method.strip().lower()

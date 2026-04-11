@@ -297,7 +297,7 @@ def baseline_snip_numba(
         raise ValueError("intensity must be a 1D numpy array")
 
     target_dtype = intensity.dtype
-    intensity_arr, lengths_arr = prepare_flat_inputs(intensity, lengths)
+    _, intensity_arr, lengths_arr = prepare_flat_inputs(None, intensity, lengths)
 
     if lengths_arr.ndim != 1:
         raise ValueError("lengths must be a 1D array")
@@ -366,7 +366,7 @@ def baseline_locmin_numba(
 
     iter_i = int(niter)
     target_dtype = intensity.dtype
-    intensity_arr, lengths_arr = prepare_flat_inputs(intensity, lengths)
+    _, intensity_arr, lengths_arr = prepare_flat_inputs(None, intensity, lengths)
 
     if lengths_arr.size == 0:
         return np.array([], dtype=target_dtype)

@@ -36,7 +36,7 @@ from typing import Union, Optional, Sequence
 import numpy as np
 from massflow.module import SpectrumImzML, Spectrum
 from massflow.tools.logger import get_logger
-from massflow.preprocess.helper.peak_align_helper import align_spectrum
+from massflow.preprocess.helper.peak_align_helper import peak_aligner
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
 from massflow.preprocess.helper.baseline_correction_helper import baseline_corrector
@@ -195,10 +195,23 @@ class SpectrumPreprocess:
 
         tolerance = tolerance * 1e-6 if units == "ppm" else tolerance
 
-        return align_spectrum(spectrum=spectrum,
-                              reference=reference,
-                              tolerance=tolerance,
-                              units=units)
+        mz_arr = np.asarray(spectrum.mz_list, dtype=np.float64)
+        intensity_arr = np.asarray(spectrum.intensity, dtype=np.float64)
+
+        aligned_result = peak_aligner(mz_data=mz_arr,
+                                                        intensity=intensity_arr,
+                                                        lengths=np.array([len(mz_arr)], dtype=np.int32),
+                                                        reference=reference,
+                                                        tolerance=tolerance,
+                                                        units=units)
+
+        aligned_intensity = aligned_result[0]
+
+        return SpectrumImzML(
+            mz_list=reference,
+            intensity=aligned_intensity,
+            coordinates=spectrum.coordinate,
+        )
 
     @staticmethod
     def baseline_correction_spectrum(

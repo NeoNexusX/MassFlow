@@ -1,5 +1,5 @@
 import time
-from typing import Sequence
+from typing import Sequence, Literal
 import pytest
 import numpy as np
 from massflow.module import MassSpectrumSet
@@ -8,7 +8,9 @@ from massflow.preprocess.preprocessor import Preprocessor
 from massflow.r_preprocess import set_default_r_home
 from massflow.tools.logger import get_logger
 
-logger = get_logger("test_peak_pick")
+logger = get_logger("massflow.test_peak_pick")
+
+Backend = Literal["python", "cardinal"]
 
 FILEPATH = r"./data/example.imzML"
 MZ_RANGES = [(500, 600)]
@@ -26,7 +28,7 @@ def run_pick_test(
     return_type: str = 'height',
     batch_size: int = 256,
     use_numba: bool = True,
-    backend: str = "python"
+    backend: Backend = "python"
     ) -> MSDataManagerImzML:
     """Run peak picking test using old or new method."""
 
@@ -132,7 +134,7 @@ class TestPeakPick:
         return_type: str,
         batch_size: int,
         use_numba: bool,
-        backend: str,
+        backend: Backend,
     ) -> None:
         """Performance Test: Run peak picking benchmark."""
 

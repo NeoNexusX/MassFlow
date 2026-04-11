@@ -3,8 +3,8 @@ from typing import Literal, Optional, Tuple
 import numpy as np
 from numpy.typing import NDArray
 
-from massflow.module import Spectrum, SpectrumImzML
 from massflow.data_manager import MSDataManager
+from massflow.tools.funs import prepare_flat_inputs, infer_shared_mz
 import massflow.preprocess.numba.peak_align_numba as compute
 from massflow.tools.logger import get_logger
 
@@ -110,227 +110,107 @@ def generate_relative_sequence(start: float, end: float, step: float) -> NDArray
 
     return start * np.power(ratio, indices)
 
-def calc_diff(x: NDArray, y: Optional[NDArray] = None, method: str = "y") -> NDArray:
-    """Calculate relative or absolute differences between array elements."""
-    if y is None:
-        if x.size <= 1:
-            return np.array([], dtype=np.float64)
-        y = x[:-1]
-        x = x[1:]
+def _aggregate_resolution_step(resolutions: NDArray[np.float64], binfun: str) -> float:
+    """Aggregate per-spectrum resolution into a global step."""
+    if binfun == "median":
+        return float(np.nanmedian(resolutions))
+    if binfun == "min":
+        return float(np.nanmin(resolutions))
+    if binfun == "max":
+        return float(np.nanmax(resolutions))
+    return float(np.nanmean(resolutions))
 
-    x = x.astype(np.float64, copy=False)
-    y = y.astype(np.float64, copy=False)
-
-    n = max(x.size, y.size)
-    if x.size != n:
-        x = np.resize(x, n)
-    if y.size != n:
-        y = np.resize(y, n)
-
-    if method == "abs":
-        return x - y
-
-    denominator = x if method == "x" else y
-    return (x - y) / denominator
-
-def scalar_diff(val1: float, val2: float, method: str) -> float:
-    """Compute the difference between two scalar values (always non-negative)."""
-    diff = abs(val1 - val2)
-    if method == "abs":
-        return diff
-
-    denominator = val1 if method == "x" else val2
-    return diff / abs(denominator) if denominator != 0 else float("inf")
-
-def estimate_domain(
+def estimate_domain_parallel(
     data_manager: MSDataManager,
     binfun: str = "median",
     binratio: float = 2.0,
     units: str = "relative",
-    clear_memory: bool = True,
     batch_size: int = 256,
+    max_threads: int = 0,
 ) -> Tuple[NDArray, float]:
-    """
-    Estimate a shared m/z reference grid for all spectra.
-
-    Algorithm overview:
-    1. Iterate all spectra and estimate each spectrum's resolution.
-    2. Aggregate a global resolution using a statistic (median/min/max/mean).
-    3. Generate the reference m/z axis and its corresponding tolerance.
-
-    Args:
-        data_manager: Mass spectrometry data manager.
-        binfun: Aggregation function for resolution ('median', 'min', 'max', 'mean').
-        binratio: Tolerance multiplier (tolerance = step * binratio).
-        units: Unit type ('relative'/'ppm' or 'absolute'/'Da').
-        clear_memory: Whether to clear memory after each batch.
-        batch_size: Batch size.
-
-    Returns:
-        tuple: (domain, tolerance) - reference m/z axis array and tolerance value.
-    """
+    """Parallel domain estimation based on flat_generator batches."""
     ref_method = "x" if units == "relative" else "abs"
-    stats = []  # Stores (min_mz, max_mz, resolution)
+    method_code = get_method_code(ref_method)
 
-    for batch in data_manager.batch_generator(batch_size=batch_size):
-        for spec in batch:
-            # Ensure numpy array for type checkers and np.isfinite
-            mz_list = np.asarray(spec.mz_list, dtype=np.float64)
-            valid_mz = mz_list[np.isfinite(mz_list)]
-            res = estimate_resolution(valid_mz, method=ref_method)
+    stats_batches: list[NDArray[np.float64]] = []
 
-            if valid_mz.size > 0 and np.isfinite(res):
-                stats.append((float(np.min(valid_mz)), float(np.max(valid_mz)), res))
-            else:
-                stats.append((np.nan, np.nan, res))
+    for mz_data, _, lengths, _ in data_manager.flat_generator(
+        batch_size=batch_size,
+        include_mz=True,
+        max_threads=max_threads,
+    ):
+        if mz_data is None:
+            continue
 
-        if clear_memory:
-            data_manager.clear_batch_data_memory(batch)
+        lengths_arr = np.asarray(lengths, dtype=np.int32)
+        if lengths_arr.size == 0:
+            continue
 
-    stats_arr = np.array(stats, dtype=np.float64)
+        mz_arr = np.asarray(mz_data, dtype=np.float64)
 
-    # Compute global m/z range
+        if mz_arr.ndim != 1:
+            raise ValueError(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
+
+        total_points = int(np.sum(lengths_arr, dtype=np.int64))
+        max_len = int(np.max(lengths_arr)) if lengths_arr.size > 0 else 0
+
+        # Continuous mode: shared m/z axis (1-D, not flattened per spectrum)
+        if mz_arr.size != total_points:
+            if mz_arr.size != max_len:
+                raise ValueError(
+                    "Incompatible flat batch for shared m/z mode: "
+                    f"mz_size={mz_arr.size}, max_len={max_len}, total_points={total_points}."
+                )
+
+            n_spec = int(lengths_arr.size)
+            batch_stats = np.full((n_spec, 3), np.nan, dtype=np.float64)
+
+            valid_mz = mz_arr[np.isfinite(mz_arr)]
+            if valid_mz.size > 0:
+                res = estimate_resolution(valid_mz, method=ref_method)
+                batch_stats[:, 0] = float(np.min(valid_mz))
+                batch_stats[:, 1] = float(np.max(valid_mz))
+                batch_stats[:, 2] = float(res)
+
+            stats_batches.append(batch_stats)
+            continue
+
+        # Processed mode: per-spectrum flattened m/z array (1-D)
+        mins, maxs, resolutions = compute.estimate_domain_stats_flat_parallel_jit(
+            mz_flat=mz_arr,
+            lengths=lengths_arr,
+            method_code=method_code,
+        )
+        stats_batches.append(np.column_stack((mins, maxs, resolutions)))
+
+    if not stats_batches:
+        raise ValueError("No flat batches available for domain estimation.")
+
+    stats_arr = np.vstack(stats_batches)
+
     mz_min = float(np.floor(np.nanmin(stats_arr[:, 0])))
     mz_max = float(np.ceil(np.nanmax(stats_arr[:, 1])))
     resolutions = stats_arr[:, 2]
 
-    # Aggregate resolution using the specified statistic
-    if binfun == "median":
-        step = float(np.nanmedian(resolutions))  # Median: robust
-    elif binfun == "min":
-        step = float(np.nanmin(resolutions))  # Min: finest
-    elif binfun == "max":
-        step = float(np.nanmax(resolutions))  # Max: coarsest
-    else:
-        step = float(np.nanmean(resolutions))  # Mean: trade-off
+    step = _aggregate_resolution_step(resolutions, binfun)
 
     logger.info(
-        f"Estimated domain stats: min_mz={mz_min}, max_mz={mz_max}, step={step} (method={binfun})"
+        f"[parallel] Estimated domain stats: min_mz={mz_min}, max_mz={mz_max}, "
+        f"step={step} (method={binfun})"
     )
 
-    # Generate reference axis based on unit type
     if units == "relative":
-        # Relative-error mode: use a geometric sequence
-        step = round(2.0 * step, 6) * 0.5  # Round to a multiple of 0.5
-        step = max(MIN_RELATIVE_RES, step)  # Ensure not below the minimum resolution
-        tolerance = (
-            round(2.0 * (step * binratio), 6) * 0.5
-        )  # tolerance = step * binratio
+        step = round(2.0 * step, 6) * 0.5
+        step = max(MIN_RELATIVE_RES, step)
+        tolerance = round(2.0 * (step * binratio), 6) * 0.5
         domain = generate_relative_sequence(mz_min, mz_max, step)
     else:
-        # Absolute-error mode: use an arithmetic sequence
-        step = round(step, 4)  # Round to 4 decimal places
-        step = max(MIN_ABSOLUTE_RES, step)  # Ensure not below the minimum resolution
-        tolerance = round(step * binratio, 4)  # tolerance = step * binratio
+        step = round(step, 4)
+        step = max(MIN_ABSOLUTE_RES, step)
+        tolerance = round(step * binratio, 4)
         domain = np.arange(mz_min, mz_max + step, step, dtype=np.float64)
 
     return domain, tolerance
-
-def bin_peaks(
-    data_manager: MSDataManager,
-    domain: NDArray,
-    tolerance: float,
-    tol_method: str = "abs",
-    batch_size: int = 256,
-) -> NDArray:
-    """
-    Map peaks from multiple spectra onto a unified reference grid.
-
-    Algorithm overview:
-    1. For each raw peak, find the nearest matching point on the reference grid.
-    2. Resolve one-to-many conflicts: if multiple peaks map to the same grid point,
-       keep the one with the smallest distance.
-    3. Accumulate matches and compute a weighted average to refine reference peak positions.
-    4. Merge adjacent peaks to generate the final reference axis.
-
-    Args:
-        data_manager: Mass spectrometry data manager.
-        domain: Initial reference grid.
-        tolerance: Tolerance threshold.
-        tol_method: Tolerance/distance method ('abs', 'x', 'y').
-        batch_size: Batch size.
-
-    Returns:
-        NDArray: Final reference m/z axis.
-    """
-    logger.info(
-        f"Binning peaks: {len(data_manager.ms)} spectra, domain size {domain.size}, tolerance {tolerance}"
-    )
-
-    code = get_method_code(tol_method)
-
-    peaks_acc = np.zeros(domain.size, dtype=np.float64)  # Peak-position accumulator
-    counts = np.zeros(domain.size, dtype=np.int64)  # Counter
-
-    for batch in data_manager.batch_generator(batch_size=batch_size):
-        for spec in batch:
-            raw_peaks = np.array(spec.mz_list, dtype=np.float64)
-
-            if raw_peaks.size == 0:
-                continue
-
-            # Find the nearest reference point for each raw peak
-            bin_indices = compute.search_nearest_jit(
-                raw_peaks,
-                domain,
-                tolerance,
-                code,
-                nomatch_value=-1,
-                force_nearest=False,
-            )
-
-            valid_mask = bin_indices >= 0  # Filter out unmatched peaks
-            if not np.any(valid_mask):
-                continue
-
-            valid_bins = bin_indices[valid_mask].astype(np.int64)
-            valid_peaks = raw_peaks[valid_mask]
-
-            # Compute distance for each match
-            dists = np.abs(
-                calc_diff(valid_peaks, domain[valid_bins], method=tol_method)
-            )
-
-            # Resolve one-to-many conflicts: multiple peaks mapping to the same reference bin
-            # Sort by (bin, dist) and keep only the smallest-distance match per bin
-            n_valid = valid_bins.size
-            sort_arr = np.empty(
-                n_valid, dtype=[("bin", "i8"), ("dist", "f8"), ("idx", "i8")]
-            )
-            sort_arr["bin"] = valid_bins  # Reference-bin index
-            sort_arr["dist"] = dists  # Distance
-            sort_arr["idx"] = np.arange(n_valid)  # Index into valid_peaks
-
-            # Sort by bin first, then by distance (stable keeps original order for ties)
-            sort_arr.sort(order=["bin", "dist"], kind="stable")
-
-            # For each unique bin, take the first one (smallest distance)
-            _, unique_indices = np.unique(sort_arr["bin"], return_index=True)
-
-            # Extract best matches
-            best_matches = sort_arr[unique_indices]
-            matched_bins = best_matches["bin"]
-            matched_peaks = valid_peaks[best_matches["idx"]]
-
-            np.add.at(peaks_acc, matched_bins, matched_peaks)
-            np.add.at(counts, matched_bins, 1)
-
-        data_manager.clear_batch_data_memory(batch)
-
-    nonzero = counts != 0
-    peaks_acc[nonzero] /= counts[nonzero]
-    peaks_acc[~nonzero] = np.nan
-
-    # Extract non_NaN values and before merging
-    valid_mask = ~np.isnan(peaks_acc)
-    valid_peaks = peaks_acc[valid_mask]
-    valid_counts = counts[valid_mask]
-
-    reference = merge_peaks(
-        mz_list=valid_peaks, counts=valid_counts, tolerance=tolerance, tol_method=tol_method
-    )
-
-    return reference
 
 def merge_peaks(
     mz_list: NDArray,
@@ -367,115 +247,172 @@ def merge_peaks(
     if valid_peaks.size > 1 and np.any(np.diff(valid_peaks) < 0):
         raise ValueError("peaks must be sorted")
 
-    n = mz_list.size
-    # Find the first non-NaN index k
-    k = 0
-    while k < n and np.isnan(mz_list[k]):
-        k += 1
+    method_code = get_method_code(tol_method)
+    return compute.merge_peaks_jit(
+        mz_list=mz_list,
+        counts=counts,
+        tolerance=float(tolerance),
+        code=method_code,
+    )
 
-    while k < n:
-        i = k
-        j = k
+def bin_peaks_parallel(
+    data_manager: MSDataManager,
+    domain: NDArray,
+    tolerance: float,
+    tol_method: str = "abs",
+    batch_size: int = 256,
+    max_threads: int = 0,
+) -> NDArray:
+    """Parallel binning using flat_generator + parallel nearest search."""
+    logger.info(
+        f"[parallel] Binning peaks: {len(data_manager.ms)} spectra, "
+        f"domain size {domain.size}, tolerance {tolerance}"
+    )
 
-        # Expand to the left
-        left_of_mode = False  # Whether we already passed the mode peak (local maximum)
-        while (i - 1) >= 0:
-            if np.isnan(mz_list[i - 1]):
-                break  # Encounter NaN
-            # Check whether the distance is within tolerance
-            dist = scalar_diff(mz_list[i], mz_list[i - 1], tol_method)
-            if dist > tolerance:
-                break  # Outside tolerance
+    code = get_method_code(tol_method)
+    peaks_acc = np.zeros(domain.size, dtype=np.float64)
+    counts = np.zeros(domain.size, dtype=np.int64)
 
-            # Continue only while descending/flat; stop if we cross a valley (left higher than current)
-            if counts[i - 1] < counts[i]:
-                left_of_mode = True  # We are on the right side of the peak (downhill)
-            if counts[i - 1] > counts[i] and left_of_mode:
-                break  # Crossed a valley; stop merging
-            i -= 1
+    for mz_data, _, lengths, _ in data_manager.flat_generator(
+        batch_size=batch_size,
+        include_mz=True,
+        max_threads=max_threads,
+    ):
+        if mz_data is None:
+            continue
 
-        # Expand to the right
-        right_of_mode = False  # Whether we already passed the mode peak
-        while (j + 1) < n:
-            if np.isnan(mz_list[j + 1]):
-                break  # Encounter NaN
-            dist = scalar_diff(mz_list[j + 1], mz_list[j], tol_method)
-            if dist > tolerance:
-                break  # Outside tolerance
+        lengths_arr = np.asarray(lengths, dtype=np.int32)
+        if lengths_arr.size == 0:
+            continue
 
-            if counts[j + 1] < counts[j]:
-                right_of_mode = True  # We are on the left side of the peak (downhill)
-            if counts[j + 1] > counts[j] and right_of_mode:
-                break  # Crossed a valley; stop merging
-            j += 1
+        mz_arr = np.asarray(mz_data, dtype=np.float64)
 
-        # Merge interval [i, j]
-        indices = np.arange(i, j + 1)
-        w = counts[indices].astype(np.float64)  # Weights
-        w_sum = np.sum(w)
+        if mz_arr.ndim != 1:
+            raise ValueError(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
 
-        # Compute merged peak position via weighted average
-        if w_sum > 0:
-            merged_peak = np.sum(w * mz_list[indices]) / w_sum
-        else:
-            merged_peak = np.mean(
-                mz_list[indices]
-            )  # Fall back to simple mean if no weights
+        total_points = int(np.sum(lengths_arr, dtype=np.int64))
+        max_len = int(np.max(lengths_arr)) if lengths_arr.size > 0 else 0
+        is_shared_mz = mz_arr.size != total_points
 
-        merged_count = np.sum(counts[indices])  # Total count after merge
+        # Continuous mode: shared m/z for all spectra in this batch
+        if is_shared_mz:
+            if mz_arr.size != max_len:
+                raise ValueError(
+                    "Incompatible flat batch for shared m/z mode: "
+                    f"mz_size={mz_arr.size}, max_len={max_len}, total_points={total_points}."
+                )
 
-        # Write into the center position p: floor(mean(i, j))
-        p = int(np.floor((i + j) / 2.0))
+            raw_peaks = mz_arr
+            if raw_peaks.size == 0:
+                continue
 
-        mz_list[p] = merged_peak
-        counts[p] = int(merged_count)
+            bin_indices = compute.search_nearest_jit(
+                queries=raw_peaks,
+                targets=domain,
+                tolerance=tolerance,
+                code=code,
+                nomatch_value=-1,
+                force_nearest=False,
+            )
 
-        # Clear other positions
-        mask = np.ones(indices.size, dtype=bool)
-        mask[p - i] = False  # Keep p
+            if np.all(lengths_arr == raw_peaks.size):
+                tmp_peaks_acc = np.zeros_like(peaks_acc)
+                tmp_counts = np.zeros_like(counts)
+                compute.accumulate_best_matches_for_spectrum_jit(
+                    raw_peaks=raw_peaks,
+                    bin_indices=bin_indices,
+                    domain=domain,
+                    method_code=code,
+                    peaks_acc=tmp_peaks_acc,
+                    counts=tmp_counts,
+                )
 
-        # Mark merged-away positions as NaN / 0
-        cleared_indices = indices[mask]
-        mz_list[cleared_indices] = np.nan
-        counts[cleared_indices] = 0
+                n_spec = int(lengths_arr.size)
+                if n_spec > 0:
+                    peaks_acc += tmp_peaks_acc * n_spec
+                    counts += tmp_counts * n_spec
+            else:
+                for valid_len in lengths_arr:
+                    peak_len = int(valid_len)
+                    if peak_len <= 0:
+                        continue
 
-        # Move pointer k to the right of j, skipping NaNs
-        k = j + 1
-        while k < n and np.isnan(mz_list[k]):
-            k += 1
+                    compute.accumulate_best_matches_for_spectrum_jit(
+                        raw_peaks=raw_peaks[:peak_len],
+                        bin_indices=bin_indices[:peak_len],
+                        domain=domain,
+                        method_code=code,
+                        peaks_acc=peaks_acc,
+                        counts=counts,
+                    )
+            continue
 
-    # Drop NaNs and return the final result
-    valid = ~np.isnan(mz_list)
-    return mz_list[valid]
+        # Processed mode: per-spectrum flattened m/z array
+        nearest_idx = compute.search_nearest_flat_parallel_jit(
+            mz_flat=mz_arr,
+            lengths=lengths_arr,
+            targets=domain,
+            tolerance=tolerance,
+            code=code,
+            nomatch_value=-1,
+        )
 
-def compute_reference(
+        compute.accumulate_best_matches_for_flat_jit(
+            raw_peaks_flat=mz_arr,
+            bin_indices_flat=nearest_idx,
+            lengths=lengths_arr,
+            domain=domain,
+            method_code=code,
+            peaks_acc=peaks_acc,
+            counts=counts,
+        )
+
+    nonzero = counts != 0
+    peaks_acc[nonzero] /= counts[nonzero]
+    peaks_acc[~nonzero] = np.nan
+
+    valid_mask = ~np.isnan(peaks_acc)
+    valid_peaks = peaks_acc[valid_mask]
+    valid_counts = counts[valid_mask]
+
+    reference = merge_peaks(
+        mz_list=valid_peaks,
+        counts=valid_counts,
+        tolerance=tolerance,
+        tol_method=tol_method,
+    )
+
+    return reference
+
+def reference_computer(
     data_manager: MSDataManager,
     reference: Optional[NDArray] = None,
-    binfun="median",
-    binratio=2.0,
+    binfun: str = "median",
+    binratio: float = 2.0,
     tolerance: Optional[float] = None,
-    units="ppm",
-    clear_memory=True,
+    units: str = "ppm",
     batch_size: int = 256,
+    max_threads: int = 2,
 ) -> Tuple[NDArray, float]:
-    """Calculate reference m/z axis and tolerance."""
+    """Parallel version of compute_reference based on flat_generator."""
     logger.info(
-        f"Computing reference: units={units}, binfun={binfun}, binratio={binratio}"
+        f"[parallel] Computing reference: units={units}, binfun={binfun}, binratio={binratio}"
     )
+
     norm_units = _normalize_units(units)
     tol_method = "x" if norm_units == "relative" else "abs"
 
-    # Estimate domain and tolerance
-    domain, estimate_tolerance = estimate_domain(
+    domain, estimate_tolerance = estimate_domain_parallel(
         data_manager=data_manager,
         binfun=binfun,
         binratio=binratio,
         units=norm_units,
-        clear_memory=clear_memory,
         batch_size=batch_size,
+        max_threads=max_threads,
     )
+
     logger.info(
-        f"Domain estimated: size={domain.size}, estimate_tolerance={estimate_tolerance}"
+        f"[parallel] Domain estimated: size={domain.size}, estimate_tolerance={estimate_tolerance}"
     )
 
     tolerance = estimate_tolerance if tolerance is None else (tolerance * 1e-6 if units == "ppm" else tolerance)
@@ -483,41 +420,45 @@ def compute_reference(
     if reference is not None:
         return reference, tolerance
 
-    reference = bin_peaks(
+    reference = bin_peaks_parallel(
         data_manager=data_manager,
         domain=domain,
         tolerance=tolerance,
         tol_method=tol_method,
         batch_size=batch_size,
+        max_threads=max_threads,
     )
-    logger.info(f"Reference computed: final size={reference.size}")
 
+    logger.info(f"[parallel] Reference computed: final size={reference.size}")
     return reference, tolerance
 
-def align_spectrum(
-    spectrum: Spectrum,
-    reference: NDArray,
+def peak_aligner(
+    mz_data: NDArray[np.float64],
+    intensity: NDArray[np.float64],
+    lengths: NDArray[np.int32],
+    reference: NDArray[np.float64],
     tolerance: float,
     units: str = "ppm",
-) -> SpectrumImzML:
-    """Align peaks for a single spectrum."""
+) -> NDArray[np.float64]:
+    """Align a flat batch of spectra to a reference m/z axis."""
     norm_units = _normalize_units(units)
     tol_method = "x" if norm_units == "relative" else "abs"
     code = get_method_code(tol_method)
 
-    mz_list = spectrum.mz_list
-    intensity = spectrum.intensity
+    mz_arr = np.asarray(mz_data, dtype=np.float64)
+    intensity_arr = np.asarray(intensity, dtype=np.float64)
+    lengths_arr = np.asarray(lengths, dtype=np.int32)
+    reference_arr = np.asarray(reference, dtype=np.float64)
 
-    aligned_intensity = compute.align_spectrum_jit(
-        mz_list=mz_list,
-        intensity=intensity,
-        reference=reference,
-        tolerance=tolerance,
+    mz_arr , intensity_arr, lengths_arr = prepare_flat_inputs(mz_arr, intensity_arr, lengths_arr)
+    is_shared_mz = infer_shared_mz(mz_arr, lengths_arr)
+
+    return compute.align_spectra_flat_parallel_jit(
+        mz_data=mz_arr,
+        intensity_flat=intensity_arr,
+        lengths=lengths_arr,
+        reference=reference_arr,
+        tolerance=float(tolerance),
         code=code,
-    )
-
-    return SpectrumImzML(
-        mz_list=reference,
-        intensity=aligned_intensity,
-        coordinates=spectrum.coordinate,
+        is_shared_mz=is_shared_mz,
     )

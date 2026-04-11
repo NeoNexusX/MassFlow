@@ -4,7 +4,8 @@ import numpy as np
 from massflow.preprocess.helper.baseline_correction_helper import baseline_corrector
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
-from massflow.preprocess.helper.peak_align_parallel import align_spectra_parallel
+from massflow.preprocess.helper.peak_pick_parallel import peak_picker
+from massflow.preprocess.helper.peak_align_helper import peak_aligner
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.preprocess")
@@ -109,8 +110,45 @@ class FlatPreprocess:
         return FlatBatchResult(mz_data=mz_data, intensity=np.asarray(smoothed_intensity), lengths=lengths)
 
     @staticmethod
-    def peak_pick_flat() -> FlatBatchResult:
-        ...
+    def peak_pick_flat(
+        mz_data: np.ndarray,
+        intensity: np.ndarray,
+        lengths: np.ndarray,
+        width: int = 5,
+        method: str = "quantile",
+        snr: float = 2.0,
+        return_type: str = "height",
+        prominence: float | None = None,
+        relheight: float | None = None,
+        nbins: int = 1,
+        overlap: float = 0.5,
+    ) -> FlatBatchResult:
+
+        if method not in {"sd", "mad", "quantile", "diff"}:
+            raise ValueError("method must be one of 'sd', 'mad', 'quantile', 'diff'")
+
+        if nbins < 1:
+            raise ValueError("nbins must be >= 1")
+        if overlap < 0.0 or overlap > 0.99:
+            raise ValueError("overlap must be in [0.0, 0.99]")
+        if return_type not in {"height", "area"}:
+            raise ValueError("return_type must be 'height' or 'area'")
+
+        picked_mz, picked_intensity, picked_lengths = peak_picker(
+            mz_data=mz_data,
+            intensity=intensity,
+            lengths=lengths,
+            width=width,
+            method=method,
+            snr=snr,
+            return_type=return_type,
+            prominence=prominence,
+            relheight=relheight,
+            nbins=nbins,
+            overlap=overlap,
+        )
+
+        return FlatBatchResult(mz_data=picked_mz, intensity=picked_intensity, lengths=picked_lengths)
 
     @staticmethod
     def peak_align_flat(
@@ -125,7 +163,7 @@ class FlatPreprocess:
             logger.error("Reference m/z axis and tolerance must be provided for alignment.")
             raise ValueError("Reference m/z axis and tolerance are required.")
 
-        aligned_2d = align_spectra_parallel(
+        aligned_2d = peak_aligner(
             mz_data=mz_data,
             intensity=intensity,
             lengths=lengths,
