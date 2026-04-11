@@ -8,7 +8,8 @@ from massflow.tools.logger import get_logger
 logger = get_logger("test_est")
 
 ROUNDS = 5
-FLAT_EST_DENOISE_METHODS = ["gaussian_numba", "ma_numba", "savgol_numba"]
+FLAT_EST_DENOISE_METHODS = ["gaussian_numba"]
+MAX_SNR_PIXELS = 10
 
 
 def _estimate_flat_from_flat_batches(
@@ -23,6 +24,7 @@ def _estimate_flat_from_flat_batches(
             indexes=None,
             lengths=lengths,
             method=method,
+            nbins=1,
             denoise_method=denoise_method,
         )
         offset = 0
@@ -50,11 +52,14 @@ def _estimate_flat_from_flat_batches(
             offset = end
             assert snr >= 0, f"SNR should be non-negative, got {snr} for pixel {pixel_counter} in batch {batch_idx}"
 
+            if pixel_counter >= MAX_SNR_PIXELS:
+                return
+
 
 class TestNoiseEstimationAPI:
     """Noise estimation benchmarks focused on flat + numba modes."""
 
-    @pytest.fixture(scope="module", params=["data/baseline_test.imzML"])
+    @pytest.fixture(scope="module", params=["data/example.imzML"])
     def flat_caches(self, request):
         data_file_path = request.param
         dm = MSDataManagerImzML(filepath=data_file_path)

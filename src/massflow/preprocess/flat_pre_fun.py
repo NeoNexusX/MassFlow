@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 from massflow.preprocess.helper.baseline_correction_helper import baseline_corrector
+from massflow.preprocess.helper.est_noise_helper import estimator
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
 from massflow.preprocess.helper.peak_align_parallel import align_spectra_parallel
@@ -113,6 +114,32 @@ class FlatPreprocess:
         ...
 
     @staticmethod
+    def est_nosise_flat(
+        mz_data: np.ndarray,
+        intensity: np.ndarray,
+        lengths: np.ndarray,
+        nbins: int = 1,
+        overlap: float = 0.2,
+        method: str = "sd",
+        denoise_method: str = "gaussian_numba",
+        dynamic: bool = False,
+    ) -> FlatBatchResult:
+        """Estimate flat-mode noise level and return estimated flat intensity."""
+        index = mz_data if mz_data.size == intensity.size else None
+        noise_estimation = estimator(
+            intensity=intensity,
+            indexes=index,
+            lengths=lengths,
+            nbins=nbins,
+            overlap=overlap,
+            dynamic=dynamic,
+            method=method,
+            denoise_method=denoise_method,
+        )
+
+        return FlatBatchResult(mz_data=mz_data, intensity=noise_estimation, lengths=lengths)
+
+    @staticmethod
     def peak_align_flat(
         mz_data: np.ndarray,
         intensity: np.ndarray,
@@ -176,4 +203,4 @@ class FlatPreprocess:
             lengths=lengths,
         )
 
-        return FlatBatchResult(mz_data=mz_data, intensity=np.asarray(normalized_intensity), lengths=lengths)
+        return FlatBatchResult(mz_data=mz_data, intensity=normalized_intensity, lengths=lengths)

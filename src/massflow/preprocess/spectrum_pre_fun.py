@@ -352,7 +352,7 @@ class SpectrumPreprocess:
         nbins: int = 1,
         overlap: float = 0.2,
         method: str = "sd",
-        denoise_method: str = "gaussian",
+        denoise_method: str = "gaussian_numba",
         dynamic: bool = False,
     ):
         """
