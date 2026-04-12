@@ -12,7 +12,7 @@ logger = get_logger("massflow.peak_pick_numba_parallel")
 
 @jit(nopython=True, cache=True)
 def _indices_from_bool_mask_jit(mask: NDArray[np.bool_]) -> NDArray[np.int64]:
-    # 将布尔掩码转为紧凑索引数组，避免 Python 层布尔索引开销。
+    """将布尔掩码转为紧凑索引数组，避免 Python 层布尔索引开销。"""
     count = 0
     for i in range(mask.size):
         if mask[i]:
@@ -29,7 +29,7 @@ def _indices_from_bool_mask_jit(mask: NDArray[np.bool_]) -> NDArray[np.int64]:
 
 @jit(nopython=True, cache=True)
 def _local_maxima_mask_jit(x: NDArray[np.float64], width: int) -> NDArray[np.bool_]:
-    # 复刻 matter::local_maxima 的比较规则（含左右不对称判定）。
+    """局部极值检测"""
     n = x.size
     out = np.zeros(n, dtype=np.bool_)
     if n == 0:
@@ -76,7 +76,7 @@ def _local_maxima_mask_jit(x: NDArray[np.float64], width: int) -> NDArray[np.boo
 
 @jit(nopython=True, cache=True)
 def _peak_lbound_jit(x: NDArray[np.float64], peak: int) -> int:
-    # 从峰顶向左寻找边界，逻辑对应 matter C 代码的 peak_lbound。
+    """从峰顶向左寻找边界"""
     n = x.size
     lbound = peak
     is_left_of_peak = False
@@ -113,7 +113,7 @@ def _peak_lbound_jit(x: NDArray[np.float64], peak: int) -> int:
 
 @jit(nopython=True, cache=True)
 def _peak_rbound_jit(x: NDArray[np.float64], peak: int) -> int:
-    # 从峰顶向右寻找边界，逻辑对应 matter C 代码的 peak_rbound。
+    """从峰顶向右寻找边界"""
     n = x.size
     rbound = peak
     is_right_of_peak = False
@@ -152,6 +152,7 @@ def _peak_rbound_jit(x: NDArray[np.float64], peak: int) -> int:
 def _peak_boundaries_jit(
     x: NDArray[np.float64], peaks: NDArray[np.int64]
 ) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """计算峰的左右边界"""
     n = peaks.size
     left = np.empty(n, dtype=np.int64)
     right = np.empty(n, dtype=np.int64)
@@ -168,6 +169,7 @@ def _peak_boundaries_jit(
 def _peak_bases_jit(
     x: NDArray[np.float64], peaks: NDArray[np.int64]
 ) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """计算峰的左右基线位置（非严格意义上的基线，而是峰两侧的最低点位置）。"""
     n = x.size
     m = peaks.size
 
@@ -208,6 +210,7 @@ def _trapz_jit(
     lower: int,
     upper: int,
 ) -> float:
+    """计算峰面积，使用梯形积分法"""
     if upper <= lower:
         return 0.0
 
@@ -222,6 +225,7 @@ def _trapz_jit(
 def _select_peaks_by_keep_jit(
     peaks: NDArray[np.int64], keep: NDArray[np.bool_]
 ) -> NDArray[np.int64]:
+    """根据布尔数组 keep 选择峰索引，返回紧凑的峰索引数组。"""
     count = 0
     for i in range(keep.size):
         if keep[i]:
@@ -248,7 +252,7 @@ def _findpeaks_filtered_indices_safe_jit(
     snr: float,
     noise_x: NDArray[np.float64],
 ) -> NDArray[np.int64]:
-    # 峰筛选顺序：locmax -> prominence -> relheight -> snr。
+    """"在 numba 内核中执行峰检测和多重条件过滤，返回最终峰索引数组。"""
     peaks = _indices_from_bool_mask_jit(_local_maxima_mask_jit(x, width))
     m = peaks.size
     if m == 0:
@@ -285,7 +289,7 @@ def _findpeaks_filtered_indices_safe_jit(
                     if (not np.isfinite(rel)) or rel < relheight:
                         keep[i] = False
 
-    # 接入snr筛选：先估计噪声向量，再计算峰值与噪声的比值，最后根据 snr 阈值过滤。
+    # snr筛选：再计算峰值与噪声的比值，最后根据 snr 阈值过滤。
     if use_snr:
         if noise_x.size != x.size:
             for i in range(m):
@@ -324,9 +328,9 @@ def peak_pick_flat_parallel_core_jit(
     is_shared_mz: bool,
     noise_arr: NDArray[np.float64],
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.int32]]:
-    # 两遍并行策略：
-    # 1) 先统计每条谱峰数，得到输出 offsets；
-    # 2) 再并行写入紧凑输出，避免并发写冲突。
+    """
+    核心并行计算函数：对每条谱进行峰检测和条件过滤，并将结果写入紧凑输出数组。
+    """
     n_spectra = lengths_arr.size
     input_offsets = lengths_to_offsets(lengths_arr)
 

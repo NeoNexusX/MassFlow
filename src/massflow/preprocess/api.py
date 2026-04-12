@@ -136,7 +136,6 @@ class PreprocessorAPI(_TaskRegistrar):
                 snr=snr,
                 return_type=return_type,
                 prominence=prominence,
-                relheight=relheight,
                 nbins=nbins,
                 overlap=overlap,
             )
@@ -161,9 +160,9 @@ class PreprocessorAPI(_TaskRegistrar):
         reference: np.ndarray | None = None,
         tolerance: float | None = None,
         units: str = "ppm",
-        backend: Backend = "python",
         binfun: str = "median",
         binratio: float = 2.0,
+        backend: Backend = "python",
     ) -> Self:
         """Register peak alignment flat task."""
         if backend == "cardinal":

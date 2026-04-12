@@ -71,7 +71,6 @@ class CardinalAdapter:
                   snr: float = 2.0,
                   return_type: str = "height", # "height", "area"
                   prominence: float | None = None,
-                  relheight: float | None = None,
                   nbins: int = 1,
                   overlap: float = 0.5,
                   temp_dir: str = "./temp_pick_data"
@@ -92,23 +91,24 @@ class CardinalAdapter:
         # Read source imzML as Cardinal MSImagingExperiment.
         imzml_filepath = data_manager.imzml_filepath
         r_massdata = r_env.cardinal.readImzML(imzml_filepath) # type: ignore
+        r_as = r_env.robjects.r["as"]
+
+        r_massdata_arrays = r_as(r_massdata, "MSImagingArrays") # type: ignore
 
         # Run Cardinal peak picking in R.
         picked_massdata = r_env.cardinal.peakPick( # type: ignore
-            r_massdata,
+            r_massdata_arrays,
             width=width,
             method=method,
             SNR=snr,
             type=return_type,
             prominence=prominence if prominence is not None else r_env.robjects.NULL,
-            relheight=relheight if relheight is not None else r_env.robjects.NULL,
             nbins=nbins,
             overlap=overlap
         )
 
-        # Materialize delayed computation and mark result as processed.
+        # Materialize the queued peak-pick on the arrays representation before export.
         picked_massdata_realize = r_env.cardinal.process(picked_massdata) # type: ignore
-        dm_cardinal.ms.meta.processed = True
 
         # Persist picked result to output imzML and reload Python-side headers.
         picked_filepath = dm_cardinal.imzml_filepath

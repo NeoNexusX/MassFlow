@@ -1,5 +1,5 @@
 import time
-from typing import Sequence, Literal
+from typing import Literal
 import pytest
 import numpy as np
 from massflow.module import MassSpectrumSet
@@ -21,13 +21,12 @@ set_default_r_home("r_home_path_here")  # set R_HOME path here
 
 def run_pick_test(
     data: MSDataManagerImzML,
-    width: int | Sequence[int] = 2,
+    width: int = 2,
     method: str = 'scipy',
     relheight: float = 0.1,
     snr: float = 3.0,
     return_type: str = 'height',
     batch_size: int = 256,
-    use_numba: bool = True,
     backend: Backend = "python"
     ) -> MSDataManagerImzML:
     """Run peak picking test using old or new method."""
@@ -42,7 +41,6 @@ def run_pick_test(
             relheight=relheight,
             snr=snr,
             return_type=return_type,
-            use_numba=use_numba,
             backend=backend,
         )
         .start()
@@ -127,7 +125,7 @@ class TestPeakPick:
         self,
         benchmark,
         data_manager: MSDataManagerImzML, # pylint: disable=redefined-outer-name
-        width: int | Sequence[int],
+        width: int,
         method: str,
         relheight: float,
         snr: float,
@@ -166,7 +164,7 @@ class TestPeakPick:
     def test_peak_pick_validation(
         self,
         data_manager: MSDataManagerImzML, # pylint: disable=redefined-outer-name
-        width: int | Sequence[int],
+        width: int,
         py_method: str,
         r_method: str,
         relheight: float,

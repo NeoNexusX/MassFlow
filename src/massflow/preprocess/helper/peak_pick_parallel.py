@@ -31,8 +31,6 @@ def peak_picker(
     )
 
     width = 1 if width < 1 else width
-    prominence = prominence if prominence is not None else 0.0
-    relheight = relheight if relheight is not None else 0.0
 
     mz_arr, intensity_arr, lengths_arr = prepare_flat_inputs(mz_data, intensity, lengths)
 
@@ -41,7 +39,9 @@ def peak_picker(
     # 统一在 numba 并行核心中执行：局部极值检测 + 条件过滤 + 输出flat数据。
     use_prominence = prominence is not None
     use_relheight = relheight is not None
-    use_snr = np.isfinite(snr)
+    prominence = prominence if use_prominence else 0.0
+    relheight = relheight if use_relheight else 0.0
+    use_snr = np.isfinite(snr) and snr > 0.0
 
     noise_arr = np.empty(0, dtype=np.float64)
 

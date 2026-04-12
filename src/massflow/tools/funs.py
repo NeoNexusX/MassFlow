@@ -23,10 +23,10 @@ def prepare_flat_inputs(
     if intensity is None or not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
         raise ValueError("intensity must be a 1D numpy array")
 
-    if mz_data is None or not isinstance(mz_data, np.ndarray) or mz_data.ndim != 1:
-        raise ValueError("mz_data must be a 1D numpy array if provided")
+    if mz_data is not None and mz_data.ndim != 1:
+        raise ValueError("mz_data must be a 1D array if provided")
 
-    mz_arr = mz_data
+    mz_arr = mz_data if mz_data is not None else np.array([], dtype=intensity.dtype)
     intensity_arr = intensity
 
     if lengths is None:
