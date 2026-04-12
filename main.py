@@ -1,9 +1,11 @@
 from massflow.data_manager import MSDataManagerImzML
 from massflow.tools import get_logger
+from massflow.tools.plot import plot_spectrum
 from massflow.module import MassSpectrumSet
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
 from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
 import numpy as np
+from pathlib import Path
 
 logger = get_logger("massflow")
 
@@ -20,6 +22,31 @@ def calculate_snr_details(spectrum, method: str = "sd") -> tuple[float, float, f
 def log_snr_details(tag: str, signal_level: float, noise: float, snr: float) -> None:
     """Log signal level, noise level, and SNR for one spectrum."""
     logger.info(f"[{tag}] signal_level(95th)={signal_level:.4f}, noise={noise:.4f}, SNR={snr:.4f}")
+
+
+def plot_before_after(
+    before_spectrum,
+    after_spectrum,
+    save_path: str | None = None,
+) -> None:
+    """Display overlay plot by default; save when a path is provided."""
+    output_path = None
+    if save_path:
+        output_path = Path(save_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plot_spectrum(
+        base=before_spectrum,
+        target=after_spectrum,
+        save_path=str(output_path) if output_path else None,
+        overlay=True,
+        metrics_box=True,
+        title_suffix="main.py",
+    )
+    if output_path:
+        logger.info(f"Saved before/after spectrum plot: {output_path}")
+    else:
+        logger.info("Displayed before/after spectrum plot window.")
 
 
 def main():
@@ -81,6 +108,11 @@ def main():
             pre_last_snr,
             post_last_snr,
             post_last_snr - pre_last_snr,
+        )
+
+        plot_before_after(
+            before_spectrum=data_manager.ms[0],
+            after_spectrum=processed_data_manager.ms[0],
         )
 
         processed_data_manager.close()
