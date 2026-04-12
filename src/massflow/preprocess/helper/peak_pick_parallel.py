@@ -26,10 +26,6 @@ def peak_picker(
     """
     Parallel peak picking for mass spectrometry data.
     """
-    logger.info(
-        f"run peak pick: spectra={int(lengths.size)}, return_type={return_type}, method={method}"
-    )
-
     width = 1 if width < 1 else width
 
     mz_arr, intensity_arr, lengths_arr = prepare_flat_inputs(mz_data, intensity, lengths)
@@ -54,7 +50,7 @@ def peak_picker(
             overlap=overlap,
             dynamic=False,
             method=method,
-            denoise_method="gaussian",
+            denoise_method="gaussian_numba",
         )
 
         if noise_arr.size != intensity_arr.size:

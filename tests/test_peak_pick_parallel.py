@@ -193,16 +193,16 @@ class TestPeakPick:
         self,
         benchmark,
         data_manager: MSDataManagerImzML, # pylint: disable=redefined-outer-name
-        width: int=5,
-        method: str="quantile",
-        prominence: float|None=None,
-        relheight: float|None=None,
-        snr: float=2.0,
-        nbins: int=1,
-        overlap: float=0.5,
-        return_type: str="height",
-        batch_size: int=256,
-        backend: Backend = "python",
+        method: str,
+        snr: float,
+        backend: Backend,
+        width: int = 5,
+        prominence: float | None = None,
+        relheight: float | None = None,
+        nbins: int = 1,
+        overlap: float = 0.5,
+        return_type: str = "height",
+        batch_size: int = 256,
     ) -> None:
         """Performance Test: Run peak picking benchmark."""
 

@@ -629,7 +629,8 @@ def estimate_flat_numba(
     if lengths is None:
         raise ValueError("lengths must be provided for flat-mode noise estimation")
 
-    intensity_arr, lengths_arr = prepare_flat_inputs(
+    _, intensity_arr, lengths_arr = prepare_flat_inputs(
+        None,
         np.asarray(intensity),
         np.asarray(lengths, dtype=np.int64),
     )
