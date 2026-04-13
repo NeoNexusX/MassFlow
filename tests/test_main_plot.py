@@ -27,9 +27,8 @@ def test_plot_before_after_calls_plot_with_expected_options(tmp_path, monkeypatc
     assert calls["base"] is before
     assert calls["target"] is after
     assert calls["save_path"] == str(out_file)
-    assert calls["overlay"] is True
+    assert calls["overlay"] is False
     assert calls["metrics_box"] is True
-    assert calls["title_suffix"] == "main.py"
 
 
 class _DummyProcessedResult:
@@ -91,7 +90,7 @@ def test_main_triggers_plot_before_after(monkeypatch):
     def _fake_snr_details(_spectrum):
         return 1.0, 1.0, 1.0
 
-    def _fake_plot_before_after(before_spectrum, after_spectrum, save_path="temp/plot_examples/main_first_spectrum_overlay.png"):
+    def _fake_plot_before_after(before_spectrum, after_spectrum, save_path=None):
         plot_calls.append((before_spectrum, after_spectrum, save_path))
 
     monkeypatch.setattr(main_module, "MSDataManagerImzML", _DummyManager)
@@ -107,4 +106,4 @@ def test_main_triggers_plot_before_after(monkeypatch):
     before, after, save_path = plot_calls[0]
     assert isinstance(before, _DummySpectrum)
     assert isinstance(after, _DummySpectrum)
-    assert save_path == "temp/plot_examples/main_first_spectrum_overlay.png"
+    assert save_path is None

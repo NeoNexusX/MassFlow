@@ -1,27 +1,12 @@
 from massflow.data_manager import MSDataManagerImzML
 from massflow.tools import get_logger
 from massflow.tools.plot import plot_spectrum
+from massflow.tools.snr import calculate_snr_details, log_snr_details
 from massflow.module import MassSpectrumSet
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
-from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
-import numpy as np
 from pathlib import Path
 
 logger = get_logger("massflow")
-
-
-def calculate_snr_details(spectrum, method: str = "sd") -> tuple[float, float, float]:
-    """Calculate signal level, noise level, and SNR for one spectrum."""
-    intensity = spectrum.intensity
-    signal_level = float(np.percentile(intensity, 95))
-    noise = float(np.mean(SpectrumPreprocess.noise_estimation_spectrum(spectrum, method=method)))
-    snr = float(signal_level / noise) if noise > 0 else float("inf")
-    return signal_level, noise, snr
-
-
-def log_snr_details(tag: str, signal_level: float, noise: float, snr: float) -> None:
-    """Log signal level, noise level, and SNR for one spectrum."""
-    logger.info(f"[{tag}] signal_level(95th)={signal_level:.4f}, noise={noise:.4f}, SNR={snr:.4f}")
 
 
 def plot_before_after(
@@ -41,7 +26,6 @@ def plot_before_after(
         save_path=str(output_path) if output_path else None,
         overlay=True,
         metrics_box=True,
-        title_suffix="main.py",
     )
     if output_path:
         logger.info(f"Saved before/after spectrum plot: {output_path}")

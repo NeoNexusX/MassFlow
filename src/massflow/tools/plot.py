@@ -27,14 +27,13 @@ class PlotConfig:
     mz_range: Optional[Tuple[float, float]]
     intensity_range: Optional[Tuple[float, float]]
     metrics_box: bool
-    title_suffix: Optional[str]
 
 
 class SpectrumPlotter:
     """Unified plotter for single and paired spectrum visualization."""
 
-    # Cool blue-purple palette for default contrast.
     DEFAULT_COLORS = ("#4A6FE3", "#E3A84A")
+    ZERO_EPS = 1e-12
 
     def __init__(self, config: PlotConfig):
         self.config = config
@@ -71,33 +70,28 @@ class SpectrumPlotter:
         spectrum: Spectrum,
         mz_range: Optional[Tuple[float, float]],
     ) -> Tuple[np.ndarray, np.ndarray]:
-        mz = np.asarray(spectrum.mz_list)
-        intensity = np.asarray(spectrum.intensity)
+        if mz_range is None:
+            mz = np.asarray(spectrum.mz_list)
+            intensity = np.asarray(spectrum.intensity)
+        else:
+            cropped = spectrum.crop_range(mz_range=mz_range, sort_by_mz=True, mode="new")
+            mz = np.asarray(cropped.mz_list)
+            intensity = np.asarray(cropped.intensity)
 
         if mz.shape[0] != intensity.shape[0]:
             raise ValueError("m/z array and intensity array length mismatch.")
-
-        if mz_range is None:
-            return mz, intensity
-
-        if len(mz_range) != 2:
-            raise ValueError("'mz_range' must be (min_mz, max_mz).")
-
-        min_mz, max_mz = float(mz_range[0]), float(mz_range[1])
-        if min_mz > max_mz:
-            raise ValueError("'mz_range' is invalid: min_mz must be <= max_mz.")
-
-        mask = (mz >= min_mz) & (mz <= max_mz)
-        if not np.any(mask):
+        if mz.size == 0:
             raise ValueError("No data points in selected 'mz_range'.")
 
-        return mz[mask], intensity[mask]
+        return mz, intensity
 
     @staticmethod
     def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
         if a.size <= 1 or b.size <= 1:
             return 0.0
-        if np.std(a) == 0 or np.std(b) == 0:
+        std_a = float(np.std(a))
+        std_b = float(np.std(b))
+        if std_a <= SpectrumPlotter.ZERO_EPS or std_b <= SpectrumPlotter.ZERO_EPS:
             return 0.0
         value = float(np.corrcoef(a, b)[0, 1])
         return 0.0 if np.isnan(value) else value
@@ -165,6 +159,16 @@ class SpectrumPlotter:
 
         return x_min, x_max, y_min, y_max
 
+    @staticmethod
+    def _apply_axis_limits(axes, limits: Tuple[float, float, float, float]) -> None:
+        x_min, x_max, y_min, y_max = limits
+        if not isinstance(axes, (list, tuple, np.ndarray)):
+            axes = (axes,)
+
+        for ax in axes:
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_min, y_max)
+
     def _metrics_text(self, base: Spectrum, target: Spectrum) -> str:
         n = min(len(base), len(target))
         base_intensity = np.asarray(base.intensity)
@@ -226,14 +230,9 @@ class SpectrumPlotter:
 
         self._draw(ax, mz, intensity, style)
 
-        x_min, x_max, y_min, y_max = self._axis_limits(mz, intensity)
-        ax.set_xlim(x_min, x_max)
-        ax.set_ylim(y_min, y_max)
-        ax.set_title(
-            "Mass Spectrum"
-            if not self.config.title_suffix
-            else f"Mass Spectrum - {self.config.title_suffix}"
-        )
+        limits = self._axis_limits(mz, intensity)
+        self._apply_axis_limits(ax, limits)
+        ax.set_title("Mass Spectrum", fontweight="bold")
         ax.set_xlabel("m/z")
         ax.set_ylabel("Intensity")
         self._style_axes(ax)
@@ -249,14 +248,9 @@ class SpectrumPlotter:
         self._draw(ax, base_mz, base_int, styles[0])
         self._draw(ax, target_mz, target_int, styles[1])
 
-        x_min, x_max, y_min, y_max = self._axis_limits(base_mz, base_int, target_mz, target_int)
-        ax.set_xlim(x_min, x_max)
-        ax.set_ylim(y_min, y_max)
-        ax.set_title(
-            "Original & Preprocessed (Overlay)"
-            if not self.config.title_suffix
-            else f"Original & Preprocessed (Overlay) - {self.config.title_suffix}"
-        )
+        limits = self._axis_limits(base_mz, base_int, target_mz, target_int)
+        self._apply_axis_limits(ax, limits)
+        ax.set_title("Original & Preprocessed (Overlay)", fontweight="bold")
         ax.set_xlabel("m/z")
         ax.set_ylabel("Intensity")
         self._style_axes(ax)
@@ -283,19 +277,11 @@ class SpectrumPlotter:
         self._draw(ax_top, base_mz, base_int, styles[0])
         self._draw(ax_bottom, target_mz, target_int, styles[1])
 
-        x_min, x_max, y_min, y_max = self._axis_limits(base_mz, base_int, target_mz, target_int)
-        ax_top.set_xlim(x_min, x_max)
-        ax_bottom.set_xlim(x_min, x_max)
-        ax_top.set_ylim(y_min, y_max)
-        ax_bottom.set_ylim(y_min, y_max)
+        limits = self._axis_limits(base_mz, base_int, target_mz, target_int)
+        self._apply_axis_limits((ax_top, ax_bottom), limits)
 
         ax_top.set_title("Original Spectrum", fontweight="bold")
-        ax_bottom.set_title(
-            "Preprocessed Spectrum"
-            if not self.config.title_suffix
-            else f"Preprocessed Spectrum ({self.config.title_suffix})",
-            fontweight="bold",
-        )
+        ax_bottom.set_title("Preprocessed Spectrum", fontweight="bold")
         ax_bottom.set_xlabel("m/z")
         ax_top.set_ylabel("Intensity")
         ax_bottom.set_ylabel("Intensity")
@@ -322,7 +308,6 @@ def plot_spectrum(
     mz_range: Optional[Tuple[float, float]] = None,
     intensity_range: Optional[Tuple[float, float]] = None,
     metrics_box: bool = True,
-    title_suffix: Optional[str] = None,
     overlay: bool = False,
 ):
     """Public API: plot one or two spectra with optional overlay and metrics."""
@@ -348,7 +333,6 @@ def plot_spectrum(
         mz_range=mz_range,
         intensity_range=intensity_range,
         metrics_box=bool(metrics_box),
-        title_suffix=title_suffix,
     )
 
     logger.info(

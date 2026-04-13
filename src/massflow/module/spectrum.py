@@ -1,3 +1,4 @@
+import copy
 from typing import Union, Optional, Sequence
 import numpy as np
 from massflow.module.pixel_coordinates import PixelCoordinates
@@ -164,17 +165,17 @@ class Spectrum:
 
         return self.mz_list[index], self.intensity[index]
 
-    # TODO：not high efficient
-    def crop_range(self,
-                   mz_range: Sequence[float],
-                   sort_by_mz: bool = True,
-                   mode: str = "new",
-        ):
+    def crop_range(
+        self,
+        mz_range: Sequence[float],
+        sort_by_mz: bool = True,
+        mode: str = "new",
+    ):
         """
         Crop spectrum to a specific m/z range.
 
         Args:
-            x_range: (min_mz, max_mz) tuple.
+            mz_range: (min_mz, max_mz) tuple.
             sort_by_mz: Ensure data is sorted before cropping.
             mode: 'new' to return a copy, 'update' to modify in-place.
 
@@ -182,72 +183,49 @@ class Spectrum:
             Spectrum: The cropped spectrum.
         """
 
-        # make sure mz_list and intensity are not None
-        if self.mz_list is not None and self.intensity is not None:
+        if mz_range is None or len(mz_range) != 2:
+            raise ValueError("mz_range must be a sequence of two values: (min_mz, max_mz).")
 
-            # valid test
-            min_mz = np.min(self.mz_list)
-            max_mz = np.max(self.mz_list)
-            if mz_range[0] < min_mz or mz_range[1] > max_mz:
+        min_mz = float(mz_range[0])
+        max_mz = float(mz_range[1])
+        if min_mz > max_mz:
+            raise ValueError("mz_range is invalid: min_mz must be <= max_mz.")
 
-                # make sure x_range is valid
-                if mz_range is not None and len(mz_range) == 2:
-                    mz_c = None
-                    inten_c = None
+        if self.mz_list is None or self.intensity is None:
+            logger.error("mz_list or intensity is None, cannot crop by mz_range.")
+            raise ValueError("mz_list or intensity is None, cannot crop by mz_range.")
 
-                    # without sort and dont want to sort
-                    if not sort_by_mz and not self._sort_by_mz:
-                        mask_xr = np.ones_like(self.mz_list, dtype=bool)
-                        mask_xr &= (self.mz_list >= mz_range[0]) & (
-                            self.mz_list <= mz_range[1]
-                        )
+        mz_arr = np.asarray(self.mz_list)
+        inten_arr = np.asarray(self.intensity)
+        if mz_arr.shape[0] != inten_arr.shape[0]:
+            raise ValueError("m/z array and intensity array length mismatch.")
 
-                        mz_c = self.mz_list[mask_xr]
-                        inten_c = self.intensity[mask_xr]
+        sorted_after_crop = self._sort_by_mz
+        if sort_by_mz and not self._sort_by_mz:
+            sorted_indices = np.argsort(mz_arr)
+            mz_arr = mz_arr[sorted_indices]
+            inten_arr = inten_arr[sorted_indices]
+            sorted_after_crop = True
 
-                    # with sort and want to sort  or want sort but no sort
-                    elif sort_by_mz:
-                        # always set sort to true
-                        self.sort_by_mz = True
-                        # use searchsorted to find the indices
-                        start_index = np.searchsorted(
-                            self.mz_list, mz_range[0], side="left"
-                        )
-                        end_index = np.searchsorted(
-                            self.mz_list, mz_range[1], side="right"
-                        )
+        mask = (mz_arr >= min_mz) & (mz_arr <= max_mz)
+        mz_c = mz_arr[mask]
+        inten_c = inten_arr[mask]
 
-                        # build the data
-                        mz_c = self.mz_list[start_index:end_index]
-                        inten_c = self.intensity[start_index:end_index]
-                else:
-                    logger.info("xr is empty, can not crop by mz. use full mz range")
-                    return self
-            else:
-                mz_c = np.array([-1])
-                inten_c = np.array([-1])
-        else:
-            logger.error("mz_list is None, can not crop by mz. xr must be a tuple of two float numbers.")
-            raise ValueError("mz_list is None, can not crop by mz. xr must be a tuple of two float numbers.")
-
-        # cut part
         if mode == "new":
-            # ---build a new object ：same class、copy attributes ---
-            new_obj = self.__class__.__new__(self.__class__)
-            new_obj.__dict__.update(self.__dict__)  # Copy all attributes
+            new_obj = copy.copy(self)
             new_obj.mz_list = mz_c
             new_obj.intensity = inten_c
-
+            new_obj._sort_by_mz = sorted_after_crop
             return new_obj
 
-        elif mode == "update":
+        if mode == "update":
             self.mz_list = mz_c
             self.intensity = inten_c
+            self._sort_by_mz = sorted_after_crop
             return self
 
-        else:
-            logger.error(f"mode {mode} is not supported. use 'new' or 'update'")
-            raise ValueError(f"mode {mode} is not supported. use 'new' or 'update'")
+        logger.error(f"mode {mode} is not supported. use 'new' or 'update'")
+        raise ValueError(f"mode {mode} is not supported. use 'new' or 'update'")
 
 
     def is_sorted(self):
