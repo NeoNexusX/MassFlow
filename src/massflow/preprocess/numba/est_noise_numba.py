@@ -1,8 +1,10 @@
 """Numba-accelerated helpers for noise estimation."""
+from typing import Optional
 
 import numpy as np
 from numba import njit, prange
 from massflow.tools.funs import prepare_flat_inputs, lengths_to_offsets
+from massflow.preprocess.helper.noise_reduction_helper import smoother
 
 
 @njit(cache=True)
@@ -41,14 +43,14 @@ def _nanmean_numba(data: np.ndarray) -> float:
 def _nanstd_numba(data: np.ndarray) -> float:
     vals = _finite_compact_numba(data)
     n_vals = vals.size
-    if n_vals == 0:
+    if n_vals <= 1:
         return np.nan
     mu = np.sum(vals) / n_vals
     s = 0.0
     for i in range(n_vals):
         d = vals[i] - mu
         s += d * d
-    return np.sqrt(s / n_vals)
+    return np.sqrt(s / (n_vals - 1))
 
 
 @njit(cache=True)
@@ -92,8 +94,6 @@ def _mad_numba(data: np.ndarray) -> float:
     vals = _finite_compact_numba(data)
     if vals.size == 0:
         return np.nan
-    if vals.size != data.size:
-        return np.nan
 
     med = _nanmedian_numba(vals)
     if np.isnan(med):
@@ -101,18 +101,46 @@ def _mad_numba(data: np.ndarray) -> float:
     dev = np.empty(vals.size, dtype=np.float64)
     for i in range(vals.size):
         dev[i] = abs(vals[i] - med)
-    return _nanmedian_numba(dev)
+    return 1.4826 * _nanmedian_numba(dev)
 
 
 @njit(cache=True)
-def estimation_fun_numba(data: np.ndarray, method_code: int = 0) -> float:
+def _diff1_numba(data: np.ndarray) -> np.ndarray:
+    n = data.size
+    if n <= 1:
+        return np.empty(0, dtype=np.float64)
+
+    out = np.empty(n - 1, dtype=np.float64)
+    for i in range(1, n):
+        out[i - 1] = data[i] - data[i - 1]
+    return out
+
+
+@njit(cache=True)
+def _diff_numba(signal: np.ndarray, diffs: np.ndarray) -> float:
+    vals = _finite_compact_numba(signal)
+    if vals.size == 0:
+        return np.nan
+
+    mu = _nanmean_numba(diffs)
+    if np.isnan(mu):
+        return np.nan
+
+    s = 0.0
+    for i in range(vals.size):
+        s += abs(vals[i] - mu)
+    return s / vals.size
+
+
+@njit(cache=True)
+def estimation_fun_numba(data: np.ndarray, data_dx: Optional[np.ndarray], method_code: int = 0) -> float:
     """Numba version of estimation_fun.
 
     method_code:
     - 0: sd
     - 1: mad
     - 2: quantile(0.95)
-    - 3: diff (mean absolute deviation from mean)
+    - 3: diff
     """
     if method_code == 0:
         return _nanstd_numba(data)
@@ -121,16 +149,7 @@ def estimation_fun_numba(data: np.ndarray, method_code: int = 0) -> float:
     if method_code == 2:
         return _nanquantile_numba(data, 0.95)
     if method_code == 3:
-        mu = _nanmean_numba(data)
-        if np.isnan(mu):
-            return np.nan
-        vals = _finite_compact_numba(data)
-        if vals.size == 0:
-            return np.nan
-        s = 0.0
-        for i in range(vals.size):
-            s += abs(vals[i] - mu)
-        return s / vals.size
+        return _diff_numba(data, data_dx) # type: ignore
 
     raise ValueError("Unknown noise estimation method code")
 
@@ -529,30 +548,41 @@ def _local_poly_interp_numba(x: np.ndarray, y: np.ndarray, xq: np.ndarray, k: in
     return out
 
 
-@njit(cache=True)
-def estimate_noise_curve_numba(
-    residuals: np.ndarray,
+def _estimate_noise_curve_numba(
+    signal: np.ndarray,
+    signal_dx: Optional[np.ndarray],
     lower: np.ndarray,
     upper: np.ndarray,
+    lower_dx: Optional[np.ndarray],
+    upper_dx: Optional[np.ndarray],
     method_code: int,
     max_degree: int = 3,
 ) -> np.ndarray:
     """Full numba path: per-bin estimation + interpolated noise curve."""
     m = lower.size
+    if lower_dx is not None and lower_dx.size < m:
+        m = lower_dx.size
+    if upper_dx is not None and upper_dx.size < m:
+        m = upper_dx.size
     mids = np.empty(m, dtype=np.float64)
     vals = np.empty(m, dtype=np.float64)
 
     for i in range(m):
         li = int(lower[i])
         ui = int(upper[i])
+        ldi = int(lower_dx[i]) if lower_dx is not None else 0
+        udi = int(upper_dx[i]) if upper_dx is not None else 0
         mids[i] = 0.5 * (li + ui)
-        vals[i] = estimation_fun_numba(residuals[li:ui + 1], method_code)
+        if method_code == 3:
+            vals[i] = estimation_fun_numba(signal[li:ui + 1], signal_dx[ldi:udi + 1], method_code) # type: ignore
+        else:
+            vals[i] = estimation_fun_numba(signal[li:ui + 1], None, method_code)
 
     xk, yk = _compress_midpoints_numba(mids, vals)
     if xk.size == 0:
-        return np.zeros(residuals.size, dtype=np.float64)
+        return np.zeros(signal.size, dtype=np.float64)
     if xk.size == 1:
-        out = np.empty(residuals.size, dtype=np.float64)
+        out = np.empty(signal.size, dtype=np.float64)
         out[:] = yk[0]
         return out
 
@@ -562,7 +592,7 @@ def estimate_noise_curve_numba(
     if degree < 1:
         degree = 1
 
-    xq = np.arange(residuals.size, dtype=np.float64)
+    xq = np.arange(signal.size, dtype=np.float64)
     return _local_poly_interp_numba(xk, yk, xq, degree)
 
 
@@ -588,6 +618,8 @@ def _estimate_flat_core_numba(
             continue
 
         segment = flat[start:end]
+        dx = _diff1_numba(segment) if method_code == 3 else None
+
         if nbins > 1:
             lower, upper, _size, _sse, _trace = findbins_numba(
                 segment,
@@ -596,12 +628,31 @@ def _estimate_flat_core_numba(
                 niter=niter,
                 overlap=overlap,
             )
-            curve = estimate_noise_curve_numba(segment, lower, upper, method_code, max_degree=3)
+            if method_code == 3:
+                lower_dx, upper_dx, _size_dx, _sse_dx, _trace_dx = findbins_numba(
+                    dx, # type: ignore
+                    nbins=nbins,
+                    dynamic=dynamic,
+                    niter=niter,
+                    overlap=overlap,
+                )
+                curve = _estimate_noise_curve_numba(
+                    segment,
+                    dx,
+                    lower,
+                    upper,
+                    lower_dx,
+                    upper_dx,
+                    method_code=3,
+                    max_degree=3,
+                )
+            else:
+                curve = _estimate_noise_curve_numba(segment, None, lower, upper, None, None, method_code, max_degree=3)
             for i in range(seg_len):
                 v = curve[i]
                 out[start + i] = v if v >= floor_value else floor_value
         else:
-            val = estimation_fun_numba(segment, method_code)
+            val = estimation_fun_numba(segment, dx, method_code) # type: ignore
             if np.isnan(val) or val < floor_value:
                 val = floor_value
             for i in range(seg_len):
@@ -611,15 +662,18 @@ def _estimate_flat_core_numba(
 
 def estimate_flat_numba(
     intensity: np.ndarray,
+    indexes: Optional[np.ndarray],
     lengths: np.ndarray | None = None,
     nbins: int = 1,
     dynamic: bool = False,
     niter: int = 10,
     overlap: float = 0.5,
     method_code: int  = 0,
+    denoise_method: str = 'gaussian_numba',
     floor_value: float = 0.001,
 ) -> np.ndarray:
-    """Flat-mode parallel noise estimation.
+    """
+    Flat-mode parallel noise estimation.
 
     - Input is a flat 1D signal array.
     - Segmentation must be provided by ``lengths``.
@@ -635,8 +689,25 @@ def estimate_flat_numba(
         np.asarray(lengths, dtype=np.int64),
     )
 
+    if method_code == 3:
+        return _estimate_flat_core_numba(
+            np.asanyarray(intensity_arr, dtype=np.float64),
+            lengths_arr,
+            int(nbins),
+            bool(dynamic),
+            int(niter),
+            float(overlap),
+            int(method_code),
+            float(floor_value),
+        )
+
+    # Smooth signal (neighborhood-search Gaussian) and compute absolute residuals
+    smoothed = smoother(intensity_arr,indexes,method=denoise_method,lengths=lengths_arr,window=9,sd=2.0)
+
+    residuals = np.abs(smoothed - intensity)
+
     return _estimate_flat_core_numba(
-        intensity_arr,
+        np.asanyarray(residuals, dtype=np.float64),
         lengths_arr,
         int(nbins),
         bool(dynamic),

@@ -15,8 +15,8 @@ logger = get_logger("massflow.test_peak_pick_parallel")
 
 Backend = Literal["python", "cardinal"]
 
-ROUND = 1
-FILEPATH = r"data/example.imzML"
+ROUND = 3
+FILEPATH = r"/Users/dre/Desktop/data/40TopL,10TopL,30BottomL,20BottomR-profile/40TopL,10TopL,30BottomL,20BottomR-profile.imzML"
 MZ_RANGES = [(100, 1000)]
 RNG_SEED = 20260412
 SPECTRUM_SAMPLE_SIZE = 64
@@ -185,9 +185,9 @@ class TestPeakPick:
         dm_raw.load_head_data()
         return dm_raw
 
-    @pytest.mark.parametrize("method", ["quantile"])
+    @pytest.mark.parametrize("method", ["quantile", "sd", "diff", "mad"])
     @pytest.mark.parametrize("snr", [-1])
-    @pytest.mark.parametrize("backend", ["python", "cardinal"])
+    @pytest.mark.parametrize("backend", ["python"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_peak_pick_benchmark(
         self,
@@ -228,9 +228,9 @@ class TestPeakPick:
         dm_picked.close()
 
 
-    @pytest.mark.parametrize("method", ["quantile"])
+    @pytest.mark.parametrize("method", ["quantile", "mad", "sd", "diff"])
     @pytest.mark.parametrize("mz_range", MZ_RANGES)
-    @pytest.mark.parametrize("snr", [-1])
+    @pytest.mark.parametrize("snr", [2.0])
     def test_peak_pick_consistency(
         self,
         data_manager: MSDataManagerImzML,

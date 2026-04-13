@@ -8,10 +8,7 @@ from typing import Optional
 import numpy as np
 from scipy import stats
 from massflow.tools.logger import get_logger
-from massflow.preprocess.helper.noise_reduction_helper import smoother
-from massflow.preprocess.numba.est_noise_numba import (
-    estimate_flat_numba,
-)
+from massflow.preprocess.numba.est_noise_numba import estimate_flat_numba
 
 logger = get_logger("preprocesss")
 
@@ -75,19 +72,17 @@ def estimator(intensity: np.ndarray,
     _input_validation(intensity, indexes, nbins, overlap)
     lengths_arr = lengths.astype(np.int64) if lengths is not None else np.array([intensity.size], dtype=np.int64)
 
-    # Smooth signal (neighborhood-search Gaussian) and compute absolute residuals
-    smoothed = smoother(intensity,indexes,method=denoise_method,lengths=lengths_arr)
-
-    residuals = np.abs(smoothed - intensity)
     method_code = _method_to_code(method)
 
     noise_flat = estimate_flat_numba(
-        intensity=np.asarray(residuals, dtype=np.float64),
+        intensity=intensity,
+        indexes=indexes,
         lengths=lengths_arr,
         nbins=nbins,
         dynamic=dynamic,
         overlap=overlap,
         method_code=method_code,
+        denoise_method=denoise_method,
         floor_value=0.001,
     )
 
