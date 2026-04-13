@@ -32,7 +32,7 @@ class PlotConfig:
 class SpectrumPlotter:
     """Unified plotter for single and paired spectrum visualization."""
 
-    DEFAULT_COLORS = ("#4A6FE3", "#E3A84A")
+    DEFAULT_COLORS = ("#EECF31", "#4AE38C")
     ZERO_EPS = 1e-12
 
     def __init__(self, config: PlotConfig):
@@ -119,9 +119,9 @@ class SpectrumPlotter:
             return
 
         markerline, stemlines, baseline = ax.stem(mz, intensity, label=style.label)
-        plt.setp(stemlines, color=style.color, linewidth=style.line_width, alpha=0.85)
-        plt.setp(markerline, color=style.color, markersize=3, alpha=0.85)
-        plt.setp(baseline, color="gray", linewidth=0.5, alpha=0.6)
+        plt.setp(stemlines, color=style.color, linewidth=style.line_width, alpha=1)
+        plt.setp(markerline, color=style.color, markersize=3, alpha=1)
+        plt.setp(baseline, color="gray", linewidth=0.5, alpha=1)
 
     @staticmethod
     def _style_axes(ax) -> None:
@@ -321,7 +321,7 @@ def plot_spectrum(
     base = SpectrumPlotter._validate_spectrum("base", base)
 
     color_pair = SpectrumPlotter._normalize_pair(colors, SpectrumPlotter.DEFAULT_COLORS)
-    line_pair = [float(v) for v in SpectrumPlotter._normalize_pair(line_width, [1.0, 1.0])]
+    line_pair = [float(v) for v in SpectrumPlotter._normalize_pair(line_width, [1.5, 1.5])]
     mode_pair = [SpectrumPlotter._normalize_mode(m) for m in SpectrumPlotter._normalize_pair(plot_mode, ["line", "line"])]
 
     resolved_figsize = figsize if (overlay or target is None) else (figsize[0], figsize[1] * 2)

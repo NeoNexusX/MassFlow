@@ -68,32 +68,6 @@ def main():
         processed_data_manager.close_writer()
         processed_data_manager.load_head_data()
 
-        logger.info(
-            "Noise reduction finished with flat_generator (method=gaussian_numba). "
-            f"Processed spectra: {len(processed_data_manager.ms)}"
-        )
-
-        post_first_signal, post_first_noise, post_first_snr = calculate_snr_details(processed_data_manager.ms[0])
-        post_last_signal, post_last_noise, post_last_snr = calculate_snr_details(processed_data_manager.ms[-1])
-
-        log_snr_details("Before processing - First spectrum", pre_first_signal, pre_first_noise, pre_first_snr)
-        log_snr_details("Before processing - Last spectrum", pre_last_signal, pre_last_noise, pre_last_snr)
-        log_snr_details("After processing - First spectrum", post_first_signal, post_first_noise, post_first_snr)
-        log_snr_details("After processing - Last spectrum", post_last_signal, post_last_noise, post_last_snr)
-
-        logger.info(
-            "SNR change - First spectrum: %.4f -> %.4f (delta=%.4f)",
-            pre_first_snr,
-            post_first_snr,
-            post_first_snr - pre_first_snr,
-        )
-        logger.info(
-            "SNR change - Last spectrum: %.4f -> %.4f (delta=%.4f)",
-            pre_last_snr,
-            post_last_snr,
-            post_last_snr - pre_last_snr,
-        )
-
         plot_before_after(
             before_spectrum=data_manager.ms[0],
             after_spectrum=processed_data_manager.ms[0],
