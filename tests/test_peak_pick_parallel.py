@@ -16,7 +16,7 @@ logger = get_logger("massflow.test_peak_pick_parallel")
 Backend = Literal["python", "cardinal"]
 
 ROUND = 1
-FILEPATH = r"/Users/dre/Desktop/data/Example_read/example.imzML"
+FILEPATH = r"data/example.imzML"
 MZ_RANGES = [(100, 1000)]
 RNG_SEED = 20260412
 SPECTRUM_SAMPLE_SIZE = 64

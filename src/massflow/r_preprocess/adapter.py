@@ -71,6 +71,7 @@ class CardinalAdapter:
                   snr: float = 2.0,
                   return_type: str = "height", # "height", "area"
                   prominence: float | None = None,
+                  relheight: float | None = None,
                   nbins: int = 1,
                   overlap: float = 0.5,
                   temp_dir: str = "./temp_pick_data"
@@ -78,6 +79,9 @@ class CardinalAdapter:
         """
         Call Cardinal::peakPick for peak picking.
         """
+        if relheight is not None:
+            logger.warning("The 'relheight' parameter is not supported in the Cardinal backend and will be ignored.")
+
         # Initialize shared R runtime and Cardinal bindings.
         r_env = REnvironment()
 

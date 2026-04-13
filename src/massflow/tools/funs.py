@@ -51,16 +51,12 @@ def infer_shared_mz(
     max_len = int(np.max(lengths)) if lengths.size > 0 else 0
     is_shared_mz = mz_data.size != total_points
 
-    if is_shared_mz:
-        if mz_data.size < max_len:
-            raise ValueError(
-                "Shared m/z axis is shorter than at least one spectrum length: "
-                f"mz_size={mz_data.size}, max_len={max_len}."
-            )
-    elif mz_data.size != total_points:
+    if is_shared_mz and mz_data.size < max_len:
         raise ValueError(
-            f"mz_data size ({mz_data.size}) does not match sum(lengths) ({total_points})."
+            "Shared m/z axis is shorter than at least one spectrum length: "
+            f"mz_size={mz_data.size}, max_len={max_len}."
         )
+
     return is_shared_mz
 
 @njit(cache=True)

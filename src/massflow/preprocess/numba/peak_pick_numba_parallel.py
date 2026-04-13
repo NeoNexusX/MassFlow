@@ -252,7 +252,7 @@ def _findpeaks_filtered_indices_safe_jit(
     snr: float,
     noise_x: NDArray[np.float64],
 ) -> NDArray[np.int64]:
-    """"在 numba 内核中执行峰检测和多重条件过滤，返回最终峰索引数组。"""
+    """在 numba 内核中执行峰检测和多重条件过滤，返回最终峰索引数组。"""
     peaks = _indices_from_bool_mask_jit(_local_maxima_mask_jit(x, width))
     m = peaks.size
     if m == 0:

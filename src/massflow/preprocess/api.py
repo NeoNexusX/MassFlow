@@ -121,7 +121,7 @@ class PreprocessorAPI(_TaskRegistrar):
         snr: float = 2.0,
         return_type: str = "height",
         prominence: float | None = None,
-        relheight: float | None = None,
+        relheight: float | None = None, # Note: Only used for python backend
         nbins: int = 1,
         overlap: float = 0.5,
         backend: Backend = "python",
@@ -136,6 +136,7 @@ class PreprocessorAPI(_TaskRegistrar):
                 snr=snr,
                 return_type=return_type,
                 prominence=prominence,
+                relheight=relheight,
                 nbins=nbins,
                 overlap=overlap,
             )

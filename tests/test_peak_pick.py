@@ -1,10 +1,12 @@
+import os
 import time
 from typing import Literal
 import pytest
 import numpy as np
 from massflow.module import MassSpectrumSet
 from massflow.data_manager import MSDataManagerImzML
-from massflow.preprocess.preprocessor import Preprocessor
+from massflow.preprocess.batch_pre_fun import BatchPreprocess
+from massflow.r_preprocess.adapter import CardinalAdapter
 from massflow.r_preprocess import set_default_r_home
 from massflow.tools.logger import get_logger
 
@@ -17,34 +19,58 @@ MZ_RANGES = [(500, 600)]
 TOLERANCE = 0.10
 ROUND = 1
 
-set_default_r_home("r_home_path_here")  # set R_HOME path here
+if os.environ.get("R_HOME"):
+    set_default_r_home(os.environ["R_HOME"])
 
 def run_pick_test(
     data: MSDataManagerImzML,
     width: int = 2,
-    method: str = 'scipy',
+    method: str = 'origin',
     relheight: float = 0.1,
     snr: float = 3.0,
     return_type: str = 'height',
     batch_size: int = 256,
+    use_numba: bool = True,
     backend: Backend = "python"
     ) -> MSDataManagerImzML:
-    """Run peak picking test using old or new method."""
-
-    return (
-        Preprocessor(
-            data,
-            batch_size=batch_size,)
-        .peak_pick(
+    """Run peak picking test without the preprocessing pipeline."""
+    if backend == "cardinal":
+        return CardinalAdapter.peak_pick(
+            data_manager=data,
             width=width,
             method=method,
-            relheight=relheight,
             snr=snr,
             return_type=return_type,
-            backend=backend,
         )
-        .start()
-    )
+
+    processed_ms = MassSpectrumSet()
+    processed_manager = MSDataManagerImzML(processed_ms)
+    processed_manager.copy_meta(data)
+
+    writer = processed_manager.writer
+
+    try:
+        for batch in data.batch_generator(batch_size=batch_size):
+            try:
+                processed_batch = BatchPreprocess.peak_pick_batch(
+                    batch_spectra=batch,
+                    width=width,
+                    method=method,
+                    relheight=relheight,
+                    snr=snr,
+                    return_type=return_type,
+                    use_numba=use_numba,
+                )
+                processed_manager.swap_batch_data_out2disk(batch=processed_batch, writer=writer)
+            finally:
+                data.clear_batch_data_memory(batch=batch)
+    except Exception:
+        processed_manager.close()
+        raise
+
+    processed_manager.close_writer()
+    processed_manager.load_head_data()
+    return processed_manager
 
 def compare_pick_result(
     py_manager: MSDataManagerImzML,
