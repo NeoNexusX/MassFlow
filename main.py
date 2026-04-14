@@ -1,7 +1,6 @@
 from massflow.data_manager import MSDataManagerImzML
 from massflow.tools import get_logger
 from massflow.tools.plot import plot_spectrum
-from massflow.tools.snr import calculate_snr_details, log_snr_details
 from massflow.module import MassSpectrumSet
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
 from pathlib import Path
@@ -38,9 +37,6 @@ def main():
 
     with MSDataManagerImzML(filepath=file_path) as data_manager:
         data_manager.load_head_data()
-
-        pre_first_signal, pre_first_noise, pre_first_snr = calculate_snr_details(data_manager.ms[0])
-        pre_last_signal, pre_last_noise, pre_last_snr = calculate_snr_details(data_manager.ms[-1])
 
         # Use flat_generator + flat numba noise reduction for faster compute path.
         processed_data_manager = MSDataManagerImzML(MassSpectrumSet(), temp_dir="temp")
