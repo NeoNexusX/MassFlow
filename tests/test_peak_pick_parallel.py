@@ -186,7 +186,7 @@ class TestPeakPick:
         return dm_raw
 
     @pytest.mark.parametrize("method", ["quantile", "sd", "diff", "mad"])
-    @pytest.mark.parametrize("snr", [-1])
+    @pytest.mark.parametrize("snr", [2.0])
     @pytest.mark.parametrize("backend", ["python"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_peak_pick_benchmark(
