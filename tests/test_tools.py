@@ -1,7 +1,7 @@
 import time
 import functools
 import pytest
-from massflow.data_manager.ms_data_manager_imzml import MSDataManagerImzML
+from massflow.data_manager import MSDataManagerImzML
 from massflow.tools.logger import get_logger
 from massflow.tools.infer_spectrum_type import resolve_spectrum_type, infer_spectrum_type
 
@@ -36,11 +36,14 @@ def test_infer_spectrum_type(data_file_path: str) -> None:
     raw_spectrum_type = resolve_spectrum_type(raw_dm)
     inferred_spectrum_type = infer_spectrum_type(raw_dm)
 
-    if raw_spectrum_type != inferred_spectrum_type:
-        pytest.fail(
-            f"Spectrum type inference failed for {data_file_path}: Expected: {raw_spectrum_type}, Inferred: {inferred_spectrum_type}"
-        )
-    else:
-        logger.info(
-            f"Spectrum type inference passed for {data_file_path}: Expected: {raw_spectrum_type}, Inferred: {inferred_spectrum_type}"
-        )
+    try:
+        if raw_spectrum_type != inferred_spectrum_type:
+            pytest.fail(
+                f"Spectrum type inference failed for {data_file_path}: Expected: {raw_spectrum_type}, Inferred: {inferred_spectrum_type}"
+            )
+        else:
+            logger.info(
+                f"Spectrum type inference passed for {data_file_path}: Expected: {raw_spectrum_type}, Inferred: {inferred_spectrum_type}"
+            )
+    finally:
+        raw_dm.close()
