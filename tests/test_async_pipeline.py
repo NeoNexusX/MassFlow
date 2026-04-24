@@ -41,7 +41,7 @@ def run_pipeline_once(
 class TestAsyncPipelineProfile:
     """Memory and runtime profile tests for async pipeline and each internal stage."""
 
-    @pytest.fixture(scope="module", params=[r"C:\Users\dre\Desktop\data\280TopL, 250TopR, 270BottomL, 260BottomR-profile\280TopL, 250TopR, 270BottomL, 260BottomR-profile.imzML"])
+    @pytest.fixture(scope="module", params=["data/example_file.imzML"])
     def ms_raw_data(self, request) -> MSDataManagerImzML:
         """Fixture providing MSDataManagerImzML instance with fully initialized spectra for noise reduction tests."""
         data_file_path = request.param
