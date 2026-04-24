@@ -41,7 +41,7 @@ def run_pipeline_once(
 class TestAsyncPipelineProfile:
     """Memory and runtime profile tests for async pipeline and each internal stage."""
 
-    @pytest.fixture(scope="module", params=['/Users/dre/Desktop/data/40TopL,10TopL,30BottomL,20BottomR-profile/40TopL,10TopL,30BottomL,20BottomR-profile.imzML'])
+    @pytest.fixture(scope="module", params=[r"C:\Users\dre\Desktop\data\280TopL, 250TopR, 270BottomL, 260BottomR-profile\280TopL, 250TopR, 270BottomL, 260BottomR-profile.imzML"])
     def ms_raw_data(self, request) -> MSDataManagerImzML:
         """Fixture providing MSDataManagerImzML instance with fully initialized spectra for noise reduction tests."""
         data_file_path = request.param
@@ -84,7 +84,23 @@ class TestAsyncPipelineProfile:
         ms_raw_data.ms.meta.profile_spectrum = profile
         ms_raw_data.ms.meta.centroid_spectrum = centroid
 
-        run_pipeline_once(ms_raw_data)
+        processed_data_manager = (
+            Preprocessor(
+                data_manager=ms_raw_data,
+                batch_size=256,
+                queue_ab_size=2,
+                queue_bc_size=2,
+            )
+            .noise_reduction()
+            .peak_pick()
+            .peak_align()
+            .start()
+        )
+        try:
+            assert processed_data_manager.ms.meta.profile_spectrum is None
+            assert processed_data_manager.ms.meta.centroid_spectrum is True
+        finally:
+            processed_data_manager.close()
 
     def test_pipeline_resolve_tasks(
         self,
@@ -107,6 +123,10 @@ class TestAsyncPipelineProfile:
         )
         ordered_task_names = [task.name for task in preprocessor._sorted_tasks("centroid")] # pylint: disable=protected-access
         assert ordered_task_names == ["peak_align"]
+
+        unsupported_preprocessor = Preprocessor(data_manager=ms_raw_data).noise_reduction()
+        with pytest.raises(ValueError, match="No supported preprocessing tasks remain"):
+            unsupported_preprocessor.start()
 
         processed_data_manager = preprocessor.start()
         processed_data_manager.close()

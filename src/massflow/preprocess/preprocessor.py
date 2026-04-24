@@ -501,6 +501,8 @@ class Preprocessor(PreprocessorAPI):
         current_data_manager: MSDataManager = self.data_manager
         current_spectrum_type = self._resolve_input_spectrum_type()
         ordered_tasks = self._sorted_tasks(current_spectrum_type)
+        if not ordered_tasks:
+            raise ValueError("No supported preprocessing tasks remain after arranging tasks for the input spectrum type.")
         task_cursor = 0
 
         while task_cursor < len(ordered_tasks):

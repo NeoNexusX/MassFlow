@@ -17,7 +17,6 @@ import numpy as np
 
 from wheezy.template import Engine, CoreExtension, DictLoader
 from pyimzml.compression import NoCompression
-from massflow.tools.infer_spectrum_type import resolve_spectrum_type
 
 _Spectrum = namedtuple(
     "_Spectrum",
