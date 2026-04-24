@@ -213,12 +213,14 @@ class Spectrum:
 
         if mode == "new":
             new_obj = copy.copy(self)
+            new_obj.shared_mz_list = None
             new_obj.mz_list = mz_c
             new_obj.intensity = inten_c
             new_obj._sort_by_mz = sorted_after_crop
             return new_obj
 
         if mode == "update":
+            self.shared_mz_list = None
             self.mz_list = mz_c
             self.intensity = inten_c
             self._sort_by_mz = sorted_after_crop

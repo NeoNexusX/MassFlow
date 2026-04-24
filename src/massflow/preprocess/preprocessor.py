@@ -13,6 +13,11 @@ from massflow.preprocess.api import PreprocessorAPI, TaskScope
 from massflow.preprocess.helper.peak_align_helper import reference_computer
 from massflow.preprocess.flat_pre_fun import FlatPreprocess, FlatBatchResult
 from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
+from massflow.tools.infer_spectrum_type import (
+    SpectrumType,
+    resolve_spectrum_type,
+    set_spectrum_type_metadata,
+)
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.preprocess.async_pipeline")
@@ -53,6 +58,7 @@ class Preprocessor(PreprocessorAPI):
         "peak_pick": 40,
         "peak_align": 50,
     }
+    _PROFILE_ONLY_TASKS = frozenset({"baseline_correction", "noise_reduction", "peak_pick"})
 
     def __init__(
         self,
@@ -102,17 +108,40 @@ class Preprocessor(PreprocessorAPI):
         )
         return self
 
-    def _sorted_tasks(self) -> list[PreprocessTask]:
+    def _sorted_tasks(self, spectrum_type) -> list[PreprocessTask]:
         def sort_key(task: PreprocessTask) -> tuple[int, int]:
             return (self._OPERATION_ORDER.get(task.name, 10_000), task.sequence)
 
         ordered = sorted(self._tasks, key=sort_key)
 
+        if spectrum_type == "centroid":
+            dropped_task_names = [task.name for task in ordered if task.name in self._PROFILE_ONLY_TASKS]
+            if dropped_task_names:
+                logger.warning(
+                    f"Detected centroid spectra; dropping unsupported tasks: {dropped_task_names}"
+                )
+                ordered = [task for task in ordered if task.name not in self._PROFILE_ONLY_TASKS]
+
         if ordered:
             task_names = [f"{task.name}:{task.scope}" for task in ordered]
             logger.info(f"async_pipeline_task_order: {task_names}")
+        else:
+            logger.warning("No supported preprocessing tasks remain after task arrangement.")
 
         return ordered
+
+    def _resolve_input_spectrum_type(self) -> SpectrumType:
+        """Resolve profile/centroid metadata before arranging tasks."""
+        return resolve_spectrum_type(self.data_manager)
+
+    @staticmethod
+    def _resolve_output_spectrum_type(
+        *,
+        input_spectrum_type: SpectrumType,
+        tasks: list[PreprocessTask],
+    ) -> SpectrumType:
+        """Infer output spectrum type after applying the provided tasks."""
+        return "centroid" if any(task.name == "peak_pick" for task in tasks) else input_spectrum_type
 
     def _set_error(
         self,
@@ -325,12 +354,14 @@ class Preprocessor(PreprocessorAPI):
         *,
         data_manager: MSDataManager,
         tasks: list[PreprocessTask],
+        output_spectrum_type: SpectrumType,
     ) -> MSDataManagerImzML:
         total_batches = (len(data_manager.ms) + self.batch_size - 1) // self.batch_size
 
         processed_ms = MassSpectrumSet()
         processed_data_manager = MSDataManagerImzML(processed_ms, temp_dir=self.temp_dir)
         processed_data_manager.copy_meta(data_manager)
+        set_spectrum_type_metadata(processed_data_manager.ms.meta, output_spectrum_type)
 
         queue_ab: Queue[Optional[FlatChunk]] = Queue(maxsize=self.queue_ab_size)
         queue_bc: Queue[Optional[FlatChunk]] = Queue(maxsize=self.queue_bc_size)
@@ -440,6 +471,7 @@ class Preprocessor(PreprocessorAPI):
         *,
         data_manager: MSDataManager,
         task: PreprocessTask,
+        output_spectrum_type: SpectrumType,
     ) -> MSDataManagerImzML:
         """Execute whole-dataset task."""
         if task.name == "peak_align" and task.apply_fn is FlatPreprocess.peak_align_flat:
@@ -450,11 +482,14 @@ class Preprocessor(PreprocessorAPI):
             return self._run_flat_batch_task(
                 data_manager=data_manager,
                 tasks=[prepared_task],
+                output_spectrum_type=output_spectrum_type,
             )
 
         if task.name == "peak_align" or task.name == "peak_pick":
             dataset_apply_fn = cast(Callable[..., MSDataManagerImzML], task.apply_fn)
-            return dataset_apply_fn(data_manager=data_manager, **task.kwargs)
+            result = dataset_apply_fn(data_manager=data_manager, **task.kwargs)
+            set_spectrum_type_metadata(result.ms.meta, output_spectrum_type)
+            return result
         else:
             raise NotImplementedError(f"Dataset task {task.name} with backend Cardinal is not supported.")
 
@@ -463,8 +498,11 @@ class Preprocessor(PreprocessorAPI):
         if len(self._tasks) == 0:
             raise ValueError("No preprocessing task registered. Please register tasks before start().")
 
-        ordered_tasks = self._sorted_tasks()
         current_data_manager: MSDataManager = self.data_manager
+        current_spectrum_type = self._resolve_input_spectrum_type()
+        ordered_tasks = self._sorted_tasks(current_spectrum_type)
+        if not ordered_tasks:
+            raise ValueError("No supported preprocessing tasks remain after arranging tasks for the input spectrum type.")
         task_cursor = 0
 
         while task_cursor < len(ordered_tasks):
@@ -476,30 +514,42 @@ class Preprocessor(PreprocessorAPI):
                 task_cursor += 1
 
             if batch_tasks:
+                output_spectrum_type = self._resolve_output_spectrum_type(
+                    input_spectrum_type=current_spectrum_type,
+                    tasks=batch_tasks,
+                )
                 next_data_manager = self._run_flat_batch_task(
                     data_manager=current_data_manager,
                     tasks=batch_tasks,
+                    output_spectrum_type=output_spectrum_type,
                 )
 
                 if current_data_manager is not self.data_manager:
                     current_data_manager.close()
 
                 current_data_manager = next_data_manager
+                current_spectrum_type = output_spectrum_type
 
             if task_cursor >= len(ordered_tasks):
                 break
 
             dataset_task = ordered_tasks[task_cursor]
             task_cursor += 1
+            output_spectrum_type = self._resolve_output_spectrum_type(
+                input_spectrum_type=current_spectrum_type,
+                tasks=[dataset_task],
+            )
 
             next_data_manager = self._run_dataset_task(
                 data_manager=current_data_manager,
                 task=dataset_task,
+                output_spectrum_type=output_spectrum_type,
             )
 
             if current_data_manager is not self.data_manager:
                 current_data_manager.close()
 
             current_data_manager = next_data_manager
+            current_spectrum_type = output_spectrum_type
 
         return cast(MSDataManagerImzML, current_data_manager)

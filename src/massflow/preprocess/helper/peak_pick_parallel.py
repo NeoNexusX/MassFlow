@@ -32,7 +32,8 @@ def peak_picker(
 
     is_shared_mz = infer_shared_mz(mz_arr, lengths_arr)
 
-    # 统一在 numba 并行核心中执行：局部极值检测 + 条件过滤 + 输出flat数据。
+    # Execute everything in the numba parallel core: local maxima detection,
+    # conditional filtering, and flat output generation.
     use_prominence = prominence is not None
     use_relheight = relheight is not None
     prominence = prominence if use_prominence else 0.0

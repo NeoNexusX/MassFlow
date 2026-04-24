@@ -656,7 +656,7 @@ class ImzMLWriter:
         """
         从 MS metadata 创建 ImzMLWriter 实例
         """
-        spec_type = "profile" if meta.profile_spectrum is not None else "centroid"
+        spec_type = "profile" if meta.profile_spectrum is True else "centroid"
         scan_direction = (
             meta.scan_direction if meta.scan_direction is not None else "top_down"
         )
