@@ -35,7 +35,6 @@ def _input_validation(
 def smoother(
     intensity: Optional[np.ndarray] = None,
     *,
-    flat: Optional[np.ndarray] = None,
     method: str = "ma_numba",
     window: int = 5,
     sd: Optional[float] = None,
@@ -54,22 +53,21 @@ def smoother(
     """
 
     method_norm = (method or "ma_numba").strip().lower()
-    input_signal = flat if flat is not None else intensity
-    if input_signal is None:
-        raise TypeError("Either flat or intensity must be provided")
+    if intensity is None:
+        raise TypeError("intensity must be provided")
 
-    _input_validation(input_signal, window=window, sd=sd)
+    _input_validation(intensity, window=window, sd=sd)
 
     if method_norm == "ma_numba":
         return smooth_signal_ma_numba(
-            intensity=input_signal,
+            intensity=intensity,
             window=window,
             lengths=lengths,
         )
 
     if method_norm == "gaussian_numba":
         return smooth_signal_gaussian_numba(
-            intensity=input_signal,
+            intensity=intensity,
             window=window,
             sd=sd,
             lengths=lengths,
@@ -77,7 +75,7 @@ def smoother(
 
     if method_norm == "savgol_numba":
         return smooth_signal_savgol_numba(
-            intensity=input_signal,
+            intensity=intensity,
             window=window,
             polyorder=polyorder,
             deriv=deriv,

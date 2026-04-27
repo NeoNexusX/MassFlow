@@ -147,10 +147,8 @@ class FlatPreprocess:
         dynamic: bool = False,
     ) -> FlatBatchResult:
         """Estimate flat-mode noise level and return estimated flat intensity."""
-        index = mz_data if mz_data.size == intensity.size else None
         noise_estimation = estimator(
             intensity=intensity,
-            indexes=index,
             lengths=lengths,
             nbins=nbins,
             overlap=overlap,

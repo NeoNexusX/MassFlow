@@ -21,7 +21,6 @@ def _estimate_flat_from_flat_batches(
     for batch_idx, (intensity_flat, lengths) in enumerate(flat_batches):
         noise_flat = estimator(
             intensity=intensity_flat,
-            indexes=None,
             lengths=lengths,
             method=method,
             nbins=1,

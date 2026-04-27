@@ -45,7 +45,6 @@ def peak_picker(
     if use_snr:
         noise_arr = estimator(
             intensity=intensity_arr,
-            indexes=None,
             lengths=lengths_arr,
             nbins=nbins,
             overlap=overlap,

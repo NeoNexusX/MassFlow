@@ -20,13 +20,10 @@ def calculate_snr_details(spectrum: Any, method: str = "sd") -> tuple[float, flo
         msg = "Cannot calculate SNR details: computed signal level is not finite."
         raise ValueError(msg)
 
-    mz_values = getattr(spectrum, "mz_list", None)
-    indexes = None if mz_values is None else np.asarray(mz_values)
     lengths = np.array([intensity.size], dtype=np.int64)
     noise_values = np.asarray(
         estimator(
             intensity=np.asarray(intensity, dtype=np.float64),
-            indexes=indexes,
             lengths=lengths,
             method=method,
             nbins=1,
