@@ -5,7 +5,7 @@ from massflow.preprocess.helper.baseline_correction_helper import baseline_corre
 from massflow.preprocess.helper.est_noise_helper import estimator
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
-from massflow.preprocess.helper.peak_pick_parallel import peak_picker
+from massflow.preprocess.helper.peak_pick_helper import peak_picker
 from massflow.preprocess.helper.peak_align_helper import peak_aligner
 from massflow.tools.logger import get_logger
 

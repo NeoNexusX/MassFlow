@@ -250,29 +250,7 @@ def _local_maxima_core_numba(
     return nmax
 
 
-# ==================== Non-JIT wrappers and preprocessing ====================
-
-
-def local_maxima_numba(
-    intensity: np.ndarray, width: int = 5
-) -> tuple[np.ndarray, int]:
-    """Find local maxima mask and count using a numba-accelerated C-style rule.
-
-    Args:
-        intensity: 1D intensity array.
-        width: Neighborhood width; radius is abs(width // 2).
-
-    Returns:
-        A tuple (mask, nmax), where mask is bool array with local maxima marks.
-    """
-    if intensity.ndim != 1 or not isinstance(width, (int, np.integer)) or width < 3:
-        raise ValueError("width must be >= 3 for local maxima detection,width must be an integer, and intensity must be 1D")
-
-    xi = np.ascontiguousarray(intensity)
-
-    buffer = np.zeros(xi.size, dtype=np.uint8)
-    nmax = _local_maxima_core_numba(xi, int(width), buffer)
-    return buffer.astype(np.bool_), int(nmax)
+# ==================== Flat numba wrappers ====================
 
 
 def baseline_snip_numba(

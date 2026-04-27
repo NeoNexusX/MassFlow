@@ -6,7 +6,6 @@ Noise estimation utilities.
 """
 from typing import Optional
 import numpy as np
-from scipy import stats
 from massflow.tools.logger import get_logger
 from massflow.preprocess.numba.est_noise_numba import estimate_flat_numba
 
@@ -26,23 +25,6 @@ def _input_validation(intensity,index,nbins,overlap):
     if overlap > 1 or overlap <0:
         logger.error("overlap must be in [0,1]")
         raise ValueError("overlap must be in [0,1]")
-
-
-def estimation_fun(data,method: str = 'sd'):
-    """
-    Return a callable for noise estimation from a vector.
-    """
-
-    if method == 'sd':
-        return np.nanstd(data)
-    elif method == 'mad':
-        return stats.median_abs_deviation(data)
-    elif method == 'quantile':
-        return np.nanquantile(data,0.95)
-    elif method == 'diff':
-        return np.nanmean(np.abs(data - np.nanmean(data)))
-    else:
-        raise ValueError(f"Unknown noise estimation method: {method}")
 
 
 def _method_to_code(method: str) -> int:

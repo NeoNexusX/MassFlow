@@ -47,8 +47,6 @@ class TestAsyncPipelineProfile:
         data_file_path = request.param
         dm = MSDataManagerImzML(filepath=data_file_path)
         dm.load_head_data()
-        for _ in dm.batch_generator(batch_size=512):
-            pass
         return dm
 
     @pytest.mark.parametrize("batch_size", [1024])

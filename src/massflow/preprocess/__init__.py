@@ -1,4 +1,4 @@
-from massflow.preprocess.batch_pre_fun import BatchPreprocess
+from massflow.preprocess.flat_pre_fun import FlatBatchResult, FlatPreprocess
 from massflow.preprocess.preprocessor import Preprocessor, FlatChunk, PreprocessTask
 from massflow.preprocess.numba.numba_runtime import (
     detect_performance_core_workers,
@@ -8,8 +8,9 @@ from massflow.preprocess.numba.numba_runtime import (
 )
 
 __all__ = [
-    "BatchPreprocess",
+    "FlatBatchResult",
     "FlatChunk",
+    "FlatPreprocess",
     "Preprocessor",
     "PreprocessTask",
     "detect_performance_core_workers",

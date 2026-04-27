@@ -1,6 +1,5 @@
 import time
 import os
-from functools import partial
 import pytest
 import numpy as np
 from massflow.data_manager import MSDataManagerImzML
@@ -149,7 +148,7 @@ def iter_flat_cached_spectra(cached_flat_batches, is_continuous):
             yield coord, mz_array, intensity_array
 
 
-def data_swap_in_benchmark(swap_dm, mode="multithread"):
+def data_swap_in_benchmark(swap_dm):
     """
     Test: Disk file -> Load and access in memory (Swap In)
     """
@@ -157,24 +156,9 @@ def data_swap_in_benchmark(swap_dm, mode="multithread"):
     dm.load_full_data_from_file()
     dm.inspect_data()
 
-    if mode == "multithread":
-        batch_generator = dm.batch_generator(batch_size=512, max_threads=32)
-
-        for batch in batch_generator:
-            assert len(batch) > 0
-
-            # clean batch memory
-            for spec in batch:
-                spec.clear_data()
-    else:
-
-        # read in memory
-        for spec in dm.ms:
-            assert spec.intensity is not None
-
-        # clean memory
-        for spec in dm.ms:
-            spec.clear_data()
+    for spec in dm.ms:
+        assert spec.intensity is not None
+        spec.clear_data()
 
     logger.info("Completed loading and accessing swapped data.")
 
@@ -196,10 +180,6 @@ class TestDataSwap:
         dm_raw = MSDataManagerImzML(filepath=filepath)
         dm_raw.load_head_data()
         dm_raw.inspect_data()
-        # load data check
-        batch_generator = dm_raw.batch_generator()
-        for batch in batch_generator:
-            assert len(batch) > 0
 
         return dm_raw
 
@@ -325,8 +305,7 @@ class TestDataSwap:
 
 
     @pytest.mark.benchmark(timer=time.perf_counter)
-    @pytest.mark.parametrize("mode", ["normal", "multithread"])
-    def test_swap_in_performance(self, benchmark, ms_raw_data, mode):
+    def test_swap_in_performance(self, benchmark, ms_raw_data):
         """
         Performance test: Data read speed from disk
         """
@@ -340,7 +319,7 @@ class TestDataSwap:
             return (dm_swap_new,), {}
 
         benchmark.pedantic(
-            partial(data_swap_in_benchmark, mode=mode),
+            data_swap_in_benchmark,
             setup=set_up_swap_data,
             rounds=ROUNDS,
             iterations=1,

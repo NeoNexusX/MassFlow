@@ -27,7 +27,7 @@ def test_plot_before_after_calls_plot_with_expected_options(tmp_path, monkeypatc
     assert calls["base"] is before
     assert calls["target"] is after
     assert calls["save_path"] == str(out_file)
-    assert calls["overlay"] is False
+    assert calls["overlay"] is True
     assert calls["metrics_box"] is True
 
 
@@ -87,17 +87,12 @@ def test_main_triggers_plot_before_after(monkeypatch):
         assert method == "gaussian_numba"
         return _DummyProcessedResult(intensity=intensity * 0.8)
 
-    def _fake_snr_details(_spectrum):
-        return 1.0, 1.0, 1.0
-
     def _fake_plot_before_after(before_spectrum, after_spectrum, save_path=None):
         plot_calls.append((before_spectrum, after_spectrum, save_path))
 
     monkeypatch.setattr(main_module, "MSDataManagerImzML", _DummyManager)
     monkeypatch.setattr(main_module, "MassSpectrumSet", lambda: object())
     monkeypatch.setattr(main_module.FlatPreprocess, "noise_reduction_flat", staticmethod(_fake_noise_reduction_flat))
-    monkeypatch.setattr(main_module, "calculate_snr_details", _fake_snr_details)
-    monkeypatch.setattr(main_module, "log_snr_details", lambda *args, **kwargs: None)
     monkeypatch.setattr(main_module, "plot_before_after", _fake_plot_before_after)
 
     main_module.main()

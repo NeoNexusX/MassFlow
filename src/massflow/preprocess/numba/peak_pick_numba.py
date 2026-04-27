@@ -1,168 +1,415 @@
+from __future__ import annotations
+
 import numpy as np
-from numba import jit
+from numpy.typing import NDArray
+from numba import jit, prange
+
+from massflow.tools.funs import lengths_to_offsets
 from massflow.tools.logger import get_logger
 
-logger = get_logger("peak_pick_compute")
+logger = get_logger("massflow.peak_pick_numba")
 
-@jit(nopython=True, fastmath=True, cache=True)
-def interp_jit(arr: np.ndarray, idx_f: float) -> float:
-    """
-    Linear interpolation over an array for a fractional index.
-
-    Parameters:
-        arr (np.ndarray): Array to sample from.
-        idx_f (float): Fractional index in [0, len(arr)-1].
-        n (int | None): Optional length hint; if provided, must match arr length.
-
-    Returns:
-        float: Interpolated value at idx_f.
-    """
-    m = int(arr.shape[0])
-    if m == 0:
-        return float("nan")
-
-    if idx_f < 0.0:
-        idx_f = 0.0
-    elif idx_f > m - 1:
-        idx_f = float(m - 1)
-    i0 = int(np.floor(idx_f))
-    i1 = i0 + 1 if i0 + 1 < m else m - 1
-    alpha = idx_f - i0
-
-    return float(arr[i0] + alpha * (arr[i1] - arr[i0]))
-
-@jit(nopython=True, fastmath=True, cache=True)
-def compute_peak_areas_jit(intensity: np.ndarray,
-                           index: np.ndarray,
-                           peaks: np.ndarray,
-                           left_f: np.ndarray,
-                           right_f: np.ndarray,
-                           ) -> np.ndarray:
-    """
-    Compute peak areas using Simpson's rule for numerical integration.
-
-    Parameters:
-        intensity (np.ndarray): Intensity array.
-        index (np.ndarray): Index array (e.g., retention time).
-        peaks (np.ndarray): Indices of peak apexes.
-        left_f (np.ndarray): Indices of left bases of peaks.
-        right_f (np.ndarray): Indices of right bases of peaks.
-
-    Returns:
-        np.ndarray: Array of computed peak areas.
-    """
-    areas = np.zeros(len(peaks), dtype=float)
-    for k, (lf, rf) in enumerate(zip(left_f, right_f)):
-        if rf <= lf:
-            areas[k] = 0.0
-            continue
-        xl = interp_jit(index, lf)
-        xr = interp_jit(index, rf)
-        yl = interp_jit(intensity, lf)
-        yr = interp_jit(intensity, rf)
-        li = int(np.ceil(lf))
-        ri = int(np.floor(rf))
-
-        if ri >= li:
-            mid_count = ri - li + 1
-        else:
-            mid_count = 0
-        total_count = mid_count + 2
-
-        xs = np.empty(total_count, dtype=float)
-        ys = np.empty(total_count, dtype=float)
-
-        xs[0] = xl
-        ys[0] = yl
-
-        if mid_count > 0:
-            xs[1:1 + mid_count] = index[li:ri + 1]
-            ys[1:1 + mid_count] = intensity[li:ri + 1]
-
-        xs[-1] = xr
-        ys[-1] = yr
-        areas[k] = float(simpson_jit(ys, xs))
-    return areas
 
 @jit(nopython=True, cache=True)
-def simpson_jit(y, x):
-    """
-    Numerical integration using Simpson's rule for discrete data.
-    Compatible with Numba's nopython mode, supports non-uniformly spaced sampling points,
-    and correctly handles boundary cases for odd and even number of points.
+def _indices_from_bool_mask_jit(mask: NDArray[np.bool_]) -> NDArray[np.int64]:
+    """Convert a boolean mask to a compact index array to avoid Python-level boolean indexing overhead."""
+    count = 0
+    for i in range(mask.size):
+        if mask[i]:
+            count += 1
 
-    Parameters:
-        y: intensity, array of function values y[i] = f(x[i])
-        x: index, array of independent variables, must be same length as y and monotonically increasing
+    out = np.empty(count, dtype=np.int64)
+    k = 0
+    for i in range(mask.size):
+        if mask[i]:
+            out[k] = i
+            k += 1
+    return out
 
-    Returns:
-        float: Approximate definite integral of the function over the x interval
 
-    Compatibility:
-        This function produces results consistent with scipy.integrate.simpson but runs faster
-        (Numba JIT compiled, no Python interpreter overhead).
-    """
-    num = len(x)
+@jit(nopython=True, cache=True)
+def _local_maxima_mask_jit(x: NDArray[np.float64], width: int) -> NDArray[np.bool_]:
+    """Detect local maxima."""
+    n = x.size
+    out = np.zeros(n, dtype=np.bool_)
+    if n == 0:
+        return out
 
-    # Edge case: Cannot integrate with fewer than 2 points
-    if num < 2:
-        return 0.0
+    width_val = width if width > 0 else 1
+    radius = abs(width_val // 2)
 
-    # Edge case: Only 2 points, use the trapezoidal rule
-    if num == 2:
-        dx = x[1] - x[0]
-        return 0.5 * dx * (y[0] + y[1])
-
-    # Simpson's rule requires an even number of intervals (3 points form a group)
-    if num % 2 == 1:
-        stop = num - 2
-    else:
-        stop = num - 3
-
-    result = 0.0
-
-    for i in range(0, stop, 2):
-        h0 = x[i+1] - x[i]
-        h1 = x[i+2] - x[i+1]
-
-        if h0 == 0 or h1 == 0:
+    for i in range(n):
+        if i < radius or i > n - radius:
             continue
 
-        # Non-uniform Simpson integration formula
-        # Area = (h0 + h1) / 6 * [ term0 * y[i] + term1 * y[i+1] + term2 * y[i+2] ]
-        term0 = 2.0 - h1 / h0
-        term1 = (h0 + h1)**2 / (h0 * h1)
-        term2 = 2.0 - h0 / h1
+        xi = x[i]
+        if not np.isfinite(xi):
+            continue
 
-        area = (h0 + h1) / 6.0 * (term0 * y[i] + term1 * y[i+1] + term2 * y[i+2])
-        result += area
+        left = i - radius
+        if left < 0:
+            left = 0
+        right = i + radius
+        if right >= n:
+            right = n - 1
 
-    # Even number of points: use parabolic fit for the last interval
-    # Use the last three points to fit a parabola, then compute only the last interval's area
-    if num % 2 == 0:
-        slice1 = num - 1
-        slice2 = num - 2
-        slice3 = num - 3
+        is_peak = False
+        for j in range(left, right + 1):
+            xj = x[j]
+            if not np.isfinite(xj):
+                continue
 
-        h_last = x[slice1] - x[slice2]
-        h_prev = x[slice2] - x[slice3]
+            if xi > xj:
+                is_peak = True
+            if j < i and xj >= xi:
+                is_peak = False
+                break
+            if j > i and xj > xi:
+                is_peak = False
+                break
 
-        if h_last > 0 and h_prev > 0:
-            # Alpha: contribution weight of the last point
-            num_a = 2 * h_last**2 + 3 * h_prev * h_last
-            den_a = 6 * (h_last + h_prev)
-            alpha = num_a / den_a
+        if is_peak:
+            out[i] = True
 
-            # Beta: contribution weight of the middle point
-            num_b = h_last**2 + 3 * h_prev * h_last
-            den_b = 6 * h_prev
-            beta = num_b / den_b
+    return out
 
-            # Eta: correction point weight
-            num_e = h_last**3
-            den_e = 6 * h_prev * (h_prev + h_last)
-            eta = num_e / den_e
 
-            result += alpha * y[slice1] + beta * y[slice2] - eta * y[slice3]
+@jit(nopython=True, cache=True)
+def _peak_lbound_jit(x: NDArray[np.float64], peak: int) -> int:
+    """Search for the left boundary starting from the peak apex."""
+    n = x.size
+    lbound = peak
+    is_left_of_peak = False
 
-    return result
+    i = peak - 1
+    while i >= 0:
+        if x[i] < x[lbound]:
+            lbound = i
+            is_left_of_peak = True
+        elif x[i] > x[lbound] and is_left_of_peak:
+            cand = lbound
+            lwindow = cand - 2
+            if lwindow < 0:
+                lwindow = 0
+
+            i -= 1
+            while i >= lwindow:
+                if x[i] < x[cand]:
+                    lbound = i
+                    break
+                i -= 1
+
+            if cand == lbound:
+                break
+
+        i -= 1
+
+    if lbound < 0:
+        return 0
+    if lbound >= n:
+        return n - 1
+    return lbound
+
+
+@jit(nopython=True, cache=True)
+def _peak_rbound_jit(x: NDArray[np.float64], peak: int) -> int:
+    """Search for the right boundary starting from the peak apex."""
+    n = x.size
+    rbound = peak
+    is_right_of_peak = False
+
+    i = peak + 1
+    while i < n:
+        if x[i] < x[rbound]:
+            rbound = i
+            is_right_of_peak = True
+        elif x[i] > x[rbound] and is_right_of_peak:
+            cand = rbound
+            rwindow = cand + 2
+            if rwindow >= n:
+                rwindow = n - 1
+
+            i += 1
+            while i <= rwindow and i < n:
+                if x[i] < x[cand]:
+                    rbound = i
+                    break
+                i += 1
+
+            if cand == rbound:
+                break
+
+        i += 1
+
+    if rbound < 0:
+        return 0
+    if rbound >= n:
+        return n - 1
+    return rbound
+
+
+@jit(nopython=True, cache=True)
+def _peak_boundaries_jit(
+    x: NDArray[np.float64], peaks: NDArray[np.int64]
+) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """Compute left and right boundaries for each peak."""
+    n = peaks.size
+    left = np.empty(n, dtype=np.int64)
+    right = np.empty(n, dtype=np.int64)
+
+    for i in range(n):
+        p = int(peaks[i])
+        left[i] = _peak_lbound_jit(x, p)
+        right[i] = _peak_rbound_jit(x, p)
+
+    return left, right
+
+
+@jit(nopython=True, cache=True)
+def _peak_bases_jit(
+    x: NDArray[np.float64], peaks: NDArray[np.int64]
+) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """Compute left/right base positions (the local minima on both sides of each peak)."""
+    n = x.size
+    m = peaks.size
+
+    left = np.empty(m, dtype=np.int64)
+    right = np.empty(m, dtype=np.int64)
+
+    for i in range(m):
+        p = int(peaks[i])
+
+        l_idx = p
+        j = p - 1
+        while j >= 0:
+            if x[j] > x[p]:
+                break
+            if x[j] < x[l_idx]:
+                l_idx = j
+            j -= 1
+
+        r_idx = p
+        j = p + 1
+        while j < n:
+            if x[j] > x[p]:
+                break
+            if x[j] < x[r_idx]:
+                r_idx = j
+            j += 1
+
+        left[i] = l_idx
+        right[i] = r_idx
+
+    return left, right
+
+
+@jit(nopython=True, cache=True)
+def _trapz_jit(
+    domain: NDArray[np.float64],
+    signal: NDArray[np.float64],
+    lower: int,
+    upper: int,
+) -> float:
+    """Compute peak area using the trapezoidal integration rule."""
+    if upper <= lower:
+        return 0.0
+
+    total = 0.0
+    for i in range(lower + 1, upper + 1):
+        dx = domain[i] - domain[i - 1]
+        total += 0.5 * (signal[i] + signal[i - 1]) * dx
+    return total
+
+
+@jit(nopython=True, cache=True)
+def _select_peaks_by_keep_jit(
+    peaks: NDArray[np.int64], keep: NDArray[np.bool_]
+) -> NDArray[np.int64]:
+    """Select peak indices using the keep mask and return a compact index array."""
+    count = 0
+    for i in range(keep.size):
+        if keep[i]:
+            count += 1
+
+    out = np.empty(count, dtype=np.int64)
+    k = 0
+    for i in range(keep.size):
+        if keep[i]:
+            out[k] = peaks[i]
+            k += 1
+    return out
+
+
+@jit(nopython=True, cache=True)
+def _findpeaks_filtered_indices_safe_jit(
+    x: NDArray[np.float64],
+    width: int,
+    use_prominence: bool,
+    prominence: float,
+    use_relheight: bool,
+    relheight: float,
+    use_snr: bool,
+    snr: float,
+    noise_x: NDArray[np.float64],
+) -> NDArray[np.int64]:
+    """Run peak detection and multi-criteria filtering in numba, returning final peak indices."""
+    peaks = _indices_from_bool_mask_jit(_local_maxima_mask_jit(x, width))
+    m = peaks.size
+    if m == 0:
+        return peaks
+
+    keep = np.ones(m, dtype=np.bool_)
+
+    if use_prominence:
+        left_bases, right_bases = _peak_bases_jit(x, peaks)
+        for i in range(m):
+            p = int(peaks[i])
+            contour = x[left_bases[i]]
+            rb = x[right_bases[i]]
+            if rb > contour:
+                contour = rb
+            prom = x[p] - contour
+            if (not np.isfinite(prom)) or prom < prominence:
+                keep[i] = False
+
+    if use_relheight:
+        max_peak = -np.inf
+        for i in range(m):
+            if keep[i]:
+                v = x[int(peaks[i])]
+                if v > max_peak:
+                    max_peak = v
+        if (not np.isfinite(max_peak)) or max_peak <= 0.0:
+            for i in range(m):
+                keep[i] = False
+        else:
+            for i in range(m):
+                if keep[i]:
+                    rel = x[int(peaks[i])] / max_peak
+                    if (not np.isfinite(rel)) or rel < relheight:
+                        keep[i] = False
+
+    # SNR filtering: compute peak-to-noise ratios and filter by the SNR threshold.
+    if use_snr:
+        if noise_x.size != x.size:
+            for i in range(m):
+                keep[i] = False
+        else:
+            for i in range(m):
+                if not keep[i]:
+                    continue
+
+                p = int(peaks[i])
+                nv = noise_x[p]
+                if (not np.isfinite(nv)) or nv <= 0.0:
+                    keep[i] = False
+                    continue
+
+                snr_val = x[p] / nv
+                if (not np.isfinite(snr_val)) or snr_val < snr:
+                    keep[i] = False
+
+    return _select_peaks_by_keep_jit(peaks, keep)
+
+
+@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+def peak_pick_flat_parallel_core_jit(
+    mz_arr: NDArray[np.float64],
+    intensity_arr: NDArray[np.float64],
+    lengths_arr: NDArray[np.int64],
+    width: int,
+    use_prominence: bool,
+    prominence: float,
+    use_relheight: bool,
+    relheight: float,
+    use_snr: bool,
+    snr: float,
+    return_area: bool,
+    is_shared_mz: bool,
+    noise_arr: NDArray[np.float64],
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.int32]]:
+    """
+    Core parallel routine: detect/filter peaks for each spectrum and write
+    results into compact output arrays.
+    """
+    n_spectra = lengths_arr.size
+    input_offsets = lengths_to_offsets(lengths_arr)
+
+    out_lengths = np.zeros(n_spectra, dtype=np.int32)
+
+    for s in prange(n_spectra):  # pylint: disable=not-an-iterable
+        start = int(input_offsets[s])
+        end = int(input_offsets[s + 1])
+        if end <= start:
+            continue
+
+        seg = intensity_arr[start:end]
+        noise_seg = noise_arr[start:end] if use_snr else np.empty(0, dtype=np.float64)
+        peaks = _findpeaks_filtered_indices_safe_jit(
+            x=seg,
+            width=width,
+            use_prominence=use_prominence,
+            prominence=prominence,
+            use_relheight=use_relheight,
+            relheight=relheight,
+            use_snr=use_snr,
+            snr=snr,
+            noise_x=noise_seg,
+        )
+        out_lengths[s] = np.int32(peaks.size)
+
+    output_offsets = lengths_to_offsets(out_lengths.astype(np.int64))
+    total_output = int(output_offsets[n_spectra])
+
+    out_mz = np.empty(total_output, dtype=np.float64)
+    out_values = np.empty(total_output, dtype=np.float64)
+
+    for s in prange(n_spectra):  # pylint: disable=not-an-iterable
+        in_start = int(input_offsets[s])
+        in_end = int(input_offsets[s + 1])
+        if in_end <= in_start:
+            continue
+
+        out_start = int(output_offsets[s])
+        out_end = int(output_offsets[s + 1])
+        if out_end <= out_start:
+            continue
+
+        segment = intensity_arr[in_start:in_end]
+        if is_shared_mz:
+            # continuous: all spectra in a batch share the same m/z axis.
+            mz_segment = mz_arr[: (in_end - in_start)]
+        else:
+            # processed: each spectrum has its own m/z slice in the flat buffer.
+            mz_segment = mz_arr[in_start:in_end]
+
+        noise_segment = noise_arr[in_start:in_end] if use_snr else np.empty(0, dtype=np.float64)
+
+        peaks = _findpeaks_filtered_indices_safe_jit(
+            x=segment,
+            width=width,
+            use_prominence=use_prominence,
+            prominence=prominence,
+            use_relheight=use_relheight,
+            relheight=relheight,
+            use_snr=use_snr,
+            snr=snr,
+            noise_x=noise_segment,
+        )
+
+        if peaks.size == 0:
+            continue
+
+        if return_area:
+            left, right = _peak_boundaries_jit(segment, peaks)
+
+        for i in range(peaks.size):
+            p = int(peaks[i])
+            out_idx = out_start + i
+            out_mz[out_idx] = mz_segment[p]
+            if return_area:
+                out_values[out_idx] = _trapz_jit(mz_segment, segment, int(left[i]), int(right[i])) # type: ignore
+            else:
+                out_values[out_idx] = segment[p]
+
+    return out_mz, out_values, out_lengths
