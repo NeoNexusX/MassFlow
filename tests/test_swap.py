@@ -153,7 +153,7 @@ def data_swap_in_benchmark(swap_dm):
     Test: Disk file -> Load and access in memory (Swap In)
     """
     dm = swap_dm
-    dm.load_full_data_from_file()
+    dm.load_head_data()
     dm.inspect_data()
 
     for spec in dm.ms:
