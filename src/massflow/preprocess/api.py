@@ -147,10 +147,14 @@ class PreprocessorAPI(_TaskRegistrar):
         units: str = "ppm",
         binfun: str = "median",
         binratio: float = 2.0,
+        min_count: int | None = None,
+        min_frequency: float | None = None,
         backend: Backend = "python",
     ) -> Self:
         """Register peak alignment flat task."""
         if backend == "cardinal":
+            if min_count is not None or min_frequency is not None: # 确实可以把一些检查放到api里，避免进入 stageb TODO
+                raise ValueError("min_count/min_frequency are only supported by the python peak_align backend")
             return self._register_task(
                 "peak_align",
                 scope="dataset",
@@ -171,4 +175,6 @@ class PreprocessorAPI(_TaskRegistrar):
             units=units,
             binfun=binfun,
             binratio=binratio,
+            min_count=min_count,
+            min_frequency=min_frequency,
         )

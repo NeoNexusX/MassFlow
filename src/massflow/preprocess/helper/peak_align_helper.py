@@ -217,7 +217,7 @@ def merge_peaks(
     counts: NDArray,
     tolerance: float,
     tol_method: str = "abs",
-) -> NDArray:
+) -> tuple[NDArray, NDArray]:
     """
     Merge adjacent peaks.
 
@@ -238,7 +238,9 @@ def merge_peaks(
         tol_method: Tolerance/distance method.
 
     Returns:
-        NDArray: Merged m/z array (NaNs removed).
+        A tuple ``(merged_mz, merged_counts)`` with matching shapes. Counts are
+        summed across every input peak merged into the corresponding output
+        reference peak.
     """
 
     # Sortedness check (ignoring NaNs)
@@ -262,7 +264,7 @@ def bin_peaks_parallel(
     tol_method: str = "abs",
     batch_size: int = 256,
     max_threads: int = 0,
-) -> NDArray:
+) -> tuple[NDArray, NDArray]:
     """Parallel binning using flat_generator + parallel nearest search."""
     logger.info(
         f"[parallel] Binning peaks: {len(data_manager.ms)} spectra, "
@@ -375,14 +377,55 @@ def bin_peaks_parallel(
     valid_peaks = peaks_acc[valid_mask]
     valid_counts = counts[valid_mask]
 
-    reference = merge_peaks(
+    reference, reference_counts = merge_peaks(
         mz_list=valid_peaks,
         counts=valid_counts,
         tolerance=tolerance,
         tol_method=tol_method,
     )
 
-    return reference
+    return reference, reference_counts
+
+
+def _validate_reference_filter_args(
+    min_count: Optional[int],
+    min_frequency: Optional[float],
+) -> None:
+    """Validate optional reference pre-filter parameters."""
+    if min_count is not None and (not isinstance(min_count, (int, np.integer)) or min_count < 1):
+        raise ValueError("min_count must be a positive integer when provided")
+
+    if min_frequency is not None and (
+        not np.isfinite(min_frequency) or min_frequency < 0.0 or min_frequency > 1.0
+    ):
+        raise ValueError("min_frequency must be in [0, 1] when provided")
+
+
+def _filter_reference_by_counts(
+    reference: NDArray,
+    counts: NDArray,
+    *,
+    n_spectra: int,
+    min_count: Optional[int] = None,
+    min_frequency: Optional[float] = None,
+) -> tuple[NDArray, NDArray]:
+    """Filter a reference axis using construction-time support counts."""
+    _validate_reference_filter_args(min_count, min_frequency)
+
+    if min_count is None and min_frequency is None:
+        return reference, counts
+
+    keep = np.ones(reference.size, dtype=bool)
+    if min_count is not None:
+        keep &= counts >= int(min_count)
+
+    if min_frequency is not None:
+        if n_spectra <= 0:
+            raise ValueError("n_spectra must be positive when min_frequency is provided")
+        capped_counts = np.minimum(counts, int(n_spectra))
+        keep &= capped_counts / float(n_spectra) >= float(min_frequency)
+
+    return reference[keep], counts[keep]
 
 def reference_computer(
     data_manager: MSDataManager,
@@ -393,7 +436,10 @@ def reference_computer(
     units: str = "ppm",
     batch_size: int = 256,
     max_threads: int = 2,
-) -> Tuple[NDArray, float]:
+    min_count: Optional[int] = None,
+    min_frequency: Optional[float] = None,
+    return_counts: bool = False,
+) -> Tuple[NDArray, float] | tuple[NDArray, float, NDArray]:
     """Parallel version of compute_reference based on flat_generator."""
     logger.info(
         f"[parallel] Computing reference: units={units}, binfun={binfun}, binratio={binratio}"
@@ -401,6 +447,7 @@ def reference_computer(
 
     norm_units = _normalize_units(units)
     tol_method = "x" if norm_units == "relative" else "abs"
+    _validate_reference_filter_args(min_count, min_frequency)
 
     domain, estimate_tolerance = estimate_domain_parallel(
         data_manager=data_manager,
@@ -418,9 +465,13 @@ def reference_computer(
     tolerance = estimate_tolerance if tolerance is None else (tolerance * 1e-6 if units == "ppm" else tolerance)
 
     if reference is not None:
+        if min_count is not None or min_frequency is not None:
+            raise ValueError("min_count/min_frequency cannot be applied to a user-provided reference")
+        if return_counts:
+            raise ValueError("return_counts is only available when reference is computed")
         return reference, tolerance
 
-    reference = bin_peaks_parallel(
+    reference, reference_counts = bin_peaks_parallel(
         data_manager=data_manager,
         domain=domain,
         tolerance=tolerance,
@@ -429,7 +480,21 @@ def reference_computer(
         max_threads=max_threads,
     )
 
-    logger.info(f"[parallel] Reference computed: final size={reference.size}")
+    raw_size = reference.size
+    reference, reference_counts = _filter_reference_by_counts(
+        reference,
+        reference_counts,
+        n_spectra=len(data_manager.ms),
+        min_count=min_count,
+        min_frequency=min_frequency,
+    )
+
+    logger.info(
+        f"[parallel] Reference computed: final size={reference.size}"
+        f" (before_filter={raw_size})"
+    )
+    if return_counts:
+        return reference, tolerance, reference_counts
     return reference, tolerance
 
 def peak_aligner(

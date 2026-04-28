@@ -447,6 +447,8 @@ class Preprocessor(PreprocessorAPI):
                 units=units,
                 binfun=kwargs.get("binfun", "median"),
                 binratio=kwargs.get("binratio", 2.0),
+                min_count=kwargs.get("min_count"),
+                min_frequency=kwargs.get("min_frequency"),
                 batch_size=self.batch_size,
             )
         else:
@@ -457,6 +459,8 @@ class Preprocessor(PreprocessorAPI):
 
         kwargs.pop("binfun", None)
         kwargs.pop("binratio", None)
+        kwargs.pop("min_count", None)
+        kwargs.pop("min_frequency", None)
 
         return PreprocessTask(
             name=task.name,
