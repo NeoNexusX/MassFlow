@@ -579,11 +579,8 @@ class Preprocessor(PreprocessorAPI):
             output_dm.close()
             raise
 
-    def start(self) -> MSDataManagerImzML | IonImageDataManagerBinary:
+    def start(self) -> Any:
         """Execute registered tasks and return new data manager with processed data. """
-        if len(self._tasks) == 0:
-            raise ValueError("No preprocessing task registered. Please register tasks before start().")
-
         ordered_tasks = self._sorted_tasks()
         current_data_manager: MSDataManager = self.data_manager
         task_cursor = 0
@@ -614,7 +611,7 @@ class Preprocessor(PreprocessorAPI):
                 if final_output_binary:
                     return cast(IonImageDataManagerBinary, next_data_manager)
 
-                current_data_manager = next_data_manager
+                current_data_manager = cast(MSDataManager, next_data_manager)
 
             if task_cursor >= len(ordered_tasks):
                 break
@@ -638,7 +635,7 @@ class Preprocessor(PreprocessorAPI):
             if final_output_binary and isinstance(next_data_manager, IonImageDataManagerBinary):
                 return next_data_manager
 
-            current_data_manager = next_data_manager
+            current_data_manager = cast(MSDataManager, next_data_manager)
 
         if self.output_format == "ion_image_binary":
             # 所有 preprocessing task 都完成后，才执行最终 binary export。
