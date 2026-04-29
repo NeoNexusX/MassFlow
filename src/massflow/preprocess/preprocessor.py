@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass, field
 from queue import Queue
 from threading import Event, Lock, Thread
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, Optional, Protocol, cast
 
 import numpy as np
 
-from massflow.data_manager import MSDataManager, MSDataManagerImzML
+from massflow.data_manager import IonImageDataManagerBinary, MSDataManager, MSDataManagerImzML
 from massflow.module import MassSpectrumSet
 from massflow.preprocess.api import PreprocessorAPI, TaskScope
 from massflow.preprocess.helper.peak_align_helper import reference_computer
@@ -38,6 +39,71 @@ class PreprocessTask:
     kwargs: dict[str, Any] = field(default_factory=dict)
     sequence: int = 0
 
+
+class StageCSink(Protocol):
+    """Stage C output target.
+
+    中间交换和最终输出使用同一套 Stage C 调度逻辑，只替换 sink。
+    """
+
+    def write_chunk(self, chunk: FlatChunk) -> None:
+        ...
+
+    def finalize(self) -> MSDataManagerImzML | IonImageDataManagerBinary:
+        ...
+
+    def close(self) -> None:
+        ...
+
+
+class ImzMLStageCSink:
+    """Stage C sink for imzML swap files."""
+
+    def __init__(self, data_manager: MSDataManagerImzML):
+        self.data_manager = data_manager
+
+    def write_chunk(self, chunk: FlatChunk) -> None:
+        self.data_manager.swap_flat_data_out2disk(
+            mz_flat=chunk.mz_data,
+            intensity_flat=chunk.intensity,
+            lengths=chunk.lengths,
+            coordinates=chunk.coordinates,
+        )
+
+    def finalize(self) -> MSDataManagerImzML:
+        self.data_manager.close_writer()
+        self.data_manager.load_head_data()
+        return self.data_manager
+
+    def close(self) -> None:
+        self.data_manager.close_writer()
+        self.data_manager.close()
+
+
+class IonImageBinaryStageCSink:
+    """Stage C sink for final ion image binary output."""
+
+    def __init__(self, data_manager: IonImageDataManagerBinary):
+        self.data_manager = data_manager
+
+    def write_chunk(self, chunk: FlatChunk) -> None:
+        if chunk.mz_data is None:
+            raise ValueError("ion_image_binary output requires mz_data from flat_generator.")
+        self.data_manager.write_flat_batch(
+            intensity_flat=chunk.intensity,
+            lengths=chunk.lengths,
+            coordinates=chunk.coordinates,
+            mz_axis=chunk.mz_data,
+        )
+
+    def finalize(self) -> IonImageDataManagerBinary:
+        self.data_manager.finalize()
+        return self.data_manager
+
+    def close(self) -> None:
+        self.data_manager.close()
+
+
 class Preprocessor(PreprocessorAPI):
     """
     Hybrid preprocessing executor.
@@ -64,6 +130,9 @@ class Preprocessor(PreprocessorAPI):
         temp_dir: str | None = "./temp",
         keep_order: bool = False,
         numba_max_threads: Optional[int] = None,
+        output_format: str = "imzml",
+        output_path: str | None = None,
+        output_max_workers: int = 2,
     ): # pylint: disable=super-init-not-called
         if data_manager is None or batch_size <= 0 or batch_size > 9056 or queue_ab_size <= 0 or queue_bc_size <= 0 :
             logger.error(f"Invalid parameter values. please check:"
@@ -78,6 +147,13 @@ class Preprocessor(PreprocessorAPI):
         self.queue_bc_size = queue_bc_size
         self.keep_order = keep_order
         self.numba_max_threads = numba_max_threads
+        # output_format 只控制最终输出。中间 batch/dataset 交换仍沿用现有
+        # imzML 路径，最后一步再按需导出 ion_image_binary。
+        if output_format not in {"imzml", "ion_image_binary"}:
+            raise ValueError("output_format must be 'imzml' or 'ion_image_binary'.")
+        self.output_format = output_format
+        self.output_path = output_path
+        self.output_max_workers = output_max_workers
 
         self._tasks: list[PreprocessTask] = []
         self._task_sequence = 0
@@ -208,16 +284,11 @@ class Preprocessor(PreprocessorAPI):
         self,
         *,
         chunk: FlatChunk,
-        processed_data_manager: MSDataManagerImzML,
+        sink: StageCSink,
         written_batches: int,
         total_batches: int,
     ) -> int:
-        processed_data_manager.swap_flat_data_out2disk(
-            mz_flat=chunk.mz_data,
-            intensity_flat=chunk.intensity,
-            lengths=chunk.lengths,
-            coordinates=chunk.coordinates,
-        )
+        sink.write_chunk(chunk)
         written_batches += 1
 
         if total_batches <= 10 or written_batches % max(1, total_batches // 10) == 0 or written_batches == total_batches:
@@ -231,7 +302,7 @@ class Preprocessor(PreprocessorAPI):
         *,
         pending: dict[int, FlatChunk],
         expected_index: int,
-        processed_data_manager: MSDataManagerImzML,
+        sink: StageCSink,
         written_batches: int,
         total_batches: int,
     ) -> tuple[int, int]:
@@ -239,7 +310,7 @@ class Preprocessor(PreprocessorAPI):
             ordered_chunk = pending.pop(expected_index)
             written_batches = self._flush_chunk(
                 chunk=ordered_chunk,
-                processed_data_manager=processed_data_manager,
+                sink=sink,
                 written_batches=written_batches,
                 total_batches=total_batches,
             )
@@ -268,7 +339,7 @@ class Preprocessor(PreprocessorAPI):
         stop_event: Event,
         error_holder: list[BaseException],
         error_lock: Lock,
-        processed_data_manager: MSDataManagerImzML,
+        sink: StageCSink,
         total_batches: int,
     ) -> None:
         """Stage C: consumer; persist processed chunks, optionally keeping order."""
@@ -284,7 +355,7 @@ class Preprocessor(PreprocessorAPI):
                         expected_index, written_batches = self._flush_pending_in_order(
                             pending=pending,
                             expected_index=expected_index,
-                            processed_data_manager=processed_data_manager,
+                            sink=sink,
                             written_batches=written_batches,
                             total_batches=total_batches,
                         )
@@ -297,7 +368,7 @@ class Preprocessor(PreprocessorAPI):
                 if not self.keep_order:
                     written_batches = self._flush_chunk(
                         chunk=chunk,
-                        processed_data_manager=processed_data_manager,
+                        sink=sink,
                         written_batches=written_batches,
                         total_batches=total_batches,
                     )
@@ -307,7 +378,7 @@ class Preprocessor(PreprocessorAPI):
                 expected_index, written_batches = self._flush_pending_in_order(
                     pending=pending,
                     expected_index=expected_index,
-                    processed_data_manager=processed_data_manager,
+                    sink=sink,
                     written_batches=written_batches,
                     total_batches=total_batches,
                 )
@@ -325,12 +396,26 @@ class Preprocessor(PreprocessorAPI):
         *,
         data_manager: MSDataManager,
         tasks: list[PreprocessTask],
-    ) -> MSDataManagerImzML:
+        final_output_binary: bool = False,
+    ) -> MSDataManagerImzML | IonImageDataManagerBinary:
         total_batches = (len(data_manager.ms) + self.batch_size - 1) // self.batch_size
 
-        processed_ms = MassSpectrumSet()
-        processed_data_manager = MSDataManagerImzML(processed_ms, temp_dir=self.temp_dir)
-        processed_data_manager.copy_meta(data_manager)
+        sink: StageCSink
+        if final_output_binary:
+            sink = IonImageBinaryStageCSink(
+                IonImageDataManagerBinary.from_data_manager(
+                    data_manager,
+                    self._default_ion_image_output_path(),
+                    temp_dir=self.temp_dir,
+                    temp_workers=max(1, self.output_max_workers),
+                    merge_workers=max(1, self.output_max_workers),
+                )
+            )
+        else:
+            processed_ms = MassSpectrumSet()
+            processed_data_manager = MSDataManagerImzML(processed_ms, temp_dir=self.temp_dir)
+            processed_data_manager.copy_meta(data_manager)
+            sink = ImzMLStageCSink(processed_data_manager)
 
         queue_ab: Queue[Optional[FlatChunk]] = Queue(maxsize=self.queue_ab_size)
         queue_bc: Queue[Optional[FlatChunk]] = Queue(maxsize=self.queue_bc_size)
@@ -371,7 +456,7 @@ class Preprocessor(PreprocessorAPI):
                 "stop_event": stop_event,
                 "error_holder": error_holder,
                 "error_lock": error_lock,
-                "processed_data_manager": processed_data_manager,
+                "sink": sink,
                 "total_batches": total_batches,
             },
             name="massflow-stage-c-writer",
@@ -387,13 +472,10 @@ class Preprocessor(PreprocessorAPI):
         t_c.join()
 
         if error_holder:
-            processed_data_manager.close_writer()
-            processed_data_manager.close()
+            sink.close()
             raise RuntimeError("Async preprocessing pipeline failed.") from error_holder[0]
 
-        processed_data_manager.close_writer()
-        processed_data_manager.load_head_data()
-        return processed_data_manager
+        return sink.finalize()
 
     def _prepare_peak_align_task(
         self,
@@ -440,7 +522,8 @@ class Preprocessor(PreprocessorAPI):
         *,
         data_manager: MSDataManager,
         task: PreprocessTask,
-    ) -> MSDataManagerImzML:
+        final_output_binary: bool = False,
+    ) -> MSDataManagerImzML | IonImageDataManagerBinary:
         """Execute whole-dataset task."""
         if task.name == "peak_align" and task.apply_fn is FlatPreprocess.peak_align_flat:
             prepared_task = self._prepare_peak_align_task(
@@ -450,6 +533,7 @@ class Preprocessor(PreprocessorAPI):
             return self._run_flat_batch_task(
                 data_manager=data_manager,
                 tasks=[prepared_task],
+                final_output_binary=final_output_binary,
             )
 
         if task.name == "peak_align" or task.name == "peak_pick":
@@ -458,7 +542,44 @@ class Preprocessor(PreprocessorAPI):
         else:
             raise NotImplementedError(f"Dataset task {task.name} with backend Cardinal is not supported.")
 
-    def start(self) -> MSDataManagerImzML:
+    def _default_ion_image_output_path(self) -> str:
+        if self.output_path is not None:
+            return self.output_path
+        base_dir = self.temp_dir if self.temp_dir is not None else tempfile.gettempdir()
+        return f"{base_dir}/ion_image_binary_output.iib"
+
+    def _export_ion_image_binary(self, data_manager: MSDataManager) -> IonImageDataManagerBinary:
+        """把最终 MSDataManager 导出成 ion image binary。
+
+        这里复用 flat_generator 读取最终数据，binary writer 会校验 shared
+        m/z、lengths 和 intensity_flat 的形态是否满足离子图像格式要求。
+        """
+        output_dm = IonImageDataManagerBinary.from_data_manager(
+            data_manager,
+            self._default_ion_image_output_path(),
+            temp_dir=self.temp_dir,
+            temp_workers=max(1, self.output_max_workers),
+            merge_workers=max(1, self.output_max_workers),
+        )
+        try:
+            for mz_axis, intensity_flat, lengths, coordinates in data_manager.flat_generator(
+                batch_size=self.batch_size,
+                include_mz=True,
+                max_threads=max(2, self.output_max_workers),
+            ):
+                output_dm.write_flat_batch(
+                    intensity_flat=intensity_flat,
+                    lengths=lengths,
+                    coordinates=coordinates,
+                    mz_axis=mz_axis,
+                )
+            output_dm.finalize()
+            return output_dm
+        except BaseException:
+            output_dm.close()
+            raise
+
+    def start(self) -> MSDataManagerImzML | IonImageDataManagerBinary:
         """Execute registered tasks and return new data manager with processed data. """
         if len(self._tasks) == 0:
             raise ValueError("No preprocessing task registered. Please register tasks before start().")
@@ -470,19 +591,28 @@ class Preprocessor(PreprocessorAPI):
         while task_cursor < len(ordered_tasks):
             batch_tasks: list[PreprocessTask] = []
 
-            # prepare consecutive batch tasks to run in the pipeline together, then run dataset task separately for better performance
+            # prepare consecutive batch tasks to run in the pipeline together, 
+            # then run dataset task separately for better performance
             while task_cursor < len(ordered_tasks) and ordered_tasks[task_cursor].scope == "batch":
                 batch_tasks.append(ordered_tasks[task_cursor])
                 task_cursor += 1
 
             if batch_tasks:
+                final_output_binary = (
+                    self.output_format == "ion_image_binary"
+                    and task_cursor >= len(ordered_tasks)
+                )
                 next_data_manager = self._run_flat_batch_task(
                     data_manager=current_data_manager,
                     tasks=batch_tasks,
+                    final_output_binary=final_output_binary,
                 )
 
                 if current_data_manager is not self.data_manager:
                     current_data_manager.close()
+
+                if final_output_binary:
+                    return cast(IonImageDataManagerBinary, next_data_manager)
 
                 current_data_manager = next_data_manager
 
@@ -491,15 +621,30 @@ class Preprocessor(PreprocessorAPI):
 
             dataset_task = ordered_tasks[task_cursor]
             task_cursor += 1
+            final_output_binary = (
+                self.output_format == "ion_image_binary"
+                and task_cursor >= len(ordered_tasks)
+            )
 
             next_data_manager = self._run_dataset_task(
                 data_manager=current_data_manager,
                 task=dataset_task,
+                final_output_binary=final_output_binary,
             )
 
             if current_data_manager is not self.data_manager:
                 current_data_manager.close()
 
+            if final_output_binary and isinstance(next_data_manager, IonImageDataManagerBinary):
+                return next_data_manager
+
             current_data_manager = next_data_manager
+
+        if self.output_format == "ion_image_binary":
+            # 所有 preprocessing task 都完成后，才执行最终 binary export。
+            output_dm = self._export_ion_image_binary(current_data_manager)
+            if current_data_manager is not self.data_manager:
+                current_data_manager.close()
+            return output_dm
 
         return cast(MSDataManagerImzML, current_data_manager)
