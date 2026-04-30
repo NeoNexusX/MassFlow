@@ -56,7 +56,7 @@ class PreprocessorAPI(_TaskRegistrar):
     def noise_reduction(
         self,
         *,
-        method: str = "ma_numba",
+        method: str = "gaussian_numba",
         window: int = 5,
         sd: float | None = None,
         polyorder: int = 3,
@@ -101,7 +101,7 @@ class PreprocessorAPI(_TaskRegistrar):
         self,
         *,
         width: int = 5,
-        method: str = "quantile",
+        method: str = "diff",
         snr: float = 2.0,
         return_type: str = "height",
         prominence: float | None = None,
