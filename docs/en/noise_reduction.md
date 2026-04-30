@@ -1,458 +1,174 @@
-# MassFlow 
+# MassFlow
 
-This document introduces the noise suppression and filtering module in MassFlow, focusing on the functions in `preprocess/filter_helper.py`, the spectrum-level entry `SpectrumPreprocess.noise_reduction_spectrum`, and the data-manager-level entry `Preprocess.noise_reduction`. The content includes API descriptions, example code, parameters and tuning suggestions, application scenarios, and common issues.
+This document introduces the noise reduction and smoothing module in MassFlow, focusing on:
+- Pipeline-level entry point `Preprocessor.noise_reduction`
+- Smoothing functions in `preprocess/helper/noise_reduction_helper.py`
+
 ## Overview
 
 - Input and Output
-  - Spectrum level: Input `massflow.module.spectrum.Spectrum` (or `SpectrumImzML`) with 1D `intensity` and optional `mz_list`; output is a new `SpectrumImzML` returned by `SpectrumPreprocess.noise_reduction_spectrum`.
-  - Data-manager level: Input `massflow.module.ms_data_manager_imzml.MSDataManagerImzML`; output is a new `MSDataManagerImzML` whose spectra have been denoised via `Preprocess.noise_reduction`, with data streamed to disk to control memory usage.
-- Algorithm Categories
-  - Time-domain convolution smoothing: `smooth_signal_ma` (moving average/custom kernel), `smooth_signal_gaussian` (discrete Gaussian)
-  - Polynomial fitting smoothing: `smooth_signal_savgol` (Savitzky-Golay) and its Numba-accelerated variant `savgol_numba` (supports 1D and 2D/batch inputs).
-  - Wavelet denoising: `smooth_signal_wavelet` (thresholding based on PyWavelets)
-  - Smoothing based on m/z neighborhood search: `smooth_ns_signal_ma`, `smooth_ns_signal_gaussian`, `smooth_ns_signal_bi` (bilateral) and their Numba-accelerated variants `ma_ns_numba`, `gaussian_ns_numba`, `bi_ns_numba`.
-- Preprocessing
-  - `smooth_preprocess`: Sets negative intensities to zero; optional utility, not automatically called by `noise_reduction_spectrum`.
+  - Input is in flat array form (`mz_data`, `intensity`, `lengths`), representing m/z and intensity data for a batch of spectra.
+  - Output is a smoothed flat array; m/z and coordinates remain unchanged, intensity is the denoised result.
+- Methods
+  - Moving Average (`ma_numba`): Uniform convolution smoothing over a window, Numba-accelerated.
+  - Gaussian Smoothing (`gaussian_numba`): Discrete Gaussian kernel convolution smoothing, Numba-accelerated.
+  - Savitzky-Golay Smoothing (`savgol_numba`): Polynomial fitting smoothing, Numba-accelerated.
+- All methods execute batch processing within Numba JIT kernels, leveraging `prange` parallel loops for performance.
 
 ### Function Relationship Diagram
 
 ```mermaid
 graph LR
-  A["SpectrumPreprocess.noise_reduction_spectrum"] --> P[smooth_preprocess]
-  A --> MA[smooth_signal_ma]
-  A --> G[smooth_signal_gaussian]
-  A --> SG[smooth_signal_savgol]
-  A --> SGN[savgol_numba]
-  A --> WT[smooth_signal_wavelet]
-  A --> MA_NS[smooth_ns_signal_ma]
-  A --> G_NS[smooth_ns_signal_gaussian]
-  A --> BI_NS[smooth_ns_signal_bi]
-  A --> MA_NS_N[ma_ns_numba]
-  A --> G_NS_N[gaussian_ns_numba]
-  A --> BI_NS_N[bi_ns_numba]
+  A["Preprocessor.noise_reduction"] --> B["FlatPreprocess.noise_reduction_flat"]
+  B --> C["smoother"]
+  C --> D["smooth_signal_ma_numba"]
+  C --> E["smooth_signal_gaussian_numba"]
+  C --> F["smooth_signal_savgol_numba"]
+  D --> G["Smoothed Data"]
+  E --> G
+  F --> G
 ```
 
 ## Core API
 
-### Preprocess.noise_reduction (Data manager level)
+### Preprocessor.noise_reduction (Pipeline Level)
 
 ```python
-preprocess.dm_pre_fun.Preprocess.noise_reduction(
-  data_manager: MSDataManager,
-  method: str = "ma",
-  window: int = 5,
-  sd: float | None = None,
-  sd_intensity: float | None = None,
-  p: int = 2,
-  coef: np.ndarray | None = None,
-  polyorder: int = 3,
-  deriv: int = 0,
-  delta: float = 1.0,
-  wavelet: str = "db4",
-  threshold_mode: str = "soft",
-  batch_size: int = 256,
-  temp_dir: str = "./temp_noise_data",
-) -> MSDataManagerImzML
+massflow.preprocess.api.PreprocessorAPI.noise_reduction(
+    *,
+    method: str = "ma_numba",
+    window: int = 5,
+    sd: float | None = None,
+    polyorder: int = 3,
+    deriv: int = 0,
+    delta: float = 1.0,
+) -> Self
 ```
 
-- Description: Data-manager-level entry for denoising. Processes all spectra in an `MSDataManager` with the same algorithms as the spectrum-level API, streaming data in batches and writing results to disk.
-- Input: `MSDataManagerImzML` (or subclass) containing spectra to be denoised.
-- Output: A new `MSDataManagerImzML` whose spectra have the same `mz_list` and coordinates as the original, with `intensity` replaced by smoothed values.
-- Notes:
-  - Internally uses a batch-processing layer to limit memory usage; this batch API is not intended to be called directly in normal workflows.
-  - Batch-wise processing clears in-memory spectra and swaps denoised data out to disk, so large datasets can be processed without manual memory management.
+- Description: Pipeline-level noise reduction entry point. Performs smoothing and denoising on all spectra in batches via `Preprocessor` chainable calls.
+- Input: Bind a data manager via `Preprocessor(dm)`.
+- Output: After calling `.start()`, returns a new `MSDataManagerImzML` whose spectral intensities are smoothed.
+- Supported methods: `"ma_numba"`, `"gaussian_numba"`, `"savgol_numba"`.
+- Parameters:
+  - `method`: Smoothing method, default `"ma_numba"`.
+  - `window`: Window length (positive integer), default 5. Even values are automatically adjusted to odd for centered alignment.
+  - `sd`: Gaussian kernel standard deviation, default `window / 4.0`.
+  - `polyorder`: Savitzky-Golay polynomial order, must be < `window`, default 3.
+  - `deriv`: Derivative order (SG parameter), default 0.
+  - `delta`: Sampling interval (SG parameter), default 1.0.
 
-Example (data manager level):
+Example:
 
 ```python
-import sys
-import os
-from pathlib import Path
-from massflow.module.mass_spectrum_set import MassSpectrumSet
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.preprocess.dm_pre_fun import Preprocess
+from massflow.data_manager import MSDataManagerImzML
+from massflow.preprocess.preprocessor import Preprocessor
 from massflow.tools.plot import plot_spectrum
 
 FILE_PATH = "data/example.imzML"
-ms = MassSpectrumSet()
-dm = MSDataManagerImzML(ms, filepath=FILE_PATH)
-dm.load_full_data_from_file()
+dm = MSDataManagerImzML(filepath=FILE_PATH)
+dm.load_head_data()
 
-# Use either classic methods (e.g. "savgol") or Numba-accelerated ones (e.g. "savgol_numba")
-dm_denoised = Preprocess.noise_reduction(
-    data_manager=dm,
-    method="savgol_numba",
-    window=11,
-    polyorder=3,
-    batch_size=256,
+denoised = (
+    Preprocessor(dm)
+    .noise_reduction(method="gaussian_numba", window=5)
+    .start()
 )
-
-sp_orig = dm.ms[0]
-sp_denoised = dm_denoised.ms[0]
 
 plot_spectrum(
-    base=sp_orig,
-    target=sp_denoised,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5),
+    base=dm.ms[100],
+    target=denoised.ms[100],
+    mz_range=(400.0, 420.0),
     metrics_box=True,
-    title_suffix="DM_SavgolNumba",
 )
 
+denoised.close()
 dm.close()
-dm_denoised.close()
 ```
 
-### SpectrumPreprocess.noise_reduction_spectrum
+![image-20260430140337481](https://neonexus-picture.oss-ap-southeast-1.aliyuncs.com/test/image-20260430140337481.png)
+
+### smoother (Helper Function Level)
 
 ```python
-massflow.preprocess.spectrum_pre_fun.SpectrumPreprocess.noise_reduction_spectrum(
-  data: Spectrum | SpectrumImzML,
-  method: str = "ma",
-  window: int = 5,
-  sd: float | None = None,
-  sd_intensity: float | None = None,
-  p: int = 2,
-  coef: np.ndarray | None = None,
-  polyorder: int = 3,
-  deriv: int = 0,
-  delta: float = 1.0,
-  wavelet: str = "db4",
-  threshold_mode: str = "soft",
-) -> SpectrumImzML
-```
-
-- Description: Unified entry point for denoising a single spectrum. Dispatches to the specific filter implementation based on `method`, and returns a new spectrum object with the same coordinates as the input, where `intensity` is the smoothed result.
-- Notes:
-  - This spectrum-level API performs no automatic memory cleanup; it simply returns a new spectrum instance. When applying it repeatedly over large datasets, you must manage memory yourself or prefer `Preprocess.noise_reduction` at the data-manager level.
-- Supported `method`s:
-  - Classic methods: `ma`, `gaussian`, `savgol`, `wavelet`, `ma_ns`, `gaussian_ns`, `bi_ns`.
-  - Numba-accelerated methods: `savgol_numba`, `ma_ns_numba`, `gaussian_ns_numba`, `bi_ns_numba`.
-- Returns: A new `SpectrumImzML` instance, with `mz_list` and coordinates preserved, and `intensity` replaced with the smoothed result.
-- Exceptions:
-  - `ValueError`: unsupported `method`.
-  - `TypeError`: invalid input type.
-
-### smooth_signal_ma
-
-```python
-preprocess.filter_helper.smooth_signal_ma(
-  intensity: np.ndarray,
-  coef: np.ndarray | None = None,
-  window: int = 5,
+preprocess.helper.noise_reduction_helper.smoother(
+    intensity: np.ndarray | None = None,
+    *,
+    method: str = "ma_numba",
+    window: int = 5,
+    sd: float | None = None,
+    polyorder: int = 2,
+    deriv: int = 0,
+    delta: float = 1.0,
+    lengths: np.ndarray | None = None,
 ) -> np.ndarray
 ```
 
-- Notes: When passing `coef`, it is normalized automatically; its length determines the effective window.
-- Description: Moving average (or custom convolution kernel) smoothing. Uses `edge` padding for 1D boundaries and automatically normalizes weights.
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method.):
-  - `coef`: Convolution kernel; if `None`, a uniform kernel of length `window` is used.
-  - `window`: Window length (positive integer; if even and `coef is None`, it is automatically coerced to odd for centered alignment).
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions:
-  - `ValueError`: `window <= 0`, or `intensity` is not a 1D array.
-  - `TypeError`: `window` must be integer when `coef` is None, `coef` must be a non-empty 1D numpy array when provided.
-
-Example:
-
-```python
-from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
-
-denoised_spectrum = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="ma",
-    window=7,
-)
-```
-
-Example:
-
-```python
-import sys
-import os
-from pathlib import Path
-import numpy as np
-import matplotlib.pyplot as plt
-from massflow.module.mass_spectrum_set import MassSpectrumSet
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
-from massflow.tools.plot import plot_spectrum
-
-# Data loading (shared by subsequent examples)
-FILE_PATH = "data/example.imzML"
-ms = MassSpectrumSet()
-ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
-ms_md.load_full_data_from_file()
-sp = ms[0]
-
-# Denoising processing (using directly set window size)
-denoised_spectrum = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="ma",
-    window=7,  # Window size for moving average
-)
-
-# Plotting (overlay original and denoised)
-plot_spectrum(
-    base=sp,
-    target=denoised_spectrum,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5),
-    metrics_box=True,
-    title_suffix="MA",
-)
-```
-
-![image-20251109121440485](https://s2.loli.net/2025/11/09/5i9H6bFBlDrZW8U.png)
-
-### smooth_signal_gaussian
-
-```python
-preprocess.filter_helper.smooth_signal_gaussian(
-  intensity: np.ndarray,
-  sd: float | None = None,
-  window: int = 5,
-) -> np.ndarray
-```
-
-- Description: Discrete Gaussian kernel smoothing; defaults to `sd = window / 4`.
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method.): 
-  - `sd` (Gaussian standard deviation), default `sd = window / 4.0`
-  - `window` (odd length),default = 5
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions:
-  - `ValueError`: `window <= 0` or even; `sd` must be positive finite,intensity is not a 1D array.
-  -  `TypeError`: `window` must be integer.
-
-Example:
-
-```python
-denoised = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="gaussian",
-    window=7,
-    # If default, it is set to `window / 4.0`
-    # sd=None
-    )
-```
-
-![image-20251109121853531](https://s2.loli.net/2025/11/09/zrSNnocU9ujGEZW.png)
-
-### smooth_signal_savgol
-
-```python
-preprocess.filter_helper.smooth_signal_savgol(
-  intensity: np.ndarray,
-  window: int = 5,
-  polyorder: int = 2,
-) -> np.ndarray
-```
-
- - Description: Savitzky-Golay polynomial fitting smoothing; automatically ensures `window` is odd and `window >= 3`. `polyorder` must be strictly less than `window` (a violation raises an error).
+- Description: Flat-array smoothing dispatcher. Calls the corresponding Numba backend based on `method`.
 - Parameters:
-  - `window`: Odd window size; minimum 3.
-  - `polyorder`: Polynomial order; must be `< window`.
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions: 
-  - `ValueError`: `window <= 0` or even; `polyorder` must be less than `window`,intensity is not a 1D array.
-  -  `TypeError`: `window` and `polyorder` must be integer.
-Example:
+  - `intensity`: One-dimensional flat intensity array.
+  - `lengths`: Spectrum length array, used to split processing per-spectrum within Numba.
+  - Other parameters are consistent with the pipeline API.
+- Returns: Smoothed one-dimensional intensity array.
+- Supported methods are limited to `"ma_numba"`, `"gaussian_numba"`, and `"savgol_numba"`.
+
+### FlatPreprocess.noise_reduction_flat (Flat Batch Level)
 
 ```python
-denoised = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="savgol",
-    window=10,
-    polyorder=1
-    
-)
+massflow.preprocess.flat_pre_fun.FlatPreprocess.noise_reduction_flat(
+    mz_data: np.ndarray,
+    intensity: np.ndarray,
+    lengths: np.ndarray,
+    method: str = "ma_numba",
+    window: int = 5,
+    sd: float | None = None,
+    polyorder: int = 3,
+    deriv: int = 0,
+    delta: float = 1.0,
+) -> FlatBatchResult
 ```
 
-![image-20251109124408310](https://s2.loli.net/2025/11/09/NQ7wOruaiIGoPFl.png)
+- Description: The underlying implementation of `Preprocessor.noise_reduction`. Returns a `FlatBatchResult` containing mz_data, smoothed intensity, and lengths.
 
-​        window=3, polyorder=1
+## Method Details
 
-![image-20251109124533727](https://s2.loli.net/2025/11/09/7W9oH1NvtjPiRTB.png)
+### Moving Average (ma_numba)
 
-### smooth_signal_wavelet
+Computes the arithmetic mean of data points within a window. Implemented using `uniform_filter1d`-style one-dimensional convolution, with `window` controlling the degree of smoothing. Even windows are automatically incremented by 1.
 
-```python
-preprocess.filter_helper.smooth_signal_wavelet(
-  intensity: np.ndarray,
-  wavelet: str = "db4",
-  threshold_mode: str = "soft",
-) -> np.ndarray
-```
+### Gaussian Smoothing (gaussian_numba)
 
-- Description: Wavelet threshold denoising; automatically estimates noise using Donoho-Johnstone universal threshold and applies soft/hard thresholding. The output length is guaranteed to match the input through proper wavelet reconstruction.
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method.): 
-  - `wavelet` (e.g., `db4`, `db8`, `haar`, `coif2`),default `db4`
-  - `threshold_mode` (`soft`/`hard`),default `'soft'`
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions:
-  - `ImportError`: PyWavelets `pywt` not installed.
-  - `ValueError`: `threshold_mode` must be 'soft' or 'hard',intensity is not a 1D array.
+Performs weighted convolution using a discrete Gaussian kernel. `sd` controls the degree of smoothing, defaulting to `sd = window / 4.0`. Larger `sd` produces stronger smoothing.
 
-Example:
+### Savitzky-Golay Smoothing (savgol_numba)
 
-```python
-denoised = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="wavelet",
-)
-```
+Uses a sliding window with least-squares polynomial fitting. `polyorder` determines the polynomial order (typically 1–3), and `window` is an odd-sized window. Behavior is consistent with `scipy.signal.savgol_filter`.
 
-![image-20251109124103599](https://s2.loli.net/2025/11/09/n7d8Eab15MuxpNR.png)
+## Parameter and Tuning Recommendations
 
-### smooth_ns_signal_ma
-
-```python
-preprocess.filter_helper.smooth_ns_signal_ma(
-  intensity: np.ndarray,
-  index: np.ndarray,
-  k: int = 5,
-  p: int = 2,
-) -> np.ndarray
-```
-
- - Description: Uniform neighborhood smoothing over the `k` nearest neighbors (row-wise mean). Index validation and fallback are handled upstream.
-- Parameters(Note that only the following parameters are available, other parameters do not affect the effectiveness of this smoothing method):  
-  - `k` (number of neighbors),default 5,
-  - `p` (distance metric),default 2.
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions:
-  - `ValueError`: `k < 1` or `p < 1`,intensity is not a 1D array.
-  -  `TypeError`: `k` and `p` must be integers.
-
-Example:
-
-```python
-denoised = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="ma_ns",
-    window=10,  # window maps to k
-    p=2
-)
-```
-
-![image-20251109123931844](https://s2.loli.net/2025/11/09/a5i4Styzwh2pARo.png)
-
-### smooth_ns_signal_gaussian
-
-```python
-preprocess.filter_helper.smooth_ns_signal_gaussian(
-  intensity: np.ndarray,
-  index: np.ndarray,
-  k: int = 5,
-  p: int = 2,
-  sd: float | None = None,
-) -> np.ndarray
-```
-
-- Description: Applies Gaussian weighting to neighborhood distances; the exponent is clipped to avoid underflow, and row normalization avoids division by zero.
-- Default: `sd = median(max_row_distance) / 2.0`.
-- Parameters:
-  - `index`: 1D coordinates aligned with `intensity`.
-  - `k`: number of neighbors (>=1).
-  - `p`: Minkowski distance parameter (>=1).
-  - `sd`: Gaussian scale over neighbor distances; auto-estimated if `None`.
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions:
-  - `ValueError`: `k < 1` or `p < 1`,intensity is not a 1D array.
-  -  `TypeError`: `k` and `p` must be integers.
-- Notes: If `index` is `None` or length-mismatched, it falls back to `np.arange(...)` with a warning.
-
-Example:
-
-```python
-denoised = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="gaussian_ns",
-    window=10,  # window maps to k
-    p=2,
-    sd=None
-)
-```
-
-![image-20251109123848344](https://s2.loli.net/2025/11/09/Bpv1GQ8eVfI9HkK.png)
-
-### smooth_ns_signal_bi (Bilateral)
-
-```python
-preprocess.filter_helper.smooth_ns_signal_bi(
-  intensity: np.ndarray,
-  index: np.ndarray,
-  k: int = 5,
-  p: int = 2,
-  sd_dist: float | None = None,
-  sd_intensity: float | None = None,
-) -> np.ndarray
-```
-
-- Description: Bilateral weighting that considers both m/z distance and intensity difference; suitable for edge-preserving smoothing.
-- Parameters:
-  - `index`: 1D coordinates aligned with `intensity`.
-  - `k`: number of neighbors (>=1).
-  - `p`: Minkowski distance parameter.
-  - `sd_dist`: spatial Gaussian scale over neighbor distances; default `median(max_row_distance)/2`.
-  - `sd_intensity`: intensity Gaussian scale; default `stats.median_abs_deviation(intensity, scale="normal")`.
-- Returns: A 1D `intensity` array of the same length as the input.
-- Exceptions:
-  - `ValueError`: `k < 1` or `p < 1`,intensity is not a 1D array.
-  -  `TypeError`: `k` and `p` must be integers.
-- Notes: Both exponent terms are clipped to avoid numerical underflow; weights are row-normalized.
-
-Example:
-
-```python
-denoised = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="bi_ns",
-    window=10,  # window maps to k
-    p=2
-)
-```
-
-window =10
-
-![image-20251109123751589](https://s2.loli.net/2025/11/09/2ucOreGy5CYsxpk.png)
-
-window=20:
-
-![image-20251109123729995](https://s2.loli.net/2025/11/09/9zOKjxiN7SJbtAI.png)
-
-## Parameter Descriptions and Tuning Suggestions
-
-- `window` (Convolution/SG window or neighbor count `k` in NS methods)
-  - Positive integer. Savitzky-Golay: auto-coerced to odd and minimum 3. Moving Average/Gaussian: even windows are automatically coerced to odd for centered alignment.
-  - Recommendation: 5–15 (adjust based on peak width and noise intensity).
-- `coef` (Custom convolution kernel)
-  - Automatically normalized when passed; its length determines the effective window.
-- `sd` (Gaussian kernel scale)
-  - Convolution default `sd = window / 4.0`.
-  - Neighborhood Gaussian default `sd = median(max_row_distance) / 2.0` (data-adaptive).
-- `polyorder` (Polynomial order for SG)
-  - Must be less than `window`; recommended 1–2. Auto-lowered if needed.
-- `wavelet` and `threshold_mode`
-  - Recommendation: `db4` + `soft`; for strong noise, try `hard`.
-- `k` (Number of neighbors for neighborhood search)
-  - `k >= 1`; too large can lead to over-smoothing; generally 5–11.
-- `p` (Minkowski distance parameter)
-  - `p=1` for Manhattan, `p=2` for Euclidean; higher `p` emphasizes distance differences more.
-- `sd_intensity` (Scale of intensity difference for bilateral filter)
-  - Defaults to `median_abs_deviation(intensity, scale="normal")`.
+- `window`: Common to all methods.
+  - Must be a positive integer. Even values are automatically adjusted to odd.
+  - Suggested range: 5–15, adjustable based on peak width and noise intensity.
+  - Larger windows produce smoother results but may blur narrow peaks.
+- `sd` (Gaussian kernel standard deviation)
+  - Defaults to `window / 4.0`; larger values produce stronger smoothing.
+- `polyorder` (SG polynomial order)
+  - Must be less than `window`; recommended 1–3.
+  - Lower orders (e.g., 1) produce smoother results; higher orders (e.g., 3) preserve peaks better.
+- Method Selection Recommendations
+  - `"ma_numba"`: General-purpose, fastest.
+  - `"gaussian_numba"`: Gentler smoothing, theoretically supported for Gaussian noise.
+  - `"savgol_numba"`: Strong peak preservation, suitable for scenarios requiring subsequent peak area calculation.
 
 ## References
 
+- `preprocess/helper/noise_reduction_helper.py`: Smoothing dispatcher (smoother)
+- `preprocess/numba/noise_reduction_numba.py`: Numba-accelerated implementation (smooth_signal_ma_numba, smooth_signal_gaussian_numba, smooth_signal_savgol_numba)
+- `preprocess/flat_pre_fun.py`: Flat preprocessing entry point (FlatPreprocess.noise_reduction_flat)
+- `preprocess/api.py`: Chainable API (PreprocessorAPI.noise_reduction)
+
 ## Error Handling and Logging
 
-- All input validation errors are logged via `logger.error` before raising `TypeError` or `ValueError`.
-- Savitzky-Golay: `window` is coerced to odd; if `polyorder >= window`, a `ValueError` is logged and raised.
-- Gaussian and Moving Average: `window` must be a positive integer; if even, it is coerced to odd. `sd` must be positive.
-- Neighborhood methods: when `index` is missing or mismatched, a `logger.warning` is emitted and it falls back to `np.arange(len(intensity))` for KD-tree queries.
-
-- `preprocess/filter_helper.py` (Core implementation of filtering/denoising)
-- `preprocess/dm_pre_fun.py` (Data-manager-level preprocessing entry, including noise reduction)
-- `preprocess/spectrum_pre_fun.py` (Spectrum-level entry points and parameter dispatch)
-- `module/spectrum.py` and `module/mass_spectrum_set.py` (Spectrum and MassSpectrumSet data structures)
-- `src/massflow/tools/plot.py` (Plotting utilities for Spectrum/MassSpectrumSet)
+- Input validation: intensity must be a non-empty 1D numpy array, otherwise `TypeError` is raised.
+- window validation: Must be a positive integer, otherwise `ValueError` is raised.
+- sd validation: Must be positive, otherwise `ValueError` is raised.
+- method validation: Only `"ma_numba"`, `"gaussian_numba"`, `"savgol_numba"` are supported; otherwise `ValueError` is raised.
