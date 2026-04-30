@@ -149,6 +149,7 @@ def estimate_domain_parallel(
         mz_arr = np.asarray(mz_data, dtype=np.float64)
 
         if mz_arr.ndim != 1:
+            logger.error(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
             raise ValueError(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
 
         total_points = int(np.sum(lengths_arr, dtype=np.int64))
@@ -157,6 +158,10 @@ def estimate_domain_parallel(
         # Continuous mode: shared m/z axis (1-D, not flattened per spectrum)
         if mz_arr.size != total_points:
             if mz_arr.size != max_len:
+                logger.error(
+                    "Incompatible flat batch for shared m/z mode: "
+                    f"mz_size={mz_arr.size}, max_len={max_len}, total_points={total_points}."
+                )
                 raise ValueError(
                     "Incompatible flat batch for shared m/z mode: "
                     f"mz_size={mz_arr.size}, max_len={max_len}, total_points={total_points}."
@@ -184,6 +189,7 @@ def estimate_domain_parallel(
         stats_batches.append(np.column_stack((mins, maxs, resolutions)))
 
     if not stats_batches:
+        logger.error("No flat batches available for domain estimation.")
         raise ValueError("No flat batches available for domain estimation.")
 
     stats_arr = np.vstack(stats_batches)
@@ -195,7 +201,7 @@ def estimate_domain_parallel(
     step = _aggregate_resolution_step(resolutions, binfun)
 
     logger.info(
-        f"[parallel] Estimated domain stats: min_mz={mz_min}, max_mz={mz_max}, "
+        f" Estimated domain stats: min_mz={mz_min}, max_mz={mz_max}, "
         f"step={step} (method={binfun})"
     )
 
@@ -247,6 +253,7 @@ def merge_peaks(
     valid_peaks = mz_list[~np.isnan(mz_list)]
     logger.debug(f"Merging peaks: initial count {valid_peaks.size}")
     if valid_peaks.size > 1 and np.any(np.diff(valid_peaks) < 0):
+        logger.error("Peaks must be sorted in ascending order (ignoring NaNs).")
         raise ValueError("peaks must be sorted")
 
     method_code = get_method_code(tol_method)
@@ -267,7 +274,7 @@ def bin_peaks_parallel(
 ) -> tuple[NDArray, NDArray]:
     """Parallel binning using flat_generator + parallel nearest search."""
     logger.info(
-        f"[parallel] Binning peaks: {len(data_manager.ms)} spectra, "
+        f" Binning peaks: {len(data_manager.ms)} spectra, "
         f"domain size {domain.size}, tolerance {tolerance}"
     )
 
@@ -290,6 +297,7 @@ def bin_peaks_parallel(
         mz_arr = np.asarray(mz_data, dtype=np.float64)
 
         if mz_arr.ndim != 1:
+            logger.error(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
             raise ValueError(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
 
         total_points = int(np.sum(lengths_arr, dtype=np.int64))
@@ -299,6 +307,10 @@ def bin_peaks_parallel(
         # Continuous mode: shared m/z for all spectra in this batch
         if is_shared_mz:
             if mz_arr.size != max_len:
+                logger.error(
+                    "Incompatible flat batch for shared m/z mode: "
+                    f"mz_size={mz_arr.size}, max_len={max_len}, total_points={total_points}."
+                )
                 raise ValueError(
                     "Incompatible flat batch for shared m/z mode: "
                     f"mz_size={mz_arr.size}, max_len={max_len}, total_points={total_points}."
@@ -393,11 +405,13 @@ def _validate_reference_filter_args(
 ) -> None:
     """Validate optional reference pre-filter parameters."""
     if min_count is not None and (not isinstance(min_count, (int, np.integer)) or min_count < 1):
+        logger.error("min_count must be a positive integer when provided.")
         raise ValueError("min_count must be a positive integer when provided")
 
     if min_frequency is not None and (
         not np.isfinite(min_frequency) or min_frequency < 0.0 or min_frequency > 1.0
     ):
+        logger.error("min_frequency must be in [0, 1] when provided.")
         raise ValueError("min_frequency must be in [0, 1] when provided")
 
 
@@ -410,8 +424,6 @@ def _filter_reference_by_counts(
     min_frequency: Optional[float] = None,
 ) -> tuple[NDArray, NDArray]:
     """Filter a reference axis using construction-time support counts."""
-    _validate_reference_filter_args(min_count, min_frequency)
-
     if min_count is None and min_frequency is None:
         return reference, counts
 
@@ -421,6 +433,7 @@ def _filter_reference_by_counts(
 
     if min_frequency is not None:
         if n_spectra <= 0:
+            logger.error("n_spectra must be positive when min_frequency is provided.")
             raise ValueError("n_spectra must be positive when min_frequency is provided")
         capped_counts = np.minimum(counts, int(n_spectra))
         keep &= capped_counts / float(n_spectra) >= float(min_frequency)
@@ -438,11 +451,10 @@ def reference_computer(
     max_threads: int = 2,
     min_count: Optional[int] = None,
     min_frequency: Optional[float] = None,
-    return_counts: bool = False,
 ) -> Tuple[NDArray, float] | tuple[NDArray, float, NDArray]:
     """Parallel version of compute_reference based on flat_generator."""
     logger.info(
-        f"[parallel] Computing reference: units={units}, binfun={binfun}, binratio={binratio}"
+        f" Computing reference: units={units}, binfun={binfun}, binratio={binratio}"
     )
 
     norm_units = _normalize_units(units)
@@ -458,17 +470,11 @@ def reference_computer(
         max_threads=max_threads,
     )
 
-    logger.info(
-        f"[parallel] Domain estimated: size={domain.size}, estimate_tolerance={estimate_tolerance}"
-    )
-
     tolerance = estimate_tolerance if tolerance is None else (tolerance * 1e-6 if units == "ppm" else tolerance)
 
     if reference is not None:
         if min_count is not None or min_frequency is not None:
-            raise ValueError("min_count/min_frequency cannot be applied to a user-provided reference")
-        if return_counts:
-            raise ValueError("return_counts is only available when reference is computed")
+            logger.info("min_count/min_frequency cannot be applied to a user-provided reference")
         return reference, tolerance
 
     reference, reference_counts = bin_peaks_parallel(
@@ -480,7 +486,6 @@ def reference_computer(
         max_threads=max_threads,
     )
 
-    raw_size = reference.size
     reference, reference_counts = _filter_reference_by_counts(
         reference,
         reference_counts,
@@ -490,11 +495,9 @@ def reference_computer(
     )
 
     logger.info(
-        f"[parallel] Reference computed: final size={reference.size}"
-        f" (before_filter={raw_size})"
+        f" Reference computed: final size={reference.size}"
     )
-    if return_counts:
-        return reference, tolerance, reference_counts
+
     return reference, tolerance
 
 def peak_aligner(

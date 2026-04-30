@@ -153,7 +153,7 @@ class PreprocessorAPI(_TaskRegistrar):
     ) -> Self:
         """Register peak alignment flat task."""
         if backend == "cardinal":
-            if min_count is not None or min_frequency is not None: # 确实可以把一些检查放到api里，避免进入 stageb TODO
+            if min_count is not None or min_frequency is not None:
                 raise ValueError("min_count/min_frequency are only supported by the python peak_align backend")
             return self._register_task(
                 "peak_align",
