@@ -11,12 +11,12 @@ from massflow.module import MassSpectrumSet
 from massflow.preprocess.preprocessor import Preprocessor
 from massflow.tools.logger import get_logger
 
-logger = get_logger("massflow.test_peak_pick_parallel")
+logger = get_logger("massflow.test_peak_pick")
 
 Backend = Literal["python", "cardinal"]
 
 ROUND = 3
-FILEPATH = r"/Users/dre/Desktop/data/40TopL,10TopL,30BottomL,20BottomR-profile/40TopL,10TopL,30BottomL,20BottomR-profile.imzML"
+FILEPATH = r"data/example_file.imzML"
 MZ_RANGES = [(100, 1000)]
 RNG_SEED = 20260412
 SPECTRUM_SAMPLE_SIZE = 64
