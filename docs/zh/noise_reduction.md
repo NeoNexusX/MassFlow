@@ -23,15 +23,15 @@ graph LR
   B --> C["smoother"]
   C --> D["smooth_signal_ma_numba"]
   C --> E["smooth_signal_gaussian_numba"]
-  C --> F["smooth_signal_savgol_numba"]
-  D --> G["平滑后数据"]
+  C --> F["...others"]
+  D --> G["processed_data"]
   E --> G
   F --> G
 ```
 
 ## 核心 API
 
-### Preprocessor.noise_reduction（流水线级）
+### Preprocessor.noise_reduction
 
 ```python
 massflow.preprocess.api.PreprocessorAPI.noise_reduction(
