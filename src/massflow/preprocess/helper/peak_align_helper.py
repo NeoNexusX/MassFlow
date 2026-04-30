@@ -300,22 +300,10 @@ def bin_peaks_parallel(
             logger.error(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
             raise ValueError(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
 
-        total_points = int(np.sum(lengths_arr, dtype=np.int64))
-        max_len = int(np.max(lengths_arr)) if lengths_arr.size > 0 else 0
-        is_shared_mz = mz_arr.size != total_points
+        is_shared_mz = infer_shared_mz(mz_arr, lengths_arr)
 
         # Continuous mode: shared m/z for all spectra in this batch
         if is_shared_mz:
-            if mz_arr.size != max_len:
-                logger.error(
-                    "Incompatible flat batch for shared m/z mode: "
-                    f"mz_size={mz_arr.size}, max_len={max_len}, total_points={total_points}."
-                )
-                raise ValueError(
-                    "Incompatible flat batch for shared m/z mode: "
-                    f"mz_size={mz_arr.size}, max_len={max_len}, total_points={total_points}."
-                )
-
             raw_peaks = mz_arr
             if raw_peaks.size == 0:
                 continue
