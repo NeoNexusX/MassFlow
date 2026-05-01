@@ -1,22 +1,13 @@
 import time
 import pytest
-import numpy as np
 from massflow.data_manager import MSDataManagerImzML
-from massflow.preprocess import BatchPreprocess
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
-from massflow.tools.dm_process import speed_process
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.test.test_noise_reduction")
 
 ROUNDS = 5
-BATCH_NR_METHODS = ["ma", "gaussian", "savgol"]
 FLAT_NR_METHODS = ["ma_numba", "gaussian_numba", "savgol_numba"]
-BATCH_FLAT_NR_METHOD_PAIRS = [
-    ("ma", "ma_numba"),
-    # ("gaussian", "gaussian_numba"),
-    # ("savgol", "savgol_numba"),
-]
 
 
 def _noise_reduction_flat_from_flat_batches(
@@ -38,18 +29,8 @@ class TestNoiseReductionAPI:
     """
     Test suite for noise reduction API functionality and performance.
         use :
-        uv run  pytest ./tests/test_noise_reduction.py -k "test_nr_speed or test_nr_flat_speed" -q
+        uv run pytest ./tests/test_noise_reduction.py -k "test_nr_flat_speed" -q
     """
-
-    @pytest.fixture(scope="module", params=["data/example.imzML"])
-    def ms_raw_data(self, request) -> MSDataManagerImzML:
-        """Fixture providing MSDataManagerImzML instance with fully initialized spectra for noise reduction tests."""
-        data_file_path = request.param
-        dm = MSDataManagerImzML(filepath=data_file_path)
-        dm.load_head_data()
-        for _ in dm.batch_generator(batch_size=512):
-            pass
-        return dm
 
     @pytest.fixture(scope="module", params=["data/example.imzML"])
     def flat_caches(self, request):
@@ -62,29 +43,6 @@ class TestNoiseReductionAPI:
             caches.append((intensity_flat, lengths))
 
         return caches
-
-    @pytest.mark.benchmark(timer=time.perf_counter)
-    @pytest.mark.parametrize("method", BATCH_NR_METHODS)
-    def test_nr_speed(self,
-                      benchmark,
-                      method,
-                      ms_raw_data):
-        """Test noise reduction speed for different methods."""
-        logger.info(f"Benchmarking noise reduction method={method}")
-
-        batch_kwargs = {
-            "method": method,
-            "window": 5,
-
-        }
-
-        benchmark.pedantic(
-            speed_process,
-            args=(ms_raw_data, 4096, BatchPreprocess.noise_reduction_batch, batch_kwargs),
-            rounds=ROUNDS,
-            iterations=1,
-            warmup_rounds=1,
-        )
 
     @pytest.mark.benchmark(timer=time.perf_counter)
     @pytest.mark.parametrize("method", FLAT_NR_METHODS)
@@ -107,42 +65,3 @@ class TestNoiseReductionAPI:
             iterations=1,
             warmup_rounds=1,
         )
-
-    @pytest.mark.parametrize(
-        ("batch_method", "flat_method"),
-        BATCH_FLAT_NR_METHOD_PAIRS,
-    )
-    def test_nr_flat_batch_intensity_consistency(self, batch_method, flat_method, ms_raw_data):
-        """Test flat and batch consistency using matched algorithm variants."""
-        batch = next(ms_raw_data.batch_generator(batch_size=256))
-
-        batch_result = BatchPreprocess.noise_reduction_batch(
-            batch_spectra=batch,
-            method=batch_method,
-            window=5,
-        )
-
-        lengths = np.array([spectrum.intensity.size for spectrum in batch], dtype=np.int64)
-        intensity_flat = np.concatenate(
-            [spectrum.intensity.astype(np.float32, copy=False) for spectrum in batch]
-        )
-        flat_result = FlatPreprocess.noise_reduction_flat(
-            mz_data=None, # type: ignore
-            intensity=intensity_flat,
-            method=flat_method,
-            window=5,
-            lengths=lengths,
-        )
-
-        offset = 0
-        for spectrum_batch, valid_len in zip(batch_result, lengths):
-            end = offset + int(valid_len)
-            flat_slice = flat_result.intensity[offset:end]
-            assert spectrum_batch.intensity is not None
-            np.testing.assert_allclose(
-                spectrum_batch.intensity,
-                flat_slice,
-                rtol=1e-6,
-                atol=1e-6,
-            )
-            offset = end

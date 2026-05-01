@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from massflow.module import Spectrum
-from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
 from massflow.tools.logger import get_logger
+from massflow.tools.snr import calculate_snr_details
 
 logger = get_logger("massflow.tools")
 
@@ -99,7 +99,7 @@ class SpectrumPlotter:
     @staticmethod
     def _safe_snr(spectrum: Spectrum) -> float:
         try:
-            value = float(SpectrumPreprocess.calculate_snr_spectrum(spectrum))
+            _, _, value = calculate_snr_details(spectrum)
             return value if np.isfinite(value) else 0.0
         except Exception as exc:
             logger.warning(f"SNR calculation failed: {exc}")

@@ -14,6 +14,11 @@ from massflow.preprocess.api import PreprocessorAPI, TaskScope
 from massflow.preprocess.helper.peak_align_helper import reference_computer
 from massflow.preprocess.flat_pre_fun import FlatPreprocess, FlatBatchResult
 from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
+from massflow.tools.infer_spectrum_type import (
+    SpectrumType,
+    resolve_spectrum_type,
+    set_spectrum_type_metadata,
+)
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.preprocess.async_pipeline")
@@ -143,6 +148,7 @@ class Preprocessor(PreprocessorAPI):
         "peak_pick": 40,
         "peak_align": 50,
     }
+    _PROFILE_ONLY_TASKS = frozenset({"baseline_correction", "noise_reduction", "peak_pick"})
 
     def __init__(
         self,
@@ -202,17 +208,40 @@ class Preprocessor(PreprocessorAPI):
         )
         return self
 
-    def _sorted_tasks(self) -> list[PreprocessTask]:
+    def _sorted_tasks(self, spectrum_type) -> list[PreprocessTask]:
         def sort_key(task: PreprocessTask) -> tuple[int, int]:
             return (self._OPERATION_ORDER.get(task.name, 10_000), task.sequence)
 
         ordered = sorted(self._tasks, key=sort_key)
 
+        if spectrum_type == "centroid":
+            dropped_task_names = [task.name for task in ordered if task.name in self._PROFILE_ONLY_TASKS]
+            if dropped_task_names:
+                logger.warning(
+                    f"Detected centroid spectra; dropping unsupported tasks: {dropped_task_names}"
+                )
+                ordered = [task for task in ordered if task.name not in self._PROFILE_ONLY_TASKS]
+
         if ordered:
             task_names = [f"{task.name}:{task.scope}" for task in ordered]
             logger.info(f"async_pipeline_task_order: {task_names}")
+        else:
+            logger.warning("No supported preprocessing tasks remain after task arrangement.")
 
         return ordered
+
+    def _resolve_input_spectrum_type(self) -> SpectrumType:
+        """Resolve profile/centroid metadata before arranging tasks."""
+        return resolve_spectrum_type(self.data_manager)
+
+    @staticmethod
+    def _resolve_output_spectrum_type(
+        *,
+        input_spectrum_type: SpectrumType,
+        tasks: list[PreprocessTask],
+    ) -> SpectrumType:
+        """Infer output spectrum type after applying the provided tasks."""
+        return "centroid" if any(task.name == "peak_pick" for task in tasks) else input_spectrum_type
 
     def _set_error(
         self,
@@ -530,6 +559,8 @@ class Preprocessor(PreprocessorAPI):
                 units=units,
                 binfun=kwargs.get("binfun", "median"),
                 binratio=kwargs.get("binratio", 2.0),
+                min_count=kwargs.get("min_count"),
+                min_frequency=kwargs.get("min_frequency"),
                 batch_size=self.batch_size,
             )
         else:
@@ -540,6 +571,8 @@ class Preprocessor(PreprocessorAPI):
 
         kwargs.pop("binfun", None)
         kwargs.pop("binratio", None)
+        kwargs.pop("min_count", None)
+        kwargs.pop("min_frequency", None)
 
         return PreprocessTask(
             name=task.name,
@@ -570,7 +603,9 @@ class Preprocessor(PreprocessorAPI):
 
         if task.name == "peak_align" or task.name == "peak_pick":
             dataset_apply_fn = cast(Callable[..., MSDataManagerImzML], task.apply_fn)
-            return dataset_apply_fn(data_manager=data_manager, **task.kwargs)
+            result = dataset_apply_fn(data_manager=data_manager, **task.kwargs)
+            set_spectrum_type_metadata(result.ms.meta, output_spectrum_type)
+            return result
         else:
             raise NotImplementedError(f"Dataset task {task.name} with backend Cardinal is not supported.")
 
@@ -628,6 +663,10 @@ class Preprocessor(PreprocessorAPI):
         """Execute registered tasks and return new data manager with processed data. """
         ordered_tasks = self._sorted_tasks()
         current_data_manager: MSDataManager = self.data_manager
+        current_spectrum_type = self._resolve_input_spectrum_type()
+        ordered_tasks = self._sorted_tasks(current_spectrum_type)
+        if not ordered_tasks:
+            raise ValueError("No supported preprocessing tasks remain after arranging tasks for the input spectrum type.")
         task_cursor = 0
         _ion_out = self.output_format in {"ion_image_binary", "ion_image_h5"}
 

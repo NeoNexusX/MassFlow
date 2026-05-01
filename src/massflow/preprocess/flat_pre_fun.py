@@ -5,7 +5,7 @@ from massflow.preprocess.helper.baseline_correction_helper import baseline_corre
 from massflow.preprocess.helper.est_noise_helper import estimator
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
-from massflow.preprocess.helper.peak_pick_parallel import peak_picker
+from massflow.preprocess.helper.peak_pick_helper import peak_picker
 from massflow.preprocess.helper.peak_align_helper import peak_aligner
 from massflow.tools.logger import get_logger
 
@@ -31,11 +31,8 @@ class FlatPreprocess:
         method: str = "locmin_numba",
         smooth: str = "none",
         span: float = 0.1,
-        s: float | None = 0.0,
         upper: bool = False,
         width: int = 5,
-        lam: float = 1e7,
-        p: float = 0.01,
         niter: int = 15,
         baseline_scale: float = 1.0,
         m: int | None = None,
@@ -57,11 +54,8 @@ class FlatPreprocess:
             method=method_norm,
             smooth=smooth,
             span=span,
-            s=s,
             upper=upper,
             width=width,
-            lam=lam,
-            p=p,
             niter=niter,
             baseline_scale=baseline_scale,
             m=m,
@@ -79,14 +73,9 @@ class FlatPreprocess:
         method: str = "ma_numba",
         window: int = 5,
         sd: float | None = None,
-        sd_intensity: float | None = None,
-        p: int = 2,
-        coef: np.ndarray | None = None,
         polyorder: int = 3,
         deriv: int = 0,
         delta: float = 1.0,
-        wavelet: str = "db4",
-        threshold_mode: str = "soft",
     ) -> FlatBatchResult:
         method_norm = (method or "").strip().lower()
         supported_methods = {"savgol_numba", "gaussian_numba", "ma_numba"}
@@ -98,14 +87,9 @@ class FlatPreprocess:
             method=method_norm,
             window=window,
             sd=sd,
-            sd_intensity=sd_intensity,
-            p=p,
-            coef=coef,
             polyorder=polyorder,
             deriv=deriv,
             delta=delta,
-            wavelet=wavelet,
-            threshold_mode=threshold_mode,
             lengths=lengths,
         )
         return FlatBatchResult(mz_data=mz_data, intensity=np.asarray(smoothed_intensity), lengths=lengths)
@@ -163,10 +147,8 @@ class FlatPreprocess:
         dynamic: bool = False,
     ) -> FlatBatchResult:
         """Estimate flat-mode noise level and return estimated flat intensity."""
-        index = mz_data if mz_data.size == intensity.size else None
         noise_estimation = estimator(
             intensity=intensity,
-            indexes=index,
             lengths=lengths,
             nbins=nbins,
             overlap=overlap,

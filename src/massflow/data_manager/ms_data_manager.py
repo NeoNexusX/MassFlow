@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Generator,Any
 import numpy as np
 from massflow.tools.logger import get_logger
-from massflow.module import MassSpectrumSet, Spectrum
+from massflow.module import MassSpectrumSet
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 
 logger = get_logger("massflow.datamanager")
@@ -166,10 +166,6 @@ class MSDataManager(ABC):
         """Load data from the configured input file path."""
 
     @abstractmethod
-    def batch_generator(self, batch_size: int = 256, max_threads: int = 0) -> Generator[list[Spectrum], None, None]:
-        """Get a multi-threaded batch generator."""
-
-    @abstractmethod
     def matrix_generator(self, batch_size: int = 256, include_mz: bool = True, max_threads: int = 0) -> Generator[tuple, Any, None]:
         ...
 
@@ -274,24 +270,12 @@ class MSDataManager(ABC):
             self._writer.close()
 
 
-    def clear_batch_data_memory(self, batch):
-        """Clear data in a batch of spectra to free memory."""
-        for spec in batch:
-            spec.clear_data()
-
-
     def clear_all_data_memory(self):
         """
         Clear data in all spectra to free memory.
         """
         for spec in self.ms:
             spec.clear_data()
-
-
-    def swap_batch_data_out2disk(self, batch, writer):
-        """Swap out a batch of spectra to disk to free memory."""
-        for spec in batch:
-            spec.swap_out2disk(writer=writer)
 
 
     def swap_matrix_data_out2disk(
