@@ -498,7 +498,7 @@ def merge_peaks_jit(
     counts: NDArray[np.int64],
     tolerance: float,
     code: int,
-) -> NDArray[np.float64]:
+) -> tuple[NDArray[np.float64], NDArray[np.int64]]:
     """Merge adjacent peaks while preserving local mode barriers."""
     n = mz_list.size
 
@@ -578,10 +578,12 @@ def merge_peaks_jit(
             valid_count += 1
 
     out = np.empty(valid_count, dtype=np.float64)
+    out_counts = np.empty(valid_count, dtype=np.int64)
     out_k = 0
     for idx in range(n):
         if not np.isnan(mz_list[idx]):
             out[out_k] = mz_list[idx]
+            out_counts[out_k] = counts[idx]
             out_k += 1
 
-    return out
+    return out, out_counts

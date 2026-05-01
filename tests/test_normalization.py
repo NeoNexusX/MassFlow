@@ -2,19 +2,14 @@ import time
 import numpy as np
 import pytest
 from massflow.data_manager import MSDataManagerImzML
-from massflow.preprocess import BatchPreprocess
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
-from massflow.tools.dm_process import speed_process
 from massflow.tools.logger import get_logger
 
 logger = get_logger("test_normalization")
 
 ROUNDS = 5
-BATCH_NORM_METHODS = ["tic", "rms"]
 FLAT_NORM_METHODS = ["tic_numba", "rms_numba", "ref_numba"]
 FLAT_SCALE_NORM_METHODS = ["tic_numba", "rms_numba"]
-BATCH_FLAT_NORM_METHOD_PAIRS = [("tic", "tic_numba"),
-                                ("rms", "rms_numba"),]
 
 
 def _normalization_flat_from_flat_batches(
@@ -43,15 +38,6 @@ class TestNormalizationAPI:
     """Normalization API tests: memory, speed, consistency, and normalization invariants."""
 
     @pytest.fixture(scope="module", params=["data/baseline_test.imzML"])
-    def ms_raw_data(self, request) -> MSDataManagerImzML:
-        data_file_path = request.param
-        dm = MSDataManagerImzML(filepath=data_file_path)
-        dm.load_head_data()
-        for _ in dm.batch_generator(batch_size=512):
-            pass
-        return dm
-
-    @pytest.fixture(scope="module", params=["data/baseline_test.imzML"])
     def flat_caches(self, request):
         data_file_path = request.param
         dm = MSDataManagerImzML(filepath=data_file_path)
@@ -67,28 +53,6 @@ class TestNormalizationAPI:
             caches.append((mz_data, intensity_flat, lengths, ref))
 
         return caches
-
-    @pytest.mark.benchmark(timer=time.perf_counter)
-    @pytest.mark.parametrize("method", BATCH_NORM_METHODS)
-    def test_norm_batch_speed(
-        self,
-        benchmark,
-        method,
-        ms_raw_data,
-    ):
-        logger.info("Benchmarking batch normalization method=%s", method)
-
-        batch_kwargs = {
-            "method": method,
-        }
-
-        benchmark.pedantic(
-            speed_process,
-            args=(ms_raw_data, 4096, BatchPreprocess.normalization_batch, batch_kwargs),
-            rounds=ROUNDS,
-            iterations=1,
-            warmup_rounds=1,
-        )
 
     @pytest.mark.benchmark(timer=time.perf_counter)
     @pytest.mark.parametrize("method", FLAT_NORM_METHODS)
@@ -108,45 +72,10 @@ class TestNormalizationAPI:
             warmup_rounds=1,
         )
 
-    @pytest.mark.parametrize(("batch_method", "flat_method"), BATCH_FLAT_NORM_METHOD_PAIRS)
-    def test_norm_flat_batch_intensity_consistency(self, batch_method, flat_method, ms_raw_data):
-        batch = next(ms_raw_data.batch_generator(batch_size=256))
-
-        batch_result = BatchPreprocess.normalization_batch(
-            batch_spectra=batch,
-            method=batch_method,
-            scale=1.0,
-        )
-
-        lengths = np.array([spectrum.intensity.size for spectrum in batch], dtype=np.int64)
-        intensity_flat = np.concatenate([spectrum.intensity.astype(np.float32, copy=False) for spectrum in batch])
-
-        flat_result = FlatPreprocess.normalization_flat(
-            mz_data=None, # type: ignore
-            intensity=intensity_flat,
-            method=flat_method,
-            scale=1.0,
-            lengths=lengths,
-        )
-
-        offset = 0
-        for spectrum, valid_len in zip(batch_result, lengths):
-            end = offset + int(valid_len)
-            flat_slice = flat_result.intensity[offset:end]
-            assert spectrum.intensity is not None
-            np.testing.assert_allclose(
-                spectrum.intensity,
-                flat_slice,
-                rtol=1e-6,
-                atol=1e-6,
-            )
-            offset = end
-
     @pytest.mark.parametrize("method", FLAT_SCALE_NORM_METHODS)
-    def test_norm_invariants_default_equals_length(self, method, ms_raw_data):
-        batch = next(ms_raw_data.batch_generator(batch_size=32))
-        lengths = np.array([spectrum.intensity.size for spectrum in batch], dtype=np.int64)
-        intensity_flat = np.concatenate([spectrum.intensity.astype(np.float64, copy=False) for spectrum in batch])
+    def test_norm_invariants_default_equals_length(self, method, flat_caches):
+        _, intensity_flat, lengths, _ = flat_caches[0]
+        intensity_flat = np.asarray(intensity_flat, dtype=np.float64)
 
         normalized_flat = FlatPreprocess.normalization_flat(
             mz_data=None, # type: ignore
@@ -167,10 +96,9 @@ class TestNormalizationAPI:
             offset = end
 
     @pytest.mark.parametrize("method", FLAT_SCALE_NORM_METHODS)
-    def test_norm_invariants_scale_equals_param(self, method, ms_raw_data):
-        batch = next(ms_raw_data.batch_generator(batch_size=32))
-        lengths = np.array([spectrum.intensity.size for spectrum in batch], dtype=np.int64)
-        intensity_flat = np.concatenate([spectrum.intensity.astype(np.float64, copy=False) for spectrum in batch])
+    def test_norm_invariants_scale_equals_param(self, method, flat_caches):
+        _, intensity_flat, lengths, _ = flat_caches[0]
+        intensity_flat = np.asarray(intensity_flat, dtype=np.float64)
 
         scale_target = 3.5
         normalized_flat = FlatPreprocess.normalization_flat(

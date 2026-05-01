@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Optional, Literal
 import pytest
@@ -17,7 +18,8 @@ MZ_RANGES = [(500, 600)]
 TOLERANCE = 0.10
 ROUND = 1
 
-set_default_r_home("r_home_path_here")  # set R_HOME path here
+if os.environ.get("R_HOME"):
+    set_default_r_home(os.environ["R_HOME"])
 
 def run_alignment_task(
     dm: MSDataManagerImzML,

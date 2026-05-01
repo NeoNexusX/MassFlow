@@ -29,18 +29,20 @@ MassFlow/
 ├── logs/                    # 运行时日志
 ├── src/
 │   └── massflow/            # 核心源代码
-│       ├── module/               # 核心数据模型和数据管理器
+│       ├── data_manager/         # 数据管理器 (MSDataManager, MSDataManagerImzML)
+│       ├── module/               # 核心数据模型
 │       │   ├── spectrum.py       # 光谱基础类型 (Spectrum)
 │       │   ├── spectrum_imzml.py # 带惰性加载的 ImzML 光谱 (SpectrumImzML)
 │       │   ├── mass_spectrum_set.py  # 光谱集合容器 (MassSpectrumSet)
 │       │   ├── ms_meta_data.py       # 元数据结构 (ImzMlMetaData 等)
 │       │   └── ...
 │       ├── preprocess/              # 预处理入口与辅助函数
-│       │   ├── spectrum_pre_fun.py  # 光谱级预处理 API (SpectrumPreprocess)
-│       │   ├── dm_pre_fun.py        # 数据管理器级预处理 API (Preprocess)
-│       │   ├── batch_pre_fun.py     # 批处理工具 (BatchPreprocess)
+│       │   ├── api.py               # 链式任务注册 API (PreprocessorAPI)
+│       │   ├── preprocessor.py      # 流水线执行器 (Preprocessor)
+│       │   ├── flat_pre_fun.py      # 批处理工具 (FlatPreprocess)
 │       │   └── ...
-│       └── tools/           # 工具函数
+│       ├── r_preprocess/       # R/Cardinal 适配器
+│       └── tools/              # 工具函数
 ├── tests/                   # 测试用例
 ├── LICENSE
 ├── main.py

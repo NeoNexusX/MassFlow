@@ -31,11 +31,8 @@ class PreprocessorAPI(_TaskRegistrar):
             method: str = "locmin_numba",
             smooth: str = "none",
             span: float = 0.1,
-            s: float | None = 0.0,
             upper: bool = False,
             width: int = 5,
-            lam: float = 1e7,
-            p: float = 0.01,
             niter: int = 15,
             baseline_scale: float = 1.0,
             m: int | None = None,
@@ -48,11 +45,8 @@ class PreprocessorAPI(_TaskRegistrar):
             method=method,
             smooth=smooth,
             span=span,
-            s=s,
             upper=upper,
             width=width,
-            lam=lam,
-            p=p,
             niter=niter,
             baseline_scale=baseline_scale,
             m=m,
@@ -62,17 +56,12 @@ class PreprocessorAPI(_TaskRegistrar):
     def noise_reduction(
         self,
         *,
-        method: str = "ma_numba",
+        method: str = "gaussian_numba",
         window: int = 5,
         sd: float | None = None,
-        sd_intensity: float | None = None,
-        p: int = 2,
-        coef: np.ndarray | None = None,
         polyorder: int = 3,
         deriv: int = 0,
         delta: float = 1.0,
-        wavelet: str = "db4",
-        threshold_mode: str = "soft",
     ) -> Self:
         """Register noise reduction flat task."""
         return self._register_task(
@@ -82,14 +71,9 @@ class PreprocessorAPI(_TaskRegistrar):
             method=method,
             window=window,
             sd=sd,
-            sd_intensity=sd_intensity,
-            p=p,
-            coef=coef,
             polyorder=polyorder,
             deriv=deriv,
             delta=delta,
-            wavelet=wavelet,
-            threshold_mode=threshold_mode,
         )
 
     def normalization(
@@ -117,7 +101,7 @@ class PreprocessorAPI(_TaskRegistrar):
         self,
         *,
         width: int = 5,
-        method: str = "quantile",
+        method: str = "diff",
         snr: float = 2.0,
         return_type: str = "height",
         prominence: float | None = None,
@@ -163,10 +147,14 @@ class PreprocessorAPI(_TaskRegistrar):
         units: str = "ppm",
         binfun: str = "median",
         binratio: float = 2.0,
+        min_count: int | None = None,
+        min_frequency: float | None = None,
         backend: Backend = "python",
     ) -> Self:
         """Register peak alignment flat task."""
         if backend == "cardinal":
+            if min_count is not None or min_frequency is not None:
+                raise ValueError("min_count/min_frequency are only supported by the python peak_align backend")
             return self._register_task(
                 "peak_align",
                 scope="dataset",
@@ -187,4 +175,6 @@ class PreprocessorAPI(_TaskRegistrar):
             units=units,
             binfun=binfun,
             binratio=binratio,
+            min_count=min_count,
+            min_frequency=min_frequency,
         )

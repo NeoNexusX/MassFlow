@@ -1,8 +1,7 @@
 """Numba-accelerated helpers for noise estimation."""
-from typing import Optional
-
 import numpy as np
 from numba import njit, prange
+
 from massflow.tools.funs import prepare_flat_inputs, lengths_to_offsets
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 
@@ -702,7 +701,6 @@ def _estimate_flat_core_numba(
 
 def estimate_flat_numba(
     intensity: np.ndarray,
-    indexes: Optional[np.ndarray],
     lengths: np.ndarray | None = None,
     nbins: int = 1,
     dynamic: bool = False,
@@ -741,8 +739,14 @@ def estimate_flat_numba(
             float(floor_value),
         )
 
-    # Smooth signal (neighborhood-search Gaussian) and compute absolute residuals
-    smoothed = smoother(intensity_arr,indexes,method=denoise_method,lengths=lengths_arr,window=9,sd=2.0)
+    # Smooth the flat signal per spectrum and estimate noise from residuals.
+    smoothed = smoother(
+        intensity_arr,
+        method=denoise_method,
+        lengths=lengths_arr,
+        window=9,
+        sd=2.0,
+    )
 
     residuals = np.abs(smoothed - intensity_arr)
 

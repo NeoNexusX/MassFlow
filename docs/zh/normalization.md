@@ -1,321 +1,167 @@
 # MassFlow
 
-本文介绍 MassFlow 中的归一化（normalization）模块，重点包括光谱级统一入口 `SpectrumPreprocess.normalization_spectrum` 以及 `preprocess/normalizer_helper.py` 中的辅助函数。内容包含概述、API 说明、示例代码、参数说明与调参建议，以及常见问题排查。
+本文介绍 MassFlow 中的归一化（normalization）模块，重点包括：
+- 流水线级入口 `Preprocessor.normalization`
+- `preprocess/helper/normalizer_helper.py` 中的核心函数
 
 ## 概述
+
 - 输入与输出
-  - 输入：`massflow.module.spectrum.Spectrum` 或 `SpectrumImzML`（`intensity` 为一维数组，`mz_list` 可选/或已有）。
-  - 输出：新的 `SpectrumImzML`，其 `mz_list` 与坐标保持不变；`intensity` 替换为归一化后的值（并可选进行缩放）。
+  - 输入为扁平数组形式（`mz_data`、`intensity`、`lengths`），表示一批谱图的 m/z 和强度数据。
+  - 输出为归一化后的扁平数组，m/z 与坐标保持不变，强度替换为归一化后的值。
 - 方法
-  - TIC（Total Ion Current）归一化：将强度缩放使总和（sum）等于 1。
-  - RMS（Root Mean Square）归一化：将强度缩放使均方根（RMS）等于 1。
-  - Median（中位数）归一化：将强度缩放使中位数（median）等于 1。
+  - TIC（Total Ion Current）归一化（`tic_numba`）：将每条谱的强度缩放使总和（sum）等于指定值。
+  - RMS（Root Mean Square）归一化（`rms_numba`）：将每条谱的强度缩放使均方根（RMS）等于指定值。
+  - 参考峰归一化（`ref_numba`）：将每条谱的强度缩放使指定 m/z 附近的信号归一化到目标值。
+- 所有方法均在 Numba JIT 内核中按谱执行，利用 `prange` 并行循环。
 
 ### 函数关系示意图
 
 ```mermaid
 graph LR
-
-  A[SpectrumPreprocess.normalization_spectrum] --> B{Primary Method}
-  B --> C[TIC]
-  B --> D[RMS]
-  B --> E[Median]
-  C --> F[Apply Scaling 'none'/'unit' ]
-  D --> F
-  E --> F
-  F --> G[Return Spectrum with normalized intensity]
+  A["Preprocessor.normalization"] --> B["FlatPreprocess.normalization_flat"]
+  B --> C["normalizer"]
+  C --> D["normalizer_numba<br/>(Numba JIT)"]
+  D --> E["归一化后数据"]
 ```
 
 ## 核心 API
 
-### Preprocess.normalization（数据管理器级）
+### Preprocessor.normalization（流水线级）
 
 ```python
-massflow.preprocess.dm_pre_fun.Preprocess.normalization(
-  data_manager: MSDataManager,
-  scale_method: str = "none",
-  method: str = "tic",
-  scale: float = 1.0,
-  batch_size: int = 256,
-  temp_dir: str = "./temp_normalization_data",
-) -> MSDataManagerImzML
+massflow.preprocess.api.PreprocessorAPI.normalization(
+    *,
+    method: str = "tic_numba",
+    scale: float | None = None,
+    mz_flat: np.ndarray | None = None,
+    ref: float | None = None,
+    ref_tolerance: float = 0.1,
+) -> Self
 ```
-- 描述：数据管理器级归一化入口。对 `MSDataManager` 中所有光谱应用与光谱级 API 相同的归一化方法，按批次流式处理并将结果写入磁盘。
-- 输入：包含待归一化光谱的 `MSDataManagerImzML`（或其子类）。
-- 输出：新的 `MSDataManagerImzML`，其 `mz_list`/坐标与原始数据一致，`intensity` 为归一化后的结果。
-- 说明：
-  - 内部通过 `BatchPreprocess.normalization_batch` 在批次上应用 `SpectrumPreprocess.normalization_spectrum`。
-  - 按批次处理会清理内存中的光谱数据并将归一化结果换出到磁盘，支持大规模数据在有限内存下运行。
 
-示例（数据管理器级）：
+- 描述：流水线级归一化入口。通过 `Preprocessor` 链式调用，按批次对所有光谱执行归一化。
+- 输入：通过 `Preprocessor(dm)` 绑定数据管理器。
+- 输出：调用 `.start()` 后返回新的 `MSDataManagerImzML`，其光谱的强度为归一化后的结果。
+- 支持方法：`"tic_numba"`、`"rms_numba"`、`"ref_numba"`。
+- 参数：
+  - `method`：归一化方法，默认 `"tic_numba"`。
+  - `scale`：归一化后的幅度缩放因子（可选）。若提供，强度会被乘以此值。
+  - `mz_flat`：扁平 m/z 数组（`ref_numba` 方法必需）。
+  - `ref`：参考 m/z 值（`ref_numba` 方法必需）。
+  - `ref_tolerance`：参考峰匹配容差（`ref_numba` 方法使用），默认 0.1。
+- 异常：
+  - `ValueError`：不支持的 method；scale 非法；ref_numba 缺少必需参数。
+
+示例：
 
 ```python
-import numpy as np
-from massflow.module.mass_spectrum_set import MassSpectrumSet
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.preprocess.dm_pre_fun import Preprocess
+from massflow.data_manager import MSDataManagerImzML
+from massflow.preprocess.preprocessor import Preprocessor
 from massflow.tools.plot import plot_spectrum
 
 FILE_PATH = "data/example.imzML"
-ms = MassSpectrumSet()
-dm = MSDataManagerImzML(ms, filepath=FILE_PATH)
-dm.load_full_data_from_file()
+dm = MSDataManagerImzML(filepath=FILE_PATH)
+dm.load_head_data()
 
-# 使用 TIC（sum=1）对所有光谱归一化，不进行额外缩放
-dm_norm = Preprocess.normalization(
-    data_manager=dm,
-    method="tic",
-    scale_method="none",
-    scale=1.0,
-    batch_size=256,
+normalized = (
+    Preprocessor(dm)
+    .noise_reduction(method="gaussian_numba", window=7)
+    .normalization(method="tic_numba")
+    .start()
 )
 
-sp_orig = dm.ms[0]
-sp_norm = dm_norm.ms[0]
-
-plot_spectrum(
-    base=sp_orig,
-    target=sp_norm,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5),
-    metrics_box=True,
-    title_suffix="DM_TIC",
-)
-
+plot_spectrum(processed.ms[0])
+normalized.close()
 dm.close()
-dm_norm.close()
 ```
 
-### SpectrumPreprocess.normalization_spectrum（光谱级）
+![image-20260430140609289](https://neonexus-picture.oss-ap-southeast-1.aliyuncs.com/test/image-20260430140609289.png)
+
+### normalizer（辅助函数级）
 
 ```python
-massflow.preprocess.spectrum_pre_fun.SpectrumPreprocess.normalization_spectrum(
-  data: Spectrum | SpectrumImzML,
-  scale_method: str = "none",
-  method: str = "tic",
-  scale: float = 1.0,
-) -> SpectrumImzML
-```
-- 描述：单条光谱归一化的统一入口。根据 `method` 分发到 TIC/RMS/Median，并可选进行后续缩放，返回新的光谱对象（`mz_list` 与坐标保持不变，`intensity` 为归一化后的结果）。
-- 说明：
-  - 此光谱级 API 不会自动进行内存清理，只是返回新的光谱实例。对大数据集建议使用数据管理器级 `Preprocess.normalization`。
-- 方法：
-  - `'tic'`（sum 等于 1）
-  - `'rms'`（RMS 等于 1）
-  - `'median'`（median 等于 1）
-- 参数：
-  - `scale`：归一化后再乘的幅度缩放因子（默认 1.0）。
-
-### normalizer
-
-```python
-preprocess.normalizer_helper.normalizer(
-  intensity: np.ndarray,
-  scale_method: str = "none",
-  method: str = "tic",
-  scale: float = 1.0
+preprocess.helper.normalizer_helper.normalizer(
+    intensity: np.ndarray,
+    method: str = "tic_numba",
+    scale: float | None = None,
+    mz_flat: np.ndarray | None = None,
+    ref: float | None = None,
+    ref_tolerance: float = 0.1,
+    lengths: np.ndarray | None = None,
 ) -> np.ndarray
 ```
-- 描述：归一化统一分发器。对输入进行校验后分发到 `'tic'`、`'rms'` 或 `'median'`，然后应用幅度缩放 `scale` 与可选的 `'unit'`（min-max 到 [0,1]）缩放。
+
+- 描述：扁平数组归一化分发器。根据 `method` 调用对应的 Numba 后端。
 - 参数：
-  - `intensity`：待归一化的一维 numpy 数组。
-  - `scale_method`：`'none' | 'unit'`（主归一化之后应用）。
-  - `method`：`'tic' | 'rms' | 'median'`（主归一化方法）。
-  - `scale`：主归一化之后应用的幅度缩放因子（默认 1.0）。
-    - 必须为有限且非负的数。
-  - 说明：
-    - `scale_method` 不区分大小写，仅支持 `'none'` 与 `'unit'`。
-- 返回值：
-  - `intensity`：归一化后的（并可选缩放的）一维 numpy 数组。
-- 异常：
-  - `ValueError`：不支持的 `method`/`scale_method`；`scale` 必须为有限且非负。
-  - `TypeError`：输入不是非空的一维数组。
+  - `intensity`：一维扁平强度数组。
+  - `lengths`：光谱长度数组，用于在 Numba 内部按谱拆分处理。
+  - 其余参数与流水线 API 一致。
+- 返回值：归一化后的强度数组。
+- 支持的方法仅限 `"tic_numba"`、`"rms_numba"` 和 `"ref_numba"`。
 
-### tic_normalize
+### FlatPreprocess.normalization_flat（扁平批处理级）
 
 ```python
-preprocess.normalizer_helper.tic_normalize(
-  intensity: np.ndarray,
-  scale_method: str = "none",
-  scale: float = 1.0
-) -> np.ndarray
+massflow.preprocess.flat_pre_fun.FlatPreprocess.normalization_flat(
+    mz_data: np.ndarray,
+    intensity: np.ndarray,
+    lengths: np.ndarray,
+    method: str = "tic_numba",
+    scale: float | None = None,
+    mz_flat: np.ndarray | None = None,
+    ref: float | None = None,
+    ref_tolerance: float = 0.1,
+) -> FlatBatchResult
 ```
-- 描述：按总离子流（sum）归一化。当 TIC > 0 时，先除以 sum（使 sum=1），再应用幅度缩放 `scale`，最后可选 `'unit'` min-max 缩放。
-- 参数：
-  - `scale_method`：`'none' | 'unit'`（归一化后可选 min-max 到 [0,1]）
-  - `scale`：归一化后幅度缩放因子（默认 1.0）
-    - 必须为有限且非负的数。
-- 返回值：
-  - `intensity`：一维数组；在幅度缩放/可选 unit 缩放之前其 sum 等于 1
-- 异常：
-  - `ValueError`：TIC ≤ 0；不支持的 `scale_method`。
-  - `TypeError`：输入不是非空的一维数组。
 
-示例（先降噪再做 TIC 归一化）：
+- 描述：`Preprocessor.normalization` 的底层实现。返回包含 mz_data、归一化后 intensity 和 lengths 的 `FlatBatchResult`。
 
-```python
-import sys
-import os
-import numpy as np
-from massflow.module.mass_spectrum_set import MassSpectrumSet
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.preprocess.spectrum_pre_fun import SpectrumPreprocess
-from massflow.tools.plot import plot_spectrum
+## 方法详解
 
-FILE_PATH = "data/example.imzML"
-ms = MassSpectrumSet()
-ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
-ms_md.load_full_data_from_file()
-sp = ms[0]
+### TIC 归一化（tic_numba）
 
-# 先降噪再归一化
-denoised = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="savgol",
-    window=11,
-    polyorder=3,
-)
-normalized_tic = SpectrumPreprocess.normalization_spectrum(
-    data=denoised,
-    method="tic",
-    scale_method="none",
-)
+每条谱的强度除以该谱的强度总和，使 sum = 1。若提供了 `scale`，结果再乘以 scale。
 
-tic_origin = float(np.sum(denoised.intensity))
-tic_after = float(np.sum(normalized_tic.intensity))
-print(f"TIC normalized sum={tic_after:.6f}")
+适用场景：需要像素间总强度可比，适合可视化和相对定量分析。
 
-plot_spectrum(
-    base=denoised,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5),
-    title_suffix="Savgol_denoised",
-)
+### RMS 归一化（rms_numba）
 
-plot_spectrum(
-    base=normalized_tic,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5 / tic_origin),
-    title_suffix="TIC_normalized_none",
-)
-```
-![Original Spectrum after denoised]()
-![TIC example]()
+每条谱的强度除以该谱的均方根（`sqrt(mean(x^2))`），使 RMS = 1。若提供了 `scale`，结果再乘以 scale。
 
-### rms_normalize
+适用场景：对强峰不敏感，在含高动态范围信号的数据中更稳定。
 
-```python
-preprocess.normalizer_helper.rms_normalize(
-  intensity: np.ndarray,
-  scale_method: str = "none",
-  scale: float = 1.0
-) -> np.ndarray
-```
-- 描述：按均方根（RMS）归一化。当 RMS > 0 时除以 RMS（使 RMS=1）；若 RMS ≤ 0（或为 NaN），则抛出 `ValueError`。之后应用幅度缩放 `scale`，并可选 `'unit'` 缩放。
-- 参数：
-  - `scale_method`：`'none' | 'unit'`
-  - `scale`：归一化后的幅度缩放因子（默认 1.0）
-    - 必须为有限且非负的数。
-- 返回值：
-  - `intensity`：一维数组；在幅度缩放/可选 unit 缩放之前其 RMS 等于 1
-- 说明：
-  - 实现匹配 R 风格：`b = sqrt(mean(x^2))`；若 `b > 0` 则 `y = scale * x / b`，否则抛出错误。
-- 异常：
-  - `ValueError`：RMS ≤ 0；不支持的 `scale_method`。
-  - `TypeError`：输入不是非空的一维数组。
+### 参考峰归一化（ref_numba）
 
-示例（先降噪再做 RMS 归一化）：
+在每条谱中查找容差窗口内距离 `ref` 最近的峰，用该峰的强度值作为归一化因子。若提供了 `scale`，结果再乘以 scale。
 
-```python
-# 先降噪再归一化（与 TIC 示例一致）
-denoised = SpectrumPreprocess.noise_reduction_spectrum(
-    data=sp,
-    method="savgol",
-    window=11,
-    polyorder=3,
-)
+适用场景：已知某内标 m/z，希望相对于该内标归一化。需要同时提供 `mz_flat` 和 `ref` 参数。
 
-normalized_rms = SpectrumPreprocess.normalization_spectrum(
-    data=denoised,
-    method="rms",
-    scale_method="none",
-)
+## 参数说明与调参建议
 
-# 归一化前后 RMS（输入 RMS > 0 时，归一化后 RMS 等于 1）
-rms_origin = float(np.sqrt(np.nanmean(np.square(denoised.intensity))))
-rms_after = float(np.sqrt(np.nanmean(np.square(normalized_rms.intensity))))
-print(f"RMS normalized value={rms_after:.6f}")
+- `method` 选择
+  - 需要像素间总强度可比时，优先选 `"tic_numba"`。
+  - 希望对极端值更稳健时，选 `"rms_numba"`。
+  - 已知内标峰时，选 `"ref_numba"`。
+- `scale`（幅度缩放因子）
+  - 归一化后的额外缩放。常用场景：TIC 归一化后设为 1000 或 10000 便于数值展示。
+  - 必须为有限非负数。
+- `ref` + `mz_flat`（参考峰归一化）
+  - `ref`：目标内标峰 m/z 值。
+  - `mz_flat`：与 intensity 同长度的 m/z 扁平数组。
+  - `ref_tolerance`：内标峰搜索容差（绝对差值），默认 0.1 Da。
 
-# 绘图时用原始 RMS 缩放 y 轴范围以便观察
-plot_spectrum(
-    base=normalized_rms,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5 / max(rms_origin, 1e-12)),
-    title_suffix="RMS_normalized_none",
-)
-```
-![RMS example]()
+## 参考
 
-### apply_scaling
+- `preprocess/helper/normalizer_helper.py`：归一化分发器（normalizer）
+- `preprocess/numba/normalization_numba.py`：Numba 加速实现（normalizer_numba）
+- `preprocess/flat_pre_fun.py`：扁平预处理入口（FlatPreprocess.normalization_flat）
+- `preprocess/api.py`：链式 API（PreprocessorAPI.normalization）
 
-```python
-preprocess.normalizer_helper.apply_scaling(
-  intensity: np.ndarray,
-  scale_method: str
-) -> np.ndarray
-```
-- 描述：主归一化之后应用缩放变换。
-  - `'none'`：返回原值
-  - `'unit'`：min-max 缩放到 `[0, 1]`
-- 参数：
-  - `scale_method`：`'none' | 'unit'`（不区分大小写）
-- 返回值：
-  - `intensity`：缩放后的一维 numpy 数组
-- 异常：
-  - `ValueError`：不支持的 `scale_method`。
-  - `TypeError`：输入不是非空的一维数组。
+## 错误处理与日志
 
-### 可选 0–1 缩放（unit scaling）
-```python
-normalized_unit = SpectrumPreprocess.normalization_spectrum(
-    data=denoised,
-  method="tic",          # 或 "rms"
-    scale_method="unit"    # min-max 缩放到 [0, 1]
-)
-plot_spectrum(
-        base = normalized_unit,
-        mz_range=(500.0, 510.0),
-        intensity_range=(0.0, 0.1),
-        title_suffix='TIC_normalized_unit'     
-    )
-```
-![TIC example unit scaling]()
-
-- 使用 `'unit'` 可以将归一化后的强度缩放到 `[0, 1]`，便于跨光谱可视化与比较。
-
-## 参数与调参建议
-- 通用
-  - 需要像素间总强度可比、适合可视化/相对定量时，优先选 `'tic'`。
-  - 希望降低极端值影响、对噪声更稳健时，优先选 `'median'`。
-  - `'unit'` 缩放主要用于绘图/UI 统一化；如果你需要保持 sum=1 或 median=1 这类可解释的数值属性，建议不要再叠加 `'unit'`。
-- TIC
-  - 对大峰更敏感；必要时先做降噪/基线校正再归一化。
-- Median
-  - 对长尾分布更稳健；能较好保留相对排序结构。
-
-## Troubleshooting（常见问题排查）
-- `ValueError: TIC value is not greater than 0`  
-  确保预处理后光谱的总和不为 0；避免使用全零或被强烈裁剪后的空光谱。
-- `ValueError: Median value is not greater than 0`  
-  确保强度不全为 0；必要时先做基线校正或避免过于激进的裁剪。
-- `ValueError: RMS value is not greater than 0`  
-  检查是否为空/常数光谱，或是否存在全 NaN；确保预处理保留有效信号。
-- 不支持的 method 或 scale_method  
-  检查拼写：`method='tic'|'median'|'rms'`，`scale_method='none'|'unit'`。
-
-## References
-- `preprocess/normalizer_helper.py`（TIC/RMS/median 的实现与缩放逻辑）
-- `preprocess/spectrum_pre_fun.py`（光谱级入口与参数分发）
-- `preprocess/dm_pre_fun.py`（数据管理器级归一化入口）
-- `module/spectrum.py` 与 `module/mass_spectrum_set.py`（Spectrum 与 MassSpectrumSet 数据结构）
-- `src/massflow/tools/plot.py`（Spectrum/MassSpectrumSet 的绘图工具）
+- 输入校验：intensity 必须为非空一维 numpy 数组，否则抛出 `TypeError`。
+- scale 校验：必须为有限非负数。
+- ref_tolerance 校验：必须为有限非负数。
+- method 校验：仅支持 `"tic_numba"`、`"rms_numba"`、`"ref_numba"`。
+- ref_numba 缺参校验：缺少 `mz_flat` 或 `ref` 时抛出 `ValueError`。

@@ -29,18 +29,20 @@ MassFlow/
 ├── logs/                    # Runtime logs
 ├── src/
 │   └── massflow/            # Core source code
-│       ├── module/               # Core data models and data managers
+│       ├── data_manager/         # Data managers (MSDataManager, MSDataManagerImzML)
+│       ├── module/               # Core data models
 │       │   ├── spectrum.py       # Spectrum base type
 │       │   ├── spectrum_imzml.py # ImzML spectrum with lazy loading
 │       │   ├── mass_spectrum_set.py  # Collection of spectra
 │       │   ├── ms_meta_data.py       # Metadata structures (ImzMlMetaData, etc.)
 │       │   └── ...
-│       ├── preprocess/              # Preprocessing entry points and helpers
-│       │   ├── spectrum_pre_fun.py  # Spectrum-level preprocessing API (SpectrumPreprocess)
-│       │   ├── dm_pre_fun.py        # Data-manager-level preprocessing API (Preprocess)
-│       │   ├── batch_pre_fun.py     # Batch processing utilities (BatchPreprocess)
+│       ├── preprocess/              # Preprocessing pipeline
+│       │   ├── api.py               # Chainable task registration API (PreprocessorAPI)
+│       │   ├── preprocessor.py      # Pipeline executor (Preprocessor)
+│       │   ├── flat_pre_fun.py      # Flat-array preprocessing (FlatPreprocess)
 │       │   └── ...
-│       └── tools/           # Utility functions
+│       ├── r_preprocess/       # R/Cardinal adapter
+│       └── tools/              # Utility functions
 ├── tests/                   # Test cases
 ├── LICENSE
 ├── main.py
@@ -53,7 +55,7 @@ MassFlow/
 
 ### Quick Dev Start
 
-It is recommended to  run the following code (main.py) directly to verify data loading:
+It is recommended to run the following code (main.py) directly to verify data loading:
 
 ```bash
 # Close conda first:
