@@ -139,17 +139,17 @@ class IonImageDataManagerBinary(IonImageDataManager):
             filepath = Path("output") / f"{uuid.uuid4().hex}.bin"
         self.filepath = Path(filepath)
         self.mode = mode
-        self.width = None if width is None else int(width)
-        self.height = None if height is None else int(height)
+        self._width = None if width is None else int(width)
+        self._height = None if height is None else int(height)
         self.mz_dtype = np.dtype(mz_dtype).newbyteorder("<")
         self.intensity_dtype = np.dtype(intensity_dtype).newbyteorder("<")
         self.ion_block = int(ion_block)
         self.temp_workers = max(1, int(temp_workers))
         self.merge_workers = max(1, int(merge_workers))
         self.header: IonImageBinaryHeader | None = None
-        self.mz_axis: np.ndarray | None = None
-        self.coordinates: np.ndarray | None = None
-        self.intensity_matrix: np.memmap | None = None
+        self._mz_axis: np.ndarray | None = None
+        self._coordinates: np.ndarray | None = None
+        self._intensity_matrix: np.memmap | None = None
 
         self._batch_infos: list[_BatchInfo] = []
         self._coordinate_chunks: list[np.ndarray] = []
@@ -240,6 +240,71 @@ class IonImageDataManagerBinary(IonImageDataManager):
             return self.header.n_pixels
         return self._n_pixels
 
+    @property
+    def width(self) -> int:
+        if self._width is None:
+            if self.mode == "r":
+                self._open_for_read()
+            if self._width is None:
+                raise ValueError("width has not been initialized.")
+        return self._width
+
+    @width.setter
+    def width(self, value: int | None):
+        self._width = value
+
+    @property
+    def height(self) -> int:
+        if self._height is None:
+            if self.mode == "r":
+                self._open_for_read()
+            if self._height is None:
+                raise ValueError("height has not been initialized.")
+        return self._height
+
+    @height.setter
+    def height(self, value: int | None):
+        self._height = value
+
+    @property
+    def coordinates(self) -> np.ndarray:
+        if self._coordinates is None:
+            if self.mode == "r":
+                self._open_for_read()
+            if self._coordinates is None:
+                raise ValueError("coordinates have not been initialized.")
+        return self._coordinates
+
+    @coordinates.setter
+    def coordinates(self, value: np.ndarray):
+        self._coordinates = value
+
+    @property
+    def intensity_matrix(self) -> np.memmap:
+        if self._intensity_matrix is None:
+            if self.mode == "r":
+                self._open_for_read()
+            if self._intensity_matrix is None:
+                raise ValueError("intensity_matrix has not been initialized.")
+        return self._intensity_matrix
+
+    @intensity_matrix.setter
+    def intensity_matrix(self, value: np.memmap | None):
+        self._intensity_matrix = value
+
+    @property
+    def mz_axis(self) -> np.ndarray:
+        if self._mz_axis is None:
+            if self.mode == "r":
+                self._open_for_read()
+            if self._mz_axis is None:
+                raise ValueError("mz_axis has not been initialized.")
+        return self._mz_axis
+
+    @mz_axis.setter
+    def mz_axis(self, value: np.ndarray | None):
+        self._mz_axis = value
+
     def write_flat_batch(
         self,
         intensity_flat: np.ndarray,
@@ -273,7 +338,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
             self._n_ions = int(mz_axis.size)
             self.mz_axis = mz_axis.copy()
         elif int(mz_axis.size) != self._n_ions or (
-            (self.mz_axis is None) or not np.array_equal(mz_axis, self.mz_axis)
+            (self._mz_axis is None) or not np.array_equal(mz_axis, self._mz_axis)
         ):
             raise ValueError("All batches must use the same shared mz_axis.")
 
@@ -369,13 +434,13 @@ class IonImageDataManagerBinary(IonImageDataManager):
         if self._finalized:
             return
         self._finish_temp_writes()
-        if self._n_ions is None or self.mz_axis is None or not self._coordinate_chunks:
+        if self._n_ions is None or self._mz_axis is None or not self._coordinate_chunks:
             raise ValueError("No ion-image batches were written.")
-        self.coordinates = np.vstack(self._coordinate_chunks)
-        if self.width is None:
-            self.width = int(np.max(self.coordinates[:, 0]))
-        if self.height is None:
-            self.height = int(np.max(self.coordinates[:, 1]))
+        self._coordinates = np.vstack(self._coordinate_chunks)
+        if self._width is None:
+            self._width = int(np.max(self._coordinates[:, 0]))
+        if self._height is None:
+            self._height = int(np.max(self._coordinates[:, 1]))
 
         mz_bits = _float_bits(self.mz_dtype, field_name="mz_dtype", allowed={32, 64})
         intensity_bits = _float_bits(self.intensity_dtype, field_name="intensity_dtype", allowed={16, 32, 64})
@@ -385,8 +450,8 @@ class IonImageDataManagerBinary(IonImageDataManager):
         coordinate_offset = mz_offset + self._n_ions * self.mz_dtype.itemsize
         intensity_offset = coordinate_offset + self._n_pixels * 2 * UINT32_SIZE
         self.header = IonImageBinaryHeader(
-            width=int(self.width),
-            height=int(self.height),
+            width=int(self._width),
+            height=int(self._height),
             n_ions=self._n_ions,
             n_pixels=self._n_pixels,
             mz_dtype_bits=mz_bits,
@@ -406,7 +471,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
             # ftruncate 预分配，再由 _merge_intensity 分块 pwrite。
             os.write(fd, self.header.to_bytes())
             os.pwrite(fd, self.mz_axis.astype(self.mz_dtype, copy=False).tobytes(order="C"), mz_offset)
-            os.pwrite(fd, self.coordinates.astype("<u4", copy=False).tobytes(order="C"), coordinate_offset)
+            os.pwrite(fd, self._coordinates.astype("<u4", copy=False).tobytes(order="C"), coordinate_offset)
             os.ftruncate(fd, final_size)
 
             batch_fds = [os.open(info.path, os.O_RDONLY) for info in self._batch_infos]
@@ -496,14 +561,14 @@ class IonImageDataManagerBinary(IonImageDataManager):
             offset=self.header.mz_offset,
             shape=(self.header.n_ions,),
         )
-        self.coordinates = np.memmap(
+        self._coordinates = np.memmap(
             self.filepath,
             dtype="<u4",
             mode="r",
             offset=self.header.coordinate_offset,
             shape=(self.header.n_pixels, 2),
         )
-        self.intensity_matrix = np.memmap(
+        self._intensity_matrix = np.memmap(
             self.filepath,
             dtype=self.intensity_dtype,
             mode="r",
@@ -519,12 +584,6 @@ class IonImageDataManagerBinary(IonImageDataManager):
         ion 的强度散布回 height x width 的图像数组。imzML 常见坐标为
         1-based，因此在未检测到 0 坐标时会自动减 1。
         """
-        if self.intensity_matrix is None or self.coordinates is None:
-            self._open_for_read()
-        assert self.intensity_matrix is not None
-        assert self.coordinates is not None
-        assert self.width is not None
-        assert self.height is not None
 
         if ion_idx < 0 or ion_idx >= self.n_ions:
             raise IndexError(f"ion_idx out of range: {ion_idx}")
@@ -545,26 +604,20 @@ class IonImageDataManagerBinary(IonImageDataManager):
 
     def get_ion_vector(self, ion_idx: int) -> np.ndarray:
         """返回某个 ion 在所有写入像素上的一维强度向量。"""
-        if self.intensity_matrix is None:
-            self._open_for_read()
-        assert self.intensity_matrix is not None
         if ion_idx < 0 or ion_idx >= self.n_ions:
             raise IndexError(f"ion_idx out of range: {ion_idx}")
         return np.asarray(self.intensity_matrix[ion_idx])
 
     def get_pixel_spectrum(self, pixel_idx: int) -> np.ndarray:
         """返回某个像素的完整强度谱，即 D[:, pixel_idx]。"""
-        if self.intensity_matrix is None:
-            self._open_for_read()
-        assert self.intensity_matrix is not None
         if pixel_idx < 0 or pixel_idx >= self.n_pixels:
             raise IndexError(f"pixel_idx out of range: {pixel_idx}")
         return np.asarray(self.intensity_matrix[:, pixel_idx])
 
     def close(self) -> None:
         self.mz_axis = None
-        self.coordinates = None
-        self.intensity_matrix = None
+        self._coordinates = None
+        self._intensity_matrix = None
         self._shutdown_io_executor()
         if self.mode == "w" and not self._finalized:
             self._cleanup_temp()

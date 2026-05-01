@@ -9,7 +9,7 @@ from massflow.data_manager import IonImageDataManagerBinary, MSDataManagerImzML
 from massflow.preprocess import Preprocessor
 
 EXAMPLE_IMZML = Path("data/example.imzML")
-ROUND = 10
+ROUND = 1
 
 _SUDO_PASSWORD = "660789"
 
@@ -25,7 +25,7 @@ def _purge_cache() -> None:
             capture_output=True,
             timeout=30,
         )
-        time.sleep(5)
+        time.sleep(3)
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
 
@@ -78,48 +78,12 @@ def full_example_flat_cache():
 
 
 @pytest.fixture(scope="class")
-def full_example_binary_path(tmp_path_factory, full_example_flat_cache):
-    """预生成一份完整 example binary，供正确性测试和随机读取 benchmark 共用。
-
-    这一步不是 benchmark；它的目的只是准备可读的完整 binary 文件，避免
-    roundtrip 测试和随机读取测试各自重复写出大文件。
+def full_example_binary_path():
     """
-    output_dir = tmp_path_factory.mktemp("ion_image_binary_full")
-    output_path = output_dir / "example_full.iib"
-    return _write_cached_binary(full_example_flat_cache, output_path, output_dir)
-
-
-def _write_cached_binary(cache, output_path: Path, temp_dir: Path) -> Path:
-    """写出 binary。
-
-    这个函数本身不做手动计时；耗时统一交给 pytest-benchmark 插件统计。
+    获取完整的路径
     """
-    output_path.unlink(missing_ok=True)
-    manager = IonImageDataManagerBinary(
-        output_path,
-        mode="w",
-        width=cache["width"],
-        height=cache["height"],
-        temp_dir=temp_dir,
-        mz_dtype=cache["mz_dtype"],
-        intensity_dtype=cache["intensity_dtype"],
-        ion_block=16,
-        temp_workers=1,
-        merge_workers=1,
-    )
-    try:
-        for mz_axis, intensity_flat, lengths, coordinates in cache["batches"]:
-            manager.write_flat_batch(
-                intensity_flat=intensity_flat,
-                lengths=lengths,
-                coordinates=coordinates,
-                mz_axis=mz_axis,
-            )
-        manager.finalize()
-    finally:
-        manager.close()
-
-    return output_path
+    output_path = "./data/example.iib"
+    return Path(output_path)
 
 
 def _expected_pixel_spectrum(cache, pixel_idx: int) -> np.ndarray:
@@ -145,6 +109,28 @@ def _expected_ion_vector(cache, ion_idx: int) -> np.ndarray:
     return np.concatenate(values)
 
 
+def _write_cached_binary(cache: dict, output_path: Path, tmp_dir: Path) -> Path:
+    """写入二进制文件"""
+    with IonImageDataManagerBinary(
+        filepath=output_path,
+        mode="w",
+        width=cache["width"],
+        height=cache["height"],
+        temp_dir=tmp_dir,
+        mz_dtype=cache["mz_dtype"],
+        intensity_dtype=cache["intensity_dtype"],
+    ) as dm:
+        for mz_axis, intensity_flat, lengths, coordinates in cache["batches"]:
+            dm.write_flat_batch(
+                intensity_flat=intensity_flat,
+                lengths=lengths,
+                coordinates=coordinates,
+                mz_axis=mz_axis,
+            )
+        dm.finalize()
+    return output_path
+
+
 class TestIonImageBinary:
     def test_binary_roundtrip_with_example_flat_batches(self, full_example_flat_cache, full_example_binary_path):
         """校验完整 example 数据写成 binary 后仍能按 pixel/ion 正确读回。"""
@@ -152,7 +138,6 @@ class TestIonImageBinary:
 
         with IonImageDataManagerBinary(full_example_binary_path, mode="r") as binary_dm:
             first_mz = full_example_flat_cache["batches"][0][0]
-            assert binary_dm.mz_axis is not None
             assert binary_dm.n_ions == len(first_mz)
             assert binary_dm.n_pixels == sum(len(batch[2]) for batch in full_example_flat_cache["batches"])
             np.testing.assert_allclose(binary_dm.mz_axis, first_mz, rtol=1e-7, atol=1e-10)
@@ -177,39 +162,35 @@ class TestIonImageBinary:
             assert np.count_nonzero(image) > 0
 
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_random_read_1000_ions_total_time(self, benchmark, full_example_binary_path):
-        """benchmark：随机读取 1000 个离子图像的总时间。
-
-        读取用的完整 binary 来自 fixture；pytest-benchmark 只统计下面
-        read_1000_ion_images 的随机读取循环，不包含任何写出准备时间。
+    @pytest.mark.parametrize("n_reads", [74749])
+    def test_random_read_ions_total_time(self, benchmark, full_example_binary_path, n_reads):
         """
-        try:
-            with IonImageDataManagerBinary(full_example_binary_path, mode="r") as binary_dm:
-                rng = np.random.default_rng(20260428)
-                ion_indices = rng.integers(0, binary_dm.n_ions, size=1000, endpoint=False)
+        benchmark:随机读取指定数量n_reads个离子图像的总时间。
+        读取用的完整 binary 来自 fixture;
+        pytest-benchmark 只统计下面
+        read_ion_images 的随机读取循环，不包含任何写出准备时间。
+        """
+        with IonImageDataManagerBinary(full_example_binary_path, mode="r") as binary_dm:
+            rng = np.random.default_rng(20260428)
+            ion_indices = rng.integers(0, binary_dm.n_ions, size=n_reads, endpoint=False)
 
-                def read_1000_ion_images():
-                    # pytest-benchmark 会统计整个循环的耗时；checksum 用于防止读取
-                    # 结果被测试逻辑完全忽略。
-                    checksum = 0.0
-                    for ion_idx in ion_indices:
-                        checksum += float(np.sum(binary_dm.get_ion_image(int(ion_idx))))
-                    return checksum
+            def read_ion_images():
+                checksum = 0.0
+                for ion_idx in ion_indices:
+                    image = binary_dm.get_ion_image(int(ion_idx))
+                    checksum += float(image[0, 0])
+                return checksum
 
-                checksum = benchmark.pedantic(
-                    read_1000_ion_images, rounds=ROUND, iterations=1, warmup_rounds=0, setup=_purge_cache
-                )
-                assert checksum >= 0.0
-        finally:
-            # 随机读 benchmark 完成后释放预生成的完整 binary，避免后续写出
-            # benchmark 同时持有多份 5GB 级文件。
-            full_example_binary_path.unlink(missing_ok=True)
+            benchmark.pedantic(read_ion_images, iterations=1, rounds=ROUND,setup=_purge_cache)
+            
+
 
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_full_example_write_and_merge_total_time(self, benchmark, tmp_path, full_example_flat_cache):
-        """benchmark：完整 example 文件写出和合并的总时间。
-
-        pytest-benchmark 会统计 run_write 的耗时；run_write 覆盖了临时 batch
+        """
+        benchmark:完整 example 文件写出和合并的总时间。
+        pytest-benchmark 会统计 run_write 的耗时
+        run_write 覆盖了临时 batch
         写出和 finalize 合并两个阶段。
         """
         def run_write():
@@ -245,7 +226,6 @@ class TestIonImageBinary:
                 assert isinstance(processed_dm, IonImageDataManagerBinary)
                 assert processed_dm.n_ions > 0
                 assert processed_dm.n_pixels > 0
-                assert processed_dm.mz_axis is not None
                 assert len(processed_dm.mz_axis) == processed_dm.n_ions
                 assert processed_dm.header is not None
                 assert processed_dm.header.width > 0

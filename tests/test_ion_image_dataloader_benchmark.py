@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 import pytest
+import torch
 from torch.utils.data import DataLoader
 
 from massflow.data_manager import IonImageDataManagerBinary
@@ -44,11 +45,12 @@ def dataset():
 
 def _run_epoch(dataset, num_workers: int) -> int:
     loader = DataLoader(
-        dataset,
+        dataset.index_dataset(),
         batch_size=BATCH_SIZE,
         shuffle=True,
         num_workers=num_workers,
         pin_memory=False,
+        collate_fn=dataset.get_batch,
     )
     total = 0
     for batch in loader:
@@ -57,8 +59,14 @@ def _run_epoch(dataset, num_workers: int) -> int:
 
 
 class TestIonImageBinaryDatasetBenchmark:
+    def test_get_batch_matches_single_item_stack(self, dataset):
+        indices = [0, 7, 100, len(dataset) - 1, -1]
+        batched = dataset.get_batch(indices)
+        legacy = torch.stack([dataset[i] for i in indices], dim=0)
+        assert torch.equal(batched, legacy)
+
     @pytest.mark.benchmark(timer=time.perf_counter)
-    @pytest.mark.parametrize("num_workers", [2])
+    @pytest.mark.parametrize("num_workers", [0])
     def test_dataloader_epoch(self, benchmark, dataset, num_workers):
         total = benchmark.pedantic(
             lambda: _run_epoch(dataset, num_workers),

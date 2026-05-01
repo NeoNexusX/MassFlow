@@ -8,7 +8,7 @@ from typing import Any, Callable, Optional, Protocol, cast
 
 import numpy as np
 
-from massflow.data_manager import IonImageDataManagerBinary, MSDataManager, MSDataManagerImzML
+from massflow.data_manager import IonImageDataManagerBinary, IonImageDataManagerH5, MSDataManager, MSDataManagerImzML
 from massflow.module import MassSpectrumSet
 from massflow.preprocess.api import PreprocessorAPI, TaskScope
 from massflow.preprocess.helper.peak_align_helper import reference_computer
@@ -49,7 +49,7 @@ class StageCSink(Protocol):
     def write_chunk(self, chunk: FlatChunk) -> None:
         ...
 
-    def finalize(self) -> MSDataManagerImzML | IonImageDataManagerBinary:
+    def finalize(self) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
         ...
 
     def close(self) -> None:
@@ -104,6 +104,30 @@ class IonImageBinaryStageCSink:
         self.data_manager.close()
 
 
+class IonImageH5StageCSink:
+    """Stage C sink for final ion image H5 output."""
+
+    def __init__(self, data_manager: IonImageDataManagerH5):
+        self.data_manager = data_manager
+
+    def write_chunk(self, chunk: FlatChunk) -> None:
+        if chunk.mz_data is None:
+            raise ValueError("ion_image_h5 output requires mz_data from flat_generator.")
+        self.data_manager.write_flat_batch(
+            intensity_flat=chunk.intensity,
+            lengths=chunk.lengths,
+            coordinates=chunk.coordinates,
+            mz_axis=chunk.mz_data,
+        )
+
+    def finalize(self) -> IonImageDataManagerH5:
+        self.data_manager.finalize()
+        return self.data_manager
+
+    def close(self) -> None:
+        self.data_manager.close()
+
+
 class Preprocessor(PreprocessorAPI):
     """
     Hybrid preprocessing executor.
@@ -149,8 +173,8 @@ class Preprocessor(PreprocessorAPI):
         self.numba_max_threads = numba_max_threads
         # output_format 只控制最终输出。中间 batch/dataset 交换仍沿用现有
         # imzML 路径，最后一步再按需导出 ion_image_binary。
-        if output_format not in {"imzml", "ion_image_binary"}:
-            raise ValueError("output_format must be 'imzml' or 'ion_image_binary'.")
+        if output_format not in {"imzml", "ion_image_binary", "ion_image_h5"}:
+            raise ValueError("output_format must be 'imzml', 'ion_image_binary', or 'ion_image_h5'.")
         self.output_format = output_format
         self.output_path = output_path
         self.output_max_workers = output_max_workers
@@ -396,16 +420,24 @@ class Preprocessor(PreprocessorAPI):
         *,
         data_manager: MSDataManager,
         tasks: list[PreprocessTask],
-        final_output_binary: bool = False,
-    ) -> MSDataManagerImzML | IonImageDataManagerBinary:
+        final_output_format: str | None = None,
+    ) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
         total_batches = (len(data_manager.ms) + self.batch_size - 1) // self.batch_size
 
         sink: StageCSink
-        if final_output_binary:
+        if final_output_format == "ion_image_binary":
             sink = IonImageBinaryStageCSink(
                 IonImageDataManagerBinary.from_data_manager(
-                    data_manager,
-                    self._default_ion_image_output_path(),
+                    data_manager, self._default_ion_image_output_path(".iib"),
+                    temp_dir=self.temp_dir,
+                    temp_workers=max(1, self.output_max_workers),
+                    merge_workers=max(1, self.output_max_workers),
+                )
+            )
+        elif final_output_format == "ion_image_h5":
+            sink = IonImageH5StageCSink(
+                IonImageDataManagerH5.from_data_manager(
+                    data_manager, self._default_ion_image_output_path(".h5"),
                     temp_dir=self.temp_dir,
                     temp_workers=max(1, self.output_max_workers),
                     merge_workers=max(1, self.output_max_workers),
@@ -522,8 +554,8 @@ class Preprocessor(PreprocessorAPI):
         *,
         data_manager: MSDataManager,
         task: PreprocessTask,
-        final_output_binary: bool = False,
-    ) -> MSDataManagerImzML | IonImageDataManagerBinary:
+        final_output_format: str | None = None,
+    ) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
         """Execute whole-dataset task."""
         if task.name == "peak_align" and task.apply_fn is FlatPreprocess.peak_align_flat:
             prepared_task = self._prepare_peak_align_task(
@@ -533,7 +565,7 @@ class Preprocessor(PreprocessorAPI):
             return self._run_flat_batch_task(
                 data_manager=data_manager,
                 tasks=[prepared_task],
-                final_output_binary=final_output_binary,
+                final_output_format=final_output_format,
             )
 
         if task.name == "peak_align" or task.name == "peak_pick":
@@ -542,25 +574,38 @@ class Preprocessor(PreprocessorAPI):
         else:
             raise NotImplementedError(f"Dataset task {task.name} with backend Cardinal is not supported.")
 
-    def _default_ion_image_output_path(self) -> str:
+    def _default_ion_image_output_path(self, suffix: str = ".iib") -> str:
         if self.output_path is not None:
             return self.output_path
         base_dir = self.temp_dir if self.temp_dir is not None else tempfile.gettempdir()
-        return f"{base_dir}/ion_image_binary_output.iib"
+        return f"{base_dir}/ion_image_output{suffix}"
 
     def _export_ion_image_binary(self, data_manager: MSDataManager) -> IonImageDataManagerBinary:
-        """把最终 MSDataManager 导出成 ion image binary。
-
-        这里复用 flat_generator 读取最终数据，binary writer 会校验 shared
-        m/z、lengths 和 intensity_flat 的形态是否满足离子图像格式要求。
-        """
+        """把最终 MSDataManager 导出成 ion image binary。"""
         output_dm = IonImageDataManagerBinary.from_data_manager(
-            data_manager,
-            self._default_ion_image_output_path(),
+            data_manager, self._default_ion_image_output_path(".iib"),
             temp_dir=self.temp_dir,
             temp_workers=max(1, self.output_max_workers),
             merge_workers=max(1, self.output_max_workers),
         )
+        return self._write_through_generator(data_manager, output_dm)
+
+    def _export_ion_image_h5(self, data_manager: MSDataManager) -> IonImageDataManagerH5:
+        """把最终 MSDataManager 导出成 ion image H5。"""
+        output_dm = IonImageDataManagerH5.from_data_manager(
+            data_manager, self._default_ion_image_output_path(".h5"),
+            temp_dir=self.temp_dir,
+            temp_workers=max(1, self.output_max_workers),
+            merge_workers=max(1, self.output_max_workers),
+        )
+        return self._write_through_generator(data_manager, output_dm)
+
+    def _write_through_generator(
+        self,
+        data_manager: MSDataManager,
+        output_dm: IonImageDataManagerBinary | IonImageDataManagerH5,
+    ) -> IonImageDataManagerBinary | IonImageDataManagerH5:
+        """通过 flat_generator 将数据写入 output_dm。"""
         try:
             for mz_axis, intensity_flat, lengths, coordinates in data_manager.flat_generator(
                 batch_size=self.batch_size,
@@ -584,32 +629,28 @@ class Preprocessor(PreprocessorAPI):
         ordered_tasks = self._sorted_tasks()
         current_data_manager: MSDataManager = self.data_manager
         task_cursor = 0
+        _ion_out = self.output_format in {"ion_image_binary", "ion_image_h5"}
 
         while task_cursor < len(ordered_tasks):
             batch_tasks: list[PreprocessTask] = []
 
-            # prepare consecutive batch tasks to run in the pipeline together, 
-            # then run dataset task separately for better performance
             while task_cursor < len(ordered_tasks) and ordered_tasks[task_cursor].scope == "batch":
                 batch_tasks.append(ordered_tasks[task_cursor])
                 task_cursor += 1
 
             if batch_tasks:
-                final_output_binary = (
-                    self.output_format == "ion_image_binary"
-                    and task_cursor >= len(ordered_tasks)
-                )
+                fmt = self.output_format if (_ion_out and task_cursor >= len(ordered_tasks)) else None
                 next_data_manager = self._run_flat_batch_task(
                     data_manager=current_data_manager,
                     tasks=batch_tasks,
-                    final_output_binary=final_output_binary,
+                    final_output_format=fmt,
                 )
 
                 if current_data_manager is not self.data_manager:
                     current_data_manager.close()
 
-                if final_output_binary:
-                    return cast(IonImageDataManagerBinary, next_data_manager)
+                if fmt is not None:
+                    return next_data_manager
 
                 current_data_manager = cast(MSDataManager, next_data_manager)
 
@@ -618,28 +659,30 @@ class Preprocessor(PreprocessorAPI):
 
             dataset_task = ordered_tasks[task_cursor]
             task_cursor += 1
-            final_output_binary = (
-                self.output_format == "ion_image_binary"
-                and task_cursor >= len(ordered_tasks)
-            )
+            fmt = self.output_format if (_ion_out and task_cursor >= len(ordered_tasks)) else None
 
             next_data_manager = self._run_dataset_task(
                 data_manager=current_data_manager,
                 task=dataset_task,
-                final_output_binary=final_output_binary,
+                final_output_format=fmt,
             )
 
             if current_data_manager is not self.data_manager:
                 current_data_manager.close()
 
-            if final_output_binary and isinstance(next_data_manager, IonImageDataManagerBinary):
+            if fmt is not None and not isinstance(next_data_manager, MSDataManagerImzML):
                 return next_data_manager
 
             current_data_manager = cast(MSDataManager, next_data_manager)
 
         if self.output_format == "ion_image_binary":
-            # 所有 preprocessing task 都完成后，才执行最终 binary export。
             output_dm = self._export_ion_image_binary(current_data_manager)
+            if current_data_manager is not self.data_manager:
+                current_data_manager.close()
+            return output_dm
+
+        if self.output_format == "ion_image_h5":
+            output_dm = self._export_ion_image_h5(current_data_manager)
             if current_data_manager is not self.data_manager:
                 current_data_manager.close()
             return output_dm

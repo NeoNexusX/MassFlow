@@ -8,7 +8,7 @@ from massflow.preprocess import Preprocessor
 
 def main():
     input_path = Path("data/example.imzML")
-    output_path = Path("data/example.iib")
+    output_path = Path("data/example.h5")
 
     with MSDataManagerImzML(filepath=str(input_path)) as dm:
         dm.load_head_data()
@@ -16,7 +16,7 @@ def main():
         processed_dm = (
             Preprocessor(
                 data_manager=dm,
-                output_format="ion_image_binary",
+                output_format="ion_image_h5",
                 output_path=str(output_path),
             )
             .start()

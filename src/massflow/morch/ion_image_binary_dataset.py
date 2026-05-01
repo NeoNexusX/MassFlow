@@ -8,6 +8,19 @@ from massflow.data_manager import IonImageDataManagerBinary
 from massflow.morch.ion_image_dataset import IonImageDataset
 
 
+class IonImageIndexDataset:
+    """Small DataLoader dataset that yields ion indices only."""
+
+    def __init__(self, size: int) -> None:
+        self._size = int(size)
+
+    def __len__(self) -> int:
+        return self._size
+
+    def __getitem__(self, idx: int) -> int:
+        return int(idx)
+
+
 class IonImageBinaryDataset(IonImageDataset):
     """Fast random-access 2D ion image loader backed by the binary format.
 
@@ -35,11 +48,8 @@ class IonImageBinaryDataset(IonImageDataset):
     """
 
     def __init__(self, data_manager: IonImageDataManagerBinary) -> None:
-        if data_manager.height is None or data_manager.width is None:
-            raise ValueError("data_manager height/width must be set")
-        if data_manager.coordinates is None:
-            raise ValueError("data_manager coordinates must be loaded")
-
+        # Properties auto-resolve via _open_for_read() and raise ValueError if
+        # still uninitialised, so no manual None checks are needed here.
         self._filepath = str(data_manager.filepath)
         self._height = int(data_manager.height)
         self._width = int(data_manager.width)
@@ -57,9 +67,9 @@ class IonImageBinaryDataset(IonImageDataset):
         valid = (xs >= 0) & (xs < self._width) & (ys >= 0) & (ys < self._height)
         self._flat_idx = (ys[valid] * self._width + xs[valid])
         self._valid_px = np.where(valid)[0]
+        self._all_pixels_valid = np.array_equal(self._valid_px, np.arange(coords.shape[0]))
 
         self._dm: IonImageDataManagerBinary | None = None
-        self._buffer: np.ndarray | None = None
 
     # -- IonImageDataset interface -------------------------------------------
 
@@ -78,6 +88,10 @@ class IonImageBinaryDataset(IonImageDataset):
     def __len__(self) -> int:
         return self._n_ions
 
+    def index_dataset(self) -> IonImageIndexDataset:
+        """Return an index-only dataset for batch-aware DataLoader usage."""
+        return IonImageIndexDataset(self._n_ions)
+
     def __getitem__(self, idx: int): #type: ignore[override]
         import torch #type: ignore[import]
 
@@ -86,13 +100,43 @@ class IonImageBinaryDataset(IonImageDataset):
 
         dm = self._ensure_dm()
 
-        if self._buffer is None:
-            self._buffer = np.zeros(self._height * self._width, dtype=self._np_dtype)
+        image = np.zeros((self._height, self._width), dtype=self._np_dtype)
+        image.ravel()[self._flat_idx] = dm.intensity_matrix[idx, self._valid_px]
+        return torch.from_numpy(image).unsqueeze(0)
 
-        self._buffer.fill(0)
-        self._buffer[self._flat_idx] = dm.intensity_matrix[idx, self._valid_px]
+    def get_batch(self, indices):
+        """Read a batch of ion images and return ``(B, 1, H, W)``.
 
-        return torch.from_numpy(self._buffer).reshape(1, self._height, self._width).clone()
+        This is intended for use as a PyTorch ``DataLoader`` ``collate_fn``.
+        The loader can yield integer indices, and this method performs the
+        actual batched memmap read plus scatter in one pass.
+        """
+        import torch #type: ignore[import]
+
+        idx = np.asarray(indices, dtype=np.int64)
+        if idx.ndim == 0:
+            idx = idx.reshape(1)
+        if idx.ndim != 1:
+            raise ValueError("indices must be a 1-D sequence of ion indices")
+
+        if idx.size == 0:
+            empty = np.empty((0, 1, self._height, self._width), dtype=self._np_dtype)
+            return torch.from_numpy(empty)
+
+        idx = idx.copy()
+        idx[idx < 0] += self._n_ions
+        if int(idx.min()) < 0 or int(idx.max()) >= self._n_ions:
+            raise IndexError("ion index out of range")
+
+        dm = self._ensure_dm()
+
+        rows = np.asarray(dm.intensity_matrix[idx])
+        if not self._all_pixels_valid:
+            rows = rows[:, self._valid_px]
+
+        batch = np.zeros((idx.size, 1, self._height, self._width), dtype=self._np_dtype)
+        batch[:, 0].reshape(idx.size, -1)[:, self._flat_idx] = rows
+        return torch.from_numpy(batch)
 
     # -- internals -----------------------------------------------------------
 
