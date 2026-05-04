@@ -113,8 +113,8 @@ def data_swap_out_flat_cached(raw_dm, cached_flat_batches):
         else:
             mz_batch = mz_data[:point_count]
 
-        swap_dm.swap_flat_data_out2disk(
-            mz_flat=mz_batch,
+        swap_dm.write_flat_batch(
+            mz_axis=mz_batch,
             intensity_flat=intensity_batch,
             lengths=lengths_batch,
             coordinates=coordinates,

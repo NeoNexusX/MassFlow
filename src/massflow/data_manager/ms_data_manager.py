@@ -304,28 +304,28 @@ class MSDataManager(ABC):
             self.writer.add_spectrum(mz, intensity, tuple(coord.tolist()))
 
 
-    def swap_flat_data_out2disk(
+    def write_flat_batch(
         self,
-        mz_flat: np.ndarray | None,
         intensity_flat: np.ndarray,
         lengths: np.ndarray,
         coordinates: np.ndarray,
+        mz_axis: np.ndarray | None,
         user_params_list: list[list] | None = None,
     ):
-        """Swap out a flat batch of spectra to disk in imzML/ibd form."""
+        """Write a flat batch of spectra to disk in imzML/ibd form."""
         if len(lengths) == 0:
             return
 
         if (intensity_flat.ndim != 1 or lengths.ndim != 1
-            or (mz_flat is not None and mz_flat.ndim != 1)):
-            logger.error("intensity_flat/lengths/mz_flat must be 1-D arrays.")
-            raise ValueError("intensity_flat/lengths/mz_flat must be 1-D arrays.")
+            or (mz_axis is not None and mz_axis.ndim != 1)):
+            logger.error("intensity_flat/lengths/mz_axis must be 1-D arrays.")
+            raise ValueError("intensity_flat/lengths/mz_axis must be 1-D arrays.")
 
         if not np.issubdtype(lengths.dtype, np.integer):
             lengths = lengths.astype(np.int64, copy=False)
 
         self.writer.swap_flat_out2disk(
-            mz_flat=mz_flat,
+            mz_flat=mz_axis,
             intensity_flat=intensity_flat,
             lengths=lengths,
             coords=coordinates,

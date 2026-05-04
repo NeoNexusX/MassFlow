@@ -62,13 +62,13 @@ class _DummyManager:
         coordinates = [[1, 1, 1]]
         yield mz_flat, intensity_flat, lengths, coordinates
 
-    def swap_flat_data_out2disk(self, mz_flat, intensity_flat, lengths, coordinates):
+    def write_flat_batch(self, intensity_flat, lengths, coordinates, mz_axis):
         self.ms = []
         start = 0
         for length in lengths:
             end = start + length
             spectrum = _DummySpectrum(1.0)
-            spectrum.mz_list = np.array(mz_flat[start:end], dtype=float)
+            spectrum.mz_list = np.array(mz_axis[start:end], dtype=float)
             spectrum.intensity = np.array(intensity_flat[start:end], dtype=float)
             self.ms.append(spectrum)
             start = end

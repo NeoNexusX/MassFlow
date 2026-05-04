@@ -244,6 +244,12 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
                           temp_workers=2, merge_workers=2, chunk_size=1,
                           ) -> "IonImageDataManagerH5":
         meta = data_manager.ms.meta
+        
+        if (getattr(meta, "continuous", None) is not True or 
+            data_manager.ms.shared_mz_list is None or 
+            len(data_manager.ms.shared_mz_list) == 0):
+            raise ValueError("from_data_manager requires continuous=True metadata and a shared mz_axis.")
+            
         return cls(
             filepath=filepath, mode="w",
             width=int(meta.max_count_of_pixels_x),

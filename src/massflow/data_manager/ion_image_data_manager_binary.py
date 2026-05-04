@@ -198,8 +198,17 @@ class IonImageDataManagerBinary(IonImageDataManager):
         从已有 MSDataManager 创建 binary writer。
         这里使用原数据的图像尺寸、dtype 和 shared m/z axis 约束，确保输出
         binary 与当前 preprocessing pipeline 的最终数据一致。
+        
+        仅接受 continuous=True 的元数据转换。若数据类型不符，立即报错。
         """
         meta = data_manager.ms.meta
+        
+        # 在创建对象前进行验证，确保元数据符合要求
+        if (getattr(meta, "continuous", None) is not True or 
+            data_manager.ms.shared_mz_list is None or 
+            len(data_manager.ms.shared_mz_list) == 0):
+            raise ValueError("from_data_manager requires continuous=True metadata and a shared mz_axis.")
+        
         return cls(
             filepath=filepath,
             mode="w",

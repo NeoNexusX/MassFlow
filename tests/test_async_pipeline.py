@@ -41,7 +41,7 @@ def run_pipeline_once(
 class TestAsyncPipelineProfile:
     """Memory and runtime profile tests for async pipeline and each internal stage."""
 
-    @pytest.fixture(scope="module", params=["data/example_file.imzML"])
+    @pytest.fixture(scope="module", params=["data/example.imzML"])
     def ms_raw_data(self, request) -> MSDataManagerImzML:
         """Fixture providing MSDataManagerImzML instance with fully initialized spectra for noise reduction tests."""
         data_file_path = request.param
@@ -119,7 +119,7 @@ class TestAsyncPipelineProfile:
             .peak_pick()
             .peak_align()
         )
-        ordered_task_names = [task.name for task in preprocessor._sorted_tasks("centroid")] # pylint: disable=protected-access
+        ordered_task_names = [task.name for task in preprocessor._arrange_tasks("centroid")] # pylint: disable=protected-access
         assert ordered_task_names == ["peak_align"]
 
         unsupported_preprocessor = Preprocessor(data_manager=ms_raw_data).noise_reduction()
