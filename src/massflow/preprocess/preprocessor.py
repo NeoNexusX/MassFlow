@@ -206,7 +206,7 @@ class Preprocessor(PreprocessorAPI):
                     FlatChunk(
                         mz_data=np.asarray(mz_data),
                         intensity=np.asarray(intensity),
-                        lengths=np.asarray(lengths, dtype=np.int32),
+                        lengths=np.asarray(lengths, dtype=np.uint32),
                         coordinates=np.asarray(coords),
                     )
                 )

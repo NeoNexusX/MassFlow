@@ -183,7 +183,7 @@ class FlatPreprocess:
 
         n_spec = int(lengths.size)
         ref_len = int(reference.size)
-        out_lengths = np.full(n_spec, ref_len, dtype=np.int32)
+        out_lengths = np.full(n_spec, ref_len, dtype=np.uint32)
         out_intensity = aligned_2d.reshape(-1)
 
         return FlatBatchResult(mz_data=reference, intensity=out_intensity, lengths=out_lengths)

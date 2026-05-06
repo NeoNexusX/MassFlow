@@ -70,9 +70,9 @@ def extract_ibd_layout(
     return IbdFileLayout(
         ibd_path=ibd_path,
         intensity_offsets=np.asarray(parser.intensityOffsets, dtype=np.int64),
-        intensity_lengths=np.asarray(parser.intensityLengths, dtype=np.int32),
+        intensity_lengths=np.asarray(parser.intensityLengths, dtype=np.uint32),
         mz_offsets=np.asarray(parser.mzOffsets, dtype=np.int64),
-        mz_lengths=np.asarray(parser.mzLengths, dtype=np.int32),
+        mz_lengths=np.asarray(parser.mzLengths, dtype=np.uint32),
         coordinates=np.asarray(parser.coordinates, dtype=np.int32),
         file_intensity_dtype=_PRECISION_DTYPE.get(parser.intensityPrecision, np.dtype(np.float32)),
         file_mz_dtype=_PRECISION_DTYPE.get(parser.mzPrecision, np.dtype(np.float64)),
@@ -109,7 +109,7 @@ def batch_lengths_and_coords(
 ) -> tuple[np.ndarray, int, np.ndarray]:
     """Calculate length array, maximum length, and coordinate matrix for a batch."""
     idx = np.asarray(batch_indices, dtype=np.intp)
-    lengths = np.take(layout.intensity_lengths, idx).astype(np.int32, copy=False)
+    lengths = np.take(layout.intensity_lengths, idx).astype(np.uint32, copy=False)
     max_len = int(np.max(lengths))
     coords = np.take(layout.coordinates, idx, axis=0).astype(np.int32, copy=False)
     return lengths, max_len, coords
