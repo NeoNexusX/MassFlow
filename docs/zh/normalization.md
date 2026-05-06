@@ -34,7 +34,6 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
     *,
     method: str = "tic_numba",
     scale: float | None = None,
-    mz_flat: np.ndarray | None = None,
     ref: float | None = None,
     ref_tolerance: float = 0.1,
 ) -> Self
@@ -47,11 +46,10 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
 - 参数：
   - `method`：归一化方法，默认 `"tic_numba"`。
   - `scale`：归一化后的幅度缩放因子（可选）。若提供，强度会被乘以此值。
-  - `mz_flat`：扁平 m/z 数组（`ref_numba` 方法必需）。
-  - `ref`：参考 m/z 值（`ref_numba` 方法必需）。
+  - `ref`：参考 m/z 值（`ref_numba` 时若为None，自动取值）。
   - `ref_tolerance`：参考峰匹配容差（`ref_numba` 方法使用），默认 0.1。
 - 异常：
-  - `ValueError`：不支持的 method；scale 非法；ref_numba 缺少必需参数。
+  - `ValueError`：不支持的 method；scale 非法；ref_numba 缺少可用 m/z 数据或参考值。
 
 示例：
 
@@ -71,7 +69,7 @@ normalized = (
     .start()
 )
 
-plot_spectrum(processed.ms[0])
+plot_spectrum(normalized.ms[0])
 normalized.close()
 dm.close()
 ```
@@ -96,6 +94,7 @@ preprocess.helper.normalizer_helper.normalizer(
 - 参数：
   - `intensity`：一维扁平强度数组。
   - `lengths`：光谱长度数组，用于在 Numba 内部按谱拆分处理。
+  - `mz_flat`：底层 helper 参数，`ref_numba` 方法需要。流水线 API 会自动使用当前批次的 `mz_data` 填充该参数。
   - 其余参数与流水线 API 一致。
 - 返回值：归一化后的强度数组。
 - 支持的方法仅限 `"tic_numba"`、`"rms_numba"` 和 `"ref_numba"`。
@@ -109,7 +108,6 @@ massflow.preprocess.flat_pre_fun.FlatPreprocess.normalization_flat(
     lengths: np.ndarray,
     method: str = "tic_numba",
     scale: float | None = None,
-    mz_flat: np.ndarray | None = None,
     ref: float | None = None,
     ref_tolerance: float = 0.1,
 ) -> FlatBatchResult
@@ -135,8 +133,6 @@ massflow.preprocess.flat_pre_fun.FlatPreprocess.normalization_flat(
 
 在每条谱中查找容差窗口内距离 `ref` 最近的峰，用该峰的强度值作为归一化因子。若提供了 `scale`，结果再乘以 scale。
 
-适用场景：已知某内标 m/z，希望相对于该内标归一化。需要同时提供 `mz_flat` 和 `ref` 参数。
-
 ## 参数说明与调参建议
 
 - `method` 选择
@@ -146,9 +142,8 @@ massflow.preprocess.flat_pre_fun.FlatPreprocess.normalization_flat(
 - `scale`（幅度缩放因子）
   - 归一化后的额外缩放。常用场景：TIC 归一化后设为 1000 或 10000 便于数值展示。
   - 必须为有限非负数。
-- `ref` + `mz_flat`（参考峰归一化）
+- `ref`（参考峰归一化）
   - `ref`：目标内标峰 m/z 值。
-  - `mz_flat`：与 intensity 同长度的 m/z 扁平数组。
   - `ref_tolerance`：内标峰搜索容差（绝对差值），默认 0.1 Da。
 
 ## 参考
@@ -164,4 +159,3 @@ massflow.preprocess.flat_pre_fun.FlatPreprocess.normalization_flat(
 - scale 校验：必须为有限非负数。
 - ref_tolerance 校验：必须为有限非负数。
 - method 校验：仅支持 `"tic_numba"`、`"rms_numba"`、`"ref_numba"`。
-- ref_numba 缺参校验：缺少 `mz_flat` 或 `ref` 时抛出 `ValueError`。

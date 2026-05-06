@@ -27,7 +27,6 @@ def _normalization_flat_from_flat_batches(
             "lengths": lengths,
         }
         if method == "ref_numba":
-            kwargs["mz_flat"] = mz_flat
             kwargs["ref"] = ref
             kwargs["ref_tolerance"] = ref_tolerance
 
@@ -137,7 +136,6 @@ class TestNormalizationAPI:
             intensity=intensity_flat,
             method="ref_numba",
             scale=scale_target,
-            mz_flat=mz_flat,
             ref=ref,
             ref_tolerance=0.1,
             lengths=lengths,

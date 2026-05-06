@@ -81,7 +81,6 @@ class PreprocessorAPI(_TaskRegistrar):
         *,
         method: str = "tic_numba",
         scale: float | None = None,
-        mz_flat: np.ndarray | None = None,
         ref: float | None = None,
         ref_tolerance: float = 0.1,
     ) -> Self:
@@ -92,7 +91,6 @@ class PreprocessorAPI(_TaskRegistrar):
             apply_fn=FlatPreprocess.normalization_flat,
             method=method,
             scale=scale,
-            mz_flat=mz_flat,
             ref=ref,
             ref_tolerance=ref_tolerance,
         )

@@ -34,7 +34,6 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
     *,
     method: str = "tic_numba",
     scale: float | None = None,
-    mz_flat: np.ndarray | None = None,
     ref: float | None = None,
     ref_tolerance: float = 0.1,
 ) -> Self
@@ -47,11 +46,10 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
 - Parameters:
   - `method`: Normalization method, default `"tic_numba"`.
   - `scale`: Post-normalization amplitude scaling factor (optional). If provided, intensities are multiplied by this value.
-  - `mz_flat`: Flat m/z array (required for `ref_numba` method).
-  - `ref`: Reference m/z value (required for `ref_numba` method).
+  - `ref`: Reference m/z value. When `method="ref_numba"` and `ref=None`, it is estimated automatically.
   - `ref_tolerance`: Reference peak matching tolerance (used by `ref_numba` method), default 0.1.
 - Exceptions:
-  - `ValueError`: Unsupported method; invalid scale; ref_numba missing required parameters.
+  - `ValueError`: Unsupported method; invalid scale; ref_numba missing usable m/z data or a reference value.
 
 Example:
 
@@ -96,6 +94,7 @@ preprocess.helper.normalizer_helper.normalizer(
 - Parameters:
   - `intensity`: One-dimensional flat intensity array.
   - `lengths`: Spectrum length array, used to split processing per-spectrum within Numba.
+  - `mz_flat`: Lower-level helper parameter required by `ref_numba`. The pipeline API fills it automatically from the current batch's `mz_data`.
   - Other parameters are consistent with the pipeline API.
 - Returns: Normalized intensity array.
 - Supported methods are limited to `"tic_numba"`, `"rms_numba"`, and `"ref_numba"`.
@@ -109,7 +108,6 @@ massflow.preprocess.flat_pre_fun.FlatPreprocess.normalization_flat(
     lengths: np.ndarray,
     method: str = "tic_numba",
     scale: float | None = None,
-    mz_flat: np.ndarray | None = None,
     ref: float | None = None,
     ref_tolerance: float = 0.1,
 ) -> FlatBatchResult
@@ -135,8 +133,6 @@ Use case: Less sensitive to strong peaks; more stable in data with high dynamic 
 
 For each spectrum, finds the peak nearest to `ref` within the tolerance window, and uses that peak's intensity as the normalization factor. If `scale` is provided, the result is further multiplied by scale.
 
-Use case: When an internal standard m/z is known and normalization relative to that standard is desired. Requires both `mz_flat` and `ref` parameters.
-
 ## Parameter and Tuning Recommendations
 
 - Method Selection
@@ -146,9 +142,8 @@ Use case: When an internal standard m/z is known and normalization relative to t
 - `scale` (Amplitude scaling factor)
   - Additional scaling after normalization. Common use: set to 1000 or 10000 after TIC normalization for convenient numerical display.
   - Must be finite and non-negative.
-- `ref` + `mz_flat` (Reference peak normalization)
+- `ref` (Reference peak normalization)
   - `ref`: Target internal standard peak m/z value.
-  - `mz_flat`: Flat m/z array of the same length as intensity.
   - `ref_tolerance`: Internal standard peak search tolerance (absolute difference), default 0.1 Da.
 
 ## References
@@ -164,4 +159,3 @@ Use case: When an internal standard m/z is known and normalization relative to t
 - scale validation: Must be finite and non-negative.
 - ref_tolerance validation: Must be finite and non-negative.
 - method validation: Only `"tic_numba"`, `"rms_numba"`, `"ref_numba"` are supported.
-- ref_numba missing parameter validation: Raises `ValueError` if `mz_flat` or `ref` is missing.
