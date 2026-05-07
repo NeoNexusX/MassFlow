@@ -412,7 +412,7 @@ def reference_computer(
     max_threads: int = 2,
     min_count: Optional[int] = None,
     min_frequency: Optional[float] = None,
-) -> Tuple[NDArray, float] | tuple[NDArray, float, NDArray]:
+) -> Tuple[NDArray, float]:
     """Parallel version of compute_reference based on flat_generator."""
     logger.info(
         f" Computing reference: units={units}, binfun={binfun}, binratio={binratio}"
