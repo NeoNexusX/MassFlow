@@ -470,6 +470,7 @@ def peak_aligner(
     units: str = "ppm",
 ) -> NDArray[np.float64]:
     """Align a flat batch of spectra to a reference m/z axis."""
+    out_intdtype = intensity.dtype
     norm_units = _normalize_units(units)
     tol_method = "x" if norm_units == "relative" else "abs"
     code = get_method_code(tol_method)
@@ -479,7 +480,7 @@ def peak_aligner(
     mz_arr , intensity_arr, lengths_arr = prepare_flat_inputs(mz_data, intensity, lengths)
     is_shared_mz = infer_shared_mz(mz_arr, lengths_arr)
 
-    return compute.align_spectra_flat_parallel_jit(
+    aligned = compute.align_spectra_flat_parallel_jit(
         mz_data=mz_arr,
         intensity_flat=intensity_arr,
         lengths=lengths_arr,
@@ -488,3 +489,4 @@ def peak_aligner(
         code=code,
         is_shared_mz=is_shared_mz,
     )
+    return np.asarray(aligned, dtype=out_intdtype)

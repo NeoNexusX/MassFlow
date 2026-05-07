@@ -487,7 +487,7 @@ class Preprocessor(PreprocessorAPI):
         self, data_manager: MSDataManager
     ) -> IonImageDataManagerBinary | IonImageDataManagerH5:
         return self._write_through_generator(
-            data_manager, 
+            data_manager,
             self._make_ion_image_dm(data_manager, self.output_format)
         )
 

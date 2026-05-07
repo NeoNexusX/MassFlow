@@ -60,6 +60,7 @@ def normalizer(
     method_norm = (method or "tic_numba").strip().lower()
     if method_norm not in {"tic_numba", "rms_numba", "ref_numba"}:
         raise ValueError("normalizer only supports: tic_numba, rms_numba, ref_numba")
+    out_dtype = intensity.dtype
 
     _input_validation(
         intensity,
@@ -70,7 +71,7 @@ def normalizer(
         ref=ref,
     )
 
-    return normalizer_numba(
+    normalized_intensity = normalizer_numba(
         intensity=intensity,
         method=method_norm.replace("_numba", ""),
         scale=scale,
@@ -79,3 +80,4 @@ def normalizer(
         ref_tolerance=ref_tolerance,
         lengths=lengths,
     )
+    return normalized_intensity.astype(out_dtype, copy=False)

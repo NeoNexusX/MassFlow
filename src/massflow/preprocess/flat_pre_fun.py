@@ -186,7 +186,7 @@ class FlatPreprocess:
         out_lengths = np.full(n_spec, ref_len, dtype=np.uint32)
         out_intensity = aligned_2d.reshape(-1)
 
-        return FlatBatchResult(mz_data=reference, intensity=out_intensity, lengths=out_lengths)
+        return FlatBatchResult(mz_data=np.asarray(reference, dtype=mz_data.dtype), intensity=out_intensity, lengths=out_lengths)
 
     @staticmethod
     def normalization_flat(

@@ -52,6 +52,7 @@ def smoother(
     when they are not meaningful for the selected backend.
     """
 
+    target_dtype = intensity.dtype if intensity is not None else np.float64
     method_norm = (method or "ma_numba").strip().lower()
     if intensity is None:
         raise TypeError("intensity must be provided")
@@ -59,22 +60,22 @@ def smoother(
     _input_validation(intensity, window=window, sd=sd)
 
     if method_norm == "ma_numba":
-        return smooth_signal_ma_numba(
+        smoothed_intensity = smooth_signal_ma_numba(
             intensity=intensity,
             window=window,
             lengths=lengths,
         )
 
-    if method_norm == "gaussian_numba":
-        return smooth_signal_gaussian_numba(
+    elif method_norm == "gaussian_numba":
+        smoothed_intensity = smooth_signal_gaussian_numba(
             intensity=intensity,
             window=window,
             sd=sd,
             lengths=lengths,
         )
 
-    if method_norm == "savgol_numba":
-        return smooth_signal_savgol_numba(
+    elif method_norm == "savgol_numba":
+        smoothed_intensity = smooth_signal_savgol_numba(
             intensity=intensity,
             window=window,
             polyorder=polyorder,
@@ -82,5 +83,7 @@ def smoother(
             delta=delta,
             lengths=lengths,
         )
+    else:
+        raise ValueError("method must be one of: ma_numba, gaussian_numba, savgol_numba")
 
-    raise ValueError("smoother only supports: ma_numba, gaussian_numba, savgol_numba")
+    return np.asarray(smoothed_intensity, dtype=target_dtype)
