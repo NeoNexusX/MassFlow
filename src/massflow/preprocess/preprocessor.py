@@ -39,6 +39,7 @@ class PreprocessTask:
     name: str
     apply_fn: Callable[..., FlatBatchResult] | Callable[..., MSDataManagerImzML]
     scope: TaskScope = "batch"
+    requires_dataset_prepare: bool = False
     kwargs: dict[str, Any] = field(default_factory=dict)
 
 
@@ -131,6 +132,7 @@ class Preprocessor(PreprocessorAPI):
         *,
         scope: TaskScope = "batch",
         apply_fn: Callable[..., FlatBatchResult] | Callable[..., MSDataManagerImzML],
+        requires_dataset_prepare: bool = False,
         **kwargs: Any,
     ) -> "Preprocessor":
         self._tasks.append(
@@ -138,6 +140,7 @@ class Preprocessor(PreprocessorAPI):
                 name=name,
                 scope=scope,
                 apply_fn=apply_fn,
+                requires_dataset_prepare=requires_dataset_prepare,
                 kwargs=kwargs,
             )
         )
@@ -153,7 +156,10 @@ class Preprocessor(PreprocessorAPI):
                 tasks = [task for task in tasks if task.name not in self._PROFILE_ONLY_TASKS]
 
         if tasks:
-            task_names = [f"{task.name}:{task.scope}" for task in tasks]
+            task_names = [
+                f"{task.name}:{task.scope}{':prepare' if task.requires_dataset_prepare else ''}"
+                for task in tasks
+            ]
             logger.info(f"async_pipeline_task_order: {task_names}")
         else:
             logger.warning("No supported preprocessing tasks remain after task arrangement.")
@@ -434,6 +440,7 @@ class Preprocessor(PreprocessorAPI):
             name=task.name,
             scope="batch",
             apply_fn=task.apply_fn,
+            requires_dataset_prepare=False,
             kwargs=kwargs,
         )
 
@@ -530,7 +537,11 @@ class Preprocessor(PreprocessorAPI):
         while task_cursor < len(ordered_tasks):
             batch_tasks: list[PreprocessTask] = []
 
-            while task_cursor < len(ordered_tasks) and ordered_tasks[task_cursor].scope == "batch":
+            while (
+                task_cursor < len(ordered_tasks)
+                and ordered_tasks[task_cursor].scope == "batch"
+                and not ordered_tasks[task_cursor].requires_dataset_prepare
+            ):
                 batch_tasks.append(ordered_tasks[task_cursor])
                 task_cursor += 1
 
@@ -554,6 +565,32 @@ class Preprocessor(PreprocessorAPI):
 
             if task_cursor >= len(ordered_tasks):
                 break
+
+            prepared_batch_task = ordered_tasks[task_cursor]
+            if prepared_batch_task.scope == "batch" and prepared_batch_task.requires_dataset_prepare:
+                task_cursor += 1
+                fmt = self.output_format if (_ion_out and task_cursor >= len(ordered_tasks)) else None
+                output_spectrum_type = self._resolve_output_spectrum_type(
+                    input_spectrum_type=current_spectrum_type,
+                    tasks=[prepared_batch_task],
+                )
+                next_data_manager = self._run_flat_batch_task(
+                    data_manager=current_data_manager,
+                    tasks=[
+                        self._prepare_peak_align_task(
+                            data_manager=current_data_manager,
+                            task=prepared_batch_task,
+                        )
+                    ],
+                    output_spectrum_type=output_spectrum_type,
+                    final_output_format=fmt,
+                )
+                self._maybe_close(current_data_manager)
+                if fmt is not None:
+                    return next_data_manager
+                current_data_manager = cast(MSDataManager, next_data_manager)
+                current_spectrum_type = output_spectrum_type
+                continue
 
             dataset_task = ordered_tasks[task_cursor]
             task_cursor += 1

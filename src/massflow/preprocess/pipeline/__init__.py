@@ -8,9 +8,9 @@ from massflow.preprocess.pipeline.models import (
     PreprocessTask,
 )
 from massflow.preprocess.pipeline.planner import TaskPlanner
-from massflow.preprocess.pipeline.preprocessor import PipelinePreprocessor, Preprocessor
 from massflow.preprocess.pipeline.runner import PipelineRunner
 from massflow.preprocess.pipeline.sinks import ImzMLSink, IonImageSink, OutputSinkFactory
+from massflow.preprocess.pipeline.task_lowerer import TaskLowerer
 
 __all__ = [
     "DatasetTaskExecutor",
@@ -22,9 +22,8 @@ __all__ = [
     "OutputSinkFactory",
     "PipelineConfig",
     "PipelinePlan",
-    "PipelinePreprocessor",
     "PipelineRunner",
     "PreprocessTask",
-    "Preprocessor",
+    "TaskLowerer",
     "TaskPlanner",
 ]
