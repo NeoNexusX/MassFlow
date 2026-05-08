@@ -9,6 +9,8 @@ Preprocessor
   |-- PipelineRunner
         |
         |-- FlatPipelineExecutor
+        |
+        |-- StageFactory
         |     |-- FlatReaderStage - stage-a
         |     |-- BatchTaskStage - stage-b
         |     |-- FlatWriterStage - stage-c
