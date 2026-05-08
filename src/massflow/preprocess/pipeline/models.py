@@ -43,6 +43,7 @@ class PreprocessTask:
     name: str
     apply_fn: TaskCallable
     scope: TaskScope = "batch"
+    requires_dataset_prepare: bool = False
     kwargs: dict[str, Any] = field(default_factory=dict)
 
 

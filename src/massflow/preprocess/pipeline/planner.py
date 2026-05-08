@@ -45,7 +45,10 @@ class TaskPlanner:
                 tasks = [task for task in tasks if task.name not in PROFILE_ONLY_TASKS]
 
         if tasks:
-            task_names = [f"{task.name}:{task.scope}" for task in tasks]
+            task_names = [
+                f"{task.name}:{task.scope}{':prepare' if task.requires_dataset_prepare else ''}"
+                for task in tasks
+            ]
             logger.info(f"preprocess_task_order: {task_names}")
         else:
             logger.warning("No supported preprocessing tasks remain after task arrangement.")
@@ -62,7 +65,11 @@ class TaskPlanner:
         while task_cursor < len(tasks):
             batch_tasks: list[PreprocessTask] = []
 
-            while task_cursor < len(tasks) and tasks[task_cursor].scope == "batch":
+            while (
+                task_cursor < len(tasks)
+                and tasks[task_cursor].scope == "batch"
+                and not tasks[task_cursor].requires_dataset_prepare
+            ):
                 batch_tasks.append(tasks[task_cursor])
                 task_cursor += 1
 
@@ -84,6 +91,25 @@ class TaskPlanner:
 
             if task_cursor >= len(tasks):
                 break
+
+            prepared_batch_task = tasks[task_cursor]
+            if prepared_batch_task.scope == "batch" and prepared_batch_task.requires_dataset_prepare:
+                task_cursor += 1
+                output_spectrum_type = self.resolve_output_spectrum_type(
+                    input_spectrum_type=current_spectrum_type,
+                    tasks=[prepared_batch_task],
+                )
+                final_output_format = self.output_format if wants_ion_image and task_cursor >= len(tasks) else None
+                segments.append(
+                    ExecutionSegment(
+                        kind="batch",
+                        tasks=[prepared_batch_task],
+                        output_spectrum_type=output_spectrum_type,
+                        final_output_format=final_output_format,
+                    )
+                )
+                current_spectrum_type = output_spectrum_type
+                continue
 
             dataset_task = tasks[task_cursor]
             task_cursor += 1
