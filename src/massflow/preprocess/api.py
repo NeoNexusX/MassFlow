@@ -166,7 +166,7 @@ class PreprocessorAPI(_TaskRegistrar):
 
         return self._register_task(
             "peak_align",
-            scope="batch",
+            scope="dataset",
             apply_fn=FlatPreprocess.peak_align_flat,
             reference=reference,
             tolerance=tolerance,
