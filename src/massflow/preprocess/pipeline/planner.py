@@ -18,6 +18,14 @@ logger = get_logger("massflow.preprocess.pipeline.planner")
 class TaskPlanner:
     """Build executable preprocessing segments from registered tasks."""
 
+    _OPERATION_ORDER: dict[str, int] = {
+        "baseline_correction": 10,
+        "noise_reduction": 20,
+        "normalization": 30,
+        "peak_pick": 40,
+        "peak_align": 50,
+    }
+
     def __init__(
         self,
         tasks: list[PreprocessTask],
@@ -38,22 +46,27 @@ class TaskPlanner:
     def arrange_tasks(self, spectrum_type: SpectrumType) -> list[PreprocessTask]:
         tasks = list(self.tasks)
 
+        def sort_key(task: PreprocessTask) -> int:
+            return self._OPERATION_ORDER.get(task.name, 10_000)
+
+        ordered_tasks = sorted(tasks, key=sort_key)
+
         if spectrum_type == "centroid":
-            dropped_task_names = [task.name for task in tasks if task.name in PROFILE_ONLY_TASKS]
+            dropped_task_names = [task.name for task in ordered_tasks if task.name in PROFILE_ONLY_TASKS]
             if dropped_task_names:
                 logger.warning(f"Detected centroid spectra; dropping unsupported tasks: {dropped_task_names}")
-                tasks = [task for task in tasks if task.name not in PROFILE_ONLY_TASKS]
+                ordered_tasks = [task for task in ordered_tasks if task.name not in PROFILE_ONLY_TASKS]
 
-        if tasks:
+        if ordered_tasks:
             task_names = [
                 f"{task.name}:{task.scope}{':prepare' if task.requires_dataset_prepare else ''}"
-                for task in tasks
+                for task in ordered_tasks
             ]
             logger.info(f"preprocess_task_order: {task_names}")
         else:
             logger.warning("No supported preprocessing tasks remain after task arrangement.")
 
-        return tasks
+        return ordered_tasks
 
     def plan(self, input_spectrum_type: SpectrumType) -> PipelinePlan:
         tasks = self.arrange_tasks(input_spectrum_type)
