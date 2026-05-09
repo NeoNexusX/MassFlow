@@ -17,7 +17,6 @@ class _TaskRegistrar(Protocol):
         *,
         scope: TaskScope = "batch",
         apply_fn: Callable[..., Any],
-        requires_dataset_prepare: bool = False,
         **kwargs: Any,
     ) -> Self:
         ...
@@ -169,7 +168,6 @@ class PreprocessorAPI(_TaskRegistrar):
             "peak_align",
             scope="batch",
             apply_fn=FlatPreprocess.peak_align_flat,
-            requires_dataset_prepare=True,
             reference=reference,
             tolerance=tolerance,
             units=units,
