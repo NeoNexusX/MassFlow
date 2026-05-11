@@ -2,10 +2,21 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from massflow.data_manager import MSDataManager, MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5
-from massflow.preprocess.api_dev import PreprocessorAPI, TaskScope
+from massflow.data_manager import MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5
+from massflow.preprocess.api_dev import PreprocessorAPI
 from massflow.preprocess.flat_pre_fun import FlatBatchResult
-from massflow.preprocess.pipeline import make_task_segments, run_segments, imzml_to_ion_image_data_manager, InputMetaData, PreprocessTask
+from massflow.preprocess.pipeline import (
+    ION_IMAGE_OUTPUT_FORMATS,
+    OUTPUT_FORMAT_IMZML,
+    OUTPUT_FORMATS,
+    InputMetaData,
+    OutputFormat,
+    PreprocessTask,
+    TaskScope,
+    imzml_to_ion_image_data_manager,
+    make_task_segments,
+    run_segments,
+)
 from massflow.tools.infer_spectrum_type import resolve_spectrum_type
 from massflow.tools.logger import get_logger
 
@@ -23,14 +34,14 @@ class Preprocessor(PreprocessorAPI):
 
     def __init__(
         self,
-        data_manager: MSDataManager,
+        data_manager: MSDataManagerImzML,
         *,
         batch_size: int = 256,
         queue_ab_size: int = 1,
         queue_bc_size: int = 1,
         temp_dir: str = "./temp",
         numba_max_threads: Optional[int] = None,
-        output_format: str = "imzml",
+        output_format: OutputFormat = OUTPUT_FORMAT_IMZML,
         output_path: str | None = None,
         output_max_workers: int = 2,
     ): # pylint: disable=super-init-not-called
@@ -40,7 +51,7 @@ class Preprocessor(PreprocessorAPI):
                          f"queuesize={queue_ab_size} & {queue_bc_size}? <0?")
             raise ValueError("Invalid parameter values.")
 
-        if output_format not in {"imzml", "ion_image_binary", "ion_image_h5"}:
+        if output_format not in OUTPUT_FORMATS:
             raise ValueError("output_format must be 'imzml', 'ion_image_binary', or 'ion_image_h5'.")
         self.data_manager = data_manager
         self.batch_size = batch_size
@@ -78,22 +89,22 @@ class Preprocessor(PreprocessorAPI):
             input_spectrum_type=resolve_spectrum_type(self.data_manager),
             input_meta=InputMetaData(
                 batch_size=self.batch_size,
-                temp_dir=self.temp_dir, # type: ignore
+                temp_dir=self.temp_dir,
                 numba_max_threads=self.numba_max_threads,
                 output_max_workers=self.output_max_workers,
                 queue_ab_size=self.queue_ab_size,
                 queue_bc_size=self.queue_bc_size,
-                result_path=self.output_path, # type: ignore
-                result_format=self.output_format,
+                result_path=self.output_path,
+                result_format=self.output_format, # type: ignore
             ),
         )
-        if not task_segments and self.output_format in {"ion_image_binary", "ion_image_h5"}:
+        if not task_segments and self.output_format in ION_IMAGE_OUTPUT_FORMATS:
             logger.warning("No preprocessing tasks registered, output will be written without processing.")
             return imzml_to_ion_image_data_manager(
                 imzml_manager=self.data_manager, # type: ignore
                 input_meta=input_meta,
                 output_format=self.output_format,
-                file_path=input_meta.result_path
+                file_path=input_meta.result_path # type: ignore
             )
 
-        return run_segments(self.data_manager, task_segments) # type: ignore
+        return run_segments(self.data_manager, task_segments)

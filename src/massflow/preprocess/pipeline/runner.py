@@ -1,18 +1,18 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from massflow.data_manager import MSDataManager, MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5
+from massflow.data_manager import MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5
 from massflow.preprocess.pipeline.flat_executor import run_flat_task
 from massflow.preprocess.pipeline.dataset_executor import run_dataset_task
-from massflow.preprocess.pipeline.planner import Segment
+from massflow.preprocess.pipeline.types import Segment
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.preprocess.pipeline.runner")
 
 
 def _del_last_dm(
-    original_dm: MSDataManager,
-    del_dm: MSDataManager,
+    original_dm: MSDataManagerImzML,
+    del_dm: MSDataManagerImzML,
 ) -> None:
     """Helper function to delete intermediate data managers after a segment is done."""
     if del_dm is not original_dm:
@@ -20,7 +20,7 @@ def _del_last_dm(
         del del_dm
 
 def _flat_segment(
-    data_manager: MSDataManager,
+    data_manager: MSDataManagerImzML,
     segment: Segment,
 ) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
     """Run a batch-level segment and return the resulting data manager."""
@@ -32,7 +32,7 @@ def _flat_segment(
     )
 
 def _dataset_segment(
-    data_manager: MSDataManager,
+    data_manager: MSDataManagerImzML,
     segment: Segment,
 ) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | tuple[NDArray[np.float64], float]:
     """Run a dataset-level segment and return the resulting data manager or reference data."""
@@ -44,7 +44,7 @@ def _dataset_segment(
     )
 
 def run_segments(
-    data_manager: MSDataManager,
+    data_manager: MSDataManagerImzML,
     task_segments: list[Segment],
 ):
     """Run the planned task segments and return the final data manager."""

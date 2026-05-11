@@ -1,13 +1,16 @@
-from typing import Optional
-from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 import tempfile
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
 
-from massflow.preprocess.flat_pre_fun import FlatBatchResult
-from massflow.preprocess.api import TaskScope
-from massflow.tools.infer_spectrum_type import SpectrumType
+from massflow.preprocess.pipeline.types import (
+    ION_IMAGE_OUTPUT_FORMATS,
+    OUTPUT_FORMAT_IMZML,
+    OUTPUT_FORMAT_SUFFIXES,
+    InputMetaData,
+    OutputMetaData,
+    PreprocessTask,
+    Segment,
+)
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.preprocess.pipeline.planner")
@@ -23,64 +26,32 @@ _OPERATION_ORDER: dict[str, int] = {
     }
 _PROFILE_ONLY_TASKS = frozenset({"baseline_correction", "noise_reduction", "peak_pick"})
 
-@dataclass(slots=True)
-class InputMetaData:
-    """Structured metadata for output datasets."""
-    batch_size: int
-    temp_dir: str
-    numba_max_threads: Optional[int]
-    output_max_workers: int
-    queue_ab_size: int
-    queue_bc_size: int
-    result_path: str
-    result_format: str
-
-@dataclass(slots=True)
-class PreprocessTask:
-    """Lazy task registration model for batch/dataset preprocessing."""
-    name: str
-    apply_fn: Callable[..., FlatBatchResult] | Callable[..., Any]
-    scope: TaskScope = "batch"
-    kwargs: dict[str, Any] = field(default_factory=dict)
-
-def _normalize_output_path(input_meta: InputMetaData) -> str:
+def _normalize_output_path(input_meta: InputMetaData, temp_dir: str) -> str | None:
     """Helper function to ensure output paths are properly set based on input metadata."""
-    input_meta.temp_dir = input_meta.temp_dir or tempfile.gettempdir()
+    if input_meta.result_format not in ION_IMAGE_OUTPUT_FORMATS:
+        return input_meta.result_path
 
-    suffix = ".iib" if input_meta.result_format == "ion_image_binary" else ".h5"
-
+    suffix = OUTPUT_FORMAT_SUFFIXES[input_meta.result_format]
     if input_meta.result_path:
         path = Path(input_meta.result_path)
 
         if path.suffix != suffix:
             path = path.with_suffix(suffix)
     else:
-        path = Path(input_meta.temp_dir) / f"ion_image_output{suffix}"
+        path = Path(temp_dir) / f"ion_image_output{suffix}"
 
     return str(path)
 
-@dataclass(slots=True)
-class OutputMetaData:
-    """Structured metadata for output datasets."""
-    output_format: str
-    spectrum_type: SpectrumType
-    file_path: Optional[str]
-
-@dataclass(slots=True)
-class Segment:
-    """Represents a segment of tasks to be executed together, either at the batch level or dataset level."""
-
-    scope: str  # "batch" or "dataset"
-    tasks: list[PreprocessTask]
-    input_meta: InputMetaData
-    output_meta: OutputMetaData
-
 def _resolve_input_meta(input_meta: InputMetaData) -> InputMetaData:
     """Helper function to resolve and validate input metadata."""
-    input_meta.result_path = _normalize_output_path(input_meta)
-    input_meta.numba_max_threads = input_meta.numba_max_threads or None
-    input_meta.output_max_workers = max(1, input_meta.output_max_workers)
-    return input_meta
+    temp_dir = input_meta.temp_dir or tempfile.gettempdir()
+    return replace(
+        input_meta,
+        temp_dir=temp_dir,
+        result_path=_normalize_output_path(input_meta, temp_dir),
+        numba_max_threads=input_meta.numba_max_threads or None,
+        output_max_workers=max(1, input_meta.output_max_workers),
+    )
 
 def _arrange_tasks(tasks, spectrum_type) -> list[PreprocessTask]:
 
@@ -119,7 +90,7 @@ def make_task_segments(tasks, input_spectrum_type, input_meta: InputMetaData) ->
             current_spectrum_type = "centroid" if ordered_tasks[task_cursor].name == "peak_pick" else current_spectrum_type
             task_cursor += 1
         if batch_tasks:
-            output_meta = OutputMetaData(output_format="imzml", spectrum_type=current_spectrum_type, file_path=None)
+            output_meta = OutputMetaData(output_format=OUTPUT_FORMAT_IMZML, spectrum_type=current_spectrum_type, file_path=None)
             task_segments.append(Segment(scope="batch", tasks=batch_tasks, input_meta=input_meta, output_meta=output_meta))
 
         if task_cursor >= len(ordered_tasks):
@@ -127,11 +98,20 @@ def make_task_segments(tasks, input_spectrum_type, input_meta: InputMetaData) ->
 
         dataset_task = ordered_tasks[task_cursor]
         task_cursor += 1
-        output_meta = OutputMetaData(output_format="imzml", spectrum_type=current_spectrum_type, file_path=None)
+        if dataset_task.name == "peak_pick":
+            current_spectrum_type = "centroid"
+        output_meta = OutputMetaData(output_format=OUTPUT_FORMAT_IMZML, spectrum_type=current_spectrum_type, file_path=None)
         task_segments.append(Segment(scope="dataset", tasks=[dataset_task], input_meta=input_meta, output_meta=output_meta))
 
     if task_segments:
-        task_segments[-1].output_meta.output_format = input_meta.result_format
-        task_segments[-1].output_meta.file_path = input_meta.result_path
+        last_segment = task_segments[-1]
+        task_segments[-1] = replace(
+            last_segment,
+            output_meta=replace(
+                last_segment.output_meta,
+                output_format=input_meta.result_format,
+                file_path=input_meta.result_path,
+            ),
+        )
 
     return task_segments, input_meta

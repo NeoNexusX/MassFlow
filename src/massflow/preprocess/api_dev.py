@@ -5,11 +5,11 @@ import numpy as np
 
 from massflow.preprocess.helper.peak_align_helper import reference_computer
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
+from massflow.preprocess.pipeline.types import TaskScope
 from massflow.r_preprocess.adapter import CardinalAdapter
 from massflow.tools.logger import get_logger
 logger = get_logger("massflow.preprocess.api")
 
-TaskScope = Literal["batch", "dataset"]
 Backend = Literal["python", "cardinal"]
 
 

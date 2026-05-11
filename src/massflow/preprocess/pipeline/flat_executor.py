@@ -8,9 +8,14 @@ from dataclasses import dataclass
 import numpy as np
 
 from massflow.data_manager import MSDataManager, MSDataManagerImzML, IonImageDataManagerBinary,IonImageDataManagerH5
-from massflow.preprocess.pipeline.planner import PreprocessTask
 from massflow.preprocess.flat_pre_fun import FlatBatchResult
-from massflow.preprocess.pipeline.planner import InputMetaData, OutputMetaData
+from massflow.preprocess.pipeline.types import (
+    ION_IMAGE_OUTPUT_FORMATS,
+    OUTPUT_FORMAT_ION_IMAGE_BINARY,
+    InputMetaData,
+    OutputMetaData,
+    PreprocessTask,
+)
 from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
 from massflow.tools.infer_spectrum_type import set_spectrum_type_metadata
 from massflow.tools.logger import get_logger
@@ -78,7 +83,7 @@ def _stage_a_reader(
     """Stage A: producer; reads flat and pushes to queue_ab."""
     try:
         for mz_data, intensity, lengths, coords in data_manager.flat_generator(
-            batch_size=input_meta.batch_size, include_mz=True
+            batch_size=input_meta.batch_size, include_mz=True # include_mz must be True
         ):
             if stop_event.is_set():
                 break
@@ -198,10 +203,10 @@ def run_flat_task(
 ) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
     total_batches = (len(data_manager.ms) + input_meta.batch_size - 1) // input_meta.batch_size
 
-    if output_meta.output_format in ["ion_image_binary", "ion_image_h5"]:
+    if output_meta.output_format in ION_IMAGE_OUTPUT_FORMATS:
         ion_image_cls = (
             IonImageDataManagerBinary
-            if output_meta.output_format == "ion_image_binary"
+            if output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_BINARY
             else IonImageDataManagerH5
         )
         processed_data = ion_image_cls.from_data_manager(

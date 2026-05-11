@@ -5,8 +5,15 @@ import numpy as np
 from numpy.typing import NDArray
 
 from massflow.data_manager import MSDataManager, MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5
-from massflow.preprocess.pipeline.planner import PreprocessTask
-from massflow.preprocess.pipeline.planner import InputMetaData, OutputMetaData
+from massflow.preprocess.pipeline.types import (
+    ION_IMAGE_OUTPUT_FORMATS,
+    OUTPUT_FORMAT_ION_IMAGE_BINARY,
+    OUTPUT_FORMAT_ION_IMAGE_H5,
+    InputMetaData,
+    OutputFormat,
+    OutputMetaData,
+    PreprocessTask,
+)
 from massflow.tools.infer_spectrum_type import set_spectrum_type_metadata
 from massflow.tools.logger import get_logger
 logger = get_logger("massflow.preprocess.pipeline.dataset_executor")
@@ -34,13 +41,13 @@ def _write_through_generator(
 def imzml_to_ion_image_data_manager(
     imzml_manager: MSDataManagerImzML,
     input_meta: InputMetaData,
-    output_format: str,
+    output_format: OutputFormat,
     file_path: str,
 ) -> IonImageDataManagerBinary | IonImageDataManagerH5:
     """Convert an imzML manager to an ion image data manager by writing through a generator."""
-    if output_format == "ion_image_binary":
+    if output_format == OUTPUT_FORMAT_ION_IMAGE_BINARY:
         ion_image_cls = IonImageDataManagerBinary
-    elif output_format == "ion_image_h5":
+    elif output_format == OUTPUT_FORMAT_ION_IMAGE_H5:
         ion_image_cls = IonImageDataManagerH5
     else:
         raise ValueError(f"Unsupported output format: {output_format}")
@@ -66,7 +73,7 @@ def _task_to_data_manager(
     processed_data = apply_fn(data_manager=data_manager, **task.kwargs)
     set_spectrum_type_metadata(processed_data.ms.meta, output_meta.spectrum_type)
 
-    if output_meta.output_format in ["ion_image_binary", "ion_image_h5"]:
+    if output_meta.output_format in ION_IMAGE_OUTPUT_FORMATS:
         ion_dm = imzml_to_ion_image_data_manager(
             imzml_manager=processed_data,
             input_meta=input_meta,
