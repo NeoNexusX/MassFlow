@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+from typing import Any, Callable, Literal, Protocol, Self
+import numpy as np
+
+from massflow.preprocess.helper.peak_align_helper import reference_computer
+from massflow.preprocess.flat_pre_fun import FlatPreprocess
+from massflow.r_preprocess.adapter import CardinalAdapter
+from massflow.tools.logger import get_logger
+logger = get_logger("massflow.preprocess.api")
+
+TaskScope = Literal["batch", "dataset"]
+Backend = Literal["python", "cardinal"]
+
+
+class _TaskRegistrar(Protocol):
+    def _register_task(
+        self,
+        name: str,
+        *,
+        scope: TaskScope = "batch",
+        apply_fn: Callable[..., Any],
+        **kwargs: Any,
+    ) -> Self:
+        ...
+
+
+class PreprocessorAPI(_TaskRegistrar):
+    """Chainable task registration APIs for `Preprocessor` (flat-first)."""
+
+    def baseline_correction(
+            self,
+            *,
+            method: str = "locmin_numba",
+            smooth: str = "none",
+            span: float = 0.1,
+            upper: bool = False,
+            width: int = 5,
+            niter: int = 15,
+            baseline_scale: float = 1.0,
+            m: int | None = None,
+            decreasing: bool = True,
+        ) -> Self:
+        return self._register_task(
+            "baseline_correction",
+            scope="batch",
+            apply_fn=FlatPreprocess.baseline_reduction_flat,
+            method=method,
+            smooth=smooth,
+            span=span,
+            upper=upper,
+            width=width,
+            niter=niter,
+            baseline_scale=baseline_scale,
+            m=m,
+            decreasing=decreasing,
+        )
+
+    def noise_reduction(
+        self,
+        *,
+        method: str = "gaussian_numba",
+        window: int = 5,
+        sd: float | None = None,
+        polyorder: int = 3,
+        deriv: int = 0,
+        delta: float = 1.0,
+    ) -> Self:
+        """Register noise reduction flat task."""
+        return self._register_task(
+            "noise_reduction",
+            scope="batch",
+            apply_fn=FlatPreprocess.noise_reduction_flat,
+            method=method,
+            window=window,
+            sd=sd,
+            polyorder=polyorder,
+            deriv=deriv,
+            delta=delta,
+        )
+
+    def normalization(
+        self,
+        *,
+        method: str = "tic_numba",
+        scale: float | None = None,
+        ref: float | None = None,
+        ref_tolerance: float = 0.1,
+    ) -> Self:
+        """Register normalization batch task."""
+        return self._register_task(
+            "normalization",
+            scope="batch",
+            apply_fn=FlatPreprocess.normalization_flat,
+            method=method,
+            scale=scale,
+            ref=ref,
+            ref_tolerance=ref_tolerance,
+        )
+
+    def peak_pick(
+        self,
+        *,
+        width: int = 5,
+        method: str = "diff",
+        snr: float = 2.0,
+        return_type: str = "height",
+        prominence: float | None = None,
+        relheight: float | None = None, # Note: Only used for python backend
+        nbins: int = 1,
+        overlap: float = 0.5,
+        backend: Backend = "python",
+    ) -> Self:
+        if backend == "cardinal":
+            return self._register_task(
+                "peak_pick",
+                scope="dataset",
+                apply_fn=CardinalAdapter.peak_pick,
+                width=width,
+                method=method,
+                snr=snr,
+                return_type=return_type,
+                prominence=prominence,
+                relheight=relheight,
+                nbins=nbins,
+                overlap=overlap,
+            )
+
+        return self._register_task(
+            "peak_pick",
+            scope="batch",
+            apply_fn=FlatPreprocess.peak_pick_flat,
+            width=width,
+            method=method,
+            snr=snr,
+            return_type=return_type,
+            prominence=prominence,
+            relheight=relheight,
+            nbins=nbins,
+            overlap=overlap,
+        )
+
+    def reference_computer(
+        self,
+        *,
+        binfun: str = "median",
+        binratio: float = 2.0,
+        tolerance: float | None = None,
+        units: str = "ppm",
+        min_count: int | None = None,
+        min_frequency: float | None = None,
+    ) -> Self:
+        """Register reference computer dataset task."""
+        return self._register_task(
+            "reference_computer",
+            scope="dataset",
+            apply_fn=reference_computer,
+            binfun=binfun,
+            binratio=binratio,
+            tolerance=tolerance,
+            units=units,
+            min_count=min_count,
+            min_frequency=min_frequency,
+        )
+
+    def peak_align(
+        self,
+        *,
+        reference: np.ndarray | None = None,
+        tolerance: float | None = None,
+        units: str = "ppm",
+        binfun: str = "median",
+        binratio: float = 2.0,
+        min_count: int | None = None,
+        min_frequency: float | None = None,
+        backend: Backend = "python",
+    ) -> Self:
+        """Register peak alignment flat task."""
+        if backend == "cardinal":
+            if min_count is not None or min_frequency is not None:
+                logger.warning("min_count/min_frequency are only supported by the python peak_align backend")
+            return self._register_task(
+                "peak_align",
+                scope="dataset",
+                apply_fn=CardinalAdapter.peak_align,
+                reference=reference,
+                tolerance=tolerance,
+                units=units,
+                binfun=binfun,
+                binratio=binratio,
+            )
+
+        if reference is None or tolerance is None:
+            self.reference_computer(
+                binfun=binfun,
+                binratio=binratio,
+                tolerance=tolerance,
+                units=units,
+                min_count=min_count,
+                min_frequency=min_frequency,
+            )
+
+        return self._register_task(
+            "peak_align",
+            scope="batch",
+            apply_fn=FlatPreprocess.peak_align_flat,
+            reference=reference,
+            tolerance=tolerance,
+            units=units,
+        )
