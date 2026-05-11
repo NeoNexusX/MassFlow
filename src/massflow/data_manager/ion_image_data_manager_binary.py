@@ -7,6 +7,7 @@ import shutil
 import struct
 import tempfile
 import uuid
+from copy import deepcopy
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import astuple, dataclass, fields
 from pathlib import Path
@@ -15,6 +16,7 @@ from typing import Any, Callable
 import numpy as np
 
 from massflow.data_manager.ion_image_data_manager import IonImageDataManager
+from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
 
 # Header 中每个字段都是 little-endian uint64；sentinel 作为终止标记，
 # HEADER_SIZE / HEADER_STRUCT 在 IonImageBinaryHeader 定义之后自动计算。
@@ -222,6 +224,53 @@ class IonImageDataManagerBinary(IonImageDataManager):
             merge_workers=merge_workers,
             metadata=meta,
             shared_mz_axis=data_manager.ms.shared_mz_list,
+        )
+
+    @classmethod
+    def from_flat_output_contract(
+        cls,
+        data_manager,
+        filepath: str | os.PathLike[str],
+        *,
+        shared_mz_axis: np.ndarray,
+        output_spectrum_type: SpectrumType = "centroid",
+        temp_dir: str | os.PathLike[str] | None = None,
+        mz_dtype: np.dtype | type | None = None,
+        intensity_dtype: np.dtype | type | None = None,
+        ion_block: int = 64,
+        temp_workers: int = 2,
+        merge_workers: int = 2,
+    ) -> "IonImageDataManagerBinary":
+        """
+        Create an ion-image writer from the final flat pipeline output contract.
+
+        Unlike `from_data_manager`, this is intended for flat pipelines where the
+        input data manager may still be processed/variable-length, but the output
+        chunk already carries the final shared m/z axis produced by alignment.
+        """
+        mz_axis = np.asarray(shared_mz_axis)
+        if mz_axis.ndim != 1 or mz_axis.size == 0:
+            raise ValueError("shared_mz_axis must be a non-empty 1-D array.")
+
+        source_meta = data_manager.ms.meta
+        output_meta = deepcopy(source_meta)
+        output_meta.continuous = True
+        output_meta.processed = None
+        set_spectrum_type_metadata(output_meta, output_spectrum_type)
+
+        return cls(
+            filepath=filepath,
+            mode="w",
+            width=int(output_meta.max_count_of_pixels_x),
+            height=int(output_meta.max_count_of_pixels_y),
+            temp_dir=temp_dir,
+            mz_dtype=data_manager.mz_dtype if mz_dtype is None else mz_dtype,
+            intensity_dtype=data_manager.intensity_dtype if intensity_dtype is None else intensity_dtype,
+            ion_block=ion_block,
+            temp_workers=temp_workers,
+            merge_workers=merge_workers,
+            metadata=output_meta,
+            shared_mz_axis=mz_axis,
         )
 
     def _validate_metadata(self, metadata, shared_mz_axis: np.ndarray | None) -> None:

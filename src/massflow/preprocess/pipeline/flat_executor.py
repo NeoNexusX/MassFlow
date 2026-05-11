@@ -33,14 +33,58 @@ class FlatChunk:
     coordinates: np.ndarray
 
 @dataclass(slots=True)
-class DataSink:
-    """
-    Represents the final stage of the pipeline that produces output.
-    """
+class FlatOutputSink:
+    """Output sink for flat segments; ion-image writers are created lazily."""
 
-    data_manager: MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5
+    source_data_manager: MSDataManager
+    input_meta: InputMetaData
+    output_meta: OutputMetaData
+    data_manager: MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | None = None
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        source_data_manager: MSDataManager,
+        input_meta: InputMetaData,
+        output_meta: OutputMetaData,
+    ) -> "FlatOutputSink":
+        sink = cls(
+            source_data_manager=source_data_manager,
+            input_meta=input_meta,
+            output_meta=output_meta,
+        )
+        if output_meta.output_format not in ION_IMAGE_OUTPUT_FORMATS:
+            processed_data = MSDataManagerImzML(temp_dir=input_meta.temp_dir)
+            processed_data.copy_meta(source_data_manager)
+            set_spectrum_type_metadata(processed_data.ms.meta, output_meta.spectrum_type)
+            sink.data_manager = processed_data
+        return sink
+
+    def _make_ion_image_data_manager(self, chunk: FlatChunk) -> IonImageDataManagerBinary | IonImageDataManagerH5:
+        if chunk.mz_data is None:
+            raise ValueError("ion image output requires mz_data from processed flat chunks.")
+        if self.output_meta.file_path is None:
+            raise ValueError("ion image output requires a file_path.")
+
+        ion_image_cls = (
+            IonImageDataManagerBinary
+            if self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_BINARY
+            else IonImageDataManagerH5
+        )
+        return ion_image_cls.from_flat_output_contract(
+            self.source_data_manager,
+            self.output_meta.file_path,
+            shared_mz_axis=chunk.mz_data,
+            output_spectrum_type=self.output_meta.spectrum_type,
+            temp_dir=self.input_meta.temp_dir,
+            temp_workers=self.input_meta.output_max_workers,
+            merge_workers=self.input_meta.output_max_workers,
+        )
 
     def write_chunk(self, chunk: FlatChunk) -> None:
+        if self.data_manager is None:
+            self.data_manager = self._make_ion_image_data_manager(chunk)
         self.data_manager.write_flat_batch(
             intensity_flat=chunk.intensity,
             lengths=chunk.lengths,
@@ -49,6 +93,8 @@ class DataSink:
         )
 
     def finalize(self) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
+        if self.data_manager is None:
+            raise ValueError("No batches were written.")
         if isinstance(self.data_manager, MSDataManagerImzML):
             self.data_manager.close_writer()
             self.data_manager.load_head_data()
@@ -59,7 +105,8 @@ class DataSink:
     def close(self) -> None:
         if isinstance(self.data_manager, MSDataManagerImzML):
             self.data_manager.close_writer()
-        self.data_manager.close()
+        if self.data_manager is not None:
+            self.data_manager.close()
 
 def _set_error(
     error_holder: list[BaseException],
@@ -146,7 +193,7 @@ def _stage_b_processor(
         queue_bc.put(None)
 
 def _flush_chunk(
-    data_sink: DataSink,
+    data_sink: FlatOutputSink,
     chunk: FlatChunk,
     written_batches: int,
     total_batches: int,
@@ -161,7 +208,7 @@ def _flush_chunk(
     return written_batches
 
 def _stage_c_writer(
-    data_sink: DataSink,
+    data_sink: FlatOutputSink,
     queue_bc: Queue[Optional[FlatChunk]],
     stop_event: Event,
     total_batches: int,
@@ -203,24 +250,11 @@ def run_flat_task(
 ) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
     total_batches = (len(data_manager.ms) + input_meta.batch_size - 1) // input_meta.batch_size
 
-    if output_meta.output_format in ION_IMAGE_OUTPUT_FORMATS:
-        ion_image_cls = (
-            IonImageDataManagerBinary
-            if output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_BINARY
-            else IonImageDataManagerH5
-        )
-        processed_data = ion_image_cls.from_data_manager(
-            data_manager,
-            output_meta.file_path, # type: ignore
-            temp_dir=input_meta.temp_dir,
-            temp_workers=input_meta.output_max_workers,
-            merge_workers=input_meta.output_max_workers
-        )
-    else:
-        processed_data = MSDataManagerImzML(temp_dir=input_meta.temp_dir)
-        processed_data.copy_meta(data_manager)
-        set_spectrum_type_metadata(processed_data.ms.meta, output_meta.spectrum_type)
-    data_sink = DataSink(data_manager=processed_data)
+    data_sink = FlatOutputSink.create(
+        source_data_manager=data_manager,
+        input_meta=input_meta,
+        output_meta=output_meta,
+    )
 
     queue_ab: Queue[Optional[FlatChunk]] = Queue(maxsize=input_meta.queue_ab_size)
     queue_bc: Queue[Optional[FlatChunk]] = Queue(maxsize=input_meta.queue_bc_size)
