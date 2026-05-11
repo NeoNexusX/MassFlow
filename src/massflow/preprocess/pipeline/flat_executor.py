@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from massflow.data_manager import MSDataManager, MSDataManagerImzML, IonImageDataManagerBinary,IonImageDataManagerH5
-from massflow.preprocess.preprocessor_dev import PreprocessTask
+from massflow.preprocess.pipeline.planner import PreprocessTask
 from massflow.preprocess.flat_pre_fun import FlatBatchResult
 from massflow.preprocess.pipeline.planner import InputMetaData, OutputMetaData
 from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
@@ -199,8 +199,12 @@ def run_flat_task(
     total_batches = (len(data_manager.ms) + input_meta.batch_size - 1) // input_meta.batch_size
 
     if output_meta.output_format in ["ion_image_binary", "ion_image_h5"]:
-        processed_data = IonImageDataManagerBinary() if output_meta.output_format == "ion_image_binary" else IonImageDataManagerH5()
-        processed_data.from_data_manager(
+        ion_image_cls = (
+            IonImageDataManagerBinary
+            if output_meta.output_format == "ion_image_binary"
+            else IonImageDataManagerH5
+        )
+        processed_data = ion_image_cls.from_data_manager(
             data_manager,
             output_meta.file_path, # type: ignore
             temp_dir=input_meta.temp_dir,

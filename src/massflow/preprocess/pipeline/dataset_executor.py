@@ -5,7 +5,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from massflow.data_manager import MSDataManager, MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5
-from massflow.preprocess.preprocessor_dev import PreprocessTask
+from massflow.preprocess.pipeline.planner import PreprocessTask
 from massflow.preprocess.pipeline.planner import InputMetaData, OutputMetaData
 from massflow.tools.infer_spectrum_type import set_spectrum_type_metadata
 from massflow.tools.logger import get_logger
@@ -18,7 +18,7 @@ def _write_through_generator(
 ) -> IonImageDataManagerBinary | IonImageDataManagerH5:
     """Use a generator to write data from an imzML manager to an ion image manager."""
     for mz_axis, intensity_flat, lengths, coordinates in data_manager.flat_generator(
-        batch_size=256,
+        batch_size=input_meta.batch_size,
         include_mz=True,
         max_threads=input_meta.output_max_workers,
     ):
@@ -39,13 +39,13 @@ def imzml_to_ion_image_data_manager(
 ) -> IonImageDataManagerBinary | IonImageDataManagerH5:
     """Convert an imzML manager to an ion image data manager by writing through a generator."""
     if output_format == "ion_image_binary":
-        output_dm = IonImageDataManagerBinary()
+        ion_image_cls = IonImageDataManagerBinary
     elif output_format == "ion_image_h5":
-        output_dm = IonImageDataManagerH5()
+        ion_image_cls = IonImageDataManagerH5
     else:
         raise ValueError(f"Unsupported output format: {output_format}")
 
-    output_dm.from_data_manager(
+    output_dm = ion_image_cls.from_data_manager(
         data_manager=imzml_manager,
         filepath=file_path,
         temp_dir=input_meta.temp_dir,
@@ -66,13 +66,15 @@ def _task_to_data_manager(
     processed_data = apply_fn(data_manager=data_manager, **task.kwargs)
     set_spectrum_type_metadata(processed_data.ms.meta, output_meta.spectrum_type)
 
-    if output_meta.output_format == "ion_image_binary" or output_meta.output_format == "ion_image_h5":
-        return imzml_to_ion_image_data_manager(
+    if output_meta.output_format in ["ion_image_binary", "ion_image_h5"]:
+        ion_dm = imzml_to_ion_image_data_manager(
             imzml_manager=processed_data,
             input_meta=input_meta,
             output_format=output_meta.output_format,
             file_path=output_meta.file_path, # type: ignore
         )
+        processed_data.close()
+        return ion_dm
 
     return processed_data
 

@@ -140,7 +140,7 @@ class PreprocessorAPI(_TaskRegistrar):
             overlap=overlap,
         )
 
-    def reference_computer(
+    def _reference_computer(
         self,
         *,
         binfun: str = "median",
@@ -150,7 +150,7 @@ class PreprocessorAPI(_TaskRegistrar):
         min_count: int | None = None,
         min_frequency: float | None = None,
     ) -> Self:
-        """Register reference computer dataset task."""
+        """Register reference computer dataset task, just for peak_align."""
         return self._register_task(
             "reference_computer",
             scope="dataset",
@@ -191,7 +191,7 @@ class PreprocessorAPI(_TaskRegistrar):
             )
 
         if reference is None or tolerance is None:
-            self.reference_computer(
+            self._reference_computer(
                 binfun=binfun,
                 binratio=binratio,
                 tolerance=tolerance,
