@@ -9,6 +9,7 @@ from .ms_data_manager_imzml import MSDataManagerImzML
 from .ion_image_data_manager import IonImageDataManager
 from .ion_image_data_manager_binary import IonImageDataManagerBinary
 from .ion_image_data_manager_h5 import IonImageDataManagerH5
+from .ion_image_data_manager_zarr import IonImageDataManagerZarr
 
 __all__ = [
     "MSDataManager",
@@ -16,4 +17,5 @@ __all__ = [
     "IonImageDataManager",
     "IonImageDataManagerBinary",
     "IonImageDataManagerH5",
+    "IonImageDataManagerZarr",
 ]
