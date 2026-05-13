@@ -102,7 +102,7 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
 def align_spectra_flat_parallel_jit(
     mz_data: NDArray[np.float64],
     intensity_flat: NDArray[np.float64],
-    lengths: NDArray[np.int32],
+    lengths: NDArray[np.uint32],
     reference: NDArray[np.float64],
     tolerance: float,
     code: int,
@@ -233,7 +233,7 @@ def search_nearest_jit(
 @jit(nopython=True, fastmath=True, cache=True, parallel=True)
 def estimate_domain_stats_flat_parallel_jit(
     mz_flat: NDArray[np.float64],
-    lengths: NDArray[np.int32],
+    lengths: NDArray[np.uint32],
     method_code: int,
 ):
     """Estimate (min_mz, max_mz, resolution) for each spectrum in flat mode."""
@@ -317,7 +317,7 @@ def estimate_domain_stats_flat_parallel_jit(
 @jit(nopython=True, fastmath=True, cache=True, parallel=True)
 def search_nearest_flat_parallel_jit(
     mz_flat: NDArray[np.float64],
-    lengths: NDArray[np.int32],
+    lengths: NDArray[np.uint32],
     targets: NDArray[np.float64],
     tolerance: float,
     code: int,
@@ -453,7 +453,7 @@ def accumulate_best_matches_for_spectrum_jit(
 def accumulate_best_matches_for_flat_jit(
     raw_peaks_flat: NDArray[np.float64],
     bin_indices_flat: NDArray[np.int64],
-    lengths: NDArray[np.int32],
+    lengths: NDArray[np.uint32],
     domain: NDArray[np.float64],
     method_code: int,
     peaks_acc: NDArray[np.float64],

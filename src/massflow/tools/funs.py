@@ -19,7 +19,7 @@ def prepare_flat_inputs(
     intensity: np.ndarray,
     lengths: Optional[np.ndarray],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Validate 1D flat input and optional lengths, preserving the input dtype."""
+    """Validate 1D flat input and optional lengths."""
     if intensity is None or not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
         raise ValueError("intensity must be a 1D numpy array")
 
@@ -30,15 +30,15 @@ def prepare_flat_inputs(
     intensity_arr = intensity
 
     if lengths is None:
-        lengths_arr = np.array([intensity_arr.size], dtype=np.int64)
+        lengths_arr = np.array([intensity_arr.size], dtype=np.uint32)
     else:
-        lengths_arr = np.asarray(lengths, dtype=np.int64)
-        if lengths_arr.ndim != 1:
+        if lengths.ndim != 1:
             raise ValueError("lengths must be a 1D array")
-        if np.any(lengths_arr < 0):
+        if np.any(lengths < 0):
             raise ValueError("lengths must contain non-negative integers")
-        if int(np.sum(lengths_arr)) != intensity_arr.size:
+        if int(np.sum(lengths)) != intensity_arr.size:
             raise ValueError("sum(lengths) must equal intensity.size")
+        lengths_arr = np.asarray(lengths, dtype=np.uint32)
 
     return mz_arr, intensity_arr, lengths_arr
 

@@ -183,10 +183,10 @@ class FlatPreprocess:
 
         n_spec = int(lengths.size)
         ref_len = int(reference.size)
-        out_lengths = np.full(n_spec, ref_len, dtype=np.int32)
+        out_lengths = np.full(n_spec, ref_len, dtype=np.uint32)
         out_intensity = aligned_2d.reshape(-1)
 
-        return FlatBatchResult(mz_data=reference, intensity=out_intensity, lengths=out_lengths)
+        return FlatBatchResult(mz_data=np.asarray(reference, dtype=mz_data.dtype), intensity=out_intensity, lengths=out_lengths)
 
     @staticmethod
     def normalization_flat(
@@ -195,7 +195,6 @@ class FlatPreprocess:
         lengths: np.ndarray,
         method: str = "tic_numba",
         scale: float | None = None,
-        mz_flat: np.ndarray | None = None,
         ref: float | None = None,
         ref_tolerance: float = 0.1,
     ) -> FlatBatchResult:
@@ -213,11 +212,14 @@ class FlatPreprocess:
         if method_norm not in supported_methods:
             raise ValueError("normalization_flat only supports: tic_numba, rms_numba, ref_numba")
 
+        if ref is None and method_norm == "ref_numba":
+            ref = float(mz_data[mz_data.size // 2]) if mz_data is not None and mz_data.size > 0 else None
+
         normalized_intensity = normalizer(
             intensity=intensity,
             method=method_norm,
             scale=scale,
-            mz_flat=mz_flat,
+            mz_flat=mz_data if method_norm == "ref_numba" else None,
             ref=ref,
             ref_tolerance=ref_tolerance,
             lengths=lengths,

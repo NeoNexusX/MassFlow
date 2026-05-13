@@ -724,7 +724,7 @@ def estimate_flat_numba(
     _, intensity_arr, lengths_arr = prepare_flat_inputs(
         None,
         np.asarray(intensity),
-        np.asarray(lengths, dtype=np.int64),
+        np.asarray(lengths),
     )
 
     if method_code == 3:

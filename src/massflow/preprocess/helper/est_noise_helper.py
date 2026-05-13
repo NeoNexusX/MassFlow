@@ -7,6 +7,7 @@ Noise estimation utilities.
 from typing import Optional
 import numpy as np
 from massflow.tools.logger import get_logger
+from massflow.tools.funs import prepare_flat_inputs
 from massflow.preprocess.numba.est_noise_numba import estimate_flat_numba
 
 logger = get_logger("preprocesss")
@@ -49,12 +50,12 @@ def estimator(
     Estimate noise level in the MSI data.
     """
     _input_validation(intensity, nbins, overlap)
-    lengths_arr = lengths.astype(np.int64) if lengths is not None else np.array([intensity.size], dtype=np.int64)
+    _, intensity_arr, lengths_arr = prepare_flat_inputs(None, intensity, lengths)
 
     method_code = _method_to_code(method)
 
     noise_flat = estimate_flat_numba(
-        intensity=intensity,
+        intensity=intensity_arr,
         lengths=lengths_arr,
         nbins=nbins,
         dynamic=dynamic,

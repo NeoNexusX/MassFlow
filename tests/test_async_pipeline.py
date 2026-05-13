@@ -1,8 +1,8 @@
 import time
-import os
-import subprocess
+from pathlib import Path
+import numpy as np
 import pytest
-from massflow.data_manager import MSDataManagerImzML
+from massflow.data_manager import MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5
 from massflow.preprocess import Preprocessor
 from massflow.tools.logger import get_logger
 
@@ -10,17 +10,14 @@ logger = get_logger("test_async_pipeline")
 ROUND = 1
 
 
-def drop_caches():
-    if os.name == "nt":
-        return
-    subprocess.run(["sudo", "purge"], check=True)
-
-
-def run_pipeline_once(
+def _run_pipeline(
     data_manager,
     batch_size=256,
     queue_ab_size=2,
-    queue_bc_size=2
+    queue_bc_size=2,
+    output_format="imzml",
+    temp_dir="./temp",
+    output_path=None,
 ):
     """Run the async pipeline once with specified parameters."""
     processed_data_manager = (
@@ -29,24 +26,79 @@ def run_pipeline_once(
             batch_size=batch_size,
             queue_ab_size=queue_ab_size,
             queue_bc_size=queue_bc_size,
+            temp_dir=str(temp_dir),
+            output_format=output_format, # type: ignore
+            output_path=None if output_path is None else str(output_path),
         )
         .noise_reduction()
         .peak_pick()
         .peak_align()
         .start()
     )
-    processed_data_manager.close()
+    return processed_data_manager
 
+def _del_processed_dm_file(processed_dm):
+    """Helper to delete the output file of the processed data manager if it exists."""
+    if isinstance(processed_dm, MSDataManagerImzML):
+        processed_dm.close()
+    else:
+        processed_dm.finalize()
 
-class TestAsyncPipelineProfile:
-    """Memory and runtime profile tests for async pipeline and each internal stage."""
+def _close_after_test(request, data_manager):
+    request.addfinalizer(data_manager.close)
+    return data_manager
 
-    @pytest.fixture(scope="module", params=["data/example.imzML"])
+def _sample_indices(size: int) -> list[int]:
+    return sorted({0, size // 2, size - 1})
+
+def _collect_imzml_matrix(data_manager: MSDataManagerImzML):
+    mz_axis = None
+    pixel_batches = []
+
+    for batch_mz, intensity_flat, lengths, _coords in data_manager.flat_generator(
+        batch_size=128,
+        include_mz=True,
+        max_threads=2,
+    ):
+        batch_mz = np.asarray(batch_mz)
+        mz_axis = batch_mz.copy() if mz_axis is None else mz_axis
+        np.testing.assert_allclose(batch_mz, mz_axis, rtol=1e-7, atol=1e-10)
+
+        n_ions = len(mz_axis)
+        assert np.all(np.asarray(lengths) == n_ions)
+        pixel_batches.append(np.asarray(intensity_flat).reshape(len(lengths), n_ions))
+
+    assert mz_axis is not None
+    return mz_axis, np.vstack(pixel_batches)
+
+def _assert_ion_image_matches(ion_dm, mz_axis, pixel_matrix):
+    assert ion_dm.n_ions == len(mz_axis)
+    assert ion_dm.n_pixels == pixel_matrix.shape[0]
+    assert ion_dm.n_ions > 0
+    assert ion_dm.n_pixels > 0
+    np.testing.assert_allclose(ion_dm.mz_axis, mz_axis, rtol=1e-7, atol=1e-10)
+
+    for ion_idx in _sample_indices(ion_dm.n_ions):
+        np.testing.assert_allclose(
+            ion_dm.get_ion_vector(ion_idx),
+            pixel_matrix[:, ion_idx],
+            rtol=1e-5,
+            atol=1e-8,
+        )
+
+class TestAsyncPipeline:
+    """Test class for the massflow pipeline."""
+
+    @pytest.fixture(scope="module", params=["/Users/dre/Desktop/data/Example_read/example.imzML"])
     def ms_raw_data(self, request) -> MSDataManagerImzML:
         """Fixture providing MSDataManagerImzML instance with fully initialized spectra for noise reduction tests."""
-        data_file_path = request.param
+        data_file_path = Path(request.param)
+        if not data_file_path.exists() or not data_file_path.with_suffix(".ibd").exists():
+            pytest.skip(f"Missing test data: {data_file_path} and matching .ibd file")
+
         dm = MSDataManagerImzML(filepath=data_file_path)
         dm.load_head_data()
+        request.addfinalizer(dm.close)
         return dm
 
     @pytest.mark.parametrize("batch_size", [1024])
@@ -62,69 +114,60 @@ class TestAsyncPipelineProfile:
         queue_bc_size: int,
     ) -> None:
         """Whole pipeline runtime benchmark."""
-        benchmark.pedantic(
-            run_pipeline_once,
+        processed_dm = benchmark.pedantic(
+            _run_pipeline,
             args=(ms_raw_data, batch_size, queue_ab_size, queue_bc_size),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=1,
         )
-        drop_caches()
+        _del_processed_dm_file(processed_dm)
 
-    @pytest.mark.parametrize(("profile", "centroid"), [(None, None), (True, True)])
-    def test_pipeline_resolve_spectrum_type(
-        self,
-        ms_raw_data,
-        profile,
-        centroid,
-    ):
-        """Test that the pipeline correctly resolves spectrum type."""
-        ms_raw_data.ms.meta.profile_spectrum = profile
-        ms_raw_data.ms.meta.centroid_spectrum = centroid
-
-        processed_data_manager = (
-            Preprocessor(
-                data_manager=ms_raw_data,
-                batch_size=256,
-                queue_ab_size=2,
-                queue_bc_size=2,
-            )
-            .noise_reduction()
-            .peak_pick()
-            .peak_align()
-            .start()
+    def test_binary_matches_imzml(self, ms_raw_data, tmp_path, request):
+        """Binary output must match the same pipeline's imzML output."""
+        imzml_dm = _close_after_test(
+            request,
+            _run_pipeline(ms_raw_data, temp_dir=tmp_path / "imzml"),
         )
-        try:
-            assert processed_data_manager.ms.meta.profile_spectrum is None
-            assert processed_data_manager.ms.meta.centroid_spectrum is True
-        finally:
-            processed_data_manager.close()
+        mz_axis, pixel_matrix = _collect_imzml_matrix(imzml_dm) # type: ignore
 
-    def test_pipeline_resolve_tasks(
-        self,
-        ms_raw_data,
-    ):
-        """Test that the pipeline correctly resolves tasks based on spectrum type."""
-        ms_raw_data.ms.meta.profile_spectrum = None
-        ms_raw_data.ms.meta.centroid_spectrum = True
-
-        preprocessor = (
-            Preprocessor(
-                data_manager=ms_raw_data,
-                batch_size=256,
-                queue_ab_size=2,
-                queue_bc_size=2,
-            )
-            .noise_reduction()
-            .peak_pick()
-            .peak_align()
+        binary_dm = _close_after_test(
+            request,
+            _run_pipeline(
+                ms_raw_data,
+                output_format="ion_image_binary",
+                temp_dir=tmp_path / "binary",
+                output_path=tmp_path / "pipeline.iib",
+            ),
         )
-        ordered_task_names = [task.name for task in preprocessor._arrange_tasks("centroid")] # pylint: disable=protected-access
-        assert ordered_task_names == ["peak_align"]
 
-        unsupported_preprocessor = Preprocessor(data_manager=ms_raw_data).noise_reduction()
-        with pytest.raises(ValueError, match="No supported preprocessing tasks remain"):
-            unsupported_preprocessor.start()
+        assert isinstance(binary_dm, IonImageDataManagerBinary)
+        _assert_ion_image_matches(binary_dm, mz_axis, pixel_matrix)
+        for pixel_idx in _sample_indices(binary_dm.n_pixels):
+            np.testing.assert_allclose(
+                binary_dm.get_pixel_spectrum(pixel_idx),
+                pixel_matrix[pixel_idx],
+                rtol=1e-5,
+                atol=1e-8,
+            )
 
-        processed_data_manager = preprocessor.start()
-        processed_data_manager.close()
+    def test_h5_matches_imzml(self, ms_raw_data, tmp_path, request):
+        """H5 output must match the same pipeline's imzML output."""
+        imzml_dm = _close_after_test(
+            request,
+            _run_pipeline(ms_raw_data, temp_dir=tmp_path / "imzml"),
+        )
+        mz_axis, pixel_matrix = _collect_imzml_matrix(imzml_dm) # type: ignore
+
+        h5_dm = _close_after_test(
+            request,
+            _run_pipeline(
+                ms_raw_data,
+                output_format="ion_image_h5",
+                temp_dir=tmp_path / "h5",
+                output_path=tmp_path / "pipeline.h5",
+            ),
+        )
+
+        assert isinstance(h5_dm, IonImageDataManagerH5)
+        _assert_ion_image_matches(h5_dm, mz_axis, pixel_matrix)

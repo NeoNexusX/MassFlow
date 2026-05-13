@@ -26,6 +26,8 @@ def peak_picker(
     """
     Parallel peak picking for mass spectrometry data.
     """
+    out_mzdtype = mz_data.dtype
+    out_intdtype = intensity.dtype
     width = 1 if width < 1 else width
 
     mz_arr, intensity_arr, lengths_arr = prepare_flat_inputs(mz_data, intensity, lengths)
@@ -56,7 +58,7 @@ def peak_picker(
         if noise_arr.size != intensity_arr.size:
             raise ValueError("Noise estimator output size must match intensity_arr size.")
 
-    return compute.peak_pick_flat_parallel_core_jit(
+    out_mz, out_intensity, out_lengths = compute.peak_pick_flat_parallel_core_jit(
         mz_arr=mz_arr,
         intensity_arr=intensity_arr,
         lengths_arr=lengths_arr,
@@ -71,3 +73,5 @@ def peak_picker(
         is_shared_mz=is_shared_mz,
         noise_arr=noise_arr,
     )
+
+    return np.asarray(out_mz, dtype=out_mzdtype), np.asarray(out_intensity, dtype=out_intdtype), out_lengths

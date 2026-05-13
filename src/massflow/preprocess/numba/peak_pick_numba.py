@@ -316,7 +316,7 @@ def _findpeaks_filtered_indices_safe_jit(
 def peak_pick_flat_parallel_core_jit(
     mz_arr: NDArray[np.float64],
     intensity_arr: NDArray[np.float64],
-    lengths_arr: NDArray[np.int64],
+    lengths_arr: NDArray[np.uint32],
     width: int,
     use_prominence: bool,
     prominence: float,
@@ -327,7 +327,7 @@ def peak_pick_flat_parallel_core_jit(
     return_area: bool,
     is_shared_mz: bool,
     noise_arr: NDArray[np.float64],
-) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.int32]]:
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.uint32]]:
     """
     Core parallel routine: detect/filter peaks for each spectrum and write
     results into compact output arrays.
@@ -335,7 +335,7 @@ def peak_pick_flat_parallel_core_jit(
     n_spectra = lengths_arr.size
     input_offsets = lengths_to_offsets(lengths_arr)
 
-    out_lengths = np.zeros(n_spectra, dtype=np.int32)
+    out_lengths = np.zeros(n_spectra, dtype=np.uint32)
 
     for s in prange(n_spectra):  # pylint: disable=not-an-iterable
         start = int(input_offsets[s])
@@ -356,9 +356,9 @@ def peak_pick_flat_parallel_core_jit(
             snr=snr,
             noise_x=noise_seg,
         )
-        out_lengths[s] = np.int32(peaks.size)
+        out_lengths[s] = np.uint32(peaks.size)
 
-    output_offsets = lengths_to_offsets(out_lengths.astype(np.int64))
+    output_offsets = lengths_to_offsets(out_lengths)
     total_output = int(output_offsets[n_spectra])
 
     out_mz = np.empty(total_output, dtype=np.float64)

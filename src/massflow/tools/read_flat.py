@@ -15,7 +15,7 @@ def batch_lengths_and_coords_flat(
     Calculate length array, coordinate matrix, and total elements for a batch.
     """
     idx = np.asarray(batch_indices, dtype=np.intp)
-    lengths = np.take(layout.intensity_lengths, idx).astype(np.int32, copy=False)
+    lengths = np.take(layout.intensity_lengths, idx).astype(np.uint32, copy=False)
     coords = np.take(layout.coordinates, idx, axis=0).astype(np.int32, copy=False)
     total_elements = np.sum(lengths, dtype=np.int64)
     return lengths, coords, int(total_elements)

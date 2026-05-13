@@ -3,10 +3,13 @@ from __future__ import annotations
 from typing import Any, Callable, Literal, Protocol, Self
 import numpy as np
 
+from massflow.preprocess.helper.peak_align_helper import reference_computer
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
+from massflow.preprocess.pipeline.types import TaskScope
 from massflow.r_preprocess.adapter import CardinalAdapter
+from massflow.tools.logger import get_logger
+logger = get_logger("massflow.preprocess.api")
 
-TaskScope = Literal["batch", "dataset"]
 Backend = Literal["python", "cardinal"]
 
 
@@ -81,7 +84,6 @@ class PreprocessorAPI(_TaskRegistrar):
         *,
         method: str = "tic_numba",
         scale: float | None = None,
-        mz_flat: np.ndarray | None = None,
         ref: float | None = None,
         ref_tolerance: float = 0.1,
     ) -> Self:
@@ -92,7 +94,6 @@ class PreprocessorAPI(_TaskRegistrar):
             apply_fn=FlatPreprocess.normalization_flat,
             method=method,
             scale=scale,
-            mz_flat=mz_flat,
             ref=ref,
             ref_tolerance=ref_tolerance,
         )
@@ -139,6 +140,29 @@ class PreprocessorAPI(_TaskRegistrar):
             overlap=overlap,
         )
 
+    def _reference_computer(
+        self,
+        *,
+        binfun: str = "median",
+        binratio: float = 2.0,
+        tolerance: float | None = None,
+        units: str = "ppm",
+        min_count: int | None = None,
+        min_frequency: float | None = None,
+    ) -> Self:
+        """Register reference computer dataset task, just for peak_align."""
+        return self._register_task(
+            "reference_computer",
+            scope="dataset",
+            apply_fn=reference_computer,
+            binfun=binfun,
+            binratio=binratio,
+            tolerance=tolerance,
+            units=units,
+            min_count=min_count,
+            min_frequency=min_frequency,
+        )
+
     def peak_align(
         self,
         *,
@@ -154,7 +178,7 @@ class PreprocessorAPI(_TaskRegistrar):
         """Register peak alignment flat task."""
         if backend == "cardinal":
             if min_count is not None or min_frequency is not None:
-                raise ValueError("min_count/min_frequency are only supported by the python peak_align backend")
+                logger.warning("min_count/min_frequency are only supported by the python peak_align backend")
             return self._register_task(
                 "peak_align",
                 scope="dataset",
@@ -166,15 +190,21 @@ class PreprocessorAPI(_TaskRegistrar):
                 binratio=binratio,
             )
 
+        if reference is None or tolerance is None:
+            self._reference_computer(
+                binfun=binfun,
+                binratio=binratio,
+                tolerance=tolerance,
+                units=units,
+                min_count=min_count,
+                min_frequency=min_frequency,
+            )
+
         return self._register_task(
             "peak_align",
-            scope="dataset",
+            scope="batch",
             apply_fn=FlatPreprocess.peak_align_flat,
             reference=reference,
             tolerance=tolerance,
             units=units,
-            binfun=binfun,
-            binratio=binratio,
-            min_count=min_count,
-            min_frequency=min_frequency,
         )

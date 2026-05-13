@@ -134,39 +134,20 @@ def estimate_domain_parallel(
 
     stats_batches: list[NDArray[np.float64]] = []
 
-    for mz_data, _, lengths, _ in data_manager.flat_generator(
+    for mz_data, intensity, lengths, _ in data_manager.flat_generator(
         batch_size=batch_size,
         include_mz=True,
         max_threads=max_threads,
     ):
-        if mz_data is None:
+        if mz_data is None or lengths.size == 0:
             continue
 
-        lengths_arr = np.asarray(lengths, dtype=np.int32)
-        if lengths_arr.size == 0:
-            continue
+        mz_arr, _, lengths_arr = prepare_flat_inputs(mz_data, intensity, lengths)
 
-        mz_arr = np.asarray(mz_data, dtype=np.float64)
-
-        if mz_arr.ndim != 1:
-            logger.error(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
-            raise ValueError(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
-
-        total_points = int(np.sum(lengths_arr, dtype=np.int64))
-        max_len = int(np.max(lengths_arr)) if lengths_arr.size > 0 else 0
+        is_shared_mz = infer_shared_mz(mz_arr, lengths_arr)
 
         # Continuous mode: shared m/z axis (1-D, not flattened per spectrum)
-        if mz_arr.size != total_points:
-            if mz_arr.size != max_len:
-                logger.error(
-                    "Incompatible flat batch for shared m/z mode: "
-                    f"mz_size={mz_arr.size}, max_len={max_len}, total_points={total_points}."
-                )
-                raise ValueError(
-                    "Incompatible flat batch for shared m/z mode: "
-                    f"mz_size={mz_arr.size}, max_len={max_len}, total_points={total_points}."
-                )
-
+        if is_shared_mz:
             n_spec = int(lengths_arr.size)
             batch_stats = np.full((n_spec, 3), np.nan, dtype=np.float64)
 
@@ -282,23 +263,15 @@ def bin_peaks_parallel(
     peaks_acc = np.zeros(domain.size, dtype=np.float64)
     counts = np.zeros(domain.size, dtype=np.int64)
 
-    for mz_data, _, lengths, _ in data_manager.flat_generator(
+    for mz_data, intensity, lengths, _ in data_manager.flat_generator(
         batch_size=batch_size,
         include_mz=True,
         max_threads=max_threads,
     ):
-        if mz_data is None:
+        if mz_data is None or lengths.size == 0:
             continue
 
-        lengths_arr = np.asarray(lengths, dtype=np.int32)
-        if lengths_arr.size == 0:
-            continue
-
-        mz_arr = np.asarray(mz_data, dtype=np.float64)
-
-        if mz_arr.ndim != 1:
-            logger.error(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
-            raise ValueError(f"Unsupported mz_data ndim={mz_arr.ndim}; expected 1.")
+        mz_arr, _, lengths_arr = prepare_flat_inputs(mz_data, intensity, lengths)
 
         is_shared_mz = infer_shared_mz(mz_arr, lengths_arr)
 
@@ -439,7 +412,7 @@ def reference_computer(
     max_threads: int = 2,
     min_count: Optional[int] = None,
     min_frequency: Optional[float] = None,
-) -> Tuple[NDArray, float] | tuple[NDArray, float, NDArray]:
+) -> Tuple[NDArray, float]:
     """Parallel version of compute_reference based on flat_generator."""
     logger.info(
         f" Computing reference: units={units}, binfun={binfun}, binratio={binratio}"
@@ -491,25 +464,23 @@ def reference_computer(
 def peak_aligner(
     mz_data: NDArray[np.float64],
     intensity: NDArray[np.float64],
-    lengths: NDArray[np.int32],
+    lengths: NDArray[np.uint32],
     reference: NDArray[np.float64],
     tolerance: float,
     units: str = "ppm",
 ) -> NDArray[np.float64]:
     """Align a flat batch of spectra to a reference m/z axis."""
+    out_intdtype = intensity.dtype
     norm_units = _normalize_units(units)
     tol_method = "x" if norm_units == "relative" else "abs"
     code = get_method_code(tol_method)
 
-    mz_arr = np.asarray(mz_data, dtype=np.float64)
-    intensity_arr = np.asarray(intensity, dtype=np.float64)
-    lengths_arr = np.asarray(lengths, dtype=np.int32)
     reference_arr = np.asarray(reference, dtype=np.float64)
 
-    mz_arr , intensity_arr, lengths_arr = prepare_flat_inputs(mz_arr, intensity_arr, lengths_arr)
+    mz_arr , intensity_arr, lengths_arr = prepare_flat_inputs(mz_data, intensity, lengths)
     is_shared_mz = infer_shared_mz(mz_arr, lengths_arr)
 
-    return compute.align_spectra_flat_parallel_jit(
+    aligned = compute.align_spectra_flat_parallel_jit(
         mz_data=mz_arr,
         intensity_flat=intensity_arr,
         lengths=lengths_arr,
@@ -518,3 +489,4 @@ def peak_aligner(
         code=code,
         is_shared_mz=is_shared_mz,
     )
+    return np.asarray(aligned, dtype=out_intdtype)
