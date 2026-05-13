@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from massflow.data_manager import MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5
+from massflow.data_manager import (
+    MSDataManagerImzML,
+    IonImageDataManagerBinary,
+    IonImageDataManagerH5,
+    IonImageDataManagerZarr,
+)
 from massflow.preprocess.api import PreprocessorAPI
 from massflow.preprocess.flat_pre_fun import FlatBatchResult
 from massflow.preprocess.pipeline import (
@@ -52,7 +57,7 @@ class Preprocessor(PreprocessorAPI):
             raise ValueError("Invalid parameter values.")
 
         if output_format not in OUTPUT_FORMATS:
-            raise ValueError("output_format must be 'imzml', 'ion_image_binary', or 'ion_image_h5'.")
+            raise ValueError("output_format must be 'imzml', 'ion_image_binary', 'ion_image_h5', or 'ion_image_zarr'.")
         self.data_manager = data_manager
         self.batch_size = batch_size
         self.temp_dir = temp_dir
@@ -70,7 +75,7 @@ class Preprocessor(PreprocessorAPI):
         name: str,
         *,
         scope: TaskScope = "batch",
-        apply_fn: Callable[..., FlatBatchResult] | Callable[..., MSDataManagerImzML],
+        apply_fn: Callable[..., FlatBatchResult] | Callable[..., Any],
         **kwargs: Any,
     ) -> "Preprocessor":
         self._tasks.append(
@@ -83,7 +88,7 @@ class Preprocessor(PreprocessorAPI):
         )
         return self
 
-    def start(self) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
+    def start(self) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
         task_segments, input_meta = make_task_segments(
             list(self._tasks),
             input_spectrum_type=resolve_spectrum_type(self.data_manager),

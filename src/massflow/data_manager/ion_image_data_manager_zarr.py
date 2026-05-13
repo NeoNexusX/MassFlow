@@ -43,7 +43,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         ion_block: int = 256,
         temp_workers: int = 4,
         merge_workers: int = 4,
-        chunk_size: int = 1,
+        chunk_size: int = 16,
         metadata=None,
         shared_mz_axis: np.ndarray | None = None,
     ):
@@ -273,7 +273,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         ion_block=256,
         temp_workers=2,
         merge_workers=2,
-        chunk_size=1,
+        chunk_size=16,
     ) -> "IonImageDataManagerZarr":
         meta = data_manager.ms.meta
         if (

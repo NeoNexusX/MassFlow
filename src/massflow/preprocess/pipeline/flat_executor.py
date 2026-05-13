@@ -7,11 +7,19 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from massflow.data_manager import MSDataManager, MSDataManagerImzML, IonImageDataManagerBinary,IonImageDataManagerH5
+from massflow.data_manager import (
+    MSDataManager,
+    MSDataManagerImzML,
+    IonImageDataManagerBinary,
+    IonImageDataManagerH5,
+    IonImageDataManagerZarr,
+)
 from massflow.preprocess.flat_pre_fun import FlatBatchResult
 from massflow.preprocess.pipeline.types import (
     ION_IMAGE_OUTPUT_FORMATS,
     OUTPUT_FORMAT_ION_IMAGE_BINARY,
+    OUTPUT_FORMAT_ION_IMAGE_H5,
+    OUTPUT_FORMAT_ION_IMAGE_ZARR,
     InputMetaData,
     OutputMetaData,
     PreprocessTask,
@@ -39,7 +47,7 @@ class FlatOutputSink:
     source_data_manager: MSDataManager
     input_meta: InputMetaData
     output_meta: OutputMetaData
-    data_manager: MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | None = None
+    data_manager: MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr | None = None
 
     @classmethod
     def create(
@@ -61,17 +69,21 @@ class FlatOutputSink:
             sink.data_manager = processed_data
         return sink
 
-    def _make_ion_image_data_manager(self, chunk: FlatChunk) -> IonImageDataManagerBinary | IonImageDataManagerH5:
+    def _make_ion_image_data_manager(self, chunk: FlatChunk) -> IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
         if chunk.mz_data is None:
             raise ValueError("ion image output requires mz_data from processed flat chunks.")
         if self.output_meta.file_path is None:
             raise ValueError("ion image output requires a file_path.")
 
-        ion_image_cls = (
-            IonImageDataManagerBinary
-            if self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_BINARY
-            else IonImageDataManagerH5
-        )
+        if self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_BINARY:
+            ion_image_cls = IonImageDataManagerBinary
+        elif self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_H5:
+            ion_image_cls = IonImageDataManagerH5
+        elif self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR:
+            ion_image_cls = IonImageDataManagerZarr
+        else:
+            raise ValueError(f"Unsupported ion image output format: {self.output_meta.output_format}")
+
         return ion_image_cls.from_flat_output_contract(
             self.source_data_manager,
             self.output_meta.file_path,
@@ -92,7 +104,7 @@ class FlatOutputSink:
             mz_axis=chunk.mz_data, # type: ignore
         )
 
-    def finalize(self) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
+    def finalize(self) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
         if self.data_manager is None:
             raise ValueError("No batches were written.")
         if isinstance(self.data_manager, MSDataManagerImzML):
@@ -247,7 +259,7 @@ def run_flat_task(
     tasks: list[PreprocessTask],
     input_meta: InputMetaData,
     output_meta: OutputMetaData,
-) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
+) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
     total_batches = (len(data_manager.ms) + input_meta.batch_size - 1) // input_meta.batch_size
 
     data_sink = FlatOutputSink.create(

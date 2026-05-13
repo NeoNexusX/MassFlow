@@ -102,7 +102,7 @@ class PreprocessorAPI(_TaskRegistrar):
         self,
         *,
         width: int = 5,
-        method: str = "diff",
+        method: str = "mad",
         snr: float = 2.0,
         return_type: str = "height",
         prominence: float | None = None,
