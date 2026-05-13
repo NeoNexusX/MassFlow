@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import Future
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         self._group: Any | None = None
         self._dset: Any | None = None
         self._flat_idx: np.ndarray | None = None
+        self._coordinate_base: str | None = None
         self._chunk_size = max(1, int(chunk_size))
 
         if filepath is None and mode == "w":
@@ -103,10 +105,11 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             raise ValueError("No ion-image batches were written.")
 
         self.coordinates = np.vstack(self._coordinate_chunks)
-        if self._width is None:
-            self._width = int(np.max(self.coordinates[:, 0]))
-        if self._height is None:
-            self._height = int(np.max(self.coordinates[:, 1]))
+        coordinate_index = _prepare_coordinate_index(self.coordinates, self._width, self._height)
+        self._width = coordinate_index.width
+        self._height = coordinate_index.height
+        self._flat_idx = coordinate_index.flat_idx
+        self._coordinate_base = coordinate_index.coordinate_base
 
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
         self._merge_to_zarr()
@@ -123,12 +126,11 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         batch_infos = self._batch_infos
         assert n is not None and executor is not None
 
-        xs = self.coordinates[:, 0].astype(np.int64, copy=False)
-        ys = self.coordinates[:, 1].astype(np.int64, copy=False)
-        if xs.size > 0 and int(xs.min()) != 0:
-            xs, ys = xs - 1, ys - 1
-        valid = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
-        self.flat_idx = ys[valid] * w + xs[valid]
+        if self._flat_idx is None:
+            coordinate_index = _prepare_coordinate_index(self.coordinates, w, h)
+            self._flat_idx = coordinate_index.flat_idx
+            self._coordinate_base = coordinate_index.coordinate_base
+        flat_idx = self._flat_idx
 
         mmaps: list[np.ndarray] = []
         try:
@@ -144,6 +146,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
                     "n_pixels": int(npix),
                     "intensity_dtype": str(np.dtype(dtype)),
                     "mz_dtype": str(np.dtype(self.mz_dtype)),
+                    "coordinate_base": self._coordinate_base or "auto",
                 }
             )
             _create_array(root, "mz_axis", data=np.asarray(self.mz_axis, dtype=self.mz_dtype))
@@ -161,7 +164,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             if not starts:
                 return
 
-            curr = _read_scatter(mmaps, batch_infos, self.flat_idx, starts[0], min(n, starts[0] + block), npix, h, w, dtype)
+            curr = _read_scatter(mmaps, batch_infos, flat_idx, starts[0], min(n, starts[0] + block), npix, h, w, dtype)
             fut: Future | None = None
             if len(starts) > 1:
                 s1 = starts[1]
@@ -169,7 +172,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
                     _read_scatter,
                     mmaps,
                     batch_infos,
-                    self.flat_idx,
+                    flat_idx,
                     s1,
                     min(n, s1 + block),
                     npix,
@@ -189,7 +192,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
                         _read_scatter,
                         mmaps,
                         batch_infos,
-                        self.flat_idx,
+                        flat_idx,
                         s2,
                         min(n, s2 + block),
                         npix,
@@ -221,12 +224,15 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         self.mz_dtype = np.dtype(attrs.get("mz_dtype", self.mz_axis.dtype))
         self.intensity_dtype = np.dtype(attrs.get("intensity_dtype", self.dset.dtype))
 
-        xs = self.coordinates[:, 0].astype(np.int64, copy=False)
-        ys = self.coordinates[:, 1].astype(np.int64, copy=False)
-        if xs.size > 0 and int(xs.min()) != 0:
-            xs, ys = xs - 1, ys - 1
-        valid = (xs >= 0) & (xs < self.width) & (ys >= 0) & (ys < self.height)
-        self._flat_idx = ys[valid] * self.width + xs[valid]
+        coordinate_base = attrs.get("coordinate_base", None)
+        coordinate_index = _prepare_coordinate_index(
+            self.coordinates,
+            self.width,
+            self.height,
+            coordinate_base=None if coordinate_base == "auto" else coordinate_base,
+        )
+        self._flat_idx = coordinate_index.flat_idx
+        self._coordinate_base = coordinate_index.coordinate_base
 
     def get_ion_image(self, ion_idx: int) -> np.ndarray:
         """读取单张 ion image，返回 shape=(H, W)。"""
@@ -250,6 +256,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         self.mz_axis = None
         self._coordinates = None
         self._flat_idx = None
+        self._coordinate_base = None
         self._shutdown_io_executor()
         if self.mode == "w" and not self._finalized:
             self._cleanup_temp()
@@ -291,6 +298,89 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             metadata=meta,
             shared_mz_axis=data_manager.ms.shared_mz_list,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _CoordinateIndex:
+    width: int
+    height: int
+    flat_idx: np.ndarray
+    coordinate_base: str
+
+
+def _coord_samples(coords: np.ndarray, *, limit: int = 5) -> list[tuple[int, int]]:
+    return [tuple(map(int, row[:2])) for row in coords[:limit]] # type: ignore[return-value]
+
+
+def _infer_coordinate_base(xy: np.ndarray, width: int | None, height: int | None) -> str:
+    if width is not None and height is not None:
+        zero_valid = bool(
+            np.all((xy[:, 0] >= 0) & (xy[:, 0] < width) & (xy[:, 1] >= 0) & (xy[:, 1] < height))
+        )
+        one_valid = bool(
+            np.all((xy[:, 0] >= 1) & (xy[:, 0] <= width) & (xy[:, 1] >= 1) & (xy[:, 1] <= height))
+        )
+        if zero_valid and not one_valid:
+            return "zero"
+        if one_valid and not zero_valid:
+            return "one"
+
+    return "zero" if bool(np.any(xy == 0)) else "one"
+
+
+def _prepare_coordinate_index(
+    coordinates: np.ndarray,
+    width: int | None,
+    height: int | None,
+    coordinate_base: str | None = None,
+) -> _CoordinateIndex:
+    coords = np.asarray(coordinates)
+    if coords.ndim != 2 or coords.shape[1] < 2:
+        raise ValueError("coordinates must have shape (n_pixels, >=2).")
+    if coords.shape[0] == 0:
+        raise ValueError("coordinates must contain at least one pixel.")
+
+    xy = coords[:, :2].astype(np.int64, copy=False)
+    base = _infer_coordinate_base(xy, width, height) if coordinate_base is None else str(coordinate_base)
+    if base not in {"zero", "one"}:
+        raise ValueError(f"coordinate_base must be 'zero' or 'one', got {base!r}.")
+
+    xy0 = xy if base == "zero" else xy - 1
+    if width is None:
+        width = int(np.max(xy0[:, 0])) + 1
+    if height is None:
+        height = int(np.max(xy0[:, 1])) + 1
+    width = int(width)
+    height = int(height)
+    if width <= 0 or height <= 0:
+        raise ValueError(f"width and height must be positive, got width={width}, height={height}.")
+
+    valid = (xy0[:, 0] >= 0) & (xy0[:, 0] < width) & (xy0[:, 1] >= 0) & (xy0[:, 1] < height)
+    if not bool(np.all(valid)):
+        bad = xy[~valid]
+        raise ValueError(
+            "coordinates contain out-of-bounds pixels: "
+            f"count={bad.shape[0]}, width={width}, height={height}, "
+            f"coordinate_base={base}, examples={_coord_samples(bad)}"
+        )
+
+    flat_idx = (xy0[:, 1] * width + xy0[:, 0]).astype(np.intp, copy=False)
+    unique_flat_idx, counts = np.unique(flat_idx, return_counts=True)
+    if unique_flat_idx.size != flat_idx.size:
+        duplicate_flat = unique_flat_idx[counts > 1]
+        duplicate_rows = xy[np.isin(flat_idx, duplicate_flat[:5])]
+        raise ValueError(
+            "coordinates contain duplicate pixels after coordinate normalization: "
+            f"count={flat_idx.size - unique_flat_idx.size}, coordinate_base={base}, "
+            f"examples={_coord_samples(duplicate_rows)}"
+        )
+
+    return _CoordinateIndex(
+        width=width,
+        height=height,
+        flat_idx=flat_idx,
+        coordinate_base=base,
+    )
 
 
 def _create_array(group, name: str, *, data=None, shape=None, chunks=None, dtype=None):

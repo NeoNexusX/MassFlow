@@ -72,8 +72,19 @@ class IonImageZarrDataset(IonImageDataset):
 
         dset = self._ensure_dset()
         batch = np.empty((idx.size, 1, self._height, self._width), dtype=dset.dtype)
-        for out_i, ion_idx in enumerate(idx):
-            batch[out_i, 0] = np.asarray(dset[int(ion_idx)])
+        chunk_size = _axis0_chunk_size(dset)
+        if chunk_size <= 1 or idx.size == 1:
+            for out_i, ion_idx in enumerate(idx):
+                batch[out_i, 0] = np.asarray(dset[int(ion_idx)])
+        else:
+            chunk_ids = idx // chunk_size
+            for chunk_id in np.unique(chunk_ids):
+                out_positions = np.flatnonzero(chunk_ids == chunk_id)
+                start = int(chunk_id) * chunk_size
+                end = min(self._n, start + chunk_size)
+                chunk = np.asarray(dset[start:end])
+                local_indices = idx[out_positions] - start
+                batch[out_positions, 0] = chunk[local_indices]
         return torch.from_numpy(batch)
 
     def _ensure_dset(self) -> zarr.Array:
@@ -81,3 +92,10 @@ class IonImageZarrDataset(IonImageDataset):
             self._group = zarr.open_group(self._path, mode="r")
             self._dset = self._group["ion_images"]
         return self._dset # type: ignore[return-value]
+
+
+def _axis0_chunk_size(dset: zarr.Array) -> int:
+    chunks = getattr(dset, "chunks", None)
+    if not chunks:
+        return 1
+    return max(1, int(chunks[0]))
