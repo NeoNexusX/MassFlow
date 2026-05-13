@@ -27,6 +27,8 @@ from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.preprocess.preprocessor")
 
+logger = get_logger("massflow.preprocess.preprocessor")
+
 
 
 class Preprocessor(PreprocessorAPI):
@@ -40,12 +42,15 @@ class Preprocessor(PreprocessorAPI):
     def __init__(
         self,
         data_manager: MSDataManagerImzML,
+        data_manager: MSDataManagerImzML,
         *,
         batch_size: int = 256,
         queue_ab_size: int = 1,
         queue_bc_size: int = 1,
         temp_dir: str = "./temp",
+        temp_dir: str = "./temp",
         numba_max_threads: Optional[int] = None,
+        output_format: OutputFormat = OUTPUT_FORMAT_IMZML,
         output_format: OutputFormat = OUTPUT_FORMAT_IMZML,
         output_path: str | None = None,
         output_max_workers: int = 2,
@@ -94,6 +99,25 @@ class Preprocessor(PreprocessorAPI):
             input_spectrum_type=resolve_spectrum_type(self.data_manager),
             input_meta=InputMetaData(
                 batch_size=self.batch_size,
+                temp_dir=self.temp_dir,
+                numba_max_threads=self.numba_max_threads,
+                output_max_workers=self.output_max_workers,
+                queue_ab_size=self.queue_ab_size,
+                queue_bc_size=self.queue_bc_size,
+                result_path=self.output_path,
+                result_format=self.output_format, # type: ignore
+            ),
+        )
+        if not task_segments and self.output_format in ION_IMAGE_OUTPUT_FORMATS:
+            logger.warning("No preprocessing tasks registered, output will be written without processing.")
+            return imzml_to_ion_image_data_manager(
+                imzml_manager=self.data_manager, # type: ignore
+                input_meta=input_meta,
+                output_format=self.output_format,
+                file_path=input_meta.result_path # type: ignore
+            )
+
+        return run_segments(self.data_manager, task_segments)
                 temp_dir=self.temp_dir,
                 numba_max_threads=self.numba_max_threads,
                 output_max_workers=self.output_max_workers,

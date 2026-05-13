@@ -1,6 +1,8 @@
 import time
 from pathlib import Path
 import numpy as np
+from pathlib import Path
+import numpy as np
 import pytest
 from massflow.data_manager import (
     MSDataManagerImzML,
@@ -24,6 +26,10 @@ def _run_pipeline(
     output_format="imzml",
     temp_dir="./temp",
     output_path=None,
+    queue_bc_size=2,
+    output_format="imzml",
+    temp_dir="./temp",
+    output_path=None,
 ):
     """Run the async pipeline once with specified parameters."""
     processed_data_manager = (
@@ -32,6 +38,9 @@ def _run_pipeline(
             batch_size=batch_size,
             queue_ab_size=queue_ab_size,
             queue_bc_size=queue_bc_size,
+            temp_dir=str(temp_dir),
+            output_format=output_format, # type: ignore
+            output_path=None if output_path is None else str(output_path),
             temp_dir=str(temp_dir),
             output_format=output_format, # type: ignore
             output_path=None if output_path is None else str(output_path),
@@ -101,14 +110,20 @@ class TestAsyncPipeline:
     """Test class for the massflow pipeline."""
 
     @pytest.fixture(scope="module", params=["/Users/dre/Desktop/data/Example_read/example.imzML"])
+    @pytest.fixture(scope="module", params=["/Users/dre/Desktop/data/Example_read/example.imzML"])
     def ms_raw_data(self, request) -> MSDataManagerImzML:
         """Fixture providing MSDataManagerImzML instance with fully initialized spectra for noise reduction tests."""
         data_file_path = Path(request.param)
         if not data_file_path.exists() or not data_file_path.with_suffix(".ibd").exists():
             pytest.skip(f"Missing test data: {data_file_path} and matching .ibd file")
 
+        data_file_path = Path(request.param)
+        if not data_file_path.exists() or not data_file_path.with_suffix(".ibd").exists():
+            pytest.skip(f"Missing test data: {data_file_path} and matching .ibd file")
+
         dm = MSDataManagerImzML(filepath=data_file_path)
         dm.load_head_data()
+        request.addfinalizer(dm.close)
         request.addfinalizer(dm.close)
         return dm
 
@@ -125,6 +140,8 @@ class TestAsyncPipeline:
         queue_bc_size: int,
     ) -> None:
         """Whole pipeline runtime benchmark."""
+        processed_dm = benchmark.pedantic(
+            _run_pipeline,
         processed_dm = benchmark.pedantic(
             _run_pipeline,
             args=(ms_raw_data, batch_size, queue_ab_size, queue_bc_size),
