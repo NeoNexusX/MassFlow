@@ -427,7 +427,7 @@ def _plot_image(
     figsize: tuple[float, float],
     title: str | None,
     structure_only: bool = False,
-) -> np.ndarray:
+) -> None:
     fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=int(dpi))
     vmax = float(np.nanpercentile(image, 95)) if image.size else None
     if vmax is not None and not np.isfinite(vmax):
