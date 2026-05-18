@@ -13,6 +13,18 @@ logger = get_logger("massflow.peak_alignment")
 MIN_RELATIVE_RES = 5e-7  # 0.5 ppm
 MIN_ABSOLUTE_RES = 1e-4  # 0.0001 Da
 
+def _input_validation(
+    reference: Optional[NDArray],
+    tolerance: float,
+) -> None:
+    """Validate inputs for reference_computer and peak_aligner."""
+    if reference is None or reference.size == 0:
+        logger.error("Reference cannot be None or empty.")
+        raise ValueError("Reference cannot be None.")
+    if tolerance <= 0:
+        logger.error("Tolerance must be a positive number.")
+        raise ValueError("Tolerance must be a positive number.")
+
 def _normalize_units(units: str) -> Literal["relative", "absolute"]:
     """
     Normalize the unit parameter (internal helper).
@@ -470,6 +482,7 @@ def peak_aligner(
     units: str = "ppm",
 ) -> NDArray[np.float64]:
     """Align a flat batch of spectra to a reference m/z axis."""
+    _input_validation(reference=reference, tolerance=tolerance)
     out_intdtype = intensity.dtype
     norm_units = _normalize_units(units)
     tol_method = "x" if norm_units == "relative" else "abs"
