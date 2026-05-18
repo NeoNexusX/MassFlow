@@ -31,7 +31,10 @@ def run_alignment_task(
 ) -> MSDataManagerImzML:
 
     aligned_manager = (
-        Preprocessor(dm)
+        Preprocessor(
+            data_manager=dm,
+            output_format="imzml"
+        )
         .peak_align(
             units=units,
             binfun=binfun,
@@ -42,7 +45,7 @@ def run_alignment_task(
         .start()
     )
 
-    return aligned_manager
+    return aligned_manager # type: ignore
 
 def validate_align_result(
     result_manager: MSDataManagerImzML, original_manager: MSDataManagerImzML

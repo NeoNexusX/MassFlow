@@ -40,7 +40,11 @@ def run_peak_pick(
 ) -> MSDataManagerImzML:
     """Run peak picking with specified parameters and return the resulting data manager."""
     return (
-        Preprocessor(data_manager, batch_size=batch_size)
+        Preprocessor( # type: ignore
+            data_manager=data_manager,
+            batch_size=batch_size,
+            output_format="imzml"
+        )
         .peak_pick(
             width=width,
             method=method,
