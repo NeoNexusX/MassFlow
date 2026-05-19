@@ -339,9 +339,18 @@ class TestZarrCorrectness:
         with pytest.raises(ValueError, match="out-of-bounds"):
             _write_tiny_zarr(tmp_path / "bad.zarr", tmp_path, [(1, 1), (3, 1)], width=2, height=2)
 
-    def test_duplicate_coordinates_fail_fast(self, tmp_path):
-        with pytest.raises(ValueError, match="duplicate"):
-            _write_tiny_zarr(tmp_path / "duplicate.zarr", tmp_path, [(1, 1), (1, 1)])
+    def test_duplicate_coordinates_keep_last_pixel(self, tmp_path):
+        dm = _write_tiny_zarr(tmp_path / "duplicate.zarr", tmp_path, [(1, 1), (1, 1)])
+        try:
+            assert dm.n_pixels == 1
+            np.testing.assert_array_equal(dm.coordinates, np.array([[1, 1]], dtype=np.uint32))
+            np.testing.assert_array_equal(
+                dm.get_ion_image(0),
+                np.array([[2, 0], [0, 0]], dtype=np.float32),
+            )
+            np.testing.assert_array_equal(dm.get_ion_vector(0), np.array([2], dtype=np.float32))
+        finally:
+            dm.close()
 
     def test_dataset_batch_matches_single_item_stack(self, tmp_path):
         dm = _write_tiny_zarr(
