@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -16,13 +17,18 @@ logger = get_logger("massflow.test_peak_pick")
 Backend = Literal["python", "cardinal"]
 
 ROUND = 3
-FILEPATH = r"data/example_file.imzML"
+FILEPATH = Path("./data/example_file.imzML")
 MZ_RANGES = [(100, 1000)]
 RNG_SEED = 20260412
 SPECTRUM_SAMPLE_SIZE = 64
 MZ_MATCH_ATOL = 1e-6
 INTENSITY_MATCH_RTOL = 1e-5
 INTENSITY_MATCH_ATOL = 1e-8
+
+
+def _require_imzml_pair(path: Path) -> None:
+    if not path.exists() or not path.with_suffix(".ibd").exists():
+        pytest.skip(f"Missing real imzML test data: {path} and matching .ibd")
 
 
 def run_peak_pick(
@@ -58,6 +64,7 @@ def run_peak_pick(
         )
         .start()
     )
+
 
 def compare_pick_result(
     py_manager: MSDataManagerImzML,
@@ -184,6 +191,7 @@ class TestPeakPick:
     @pytest.fixture(scope="class")
     def data_manager(self) -> MSDataManagerImzML:
         """prepare a data manager with raw spectra loaded for testing."""
+        _require_imzml_pair(FILEPATH)
         mass_data = MassSpectrumSet()
         dm_raw = MSDataManagerImzML(mass_data, filepath=FILEPATH)
         dm_raw.load_head_data()

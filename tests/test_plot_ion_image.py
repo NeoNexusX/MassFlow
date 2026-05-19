@@ -20,8 +20,8 @@ from massflow.tools.plot_ion_image import (
     read_tic_image,
 )
 
-CONTINUOUS_IMZML = Path("/Users/dre/Desktop/data/Example_read/example.imzML")
-PROCESSED_IMZML = Path("/Users/dre/Desktop/data/test_data_centroid/file_min_centroid/file_min_centroid.imzML")
+CONTINUOUS_IMZML = Path("./data/example_continuous.imzML")
+PROCESSED_IMZML = Path("./data/example_processed.imzML")
 CONTINUOUS_TARGET_LOCS = ([1, 39], [2, 40])
 PROCESSED_TARGET_LOCS = ([1, 1], [2, 1])
 
