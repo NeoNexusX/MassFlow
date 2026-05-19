@@ -428,13 +428,18 @@ def _plot_image(
     title: str | None,
     structure_only: bool = False,
 ) -> None:
-    fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=int(dpi))
+    render_figsize = figsize
+    if structure_only and image.ndim >= 2 and image.shape[0] > 0:
+        height, width = image.shape[:2]
+        render_figsize = (float(figsize[1]) * float(width) / float(height), float(figsize[1]))
+
+    fig, ax = plt.subplots(1, 1, figsize=render_figsize, dpi=int(dpi))
     vmax = float(np.nanpercentile(image, 95)) if image.size else None
     if vmax is not None and not np.isfinite(vmax):
         vmax = None
 
     if structure_only:
-        ax.imshow(image, cmap="inferno", vmax=vmax, aspect="auto")
+        ax.imshow(image, cmap="inferno", vmax=vmax)
         ax.set_axis_off()
         ax.set_position((0, 0, 1, 1))
         fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
