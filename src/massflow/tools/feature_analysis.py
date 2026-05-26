@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +40,7 @@ def compute_umap_embeddings(
         metric=metric,
         n_components=n_components,
         random_state=random_state,
+        force_approximation_algorithm=True,
     )
 
     logger.info(f"Computing UMAP: n_components={n_components}, metric={metric}")
@@ -92,52 +91,47 @@ def kmeans_clustering(
 
 
 # ---------------------------------------------------------------------------
-# Data loading helpers 还需要完成另外三个data_manager的适配 TODO
+# Data loading helpers
 # ---------------------------------------------------------------------------
 
 def imzml_build_spectra_matrix(
     manager: Any,
-    *,
-    matrix_path: str | Path,
-) -> tuple[np.memmap, np.ndarray]:
-    """Build a cleaned spectra matrix from ``matrix_generator``."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build a cleaned spectra matrix from ``matrix_generator`` (two-pass).
 
+    * **Pass 1** – lightweight scan: record nonzero flags and xy
+      coordinates per row.  Compute keep mask (nonzero AND last
+      occurrence of each xy).
+    * **Pass 2** – re-read ``matrix_generator``, pre-allocate a plain
+      float32 array, and copy only kept rows into it.
+    """
     # ------------------------------------------------------------------
-    # Pass 1 – lightweight metadata scan (no intensity storage)
+    # Pass 1 – metadata only, no intensity storage
     # ------------------------------------------------------------------
-    nonzero_flags: list[np.ndarray] = []   # bool per row
-    xy_coords: list[np.ndarray] = []       # (batch_n, 2) int64
+    nonzero_flags: list[np.ndarray] = []
+    xy_coords: list[np.ndarray] = []
     n_features: int | None = None
     total_rows = 0
 
     for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(include_mz=False):
         intensity = np.asarray(intensity_matrix)
         coordinates = np.asarray(coordinates)
-
         if n_features is None:
             n_features = int(intensity.shape[1])
-        assert n_features is not None
 
-        # Record nonzero flags (no intensity data saved)
-        batch_matrix = intensity[:, :n_features]
-        nonzero_flags.append(np.any(batch_matrix != 0, axis=1))
-
-        # Record xy only
+        nonzero_flags.append(np.any(intensity[:, :n_features] != 0, axis=1))
         xy_coords.append(coordinates[:, :2].astype(np.int64, copy=False))
-
         total_rows += int(intensity.shape[0])
 
     if total_rows == 0:
         raise ValueError("No spectra were read from the source.")
     assert n_features is not None
 
-    # Concatenate lightweight arrays
-    all_nonzero = np.concatenate(nonzero_flags)        # (total_rows,)
-    all_xy = np.vstack(xy_coords)                      # (total_rows, 2)
+    # Build keep mask
+    all_nonzero = np.concatenate(nonzero_flags)
+    all_xy = np.vstack(xy_coords)
+    del nonzero_flags, xy_coords
 
-    # Determine which rows to keep:
-    #   1. For each (x, y), find the *last* global index.
-    #   2. A row is kept iff it is that last occurrence AND it is nonzero.
     last_occurrence: dict[tuple[int, int], int] = {}
     for i in range(total_rows):
         last_occurrence[(int(all_xy[i, 0]), int(all_xy[i, 1]))] = i
@@ -145,26 +139,19 @@ def imzml_build_spectra_matrix(
     is_last = np.zeros(total_rows, dtype=bool)
     for idx in last_occurrence.values():
         is_last[idx] = True
+    del last_occurrence
 
-    keep_mask = is_last & all_nonzero   # bool (total_rows,)
+    keep_mask = is_last & all_nonzero
     n_keep = int(keep_mask.sum())
+    del all_nonzero, is_last
 
     if n_keep == 0:
-        logger.error("No nonzero spectra remain after removing duplicates and all-zero rows.")
         raise ValueError("No nonzero spectra remain after removing duplicates and all-zero rows.")
 
-    # Free pass-1 intermediates
-    del nonzero_flags, xy_coords, all_nonzero, is_last, last_occurrence
-
     # ------------------------------------------------------------------
-    # Pass 2 – stream again, write only kept rows into memmap
+    # Pass 2 – re-read and fill pre-allocated output
     # ------------------------------------------------------------------
-    spectra_matrix = np.memmap(
-        str(matrix_path),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n_keep, n_features),
-    )
+    spectra_matrix = np.empty((n_keep, n_features), dtype=np.float32)
     out_coordinates = np.empty((n_keep, 2), dtype=np.int64)
 
     write_cursor = 0
@@ -173,22 +160,19 @@ def imzml_build_spectra_matrix(
     for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(include_mz=False):
         intensity = np.asarray(intensity_matrix)
         coordinates = np.asarray(coordinates)
-        batch_size_actual = int(intensity.shape[0])
+        batch_size = int(intensity.shape[0])
 
-        batch_keep = keep_mask[batch_offset : batch_offset + batch_size_actual]
+        batch_keep = keep_mask[batch_offset : batch_offset + batch_size]
         n_batch_keep = int(batch_keep.sum())
-
         if n_batch_keep > 0:
-            kept_rows = intensity[batch_keep, :n_features].astype(np.float32, copy=False)
-            spectra_matrix[write_cursor : write_cursor + n_batch_keep] = kept_rows
+            spectra_matrix[write_cursor : write_cursor + n_batch_keep] = (
+                intensity[batch_keep, :n_features].astype(np.float32, copy=False)
+            )
             out_coordinates[write_cursor : write_cursor + n_batch_keep] = (
                 coordinates[batch_keep, :2].astype(np.int64, copy=False)
             )
             write_cursor += n_batch_keep
-
-        batch_offset += batch_size_actual
-
-    spectra_matrix.flush()
+        batch_offset += batch_size
 
     return spectra_matrix, out_coordinates
 
@@ -196,10 +180,13 @@ def imzml_build_spectra_matrix(
 def zarr_build_spectra_matrix(
     manager: IonImageDataManagerZarr,
     *,
-    matrix_path: str | Path,
     ion_block: int = 256,
-) -> tuple[np.memmap, np.ndarray]:
-    """Build a cleaned spectra matrix from a Zarr ion-image backend."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build a cleaned spectra matrix from a Zarr ion-image backend.
+
+    Two-pass: pass 1 scans for nonzero pixels, pass 2 fills a
+    pre-allocated ``(n_keep, n_ions)`` float32 array by ion-block.
+    """
     n_pixels = int(manager.n_pixels)
     n_ions = int(manager.n_ions)
     coordinates = np.asarray(manager.coordinates)[:, :2].astype(np.int64, copy=False)
@@ -208,21 +195,12 @@ def zarr_build_spectra_matrix(
     if n_pixels == 0 or n_ions == 0:
         raise ValueError("Zarr source contains no data.")
 
-    # ------------------------------------------------------------------
-    # Pass 1 – identify nonzero pixels (no full matrix stored)
-    # ------------------------------------------------------------------
-    # Accumulate a per-pixel "has any nonzero intensity" flag by streaming
-    # ion blocks, avoiding loading the full (n_pixels, n_ions) matrix.
+    # Pass 1 – identify nonzero pixels
     is_nonzero = np.zeros(n_pixels, dtype=bool)
-
     for ion_start in range(0, n_ions, ion_block):
         ion_end = min(n_ions, ion_start + ion_block)
-        # dset shape: (n_ions, H, W) — read a contiguous ion block
         dense_block = np.asarray(manager.dset[ion_start:ion_end])  # (block, H, W)
-        block_size = ion_end - ion_start
-        # Extract pixel vectors: (block, n_pixels) via flat_idx
-        pixel_block = dense_block.reshape(block_size, -1)[:, flat_idx]
-        # Any nonzero across these ions marks the pixel as nonzero
+        pixel_block = dense_block.reshape(ion_end - ion_start, -1)[:, flat_idx]
         is_nonzero |= np.any(pixel_block != 0, axis=0)
 
     n_keep = int(is_nonzero.sum())
@@ -232,39 +210,22 @@ def zarr_build_spectra_matrix(
     n_zero = n_pixels - n_keep
     if n_zero:
         logger.info(
-            f"Zarr cleaning: {n_pixels} pixels → {n_keep} kept "
+            f"Zarr cleaning: {n_pixels} pixels \u2192 {n_keep} kept "
             f"({n_zero} all-zero removed)"
         )
 
-    keep_mask = is_nonzero  # bool (n_pixels,)
+    keep_mask = is_nonzero
     out_coordinates = coordinates[keep_mask]
 
-    # ------------------------------------------------------------------
-    # Pass 2 – fill memmap column-blocks
-    # ------------------------------------------------------------------
-    spectra_matrix = np.memmap(
-        str(matrix_path),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n_keep, n_ions),
-    )
-
+    # Pass 2 – fill output array column-blocks
+    spectra_matrix = np.empty((n_keep, n_ions), dtype=np.float32)
     for ion_start in range(0, n_ions, ion_block):
         ion_end = min(n_ions, ion_start + ion_block)
         dense_block = np.asarray(manager.dset[ion_start:ion_end])
-        block_size = ion_end - ion_start
-        pixel_block = dense_block.reshape(block_size, -1)[:, flat_idx]  # (block, n_pixels)
-        # Transpose to (n_pixels, block), filter, write columns
+        pixel_block = dense_block.reshape(ion_end - ion_start, -1)[:, flat_idx]
         spectra_matrix[:, ion_start:ion_end] = pixel_block.T[keep_mask].astype(
             np.float32, copy=False
         )
-
-    spectra_matrix.flush()
-
-    logger.info(
-        f"Built spectra matrix from Zarr: {n_keep} pixels × {n_ions} features"
-        f" (memmap: {matrix_path})"
-    )
 
     return spectra_matrix, out_coordinates
 
@@ -406,100 +367,74 @@ def run_umap_kmeans_analysis(
 
     width, height = _get_spatial_dimensions(data_manager)
 
-    # Temporary memmap file for the spectra matrix – cleaned up in finally.
-    fd, tmp_matrix_name = tempfile.mkstemp(
-        prefix="_tmp_spectra_matrix_",
-        suffix=".dat",
-        dir=str(out),
+    # ---- 1. Build spectra matrix ----------------------------------------
+    if isinstance(data_manager, IonImageDataManagerZarr):
+        spectra_matrix, coordinates = zarr_build_spectra_matrix(data_manager)
+    elif isinstance(data_manager, MSDataManagerImzML):
+        if _is_continuous(data_manager) is False:
+            logger.error("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
+            raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
+        spectra_matrix, coordinates = imzml_build_spectra_matrix(data_manager)
+    else:
+        logger.error(f"Unsupported data_manager type: {type(data_manager).__name__}")
+        raise TypeError("Unsupported data_manager type.")
+
+    # ---- 2. UMAP --------------------------------------------------------
+    scaled_embedding = compute_umap_embeddings(
+        spectra_matrix,
+        n_components=n_components,
+        metric=umap_metric,
+        random_state=random_state,
+        umap_sample=umap_sample,
+        transform_batch_size=transform_batch_size,
     )
-    os.close(fd)
-    tmp_matrix_path = Path(tmp_matrix_name)
-    spectra_matrix: np.memmap | None = None
 
-    try:
-        # ---- 1. Build spectra matrix ----------------------------------------
-        if isinstance(data_manager, IonImageDataManagerZarr):
-            spectra_matrix, coordinates = zarr_build_spectra_matrix(
-                data_manager,
-                matrix_path=tmp_matrix_path,
-            )
-        elif isinstance(data_manager, MSDataManagerImzML):
-            if _is_continuous(data_manager) is False:
-                logger.error("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
-                raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
-            spectra_matrix, coordinates = imzml_build_spectra_matrix(
-                data_manager,
-                matrix_path=tmp_matrix_path,
-            )
-        else:
-            logger.error(f"Unsupported data_manager type: {type(data_manager).__name__}")
-            raise TypeError("Unsupported data_manager type.")
+    # ---- 3. KMeans on the *same* scaled embedding -----------------------
+    labels = kmeans_clustering(
+        scaled_embedding,
+        n_clusters=n_clusters,
+        random_state=random_state,
+    )
 
-        # ---- 2. UMAP --------------------------------------------------------
-        scaled_embedding = compute_umap_embeddings(
-            spectra_matrix,
-            n_components=n_components,
-            metric=umap_metric,
-            random_state=random_state,
-            umap_sample=umap_sample,
-            transform_batch_size=transform_batch_size,
-        )
+    # ---- 4. Spatial images ----------------------------------------------
+    umap_img = build_umap_image(
+        scaled_embedding,
+        coordinates,
+        width=width,
+        height=height,
+    )
 
-        # ---- 3. KMeans on the *same* scaled embedding -----------------------
-        labels = kmeans_clustering(
-            scaled_embedding,
-            n_clusters=n_clusters,
-            random_state=random_state,
-        )
+    kmeans_img = build_kmeans_image(
+        labels,
+        coordinates,
+        n_clusters=n_clusters,
+        width=width,
+        height=height,
+    )
 
-        # ---- 4. Spatial images ----------------------------------------------
-        umap_img = build_umap_image(
-            scaled_embedding,
-            coordinates,
-            width=width,
-            height=height,
-        )
+    # ---- 5. Save outputs ------------------------------------------------
+    plt.imsave(str(out / "umap_image.png"), umap_img, dpi=dpi)
+    plt.imsave(str(out / "kmeans_image.png"), kmeans_img, dpi=dpi)
 
-        kmeans_img = build_kmeans_image(
-            labels,
-            coordinates,
-            n_clusters=n_clusters,
-            width=width,
-            height=height,
-        )
+    img_h, img_w = umap_img.shape[:2]
+    metadata = {
+        "image_height": img_h,
+        "image_width": img_w,
+        "n_pixels": int(spectra_matrix.shape[0]),
+        "n_features": int(spectra_matrix.shape[1]),
+        "n_clusters": int(n_clusters),
+        "n_components": int(n_components),
+        "umap_metric": umap_metric,
+        "random_state": int(random_state),
+    }
 
-        # ---- 5. Save outputs ------------------------------------------------
-        plt.imsave(str(out / "umap_image.png"), umap_img, dpi=dpi)
-        plt.imsave(str(out / "kmeans_image.png"), kmeans_img, dpi=dpi)
+    result_group = zarr.open_group(str(out / "result.zarr"), mode="w")
+    result_group.attrs.update(metadata)
+    result_group.create_array("umap_embedding", data=scaled_embedding)
+    result_group.create_array("kmeans_labels", data=np.asarray(labels, dtype=np.int32))
+    result_group.create_array("coordinates", data=coordinates)
+    result_group.create_array("umap_image", data=umap_img)
+    result_group.create_array("kmeans_image", data=kmeans_img)
 
-        img_h, img_w = umap_img.shape[:2]
-        metadata = {
-            "image_height": img_h,
-            "image_width": img_w,
-            "n_pixels": int(spectra_matrix.shape[0]),
-            "n_features": int(spectra_matrix.shape[1]),
-            "n_clusters": int(n_clusters),
-            "n_components": int(n_components),
-            "umap_metric": umap_metric,
-            "random_state": int(random_state),
-        }
-
-        result_group = zarr.open_group(str(out / "result.zarr"), mode="w")
-        result_group.attrs.update(metadata)
-        result_group.create_array("umap_embedding", data=scaled_embedding)
-        result_group.create_array("kmeans_labels", data=np.asarray(labels, dtype=np.int32))
-        result_group.create_array("coordinates", data=coordinates)
-        result_group.create_array("umap_image", data=umap_img)
-        result_group.create_array("kmeans_image", data=kmeans_img)
-
-        logger.info(f"UMAP/KMeans analysis complete. Output: {out}")
-        return metadata
-
-    finally:
-        # Release memmap reference and delete the temp file.
-        del spectra_matrix
-        if tmp_matrix_path.exists():
-            try:
-                os.remove(tmp_matrix_path)
-            except OSError:
-                logger.warning(f"Failed to remove temp memmap file: {tmp_matrix_path}")
+    logger.info(f"UMAP/KMeans analysis complete. Output: {out}")
+    return metadata
