@@ -17,6 +17,7 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import MinMaxScaler
 
 from massflow.data_manager import MSDataManagerImzML
+from massflow.data_manager import IonImageDataManagerZarr
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tools.feature_analysis")
@@ -202,6 +203,83 @@ def imzml_build_spectra_matrix(
     return spectra_matrix, out_coordinates, mz_axis
 
 
+def zarr_build_spectra_matrix(
+    manager: IonImageDataManagerZarr,
+    *,
+    matrix_path: str | Path,
+    ion_block: int = 256,
+) -> tuple[np.memmap, np.ndarray, np.ndarray]:
+    """Build a cleaned spectra matrix from a Zarr ion-image backend."""
+    n_pixels = int(manager.n_pixels)
+    n_ions = int(manager.n_ions)
+    mz_axis = np.asarray(manager.mz_axis).copy()
+    coordinates = np.asarray(manager.coordinates)[:, :2].astype(np.int64, copy=False)
+    flat_idx = manager.flat_idx
+
+    if n_pixels == 0 or n_ions == 0:
+        raise ValueError("Zarr source contains no data.")
+
+    # ------------------------------------------------------------------
+    # Pass 1 – identify nonzero pixels (no full matrix stored)
+    # ------------------------------------------------------------------
+    # Accumulate a per-pixel "has any nonzero intensity" flag by streaming
+    # ion blocks, avoiding loading the full (n_pixels, n_ions) matrix.
+    is_nonzero = np.zeros(n_pixels, dtype=bool)
+
+    for ion_start in range(0, n_ions, ion_block):
+        ion_end = min(n_ions, ion_start + ion_block)
+        # dset shape: (n_ions, H, W) — read a contiguous ion block
+        dense_block = np.asarray(manager.dset[ion_start:ion_end])  # (block, H, W)
+        block_size = ion_end - ion_start
+        # Extract pixel vectors: (block, n_pixels) via flat_idx
+        pixel_block = dense_block.reshape(block_size, -1)[:, flat_idx]
+        # Any nonzero across these ions marks the pixel as nonzero
+        is_nonzero |= np.any(pixel_block != 0, axis=0)
+
+    n_keep = int(is_nonzero.sum())
+    if n_keep == 0:
+        raise ValueError("No nonzero spectra in Zarr source.")
+
+    n_zero = n_pixels - n_keep
+    if n_zero:
+        logger.info(
+            f"Zarr cleaning: {n_pixels} pixels → {n_keep} kept "
+            f"({n_zero} all-zero removed)"
+        )
+
+    keep_mask = is_nonzero  # bool (n_pixels,)
+    out_coordinates = coordinates[keep_mask]
+
+    # ------------------------------------------------------------------
+    # Pass 2 – fill memmap column-blocks
+    # ------------------------------------------------------------------
+    spectra_matrix = np.memmap(
+        str(matrix_path),
+        dtype=np.float32,
+        mode="w+",
+        shape=(n_keep, n_ions),
+    )
+
+    for ion_start in range(0, n_ions, ion_block):
+        ion_end = min(n_ions, ion_start + ion_block)
+        dense_block = np.asarray(manager.dset[ion_start:ion_end])
+        block_size = ion_end - ion_start
+        pixel_block = dense_block.reshape(block_size, -1)[:, flat_idx]  # (block, n_pixels)
+        # Transpose to (n_pixels, block), filter, write columns
+        spectra_matrix[:, ion_start:ion_end] = pixel_block.T[keep_mask].astype(
+            np.float32, copy=False
+        )
+
+    spectra_matrix.flush()
+
+    logger.info(
+        f"Built spectra matrix from Zarr: {n_keep} pixels × {n_ions} features"
+        f" (memmap: {matrix_path})"
+    )
+
+    return spectra_matrix, out_coordinates, mz_axis
+
+
 # ---------------------------------------------------------------------------
 # Spatial image construction
 # ---------------------------------------------------------------------------
@@ -302,6 +380,8 @@ def _is_continuous(data_manager: Any) -> bool:
 
 def _get_spatial_dimensions(data_manager: Any) -> tuple[int | None, int | None]:
     """Extract (width, height) from data_manager metadata."""
+    if isinstance(data_manager, IonImageDataManagerZarr):
+        return int(data_manager.width), int(data_manager.height)
     meta = getattr(getattr(data_manager, "ms", None), "meta", None)
     w = getattr(meta, "max_count_of_pixels_x", None)
     h = getattr(meta, "max_count_of_pixels_y", None)
@@ -318,16 +398,13 @@ def run_umap_kmeans_analysis(
     random_state: int = 0,
     batch_size: int = 256,
     max_threads: int = 2,
+    ion_block: int = 256,
     dpi: int = 300,
 ) -> dict:
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
 
     out = Path(output_dir) if output_dir is not None else Path("./temp")
     out.mkdir(parents=True, exist_ok=True)
-
-    if _is_continuous(data_manager) is False:
-        logger.error("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
-        raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
 
     width, height = _get_spatial_dimensions(data_manager)
 
@@ -342,13 +419,26 @@ def run_umap_kmeans_analysis(
     spectra_matrix: np.memmap | None = None
 
     try:
-        # ---- 1. Build spectra matrix (includes dedup + zero-row removal) ----
-        spectra_matrix, coordinates, _ = imzml_build_spectra_matrix(
-            data_manager,
-            batch_size=batch_size,
-            max_threads=max_threads,
-            matrix_path=tmp_matrix_path,
-        )
+        # ---- 1. Build spectra matrix ----------------------------------------
+        if isinstance(data_manager, IonImageDataManagerZarr):
+            spectra_matrix, coordinates, _ = zarr_build_spectra_matrix(
+                data_manager,
+                matrix_path=tmp_matrix_path,
+                ion_block=ion_block,
+            )
+        elif isinstance(data_manager, MSDataManagerImzML):
+            if _is_continuous(data_manager) is False:
+                logger.error("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
+                raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
+            spectra_matrix, coordinates, _ = imzml_build_spectra_matrix(
+                data_manager,
+                batch_size=batch_size,
+                max_threads=max_threads,
+                matrix_path=tmp_matrix_path,
+            )
+        else:
+            logger.error(f"Unsupported data_manager type: {type(data_manager).__name__}")
+            raise TypeError("Unsupported data_manager type.")
 
         # ---- 2. UMAP --------------------------------------------------------
         scaled_embedding = compute_umap_embeddings(
