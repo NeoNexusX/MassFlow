@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 from pathlib import Path
@@ -13,6 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import numpy as np
 import umap
+import zarr
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import MinMaxScaler
 
@@ -33,20 +33,42 @@ def compute_umap_embeddings(
     n_components: int = 3,
     metric: str = "cosine",
     random_state: int = 0,
+    umap_sample: int | None = None,
+    transform_batch_size: int | None = None,
 ) -> np.ndarray:
     """Compute UMAP embeddings and MinMax-scale to [0, 1]."""
-    logger.info(
-        f"Computing UMAP: n_pixels={matrix.shape[0]}, "
-        f"n_features={matrix.shape[1]}, n_components={n_components}, "
-        f"metric={metric}"
-    )
-    matrix = np.nan_to_num(matrix.astype(np.float32, copy=False), copy=False)
-
-    embeddings = umap.UMAP(
+    n_samples = int(matrix.shape[0])
+    reducer = umap.UMAP(
         metric=metric,
         n_components=n_components,
         random_state=random_state,
-    ).fit_transform(matrix)
+    )
+
+    logger.info(f"Computing UMAP: n_components={n_components}, metric={metric}")
+
+    # method1: fit on all data at once (fast for small datasets, but high memory)
+    if umap_sample is None or int(umap_sample) >= n_samples:
+        matrix = np.nan_to_num(matrix.astype(np.float32, copy=False), copy=False)
+        embeddings = reducer.fit_transform(matrix)
+        return MinMaxScaler().fit_transform(embeddings).astype(np.float32)  # type: ignore
+
+    # method2: fit on a random sample, then transform in batches (lower memory, more I/O)
+    sample_size = int(umap_sample)
+
+    batch_size = 256 if transform_batch_size is None else int(transform_batch_size)
+
+    rng = np.random.default_rng(random_state)
+    sample_indices = np.sort(rng.choice(n_samples, size=sample_size, replace=False))
+    sample_matrix = np.array(matrix[sample_indices], dtype=np.float32, copy=True)
+    sample_matrix = np.nan_to_num(sample_matrix, copy=False)
+    reducer.fit(sample_matrix)
+
+    embeddings = np.empty((n_samples, n_components), dtype=np.float32)
+    for start in range(0, n_samples, batch_size):
+        end = min(start + batch_size, n_samples)
+        batch = np.array(matrix[start:end], dtype=np.float32, copy=True)
+        batch = np.nan_to_num(batch, copy=False)
+        embeddings[start:end] = reducer.transform(batch).astype(np.float32, copy=False) # type: ignore
 
     return MinMaxScaler().fit_transform(embeddings).astype(np.float32)  # type: ignore
 
@@ -76,12 +98,9 @@ def kmeans_clustering(
 def imzml_build_spectra_matrix(
     manager: Any,
     *,
-    batch_size: int = 256,
-    max_threads: int = 2,
     matrix_path: str | Path,
 ) -> tuple[np.memmap, np.ndarray]:
     """Build a cleaned spectra matrix from ``matrix_generator``."""
-    gen_kwargs = dict(batch_size=batch_size, include_mz=True, max_threads=max_threads)
 
     # ------------------------------------------------------------------
     # Pass 1 – lightweight metadata scan (no intensity storage)
@@ -91,7 +110,7 @@ def imzml_build_spectra_matrix(
     n_features: int | None = None
     total_rows = 0
 
-    for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(**gen_kwargs):
+    for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(include_mz=False):
         intensity = np.asarray(intensity_matrix)
         coordinates = np.asarray(coordinates)
 
@@ -151,7 +170,7 @@ def imzml_build_spectra_matrix(
     write_cursor = 0
     batch_offset = 0
 
-    for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(**gen_kwargs):
+    for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(include_mz=False):
         intensity = np.asarray(intensity_matrix)
         coordinates = np.asarray(coordinates)
         batch_size_actual = int(intensity.shape[0])
@@ -341,11 +360,19 @@ def build_kmeans_image(
 # ---------------------------------------------------------------------------
 
 
+def _validate_parameters(
+    umap_sample: int | None,
+    transform_batch_size: int | None,
+) -> None:
+    if umap_sample is not None and umap_sample <= 0:
+        raise ValueError("umap_sample must be a positive integer or None.")
+    if transform_batch_size is not None and transform_batch_size <= 0:
+        raise ValueError("transform_batch_size must be a positive integer or None.")
+
 def _is_continuous(data_manager: Any) -> bool:
     """Heuristic check for continuous/shared m/z axis."""
-    if isinstance(data_manager, MSDataManagerImzML):
-        if data_manager.ms.meta.continuous is True:
-            return True
+    if data_manager.ms.meta.continuous is True:
+        return True
     return False
 
 def _get_spatial_dimensions(data_manager: Any) -> tuple[int | None, int | None]:
@@ -366,12 +393,13 @@ def run_umap_kmeans_analysis(
     umap_metric: str = "cosine",
     n_clusters: int = 10,
     random_state: int = 0,
-    batch_size: int = 256,
-    max_threads: int = 2,
-    ion_block: int = 256,
+    umap_sample: int | None = None,
+    transform_batch_size: int | None = None,
     dpi: int = 300,
 ) -> dict:
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
+
+    _validate_parameters(umap_sample, transform_batch_size)
 
     out = Path(output_dir) if output_dir is not None else Path("./temp")
     out.mkdir(parents=True, exist_ok=True)
@@ -394,7 +422,6 @@ def run_umap_kmeans_analysis(
             spectra_matrix, coordinates = zarr_build_spectra_matrix(
                 data_manager,
                 matrix_path=tmp_matrix_path,
-                ion_block=ion_block,
             )
         elif isinstance(data_manager, MSDataManagerImzML):
             if _is_continuous(data_manager) is False:
@@ -402,8 +429,6 @@ def run_umap_kmeans_analysis(
                 raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
             spectra_matrix, coordinates = imzml_build_spectra_matrix(
                 data_manager,
-                batch_size=batch_size,
-                max_threads=max_threads,
                 matrix_path=tmp_matrix_path,
             )
         else:
@@ -416,6 +441,8 @@ def run_umap_kmeans_analysis(
             n_components=n_components,
             metric=umap_metric,
             random_state=random_state,
+            umap_sample=umap_sample,
+            transform_batch_size=transform_batch_size,
         )
 
         # ---- 3. KMeans on the *same* scaled embedding -----------------------
@@ -445,10 +472,6 @@ def run_umap_kmeans_analysis(
         plt.imsave(str(out / "umap_image.png"), umap_img, dpi=dpi)
         plt.imsave(str(out / "kmeans_image.png"), kmeans_img, dpi=dpi)
 
-        np.save(str(out / "umap_embedding.npy"), scaled_embedding)
-        np.save(str(out / "kmeans_labels.npy"), labels)
-        np.save(str(out / "coordinates.npy"), coordinates)
-
         img_h, img_w = umap_img.shape[:2]
         metadata = {
             "image_height": img_h,
@@ -459,17 +482,15 @@ def run_umap_kmeans_analysis(
             "n_components": int(n_components),
             "umap_metric": umap_metric,
             "random_state": int(random_state),
-            "files": {
-                "umap_image": "umap_image.png",
-                "kmeans_image": "kmeans_image.png",
-                "umap_embedding": "umap_embedding.npy",
-                "kmeans_labels": "kmeans_labels.npy",
-                "coordinates": "coordinates.npy",
-            },
         }
 
-        with open(out / "metadata.json", "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        result_group = zarr.open_group(str(out / "result.zarr"), mode="w")
+        result_group.attrs.update(metadata)
+        result_group.create_array("umap_embedding", data=scaled_embedding)
+        result_group.create_array("kmeans_labels", data=np.asarray(labels, dtype=np.int32))
+        result_group.create_array("coordinates", data=coordinates)
+        result_group.create_array("umap_image", data=umap_img)
+        result_group.create_array("kmeans_image", data=kmeans_img)
 
         logger.info(f"UMAP/KMeans analysis complete. Output: {out}")
         return metadata
