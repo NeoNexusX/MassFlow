@@ -79,7 +79,7 @@ def imzml_build_spectra_matrix(
     batch_size: int = 256,
     max_threads: int = 2,
     matrix_path: str | Path,
-) -> tuple[np.memmap, np.ndarray, np.ndarray]:
+) -> tuple[np.memmap, np.ndarray]:
     """Build a cleaned spectra matrix from ``matrix_generator``."""
     gen_kwargs = dict(batch_size=batch_size, include_mz=True, max_threads=max_threads)
 
@@ -88,45 +88,16 @@ def imzml_build_spectra_matrix(
     # ------------------------------------------------------------------
     nonzero_flags: list[np.ndarray] = []   # bool per row
     xy_coords: list[np.ndarray] = []       # (batch_n, 2) int64
-    mz_axis: np.ndarray | None = None
     n_features: int | None = None
     total_rows = 0
 
-    for mz_data, intensity_matrix, lengths, coordinates in manager.matrix_generator(**gen_kwargs):
-        mz_arr = np.asarray(mz_data) if mz_data is not None else None
+    for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(**gen_kwargs):
         intensity = np.asarray(intensity_matrix)
-        lengths_arr = np.asarray(lengths, dtype=np.int64)
         coordinates = np.asarray(coordinates)
 
-        # Determine / validate n_features
-        if mz_arr is not None and mz_arr.ndim == 1:
-            batch_n_features = int(mz_arr.size)
-        else:
-            unique_lengths = np.unique(lengths_arr)
-            if unique_lengths.size != 1:
-                raise ValueError(
-                    "Variable-length spectra detected. The data must be "
-                    "aligned to a uniform m/z axis before UMAP/KMeans "
-                    "analysis. Please run alignment/binning first."
-                )
-            batch_n_features = int(unique_lengths[0])
-
         if n_features is None:
-            n_features = batch_n_features
-        elif batch_n_features != n_features:
-            raise ValueError(
-                f"Inconsistent feature count across batches: "
-                f"expected {n_features}, got {batch_n_features}."
-            )
-
-        # Capture mz_axis from the first batch
-        if mz_axis is None:
-            if mz_arr is not None and mz_arr.ndim == 1:
-                mz_axis = mz_arr.copy()
-            elif mz_arr is not None and mz_arr.ndim == 2:
-                mz_axis = mz_arr[0, :n_features].copy()
-            else:
-                mz_axis = np.arange(n_features, dtype=np.float64)
+            n_features = int(intensity.shape[1])
+        assert n_features is not None
 
         # Record nonzero flags (no intensity data saved)
         batch_matrix = intensity[:, :n_features]
@@ -139,7 +110,7 @@ def imzml_build_spectra_matrix(
 
     if total_rows == 0:
         raise ValueError("No spectra were read from the source.")
-    assert n_features is not None and mz_axis is not None
+    assert n_features is not None
 
     # Concatenate lightweight arrays
     all_nonzero = np.concatenate(nonzero_flags)        # (total_rows,)
@@ -180,7 +151,7 @@ def imzml_build_spectra_matrix(
     write_cursor = 0
     batch_offset = 0
 
-    for mz_data, intensity_matrix, lengths, coordinates in manager.matrix_generator(**gen_kwargs):
+    for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(**gen_kwargs):
         intensity = np.asarray(intensity_matrix)
         coordinates = np.asarray(coordinates)
         batch_size_actual = int(intensity.shape[0])
@@ -200,7 +171,7 @@ def imzml_build_spectra_matrix(
 
     spectra_matrix.flush()
 
-    return spectra_matrix, out_coordinates, mz_axis
+    return spectra_matrix, out_coordinates
 
 
 def zarr_build_spectra_matrix(
@@ -208,11 +179,10 @@ def zarr_build_spectra_matrix(
     *,
     matrix_path: str | Path,
     ion_block: int = 256,
-) -> tuple[np.memmap, np.ndarray, np.ndarray]:
+) -> tuple[np.memmap, np.ndarray]:
     """Build a cleaned spectra matrix from a Zarr ion-image backend."""
     n_pixels = int(manager.n_pixels)
     n_ions = int(manager.n_ions)
-    mz_axis = np.asarray(manager.mz_axis).copy()
     coordinates = np.asarray(manager.coordinates)[:, :2].astype(np.int64, copy=False)
     flat_idx = manager.flat_idx
 
@@ -277,7 +247,7 @@ def zarr_build_spectra_matrix(
         f" (memmap: {matrix_path})"
     )
 
-    return spectra_matrix, out_coordinates, mz_axis
+    return spectra_matrix, out_coordinates
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +391,7 @@ def run_umap_kmeans_analysis(
     try:
         # ---- 1. Build spectra matrix ----------------------------------------
         if isinstance(data_manager, IonImageDataManagerZarr):
-            spectra_matrix, coordinates, _ = zarr_build_spectra_matrix(
+            spectra_matrix, coordinates = zarr_build_spectra_matrix(
                 data_manager,
                 matrix_path=tmp_matrix_path,
                 ion_block=ion_block,
@@ -430,7 +400,7 @@ def run_umap_kmeans_analysis(
             if _is_continuous(data_manager) is False:
                 logger.error("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
                 raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
-            spectra_matrix, coordinates, _ = imzml_build_spectra_matrix(
+            spectra_matrix, coordinates = imzml_build_spectra_matrix(
                 data_manager,
                 batch_size=batch_size,
                 max_threads=max_threads,
