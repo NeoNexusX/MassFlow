@@ -466,6 +466,7 @@ def _plot_image(
 
 def plot_ion_image(
     source: str | Path | Any,
+    image_matrix: np.ndarray | None = None,
     *,
     mz: float | None = None,
     ion_idx: int | None = None,
@@ -479,16 +480,17 @@ def plot_ion_image(
     title: str | None = None,
 ) -> None:
     """Read and plot one ion image."""
-    image = read_ion_image(
-        source,
-        mz=mz,
-        ion_idx=ion_idx,
-        batch_size=batch_size,
-        max_threads=max_threads,
-        mz_tolerance=mz_tolerance,
-    )
+    if image_matrix is None:
+        image_matrix = read_ion_image(
+            source,
+            mz=mz,
+            ion_idx=ion_idx,
+            batch_size=batch_size,
+            max_threads=max_threads,
+            mz_tolerance=mz_tolerance,
+        )
     _plot_image(
-        image,
+        image_matrix,
         save_path=save_path,
         show=bool(show),
         dpi=int(dpi),
@@ -499,6 +501,7 @@ def plot_ion_image(
 
 def plot_tic_image(
     source: str | Path | Any,
+    image_matrix: np.ndarray | None = None,
     *,
     batch_size: int = 256,
     max_threads: int = 2,
@@ -510,13 +513,14 @@ def plot_tic_image(
     structure_only: bool = False,
 ) -> None:
     """Read and plot a TIC image."""
-    image = read_tic_image(
-        source,
-        batch_size=batch_size,
-        max_threads=max_threads,
-    )
+    if image_matrix is None:
+        image_matrix = read_tic_image(
+            source,
+            batch_size=batch_size,
+            max_threads=max_threads,
+        )
     _plot_image(
-        image,
+        image_matrix,
         save_path=save_path,
         show=bool(show),
         dpi=int(dpi),

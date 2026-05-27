@@ -7,7 +7,6 @@ from typing import Any
 
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
 import numpy as np
 import umap
 import zarr
@@ -16,6 +15,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 from massflow.data_manager import MSDataManagerImzML
 from massflow.data_manager import IonImageDataManagerZarr
+from massflow.tools.plot_ion_image import read_tic_image
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tools.feature_analysis")
@@ -305,9 +305,10 @@ def build_kmeans_image(
         coordinates, width=width, height=height,
     )
 
-    cmap = matplotlib.colormaps[cmap_name]
-    norm = Normalize(vmin=0, vmax=max(n_clusters - 1, 1))
-    colors = (cmap(norm(labels))[:, :3] * 255).astype(np.uint8)
+    palette = (matplotlib.colormaps[cmap_name](range(20))[:, :3] * 255).astype(np.uint8)
+    if n_clusters > len(palette):
+        raise ValueError(f"n_clusters must be <= {len(palette)} when using {cmap_name} colors.")
+    colors = palette[labels]
 
     image = np.zeros((h, w, 3), dtype=np.uint8)
     valid = (scatter_x >= 0) & (scatter_x < w) & (scatter_y >= 0) & (scatter_y < h)
@@ -322,13 +323,20 @@ def build_kmeans_image(
 
 
 def _validate_parameters(
+    n_components: int,
     umap_sample: int | None,
     transform_batch_size: int | None,
+    save_jpg: bool,
+    save_matrix: bool,
 ) -> None:
+    if n_components != 3:
+        raise ValueError("n_components must be 3 for RGB image output.")
     if umap_sample is not None and umap_sample <= 0:
         raise ValueError("umap_sample must be a positive integer or None.")
     if transform_batch_size is not None and transform_batch_size <= 0:
         raise ValueError("transform_batch_size must be a positive integer or None.")
+    if not save_jpg and not save_matrix:
+        raise ValueError("At least one of save_jpg or save_matrix must be True.")
 
 def _is_continuous(data_manager: Any) -> bool:
     """Heuristic check for continuous/shared m/z axis."""
@@ -346,10 +354,12 @@ def _get_spatial_dimensions(data_manager: Any) -> tuple[int | None, int | None]:
     return (int(w) if w else None), (int(h) if h else None)
 
 
-def run_umap_kmeans_analysis(
+def run_analysis(
     data_manager: Any,
-    output_dir: str | None = "./temp",
     *,
+    output_dir: str | None = "./feature_analysis_output",
+    save_images: bool = True,
+    save_matrix: bool = False,
     n_components: int = 3,
     umap_metric: str = "cosine",
     n_clusters: int = 10,
@@ -357,12 +367,12 @@ def run_umap_kmeans_analysis(
     umap_sample: int | None = None,
     transform_batch_size: int | None = None,
     dpi: int = 300,
-) -> dict:
+) -> bool:
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
 
-    _validate_parameters(umap_sample, transform_batch_size)
+    _validate_parameters(n_components, umap_sample, transform_batch_size, save_images, save_matrix)
 
-    out = Path(output_dir) if output_dir is not None else Path("./temp")
+    out = Path(output_dir) if output_dir is not None else Path("./feature_analysis_output")
     out.mkdir(parents=True, exist_ok=True)
 
     width, height = _get_spatial_dimensions(data_manager)
@@ -412,29 +422,29 @@ def run_umap_kmeans_analysis(
         height=height,
     )
 
-    # ---- 5. Save outputs ------------------------------------------------
-    plt.imsave(str(out / "umap_image.png"), umap_img, dpi=dpi)
-    plt.imsave(str(out / "kmeans_image.png"), kmeans_img, dpi=dpi)
+    # ---- 5. TIC ---------------------------------------------------------
+    tic_img = read_tic_image(data_manager)
 
-    img_h, img_w = umap_img.shape[:2]
-    metadata = {
-        "image_height": img_h,
-        "image_width": img_w,
-        "n_pixels": int(spectra_matrix.shape[0]),
-        "n_features": int(spectra_matrix.shape[1]),
-        "n_clusters": int(n_clusters),
-        "n_components": int(n_components),
-        "umap_metric": umap_metric,
-        "random_state": int(random_state),
-    }
+    # ---- 6. Save outputs ------------------------------------------------
+    if save_images:
+        plt.imsave(str(out / "umap_image.jpg"), umap_img, dpi=dpi)
+        plt.imsave(str(out / "kmeans_image.jpg"), kmeans_img, dpi=dpi)
 
-    result_group = zarr.open_group(str(out / "result.zarr"), mode="w")
-    result_group.attrs.update(metadata)
-    result_group.create_array("umap_embedding", data=scaled_embedding)
-    result_group.create_array("kmeans_labels", data=np.asarray(labels, dtype=np.int32))
-    result_group.create_array("coordinates", data=coordinates)
-    result_group.create_array("umap_image", data=umap_img)
-    result_group.create_array("kmeans_image", data=kmeans_img)
+        vmax = np.nanpercentile(tic_img, 95)
+        plt.imsave(
+            str(out / "tic_image.jpg"),
+            tic_img,
+            cmap="inferno",
+            vmax=vmax,
+            dpi=dpi,
+        )
+
+    if save_matrix:
+        result_group = zarr.open_group(str(out / "result.zarr"), mode="w")
+        result_group.create_array("umap_image", data=umap_img)
+        result_group.create_array("kmeans_image", data=kmeans_img)
+        result_group.create_array("tic_image", data=tic_img)
+        result_group.attrs["format"] = "massflow_feature_analysis"
 
     logger.info(f"UMAP/KMeans analysis complete. Output: {out}")
-    return metadata
+    return True

@@ -11,7 +11,7 @@ from PIL import Image
 
 from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess.preprocessor import Preprocessor
-from massflow.tools.feature_analysis import run_umap_kmeans_analysis
+from massflow.tools.feature_analysis import run_analysis
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tests.test_feature_analysis")
@@ -45,9 +45,11 @@ def _run_feature_analysis(
 ) -> None:
     "Run feature analysis."
 
-    run_umap_kmeans_analysis(
+    run_analysis(
         data_manager,
         output_dir=output_dir,
+        save_images=True,
+        save_matrix=True,
         n_clusters=10,
         random_state=0,
         umap_sample=umap_sample,
@@ -56,21 +58,19 @@ def _run_feature_analysis(
 
 
 def _validate_results_zarr(path1: str, path2: str) -> bool:
-    "Validate results by comparing PNG images."
+    "Validate saved result matrices."
     root_1 = zarr.open_group(f"{path1}/result.zarr", mode="r")
     root_2 = zarr.open_group(f"{path2}/result.zarr", mode="r")
 
-    umap_embeddings_1 = root_1["umap_embedding"]
-    umap_embeddings_2 = root_2["umap_embedding"]
-
-    kmeans_labels_1 = root_1["kmeans_labels"]
-    kmeans_labels_2 = root_2["kmeans_labels"]
-
-    return np.array_equal(umap_embeddings_1, umap_embeddings_2) and np.array_equal(kmeans_labels_1, kmeans_labels_2) # type: ignore
+    return (
+        np.array_equal(root_1["umap_image"][:], root_2["umap_image"][:])
+        and np.array_equal(root_1["kmeans_image"][:], root_2["kmeans_image"][:])
+        and np.allclose(root_1["tic_image"][:], root_2["tic_image"][:])
+    )
 
 
-def _png_pixels_equal(path1: str, path2: str) -> bool:
-    "Check if two PNG images have the same pixel values."
+def _image_pixels_equal(path1: str, path2: str) -> bool:
+    "Check if two images have the same pixel values."
 
     with Image.open(path1) as raw_img1, Image.open(path2) as raw_img2:
         img1 = raw_img1.convert("RGBA")
@@ -86,7 +86,7 @@ def _png_pixels_equal(path1: str, path2: str) -> bool:
 
 
 class TestRunUMAPKMeans:
-    "test run_umap_kmeans_analysis function."
+    "test run_analysis function."
 
     @pytest.fixture(scope="class")
     def data_manager(self) -> Iterator[MSDataManagerImzML]:
@@ -119,13 +119,15 @@ class TestRunUMAPKMeans:
         imzml_dm = data_manager
         zarr_dm = Preprocessor(imzml_dm, output_format="ion_image_zarr", temp_dir="./temp_zarr_dm").start()
 
-        _run_feature_analysis(imzml_dm, umap_sample, transform_batch_size, "./validation_imzml")
-        _run_feature_analysis(zarr_dm, umap_sample, transform_batch_size, "./validation_zarr")
+        try:
+            _run_feature_analysis(imzml_dm, umap_sample, transform_batch_size, "./validation_imzml")
+            _run_feature_analysis(zarr_dm, umap_sample, transform_batch_size, "./validation_zarr")
+        finally:
+            zarr_dm.close()
 
-        zarr_dm.close()
-
-        if not _png_pixels_equal("./validation_imzml/umap_image.png", "./validation_zarr/umap_image.png"):
-            pytest.fail("UMAP embedding images differ between imzML and Zarr results.")
+        for image_name in ("umap_image.jpg", "kmeans_image.jpg", "tic_image.jpg"):
+            if not _image_pixels_equal(f"./validation_imzml/{image_name}", f"./validation_zarr/{image_name}"):
+                pytest.fail(f"{image_name} differs between imzML and Zarr results.")
 
         if not _validate_results_zarr("./validation_imzml", "./validation_zarr"):
             pytest.fail("Feature analysis results differ between imzML and Zarr results.")
