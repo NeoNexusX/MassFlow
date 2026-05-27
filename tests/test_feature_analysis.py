@@ -27,8 +27,8 @@ def cleanup_output_dirs():
     import shutil
     dirs = [
         "./all_benchmark",
-        "./4096_benchmark",
-        "./2000_benchmark",
+        "./ratio_0_2_benchmark",
+        "./ratio_0_1_benchmark",
         "./validation_imzml",
         "./validation_zarr",
         "./temp_zarr_dm"
@@ -39,9 +39,10 @@ def cleanup_output_dirs():
 
 def _run_feature_analysis(
     data_manager: Any,
-    umap_sample: int | None,
+    sample_ratio: float,
     transform_batch_size: int | None,
-    output_dir: str
+    output_dir: str,
+    random_state: int | None = None
 ) -> None:
     "Run feature analysis."
 
@@ -51,9 +52,9 @@ def _run_feature_analysis(
         save_images=True,
         save_matrix=True,
         n_clusters=10,
-        random_state=0,
-        umap_sample=umap_sample,
-        transform_batch_size=transform_batch_size
+        sample_ratio=sample_ratio,
+        transform_batch_size=transform_batch_size,
+        random_state=random_state
     )
 
 
@@ -63,9 +64,9 @@ def _validate_results_zarr(path1: str, path2: str) -> bool:
     root_2 = zarr.open_group(f"{path2}/result.zarr", mode="r")
 
     return (
-        np.array_equal(root_1["umap_image"][:], root_2["umap_image"][:])
-        and np.array_equal(root_1["kmeans_image"][:], root_2["kmeans_image"][:])
-        and np.allclose(root_1["tic_image"][:], root_2["tic_image"][:])
+        np.array_equal(root_1["umap_image"][:], root_2["umap_image"][:]) # type: ignore
+        and np.array_equal(root_1["kmeans_image"][:], root_2["kmeans_image"][:]) # type: ignore
+        and np.allclose(root_1["tic_image"][:], root_2["tic_image"][:]) # type: ignore
     )
 
 
@@ -97,31 +98,30 @@ class TestRunUMAPKMeans:
 
         data_manager.close()
 
-    @pytest.mark.parametrize("umap_sample, transform_batch_size, output_dir", [
-        (None, None, "./all_benchmark"),
-        (4096, 2048, "./4096_benchmark"),
-        (2000, 1024, "./2000_benchmark")
+    @pytest.mark.parametrize("sample_ratio, transform_batch_size, output_dir", [
+        (0.2, 2048, "./ratio_0_2_benchmark"),
+        (0.1, 1024, "./ratio_0_1_benchmark")
     ])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_feature_analysis(self, data_manager, benchmark, umap_sample, transform_batch_size, output_dir) -> None:
+    def test_feature_analysis(self, data_manager, benchmark, sample_ratio, transform_batch_size, output_dir) -> None:
         "Benchmark feature analysis."
         benchmark.pedantic(
             _run_feature_analysis,
-            args=(data_manager, umap_sample, transform_batch_size, output_dir),
+            args=(data_manager, sample_ratio, transform_batch_size, output_dir),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=0,
         )
 
-    @pytest.mark.parametrize("umap_sample, transform_batch_size", [(2000, 1024)])
-    def test_feature_analysis_validation(self, data_manager, umap_sample, transform_batch_size):
+    @pytest.mark.parametrize("sample_ratio, transform_batch_size", [(0.2, 1024)])
+    def test_feature_analysis_validation(self, data_manager, sample_ratio, transform_batch_size):
         "Validate feature analysis results."
         imzml_dm = data_manager
         zarr_dm = Preprocessor(imzml_dm, output_format="ion_image_zarr", temp_dir="./temp_zarr_dm").start()
 
         try:
-            _run_feature_analysis(imzml_dm, umap_sample, transform_batch_size, "./validation_imzml")
-            _run_feature_analysis(zarr_dm, umap_sample, transform_batch_size, "./validation_zarr")
+            _run_feature_analysis(imzml_dm, sample_ratio, transform_batch_size, "./validation_imzml", 0)
+            _run_feature_analysis(zarr_dm, sample_ratio, transform_batch_size, "./validation_zarr", 0)
         finally:
             zarr_dm.close()
 

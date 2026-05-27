@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -25,17 +25,17 @@ logger = get_logger("massflow.tools.feature_analysis")
 # Low-level algorithm functions
 # ---------------------------------------------------------------------------
 
-def compute_umap_embeddings(
-    matrix: np.ndarray,
+
+def compute_streaming_umap_embeddings(
+    data_manager: Any,
     *,
     n_components: int = 3,
     metric: str = "cosine",
-    random_state: int = 0,
-    umap_sample: int | None = None,
-    transform_batch_size: int | None = None,
-) -> np.ndarray:
-    """Compute UMAP embeddings and MinMax-scale to [0, 1]."""
-    n_samples = int(matrix.shape[0])
+    random_state: int | None = None,
+    sample_ratio: float = 0.2,
+    transform_batch_size: int = 512,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample-fit + batch-transform UMAP without building the full matrix."""
     reducer = umap.UMAP(
         metric=metric,
         n_components=n_components,
@@ -43,40 +43,68 @@ def compute_umap_embeddings(
         force_approximation_algorithm=True,
     )
 
-    logger.info(f"Computing UMAP: n_components={n_components}, metric={metric}")
+    # ---- fit on sample ----
+    if isinstance(data_manager, MSDataManagerImzML):
+        sample_matrix = _read_imzml_sample_matrix(
+            data_manager, sample_ratio, random_state=random_state,
+        )
+    elif isinstance(data_manager, IonImageDataManagerZarr):
+        sample_matrix = _read_zarr_sample_matrix(
+            data_manager, sample_ratio, random_state=random_state,
+        )
+    else:
+        raise TypeError(f"Unsupported data_manager type: {type(data_manager).__name__}")
 
-    # method1: fit on all data at once (fast for small datasets, but high memory)
-    if umap_sample is None or int(umap_sample) >= n_samples:
-        matrix = np.nan_to_num(matrix.astype(np.float32, copy=False), copy=False)
-        embeddings = reducer.fit_transform(matrix)
-        return MinMaxScaler().fit_transform(embeddings).astype(np.float32)  # type: ignore
-
-    # method2: fit on a random sample, then transform in batches (lower memory, more I/O)
-    sample_size = int(umap_sample)
-
-    batch_size = 256 if transform_batch_size is None else int(transform_batch_size)
-
-    rng = np.random.default_rng(random_state)
-    sample_indices = np.sort(rng.choice(n_samples, size=sample_size, replace=False))
-    sample_matrix = np.array(matrix[sample_indices], dtype=np.float32, copy=True)
     sample_matrix = np.nan_to_num(sample_matrix, copy=False)
+    logger.info(
+        f"Streaming UMAP fit: sample_ratio={sample_ratio}, "
+        f"sample_matrix shape={sample_matrix.shape}"
+    )
     reducer.fit(sample_matrix)
+    del sample_matrix
 
-    embeddings = np.empty((n_samples, n_components), dtype=np.float32)
-    for start in range(0, n_samples, batch_size):
-        end = min(start + batch_size, n_samples)
-        batch = np.array(matrix[start:end], dtype=np.float32, copy=True)
-        batch = np.nan_to_num(batch, copy=False)
-        embeddings[start:end] = reducer.transform(batch).astype(np.float32, copy=False) # type: ignore
+    # ---- transform in batches ----
+    embeddings_parts: list[np.ndarray] = []
+    coordinates_parts: list[np.ndarray] = []
 
-    return MinMaxScaler().fit_transform(embeddings).astype(np.float32)  # type: ignore
+    if isinstance(data_manager, MSDataManagerImzML):
+        for batch_matrix, batch_coords in _iter_imzml_matrix_batches(
+            data_manager, batch_size=transform_batch_size,
+        ):
+            batch_matrix = np.nan_to_num(batch_matrix, copy=False)
+            embeddings_parts.append(
+                reducer.transform(batch_matrix).astype(np.float32, copy=False)  # type: ignore
+            )
+            coordinates_parts.append(batch_coords)
+    else:  # IonImageDataManagerZarr
+        for batch_matrix, batch_coords in _iter_zarr_matrix_batches(
+            data_manager, pixel_batch_size=transform_batch_size,
+        ):
+            batch_matrix = np.nan_to_num(batch_matrix, copy=False)
+            embeddings_parts.append(
+                reducer.transform(batch_matrix).astype(np.float32, copy=False)  # type: ignore
+            )
+            coordinates_parts.append(batch_coords)
+
+    if not embeddings_parts:
+        raise ValueError("No non-zero spectra found during transform.")
+
+    embeddings = np.vstack(embeddings_parts)
+    coordinates = np.vstack(coordinates_parts)
+
+    # imzML may have duplicate xy across batches; Zarr does not.
+    if isinstance(data_manager, MSDataManagerImzML):
+        embeddings, coordinates = _deduplicate_last_by_xy(embeddings, coordinates)
+
+    scaled = MinMaxScaler().fit_transform(embeddings).astype(np.float32)  # type: ignore
+    return scaled, coordinates
 
 
 def kmeans_clustering(
     embeddings: np.ndarray,
     *,
     n_clusters: int = 10,
-    random_state: int = 0,
+    random_state: int | None = None,
 ) -> np.ndarray:
     """Perform KMeans clustering on embeddings."""
     logger.info(f"Performing KMeans clustering with {n_clusters} clusters.")
@@ -93,141 +121,162 @@ def kmeans_clustering(
 # ---------------------------------------------------------------------------
 # Data loading helpers
 # ---------------------------------------------------------------------------
-
-def imzml_build_spectra_matrix(
-    manager: Any,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Build a cleaned spectra matrix from ``matrix_generator`` (two-pass).
-
-    * **Pass 1** – lightweight scan: record nonzero flags and xy
-      coordinates per row.  Compute keep mask (nonzero AND last
-      occurrence of each xy).
-    * **Pass 2** – re-read ``matrix_generator``, pre-allocate a plain
-      float32 array, and copy only kept rows into it.
-    """
-    # ------------------------------------------------------------------
-    # Pass 1 – metadata only, no intensity storage
-    # ------------------------------------------------------------------
-    nonzero_flags: list[np.ndarray] = []
-    xy_coords: list[np.ndarray] = []
-    n_features: int | None = None
-    total_rows = 0
-
-    for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(include_mz=False):
-        intensity = np.asarray(intensity_matrix)
-        coordinates = np.asarray(coordinates)
-        if n_features is None:
-            n_features = int(intensity.shape[1])
-
-        nonzero_flags.append(np.any(intensity[:, :n_features] != 0, axis=1))
-        xy_coords.append(coordinates[:, :2].astype(np.int64, copy=False))
-        total_rows += int(intensity.shape[0])
-
-    if total_rows == 0:
-        raise ValueError("No spectra were read from the source.")
-    assert n_features is not None
-
-    # Build keep mask
-    all_nonzero = np.concatenate(nonzero_flags)
-    all_xy = np.vstack(xy_coords)
-    del nonzero_flags, xy_coords
-
-    last_occurrence: dict[tuple[int, int], int] = {}
-    for i in range(total_rows):
-        last_occurrence[(int(all_xy[i, 0]), int(all_xy[i, 1]))] = i
-
-    is_last = np.zeros(total_rows, dtype=bool)
-    for idx in last_occurrence.values():
-        is_last[idx] = True
-    del last_occurrence
-
-    keep_mask = is_last & all_nonzero
-    n_keep = int(keep_mask.sum())
-    del all_nonzero, is_last
-
-    if n_keep == 0:
-        raise ValueError("No nonzero spectra remain after removing duplicates and all-zero rows.")
-
-    # ------------------------------------------------------------------
-    # Pass 2 – re-read and fill pre-allocated output
-    # ------------------------------------------------------------------
-    spectra_matrix = np.empty((n_keep, n_features), dtype=np.float32)
-    out_coordinates = np.empty((n_keep, 2), dtype=np.int64)
-
-    write_cursor = 0
-    batch_offset = 0
-
-    for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(include_mz=False):
-        intensity = np.asarray(intensity_matrix)
-        coordinates = np.asarray(coordinates)
-        batch_size = int(intensity.shape[0])
-
-        batch_keep = keep_mask[batch_offset : batch_offset + batch_size]
-        n_batch_keep = int(batch_keep.sum())
-        if n_batch_keep > 0:
-            spectra_matrix[write_cursor : write_cursor + n_batch_keep] = (
-                intensity[batch_keep, :n_features].astype(np.float32, copy=False)
-            )
-            out_coordinates[write_cursor : write_cursor + n_batch_keep] = (
-                coordinates[batch_keep, :2].astype(np.int64, copy=False)
-            )
-            write_cursor += n_batch_keep
-        batch_offset += batch_size
-
-    return spectra_matrix, out_coordinates
+#
+# Backend helpers are intentionally grouped by data-manager type.  Each backend
+# should provide:
+#   1. a sample reader for UMAP fit
+#   2. a batch iterator for UMAP transform
 
 
-def zarr_build_spectra_matrix(
-    manager: IonImageDataManagerZarr,
+# --- imzML backend ---------------------------------------------------------
+#
+# imzML reads spectra from the raw spectrum list for sampling, then uses the
+# data manager's matrix_generator for sequential batch transforms.
+def _read_imzml_sample_matrix(
+    manager: MSDataManagerImzML,
+    sample_ratio: float,
     *,
-    ion_block: int = 256,
+    random_state: int | None = None,
+) -> np.ndarray:
+    """Randomly sample spectra from *manager.ms* by ratio and return a matrix."""
+    if sample_ratio <= 0 or sample_ratio > 1:
+        raise ValueError("sample_ratio must be in (0, 1].")
+
+    n_spectra = len(manager.ms)
+    n_features = len(manager.ms.shared_mz_list)  # type: ignore
+    sample_count = max(1, int(np.ceil(n_spectra * sample_ratio)))
+
+    rng = np.random.default_rng(random_state)
+    sample_indices = np.sort(rng.choice(n_spectra, size=sample_count, replace=False))
+
+    rows: list[np.ndarray] = []
+    for idx in sample_indices:
+        spectrum = manager.ms[int(idx)]
+        intensity = np.asarray(spectrum.intensity, dtype=np.float32)
+        spectrum.clear_data()
+        if np.any(intensity != 0):
+            rows.append(intensity[:n_features])
+
+    if not rows:
+        raise ValueError("All sampled spectra are zero; cannot build sample matrix.")
+
+    return np.vstack(rows)
+
+
+def _iter_imzml_matrix_batches(
+    manager: MSDataManagerImzML,
+    *,
+    batch_size: int = 256,
+) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    """Yield ``(batch_matrix, batch_coordinates)`` from *manager.matrix_generator*."""
+    for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(
+        batch_size=batch_size, include_mz=False,
+    ):
+        intensity = np.asarray(intensity_matrix, dtype=np.float32)
+        coords = np.asarray(coordinates)[:, :2]
+
+        nonzero_mask = np.any(intensity != 0, axis=1)
+        if not np.any(nonzero_mask):
+            continue
+
+        yield intensity[nonzero_mask], coords[nonzero_mask]
+
+
+def _deduplicate_last_by_xy(
+    values: np.ndarray,
+    coordinates: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Build a cleaned spectra matrix from a Zarr ion-image backend.
+    """Keep only the *last* occurrence of each unique (x, y) coordinate."""
+    xy = coordinates[:, :2].astype(np.int64, copy=False)
+    n = xy.shape[0]
 
-    Two-pass: pass 1 scans for nonzero pixels, pass 2 fills a
-    pre-allocated ``(n_keep, n_ions)`` float32 array by ion-block.
-    """
-    n_pixels = int(manager.n_pixels)
+    last: dict[tuple[int, int], int] = {}
+    for i in range(n):
+        last[(int(xy[i, 0]), int(xy[i, 1]))] = i
+
+    keep = np.array(sorted(last.values()), dtype=np.intp)
+    return values[keep], coordinates[keep]
+
+
+# --- Zarr ion-image backend ------------------------------------------------
+#
+# Zarr stores ion images as (ion, y, x).  These helpers read selected pixel
+# columns from ion blocks and present them as spectra rows.
+def _read_zarr_pixel_columns(
+    manager: IonImageDataManagerZarr,
+    pixel_flat_idx: np.ndarray,
+    out: np.ndarray,
+    ion_block: int,
+) -> None:
+    """Fill *out* ``(n_pixels_subset, n_ions)`` by reading ion-blocks from *manager.dset*."""
     n_ions = int(manager.n_ions)
-    coordinates = np.asarray(manager.coordinates)[:, :2].astype(np.int64, copy=False)
-    flat_idx = manager.flat_idx
+    h, w = int(manager.height), int(manager.width)
+    hw = h * w
 
-    if n_pixels == 0 or n_ions == 0:
-        raise ValueError("Zarr source contains no data.")
-
-    # Pass 1 – identify nonzero pixels
-    is_nonzero = np.zeros(n_pixels, dtype=bool)
     for ion_start in range(0, n_ions, ion_block):
         ion_end = min(n_ions, ion_start + ion_block)
         dense_block = np.asarray(manager.dset[ion_start:ion_end])  # (block, H, W)
-        pixel_block = dense_block.reshape(ion_end - ion_start, -1)[:, flat_idx]
-        is_nonzero |= np.any(pixel_block != 0, axis=0)
+        flat = dense_block.reshape(ion_end - ion_start, hw)        # (block, H*W)
+        out[:, ion_start:ion_end] = flat[:, pixel_flat_idx].T
 
-    n_keep = int(is_nonzero.sum())
-    if n_keep == 0:
-        raise ValueError("No nonzero spectra in Zarr source.")
 
-    n_zero = n_pixels - n_keep
-    if n_zero:
-        logger.info(
-            f"Zarr cleaning: {n_pixels} pixels \u2192 {n_keep} kept "
-            f"({n_zero} all-zero removed)"
-        )
+def _read_zarr_sample_matrix(
+    manager: IonImageDataManagerZarr,
+    sample_ratio: float,
+    *,
+    random_state: int | None = None,
+    ion_block: int = 256,
+) -> np.ndarray:
+    """Randomly sample pixels from a Zarr backend by ratio."""
+    if sample_ratio <= 0 or sample_ratio > 1:
+        raise ValueError("sample_ratio must be in (0, 1].")
 
-    keep_mask = is_nonzero
-    out_coordinates = coordinates[keep_mask]
+    n_pixels = int(manager.n_pixels)
+    n_ions = int(manager.n_ions)
+    flat_idx = manager.flat_idx
+    sample_count = max(1, int(np.ceil(n_pixels * sample_ratio)))
 
-    # Pass 2 – fill output array column-blocks
-    spectra_matrix = np.empty((n_keep, n_ions), dtype=np.float32)
-    for ion_start in range(0, n_ions, ion_block):
-        ion_end = min(n_ions, ion_start + ion_block)
-        dense_block = np.asarray(manager.dset[ion_start:ion_end])
-        pixel_block = dense_block.reshape(ion_end - ion_start, -1)[:, flat_idx]
-        spectra_matrix[:, ion_start:ion_end] = pixel_block.T[keep_mask].astype(
-            np.float32, copy=False
-        )
+    rng = np.random.default_rng(random_state)
+    pixel_indices = np.sort(rng.choice(n_pixels, size=sample_count, replace=False))
 
-    return spectra_matrix, out_coordinates
+    sample_flat_idx = flat_idx[pixel_indices]
+    sample_matrix = np.empty((sample_count, n_ions), dtype=np.float32)
+    _read_zarr_pixel_columns(manager, sample_flat_idx, sample_matrix, ion_block)
+
+    nonzero_mask = np.any(sample_matrix != 0, axis=1)
+    sample_matrix = sample_matrix[nonzero_mask]
+
+    if sample_matrix.shape[0] == 0:
+        raise ValueError("All sampled spectra are zero; cannot build sample matrix.")
+
+    return sample_matrix
+
+
+def _iter_zarr_matrix_batches(
+    manager: IonImageDataManagerZarr,
+    *,
+    pixel_batch_size: int = 20000,
+    ion_block: int = 256,
+) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    """Yield ``(batch_matrix, batch_coordinates)`` by pixel-batch from a Zarr backend."""
+    n_pixels = int(manager.n_pixels)
+    n_ions = int(manager.n_ions)
+    flat_idx = manager.flat_idx
+    coordinates = np.asarray(manager.coordinates)
+
+    for pixel_start in range(0, n_pixels, pixel_batch_size):
+        pixel_end = min(n_pixels, pixel_start + pixel_batch_size)
+        batch_flat_idx = flat_idx[pixel_start:pixel_end]
+        batch_coords = coordinates[pixel_start:pixel_end, :2]
+
+        batch_matrix = np.empty((pixel_end - pixel_start, n_ions), dtype=np.float32)
+        _read_zarr_pixel_columns(manager, batch_flat_idx, batch_matrix, ion_block)
+
+        nonzero_mask = np.any(batch_matrix != 0, axis=1)
+        if not np.any(nonzero_mask):
+            continue
+
+        yield batch_matrix[nonzero_mask], batch_coords[nonzero_mask]
 
 
 # ---------------------------------------------------------------------------
@@ -324,19 +373,19 @@ def build_kmeans_image(
 
 def _validate_parameters(
     n_components: int,
-    umap_sample: int | None,
+    sample_ratio: float,
     transform_batch_size: int | None,
-    save_jpg: bool,
+    save_images: bool,
     save_matrix: bool,
 ) -> None:
     if n_components != 3:
         raise ValueError("n_components must be 3 for RGB image output.")
-    if umap_sample is not None and umap_sample <= 0:
-        raise ValueError("umap_sample must be a positive integer or None.")
+    if sample_ratio <= 0 or sample_ratio > 1:
+        raise ValueError("sample_ratio must be in (0, 1].")
     if transform_batch_size is not None and transform_batch_size <= 0:
         raise ValueError("transform_batch_size must be a positive integer or None.")
-    if not save_jpg and not save_matrix:
-        raise ValueError("At least one of save_jpg or save_matrix must be True.")
+    if not save_images and not save_matrix:
+        raise ValueError("At least one of save_images or save_matrix must be True.")
 
 def _is_continuous(data_manager: Any) -> bool:
     """Heuristic check for continuous/shared m/z axis."""
@@ -363,40 +412,34 @@ def run_analysis(
     n_components: int = 3,
     umap_metric: str = "cosine",
     n_clusters: int = 10,
-    random_state: int = 0,
-    umap_sample: int | None = None,
-    transform_batch_size: int | None = None,
+    random_state: int | None = None,
+    sample_ratio: float = 0.2,
+    transform_batch_size: int | None = 256,
     dpi: int = 300,
 ) -> bool:
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
 
-    _validate_parameters(n_components, umap_sample, transform_batch_size, save_images, save_matrix)
+    # --- 1. Validate parameters and prepare output directory ------------
+    _validate_parameters(n_components, sample_ratio, transform_batch_size, save_images, save_matrix)
 
     out = Path(output_dir) if output_dir is not None else Path("./feature_analysis_output")
     out.mkdir(parents=True, exist_ok=True)
 
+    if isinstance(data_manager, MSDataManagerImzML) and _is_continuous(data_manager) is False:
+        logger.error("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
+        raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
+
     width, height = _get_spatial_dimensions(data_manager)
+    batch_size = 512 if transform_batch_size is None else int(transform_batch_size)
 
-    # ---- 1. Build spectra matrix ----------------------------------------
-    if isinstance(data_manager, IonImageDataManagerZarr):
-        spectra_matrix, coordinates = zarr_build_spectra_matrix(data_manager)
-    elif isinstance(data_manager, MSDataManagerImzML):
-        if _is_continuous(data_manager) is False:
-            logger.error("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
-            raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
-        spectra_matrix, coordinates = imzml_build_spectra_matrix(data_manager)
-    else:
-        logger.error(f"Unsupported data_manager type: {type(data_manager).__name__}")
-        raise TypeError("Unsupported data_manager type.")
-
-    # ---- 2. UMAP --------------------------------------------------------
-    scaled_embedding = compute_umap_embeddings(
-        spectra_matrix,
+    # --- 2. UMAP embedding with streaming fit/transform ----------------
+    scaled_embedding, coordinates = compute_streaming_umap_embeddings(
+        data_manager,
         n_components=n_components,
         metric=umap_metric,
         random_state=random_state,
-        umap_sample=umap_sample,
-        transform_batch_size=transform_batch_size,
+        sample_ratio=sample_ratio,
+        transform_batch_size=batch_size,
     )
 
     # ---- 3. KMeans on the *same* scaled embedding -----------------------
