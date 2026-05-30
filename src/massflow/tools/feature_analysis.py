@@ -40,7 +40,6 @@ def compute_streaming_umap_embeddings(
         metric=metric,
         n_components=n_components,
         random_state=random_state,
-        force_approximation_algorithm=True,
     )
 
     # ---- fit on sample ----
@@ -78,7 +77,7 @@ def compute_streaming_umap_embeddings(
             coordinates_parts.append(batch_coords)
     else:  # IonImageDataManagerZarr
         for batch_matrix, batch_coords in _iter_zarr_matrix_batches(
-            data_manager, pixel_batch_size=transform_batch_size,
+            data_manager,
         ):
             batch_matrix = np.nan_to_num(batch_matrix, copy=False)
             embeddings_parts.append(
@@ -389,7 +388,9 @@ def _validate_parameters(
 
 def _is_continuous(data_manager: Any) -> bool:
     """Heuristic check for continuous/shared m/z axis."""
-    if data_manager.ms.meta.continuous is True:
+    meta = getattr(getattr(data_manager, "ms", None), "meta", None)
+    continuous = getattr(meta, "continuous", None)
+    if continuous is True:
         return True
     return False
 
@@ -413,8 +414,8 @@ def run_analysis(
     umap_metric: str = "cosine",
     n_clusters: int = 10,
     random_state: int | None = None,
-    sample_ratio: float = 0.2,
-    transform_batch_size: int | None = 256,
+    sample_ratio: float = 0.3,
+    transform_batch_size: int | None = 2048,
     dpi: int = 300,
 ) -> bool:
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
@@ -470,12 +471,12 @@ def run_analysis(
 
     # ---- 6. Save outputs ------------------------------------------------
     if save_images:
-        plt.imsave(str(out / "umap_image.jpg"), umap_img, dpi=dpi)
-        plt.imsave(str(out / "kmeans_image.jpg"), kmeans_img, dpi=dpi)
+        plt.imsave(str(out / "umap_image.png"), umap_img, dpi=dpi)
+        plt.imsave(str(out / "kmeans_image.png"), kmeans_img, dpi=dpi)
 
         vmax = np.nanpercentile(tic_img, 95)
         plt.imsave(
-            str(out / "tic_image.jpg"),
+            str(out / "tic_image.png"),
             tic_img,
             cmap="inferno",
             vmax=vmax,

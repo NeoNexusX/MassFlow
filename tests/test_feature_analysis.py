@@ -102,12 +102,13 @@ class TestRunUMAPKMeans:
         (0.2, 2048, "./ratio_0_2_benchmark"),
         (0.1, 1024, "./ratio_0_1_benchmark")
     ])
+    @pytest.mark.parametrize("random_state", [None])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_feature_analysis(self, data_manager, benchmark, sample_ratio, transform_batch_size, output_dir) -> None:
+    def test_feature_analysis(self, benchmark, data_manager, sample_ratio, transform_batch_size, output_dir, random_state) -> None:
         "Benchmark feature analysis."
         benchmark.pedantic(
             _run_feature_analysis,
-            args=(data_manager, sample_ratio, transform_batch_size, output_dir),
+            args=(data_manager, sample_ratio, transform_batch_size, output_dir, random_state),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=0,
@@ -125,7 +126,7 @@ class TestRunUMAPKMeans:
         finally:
             zarr_dm.close()
 
-        for image_name in ("umap_image.jpg", "kmeans_image.jpg", "tic_image.jpg"):
+        for image_name in ("umap_image.png", "kmeans_image.png", "tic_image.png"):
             if not _image_pixels_equal(f"./validation_imzml/{image_name}", f"./validation_zarr/{image_name}"):
                 pytest.fail(f"{image_name} differs between imzML and Zarr results.")
 
