@@ -86,24 +86,8 @@ def _resolve_source(
 
 
 def _ensure_imzml_loaded(manager: Any) -> None:
-    is_loaded = len(manager.ms) > 0
-
-    if not is_loaded:
+    if len(manager.ms) == 0:
         manager.load_head_data()
-
-
-def _validate_ion_selector(mz: float | None, ion_idx: int | None) -> None:
-    if (mz is None) == (ion_idx is None):
-        raise ValueError("Exactly one of 'mz' or 'ion_idx' must be provided.")
-
-
-def _metadata_dimensions(manager: Any) -> tuple[int | None, int | None]:
-    meta = getattr(getattr(manager, "ms", None), "meta", None)
-    width = getattr(meta, "max_count_of_pixels_x", None)
-    height = getattr(meta, "max_count_of_pixels_y", None)
-    width = int(width) if width else None
-    height = int(height) if height else None
-    return width, height
 
 
 def _imzml_is_continuous(manager: Any) -> bool | None:
@@ -130,47 +114,55 @@ def _batch_uses_shared_mz(
 def _nearest_mz_index(
     mz_axis: np.ndarray,
     mz: float,
-    mz_tolerance: float | None = None,
 ) -> int:
     if mz_axis.ndim != 1 or mz_axis.size == 0:
         raise ValueError("mz_axis must be a non-empty 1-D array.")
-    ion_idx = int(np.nanargmin(np.abs(mz_axis.astype(float, copy=False) - float(mz))))
-    if mz_tolerance is not None:
-        delta = abs(float(mz_axis[ion_idx]) - float(mz))
-        if delta > float(mz_tolerance):
-            raise ValueError(
-                f"No m/z value within mz_tolerance={mz_tolerance}; "
-                f"nearest={float(mz_axis[ion_idx])}, requested={mz}."
-            )
-    return ion_idx
+    return int(np.nanargmin(np.abs(mz_axis.astype(float, copy=False) - float(mz))))
+
+
+def _mz_window_indices(
+    mz_axis: np.ndarray,
+    mz: float,
+    mz_tolerance: float,
+) -> np.ndarray:
+    low = float(mz) - float(mz_tolerance)
+    high = float(mz) + float(mz_tolerance)
+    return np.flatnonzero((mz_axis >= low) & (mz_axis <= high))
 
 
 def _sum_by_lengths(intensity_flat: np.ndarray, lengths: np.ndarray) -> np.ndarray:
-    values = np.zeros(lengths.size, dtype=np.result_type(intensity_flat.dtype, np.float64))
-    offset = 0
-    for index, length_value in enumerate(lengths):
-        length = int(length_value)
-        end = offset + length
-        values[index] = np.sum(intensity_flat[offset:end])
-        offset = end
+    dtype = np.result_type(intensity_flat.dtype, np.float64)
+    if lengths.size == 0:
+        return np.zeros(0, dtype=dtype)
+
+    offsets = np.empty(lengths.size, dtype=np.int64)
+    offsets[0] = 0
+    if lengths.size > 1:
+        np.cumsum(lengths[:-1], dtype=np.int64, out=offsets[1:])
+
+    values = np.zeros(lengths.size, dtype=dtype)
+    nonzero = lengths > 0
+    if np.any(nonzero):
+        values[nonzero] = np.add.reduceat(intensity_flat, offsets[nonzero])
     return values
 
 
-def _sum_processed_mz_window(
+def _sum_processed_mz_values(
     mz_flat: np.ndarray | None,
     intensity_flat: np.ndarray,
     lengths: np.ndarray,
     mz: float,
-    mz_tolerance: float,
+    mz_tolerance: float | None,
 ) -> np.ndarray:
     if mz_flat is None:
         raise ValueError("Processed imzML ion image requires m/z data.")
     if mz_flat.size != int(np.sum(lengths, dtype=np.int64)):
         raise ValueError("Processed imzML ion image requires flattened per-spectrum m/z data.")
 
-    low = float(mz) - float(mz_tolerance)
-    high = float(mz) + float(mz_tolerance)
     values = np.zeros(lengths.size, dtype=np.result_type(intensity_flat.dtype, np.float64))
+    if mz_tolerance is not None:
+        low = float(mz) - float(mz_tolerance)
+        high = float(mz) + float(mz_tolerance)
 
     offset = 0
     for index, length_value in enumerate(lengths):
@@ -178,29 +170,25 @@ def _sum_processed_mz_window(
         end = offset + length
         mz_slice = mz_flat[offset:end]
         intensity_slice = intensity_flat[offset:end]
-        mask = (mz_slice >= low) & (mz_slice <= high)
-        values[index] = np.sum(intensity_slice[mask])
+        if length > 0:
+            if mz_tolerance is None:
+                nearest = int(np.nanargmin(np.abs(mz_slice.astype(float, copy=False) - float(mz))))
+                values[index] = intensity_slice[nearest]
+            else:
+                mask = (mz_slice >= low) & (mz_slice <= high) # pylint: disable=E0606
+                values[index] = np.sum(intensity_slice[mask])
         offset = end
 
     return values
 
 
-def _dense_image_from_points(
+def _infer_image_geometry(
     coordinates: np.ndarray,
-    values: np.ndarray,
     *,
     width: int | None = None,
     height: int | None = None,
-) -> np.ndarray:
+) -> tuple[bool, int, int]:
     coords = np.asarray(coordinates)
-    if coords.ndim != 2 or coords.shape[1] < 2:
-        raise ValueError("coordinates must have shape (n_pixels, >=2).")
-    values = np.asarray(values)
-    if coords.shape[0] != values.shape[0]:
-        raise ValueError("coordinates and values must have the same row count.")
-    if coords.shape[0] == 0:
-        raise ValueError("No pixels were read from the source.")
-
     xy = coords[:, :2].astype(np.int64, copy=False)
     xs = xy[:, 0]
     ys = xy[:, 1]
@@ -213,12 +201,54 @@ def _dense_image_from_points(
     if width <= 0 or height <= 0:
         raise ValueError(f"Invalid image dimensions: width={width}, height={height}")
 
+    return zero_based, width, height
+
+
+def _scatter_values_into_image(
+    image: np.ndarray,
+    coordinates: np.ndarray,
+    values: np.ndarray,
+    *,
+    zero_based: bool,
+) -> None:
+    xy = coordinates[:, :2].astype(np.int64, copy=False)
+    xs = xy[:, 0]
+    ys = xy[:, 1]
     scatter_x = xs if zero_based else xs - 1
     scatter_y = ys if zero_based else ys - 1
-    image = np.zeros((height, width), dtype=values.dtype)
+    height, width = image.shape[:2]
     valid = (scatter_x >= 0) & (scatter_x < width) & (scatter_y >= 0) & (scatter_y < height)
     image[scatter_y[valid], scatter_x[valid]] = values[valid]
-    return image
+
+
+def _imzml_image_geometry(manager: Any) -> tuple[bool, int | None, int | None]:
+    meta = getattr(getattr(manager, "ms", None), "meta", None)
+    width = getattr(meta, "max_count_of_pixels_x", None)
+    height = getattr(meta, "max_count_of_pixels_y", None)
+    width = int(width) if width else None
+    height = int(height) if height else None
+    min_x = min_y = max_x = max_y = None
+
+    for spectrum in manager.ms:
+        x = int(spectrum.x)
+        y = int(spectrum.y)
+        min_x = x if min_x is None else min(min_x, x)
+        min_y = y if min_y is None else min(min_y, y)
+        max_x = x if max_x is None else max(max_x, x)
+        max_y = y if max_y is None else max(max_y, y)
+
+    if min_x is None or min_y is None or max_x is None or max_y is None:
+        return False, width, height
+
+    zero_based = bool(min_x == 0 or min_y == 0)
+    if width is None:
+        width = max_x + 1 if zero_based else max_x
+    if height is None:
+        height = max_y + 1 if zero_based else max_y
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid image dimensions: width={width}, height={height}")
+
+    return zero_based, width, height
 
 
 def _read_imzml_tic_image(
@@ -227,8 +257,8 @@ def _read_imzml_tic_image(
     batch_size: int,
     max_threads: int,
 ) -> np.ndarray:
-    coord_parts: list[np.ndarray] = []
-    value_parts: list[np.ndarray] = []
+    zero_based, width, height = _imzml_image_geometry(manager)
+    image: np.ndarray | None = None
 
     for _mz_data, intensity_flat, lengths, coordinates in manager.flat_generator(
         batch_size=batch_size,
@@ -237,38 +267,36 @@ def _read_imzml_tic_image(
     ):
         intensity_flat = np.asarray(intensity_flat)
         lengths = np.asarray(lengths, dtype=np.int64)
-        coord_parts.append(np.asarray(coordinates))
-        value_parts.append(_sum_by_lengths(intensity_flat, lengths))
+        coordinates = np.asarray(coordinates)
+        values = _sum_by_lengths(intensity_flat, lengths)
+        if image is None:
+            if width is None or height is None:
+                zero_based, width, height = _infer_image_geometry(coordinates, width=width, height=height)
+            image = np.zeros((height, width), dtype=values.dtype)
+        _scatter_values_into_image(image, coordinates, values, zero_based=zero_based)
 
-    if not coord_parts:
+    if image is None:
         raise ValueError("No pixels were read from imzML source.")
 
-    width, height = _metadata_dimensions(manager)
-    return _dense_image_from_points(
-        np.vstack(coord_parts),
-        np.concatenate(value_parts),
-        width=width,
-        height=height,
-    )
+    return image
 
 
 def _read_imzml_ion_image(
     manager: Any,
     *,
     mz: float | None,
-    ion_idx: int | None,
     batch_size: int,
     max_threads: int,
     mz_tolerance: float | None,
 ) -> np.ndarray:
-    _validate_ion_selector(mz, ion_idx)
-    if mz_tolerance is not None and mz is None:
-        raise ValueError("'mz_tolerance' can only be used with 'mz'.")
+    if mz is None:
+        raise ValueError("'mz' is required.")
 
-    selected_idx = None if ion_idx is None else int(ion_idx)
+    selected_idx: int | None = None
+    selected_indices: np.ndarray | None = None
     expected_n_ions: int | None = None
-    coord_parts: list[np.ndarray] = []
-    value_parts: list[np.ndarray] = []
+    zero_based, width, height = _imzml_image_geometry(manager)
+    image: np.ndarray | None = None
 
     for mz_data, intensity_flat, lengths, coordinates in manager.flat_generator(
         batch_size=batch_size,
@@ -289,65 +317,70 @@ def _read_imzml_ion_image(
             elif n_ions != expected_n_ions:
                 raise ValueError("All imzML batches must use the same shared mz_axis.")
 
-            if selected_idx is None:
-                if mz is None:
-                    raise ValueError("'mz' is required when 'ion_idx' is not provided.")
-                selected_idx = _nearest_mz_index(mz_arr, float(mz), mz_tolerance)
-            if selected_idx < 0 or selected_idx >= n_ions:
-                raise IndexError(f"ion_idx out of range: {selected_idx}")
             if not np.all(lengths == n_ions):
                 raise ValueError("Shared m/z imzML batches must have uniform spectrum lengths.")
-
-            values = intensity_flat.reshape(lengths.size, n_ions)[:, selected_idx]
-        else:
-            if mz is None:
-                raise ValueError(
-                    "Variable-length imzML ion image requires 'mz' and 'mz_tolerance'; "
-                    "'ion_idx' only works for shared m/z imzML data."
-                )
+            intensity_matrix = intensity_flat.reshape(lengths.size, n_ions)
             if mz_tolerance is None:
-                raise ValueError("Processed imzML ion image requires 'mz_tolerance'.")
-            values = _sum_processed_mz_window(
+                if selected_idx is None:
+                    selected_idx = _nearest_mz_index(mz_arr, float(mz))
+                values = intensity_matrix[:, selected_idx]
+            else:
+                if selected_indices is None:
+                    selected_indices = _mz_window_indices(mz_arr, float(mz), float(mz_tolerance))
+                values = np.sum(
+                    intensity_matrix[:, selected_indices],
+                    axis=1,
+                    dtype=np.result_type(intensity_matrix.dtype, np.float64),
+                )
+        else:
+            values = _sum_processed_mz_values(
                 mz_arr,
                 intensity_flat,
                 lengths,
                 float(mz),
-                float(mz_tolerance),
+                None if mz_tolerance is None else float(mz_tolerance),
             )
 
-        coord_parts.append(coordinates)
-        value_parts.append(np.asarray(values))
+        values = np.asarray(values)
+        if image is None:
+            if width is None or height is None:
+                zero_based, width, height = _infer_image_geometry(coordinates, width=width, height=height)
+            image = np.zeros((height, width), dtype=values.dtype)
+        _scatter_values_into_image(image, coordinates, values, zero_based=zero_based)
 
-    if not coord_parts:
+    if image is None:
         raise ValueError("No pixels were read from imzML source.")
 
-    width, height = _metadata_dimensions(manager)
-    return _dense_image_from_points(
-        np.vstack(coord_parts),
-        np.concatenate(value_parts),
-        width=width,
-        height=height,
-    )
+    return image
 
 
 def _read_ion_manager_ion_image(
     manager: Any,
     *,
     mz: float | None,
-    ion_idx: int | None,
     mz_tolerance: float | None,
 ) -> np.ndarray:
-    _validate_ion_selector(mz, ion_idx)
-    if ion_idx is None:
-        mz_axis = np.asarray(manager.mz_axis)
-        ion_idx = _nearest_mz_index(mz_axis, float(mz), mz_tolerance)  # type: ignore[arg-type]
-    else:
-        ion_idx = int(ion_idx)
-        n_ions = int(manager.n_ions)
-        if ion_idx < 0 or ion_idx >= n_ions:
-            raise IndexError(f"ion_idx out of range: {ion_idx}")
+    if mz is None:
+        raise ValueError("'mz' is required.")
 
+    mz_axis = np.asarray(manager.mz_axis)
+    if mz_tolerance is not None:
+        ion_indices = _mz_window_indices(mz_axis, float(mz), float(mz_tolerance))
+        return _sum_ion_manager_images(manager, ion_indices)
+    ion_idx = _nearest_mz_index(mz_axis, float(mz))
     return np.asarray(manager.get_ion_image(ion_idx))
+
+
+def _sum_ion_manager_images(manager: Any, ion_indices: np.ndarray) -> np.ndarray:
+    height = int(manager.height)
+    width = int(manager.width)
+    dtype = np.result_type(getattr(manager, "intensity_dtype", np.float32), np.float64)
+    image = np.zeros((height, width), dtype=dtype)
+
+    for ion_idx in ion_indices:
+        image += np.asarray(manager.get_ion_image(int(ion_idx)), dtype=dtype)
+
+    return image
 
 
 def _read_ion_manager_tic_image(manager: Any) -> np.ndarray:
@@ -355,23 +388,58 @@ def _read_ion_manager_tic_image(manager: Any) -> np.ndarray:
     if n_ions <= 0:
         raise ValueError("Ion image source contains no ions.")
 
-    tic_image: np.ndarray | None = None
-    for ion_idx in range(n_ions):
-        ion_image = np.asarray(manager.get_ion_image(ion_idx))
-        if tic_image is None:
-            tic_image = np.zeros(ion_image.shape, dtype=np.result_type(ion_image.dtype, np.float64))
-        tic_image += ion_image
+    if isinstance(manager, (IonImageDataManagerZarr, IonImageDataManagerH5)):
+        return _read_dense_ion_manager_tic_image(manager)
+    if isinstance(manager, IonImageDataManagerBinary):
+        return _read_binary_ion_manager_tic_image(manager)
 
-    if tic_image is None:
-        raise ValueError("Ion image source contains no ions.")
+    ion_image = np.asarray(manager.get_ion_image(0))
+    tic_image = np.zeros(ion_image.shape, dtype=np.result_type(ion_image.dtype, np.float64))
+    tic_image += ion_image
+    for ion_idx in range(1, n_ions):
+        tic_image += np.asarray(manager.get_ion_image(ion_idx))
     return tic_image
+
+
+def _read_dense_ion_manager_tic_image(
+    manager: IonImageDataManagerZarr | IonImageDataManagerH5,
+) -> np.ndarray:
+    n_ions = int(manager.n_ions)
+    height = int(manager.height)
+    width = int(manager.width)
+    dtype = np.result_type(manager.dset.dtype, np.float64)
+    tic_image = np.zeros((height, width), dtype=dtype)
+    ion_block = max(1, int(getattr(manager, "ion_block", 256)))
+
+    for ion_start in range(0, n_ions, ion_block):
+        ion_end = min(n_ions, ion_start + ion_block)
+        dense_block = np.asarray(manager.dset[ion_start:ion_end])
+        tic_image += np.sum(dense_block, axis=0, dtype=dtype)
+
+    return tic_image
+
+
+def _read_binary_ion_manager_tic_image(manager: IonImageDataManagerBinary) -> np.ndarray:
+    values = np.sum(
+        manager.intensity_matrix,
+        axis=0,
+        dtype=np.result_type(manager.intensity_matrix.dtype, np.float64),
+    )
+    coords = np.asarray(manager.coordinates)
+    zero_based, width, height = _infer_image_geometry(
+        coords,
+        width=int(manager.width),
+        height=int(manager.height),
+    )
+    image = np.zeros((height, width), dtype=values.dtype)
+    _scatter_values_into_image(image, coords, values, zero_based=zero_based)
+    return image
 
 
 def read_ion_image(
     source: str | Path | Any,
     *,
     mz: float | None = None,
-    ion_idx: int | None = None,
     batch_size: int = 256,
     max_threads: int = 2,
     mz_tolerance: float | None = None,
@@ -383,7 +451,6 @@ def read_ion_image(
             return _read_imzml_ion_image(
                 manager,
                 mz=mz,
-                ion_idx=ion_idx,
                 batch_size=int(batch_size),
                 max_threads=int(max_threads),
                 mz_tolerance=mz_tolerance,
@@ -392,7 +459,6 @@ def read_ion_image(
             return _read_ion_manager_ion_image(
                 manager,
                 mz=mz,
-                ion_idx=ion_idx,
                 mz_tolerance=mz_tolerance,
             )
     raise ValueError(f"Unsupported source format: {source_format}")
@@ -469,7 +535,6 @@ def plot_ion_image(
     image_matrix: np.ndarray | None = None,
     *,
     mz: float | None = None,
-    ion_idx: int | None = None,
     batch_size: int = 256,
     max_threads: int = 2,
     mz_tolerance: float | None = None,
@@ -484,7 +549,6 @@ def plot_ion_image(
         image_matrix = read_ion_image(
             source,
             mz=mz,
-            ion_idx=ion_idx,
             batch_size=batch_size,
             max_threads=max_threads,
             mz_tolerance=mz_tolerance,

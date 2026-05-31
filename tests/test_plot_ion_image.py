@@ -93,11 +93,16 @@ def _expected_shared_ion_image(dm: MSDataManagerImzML, ion_idx: int) -> np.ndarr
     return _scatter_values(np.vstack(coord_parts), np.concatenate(value_parts), _image_shape(dm))
 
 
-def _expected_processed_window_image(dm: MSDataManagerImzML, mz: float, mz_tolerance: float) -> np.ndarray:
+def _expected_processed_ion_image(
+    dm: MSDataManagerImzML,
+    mz: float,
+    mz_tolerance: float | None = None,
+) -> np.ndarray:
     coord_parts = []
     value_parts = []
-    low = mz - mz_tolerance
-    high = mz + mz_tolerance
+    if mz_tolerance is not None:
+        low = mz - mz_tolerance
+        high = mz + mz_tolerance
 
     for mz_flat, intensity_flat, lengths, coordinates in dm.flat_generator(
         batch_size=2,
@@ -113,8 +118,15 @@ def _expected_processed_window_image(dm: MSDataManagerImzML, mz: float, mz_toler
         for index, length_value in enumerate(lengths):
             length = int(length_value)
             end = offset + length
-            mask = (mz_flat[offset:end] >= low) & (mz_flat[offset:end] <= high)
-            values[index] = np.sum(intensity_flat[offset:end][mask])
+            mz_slice = mz_flat[offset:end]
+            intensity_slice = intensity_flat[offset:end]
+            if length > 0:
+                if mz_tolerance is None:
+                    nearest = int(np.nanargmin(np.abs(mz_slice.astype(float, copy=False) - float(mz))))
+                    values[index] = intensity_slice[nearest]
+                else:
+                    mask = (mz_slice >= low) & (mz_slice <= high)
+                    values[index] = np.sum(intensity_slice[mask])
             offset = end
 
         coord_parts.append(np.asarray(coordinates))
@@ -217,17 +229,25 @@ class TestPlotIonImage:
 
         np.testing.assert_allclose(image, expected, rtol=1e-6, atol=1e-6)
 
-    def test_read_ion_image_from_real_imzml_rejects_out_of_range_ion_index(self, continuous_dm):
-        with pytest.raises(IndexError, match="ion_idx out of range"):
-            read_ion_image(continuous_dm, ion_idx=len(continuous_dm.ms.shared_mz_list) + 1)
+    def test_read_ion_image_requires_mz(self, continuous_dm):
+        with pytest.raises(ValueError, match="'mz' is required"):
+            read_ion_image(continuous_dm)
 
-    def test_processed_real_imzml_requires_mz_tolerance(self, processed_dm):
+    def test_processed_real_imzml_nearest_without_mz_tolerance_matches_flat_generator(self, processed_dm):
         mz_flat, _intensity_flat, _lengths, _coordinates = next(
             processed_dm.flat_generator(batch_size=2, include_mz=True, max_threads=2)
         )
+        requested_mz = float(np.asarray(mz_flat)[0])
 
-        with pytest.raises(ValueError, match="mz_tolerance"):
-            read_ion_image(processed_dm, mz=float(np.asarray(mz_flat)[0]))
+        image = read_ion_image(
+            processed_dm,
+            mz=requested_mz,
+            batch_size=2,
+            max_threads=2,
+        )
+        expected = _expected_processed_ion_image(processed_dm, requested_mz)
+
+        np.testing.assert_allclose(image, expected, rtol=1e-6, atol=1e-6)
 
     def test_processed_real_imzml_mz_window_matches_flat_generator(self, processed_dm):
         mz_flat, _intensity_flat, _lengths, _coordinates = next(
@@ -243,7 +263,7 @@ class TestPlotIonImage:
             batch_size=2,
             max_threads=2,
         )
-        expected = _expected_processed_window_image(processed_dm, requested_mz, mz_tolerance)
+        expected = _expected_processed_ion_image(processed_dm, requested_mz, mz_tolerance)
 
         np.testing.assert_allclose(image, expected, rtol=1e-6, atol=1e-6)
 
@@ -283,10 +303,11 @@ class TestPlotIonImage:
             tmp_path,
         )
 
-        image = read_ion_image(output_path, ion_idx=1)
+        mz_axis = np.asarray(continuous_dm.ms.shared_mz_list)
+        image = read_ion_image(output_path, mz=float(mz_axis[1]))
         tic_image = read_tic_image(output_path)
         plot_path = tmp_path / f"plot{suffix}.png"
-        plot_ion_image(output_path, ion_idx=1, save_path=plot_path, show=False, dpi=123)
+        plot_ion_image(output_path, mz=float(mz_axis[1]), save_path=plot_path, show=False, dpi=123)
         tic_cover_path = tmp_path / f"tic_cover{suffix}.png"
         plot_tic_image(output_path, structure_only=True, save_path=tic_cover_path, show=False, dpi=123)
 
