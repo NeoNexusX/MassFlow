@@ -83,15 +83,17 @@ def compute_streaming_umap_embeddings(
         )
     else:  # IonImageDataManagerBinary
         batch_iter = _iter_binary_matrix_batches(
-            data_manager, pixel_batch_size=transform_batch_size,
+            data_manager,
         )
 
     for batch_matrix, batch_coords in batch_iter:
         batch_matrix = np.nan_to_num(batch_matrix, copy=False)
-        embeddings_parts.append(
-            reducer.transform(batch_matrix).astype(np.float32, copy=False)  # type: ignore
-        )
-        coordinates_parts.append(batch_coords)
+        for row_start in range(0, batch_matrix.shape[0], transform_batch_size):
+            row_end = min(batch_matrix.shape[0], row_start + transform_batch_size)
+            embeddings_parts.append(
+                reducer.transform(batch_matrix[row_start:row_end]).astype(np.float32, copy=False)  # type: ignore
+            )
+            coordinates_parts.append(batch_coords[row_start:row_end])
 
     if not embeddings_parts:
         raise ValueError("No non-zero spectra found during transform.")
