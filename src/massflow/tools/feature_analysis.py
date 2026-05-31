@@ -13,8 +13,10 @@ import zarr
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import MinMaxScaler
 
-from massflow.data_manager import MSDataManagerImzML
+from massflow.data_manager import IonImageDataManagerBinary
+from massflow.data_manager import IonImageDataManagerH5
 from massflow.data_manager import IonImageDataManagerZarr
+from massflow.data_manager import MSDataManagerImzML
 from massflow.tools.plot_ion_image import read_tic_image
 from massflow.tools.logger import get_logger
 
@@ -40,6 +42,7 @@ def compute_streaming_umap_embeddings(
         metric=metric,
         n_components=n_components,
         random_state=random_state,
+        force_approximation_algorithm=True,
     )
 
     # ---- fit on sample ----
@@ -47,8 +50,12 @@ def compute_streaming_umap_embeddings(
         sample_matrix = _read_imzml_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
         )
-    elif isinstance(data_manager, IonImageDataManagerZarr):
-        sample_matrix = _read_zarr_sample_matrix(
+    elif isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5)):
+        sample_matrix = _read_dense_sample_matrix(
+            data_manager, sample_ratio, random_state=random_state,
+        )
+    elif isinstance(data_manager, IonImageDataManagerBinary):
+        sample_matrix = _read_binary_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
         )
     else:
@@ -67,23 +74,24 @@ def compute_streaming_umap_embeddings(
     coordinates_parts: list[np.ndarray] = []
 
     if isinstance(data_manager, MSDataManagerImzML):
-        for batch_matrix, batch_coords in _iter_imzml_matrix_batches(
+        batch_iter = _iter_imzml_matrix_batches(
             data_manager, batch_size=transform_batch_size,
-        ):
-            batch_matrix = np.nan_to_num(batch_matrix, copy=False)
-            embeddings_parts.append(
-                reducer.transform(batch_matrix).astype(np.float32, copy=False)  # type: ignore
-            )
-            coordinates_parts.append(batch_coords)
-    else:  # IonImageDataManagerZarr
-        for batch_matrix, batch_coords in _iter_zarr_matrix_batches(
-            data_manager,
-        ):
-            batch_matrix = np.nan_to_num(batch_matrix, copy=False)
-            embeddings_parts.append(
-                reducer.transform(batch_matrix).astype(np.float32, copy=False)  # type: ignore
-            )
-            coordinates_parts.append(batch_coords)
+        )
+    elif isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5)):
+        batch_iter = _iter_dense_matrix_batches(
+            data_manager
+        )
+    else:  # IonImageDataManagerBinary
+        batch_iter = _iter_binary_matrix_batches(
+            data_manager, pixel_batch_size=transform_batch_size,
+        )
+
+    for batch_matrix, batch_coords in batch_iter:
+        batch_matrix = np.nan_to_num(batch_matrix, copy=False)
+        embeddings_parts.append(
+            reducer.transform(batch_matrix).astype(np.float32, copy=False)  # type: ignore
+        )
+        coordinates_parts.append(batch_coords)
 
     if not embeddings_parts:
         raise ValueError("No non-zero spectra found during transform.")
@@ -91,7 +99,7 @@ def compute_streaming_umap_embeddings(
     embeddings = np.vstack(embeddings_parts)
     coordinates = np.vstack(coordinates_parts)
 
-    # imzML may have duplicate xy across batches; Zarr does not.
+    # imzML may have duplicate xy across batches.
     if isinstance(data_manager, MSDataManagerImzML):
         embeddings, coordinates = _deduplicate_last_by_xy(embeddings, coordinates)
 
@@ -197,12 +205,13 @@ def _deduplicate_last_by_xy(
     return values[keep], coordinates[keep]
 
 
-# --- Zarr ion-image backend ------------------------------------------------
+# --- Dense ion-image backend (Zarr / H5) -----------------------------------
 #
-# Zarr stores ion images as (ion, y, x).  These helpers read selected pixel
-# columns from ion blocks and present them as spectra rows.
-def _read_zarr_pixel_columns(
-    manager: IonImageDataManagerZarr,
+# Both Zarr and H5 store ion images as (ion, y, x) in a dense dataset
+# (manager.dset) and provide a flat_idx mapping from pixel index into the
+# H*W flat image space.  These helpers are shared by both backends.
+def _read_dense_pixel_columns(
+    manager: IonImageDataManagerZarr | IonImageDataManagerH5,
     pixel_flat_idx: np.ndarray,
     out: np.ndarray,
     ion_block: int,
@@ -219,14 +228,14 @@ def _read_zarr_pixel_columns(
         out[:, ion_start:ion_end] = flat[:, pixel_flat_idx].T
 
 
-def _read_zarr_sample_matrix(
-    manager: IonImageDataManagerZarr,
+def _read_dense_sample_matrix(
+    manager: IonImageDataManagerZarr | IonImageDataManagerH5,
     sample_ratio: float,
     *,
     random_state: int | None = None,
     ion_block: int = 256,
 ) -> np.ndarray:
-    """Randomly sample pixels from a Zarr backend by ratio."""
+    """Randomly sample pixels from a dense (Zarr/H5) backend by ratio."""
     if sample_ratio <= 0 or sample_ratio > 1:
         raise ValueError("sample_ratio must be in (0, 1].")
 
@@ -240,7 +249,7 @@ def _read_zarr_sample_matrix(
 
     sample_flat_idx = flat_idx[pixel_indices]
     sample_matrix = np.empty((sample_count, n_ions), dtype=np.float32)
-    _read_zarr_pixel_columns(manager, sample_flat_idx, sample_matrix, ion_block)
+    _read_dense_pixel_columns(manager, sample_flat_idx, sample_matrix, ion_block)
 
     nonzero_mask = np.any(sample_matrix != 0, axis=1)
     sample_matrix = sample_matrix[nonzero_mask]
@@ -251,13 +260,16 @@ def _read_zarr_sample_matrix(
     return sample_matrix
 
 
-def _iter_zarr_matrix_batches(
-    manager: IonImageDataManagerZarr,
+def _iter_dense_matrix_batches(
+    manager: IonImageDataManagerZarr | IonImageDataManagerH5,
     *,
     pixel_batch_size: int = 20000,
     ion_block: int = 256,
 ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
-    """Yield ``(batch_matrix, batch_coordinates)`` by pixel-batch from a Zarr backend."""
+    """Yield ``(batch_matrix, batch_coordinates)`` by pixel-batch from a dense backend."""
+    if pixel_batch_size <= 0:
+        raise ValueError("pixel_batch_size must be positive.")
+
     n_pixels = int(manager.n_pixels)
     n_ions = int(manager.n_ions)
     flat_idx = manager.flat_idx
@@ -269,13 +281,100 @@ def _iter_zarr_matrix_batches(
         batch_coords = coordinates[pixel_start:pixel_end, :2]
 
         batch_matrix = np.empty((pixel_end - pixel_start, n_ions), dtype=np.float32)
-        _read_zarr_pixel_columns(manager, batch_flat_idx, batch_matrix, ion_block)
+        _read_dense_pixel_columns(manager, batch_flat_idx, batch_matrix, ion_block)
 
         nonzero_mask = np.any(batch_matrix != 0, axis=1)
         if not np.any(nonzero_mask):
             continue
 
-        yield batch_matrix[nonzero_mask], batch_coords[nonzero_mask]
+        if np.all(nonzero_mask):
+            yield batch_matrix, batch_coords
+        else:
+            yield batch_matrix[nonzero_mask], batch_coords[nonzero_mask]
+
+
+# --- Binary ion-image backend ----------------------------------------------
+#
+# Binary stores intensity as a memmap matrix of shape (n_ions, n_pixels).
+# Unlike the dense backends (Zarr/H5), pixel_indexer here is a compact
+# index into the pixel dimension (0..n_pixels-1), not a flat index into
+# the H*W image space.
+def _read_binary_pixel_columns(
+    manager: IonImageDataManagerBinary,
+    pixel_indexer: slice | np.ndarray,
+    out: np.ndarray,
+    ion_block: int,
+) -> None:
+    """Fill *out* ``(n_pixels_subset, n_ions)`` from a binary ion-image backend."""
+    n_ions = int(manager.n_ions)
+    intensity_matrix = manager.intensity_matrix
+
+    for ion_start in range(0, n_ions, ion_block):
+        ion_end = min(n_ions, ion_start + ion_block)
+        ion_slice = intensity_matrix[ion_start:ion_end, pixel_indexer]
+        out[:, ion_start:ion_end] = np.asarray(ion_slice).T
+
+
+def _read_binary_sample_matrix(
+    manager: IonImageDataManagerBinary,
+    sample_ratio: float,
+    *,
+    random_state: int | None = None,
+    ion_block: int = 256,
+) -> np.ndarray:
+    """Randomly sample nonzero spectra from a binary ion-image backend."""
+    if sample_ratio <= 0 or sample_ratio > 1:
+        raise ValueError("sample_ratio must be in (0, 1].")
+
+    n_pixels = int(manager.n_pixels)
+    n_ions = int(manager.n_ions)
+    sample_count = max(1, int(np.ceil(n_pixels * sample_ratio)))
+
+    rng = np.random.default_rng(random_state)
+    pixel_indices = np.sort(rng.choice(n_pixels, size=sample_count, replace=False))
+
+    sample_matrix = np.empty((sample_count, n_ions), dtype=np.float32)
+    _read_binary_pixel_columns(manager, pixel_indices, sample_matrix, ion_block)
+
+    nonzero_mask = np.any(sample_matrix != 0, axis=1)
+    sample_matrix = sample_matrix[nonzero_mask]
+
+    if sample_matrix.shape[0] == 0:
+        raise ValueError("All sampled spectra are zero; cannot build sample matrix.")
+
+    return sample_matrix
+
+
+def _iter_binary_matrix_batches(
+    manager: IonImageDataManagerBinary,
+    *,
+    pixel_batch_size: int = 20000,
+    ion_block: int = 256,
+) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    """Yield ``(batch_matrix, batch_coordinates)`` by pixel-batch from binary data."""
+    if pixel_batch_size <= 0:
+        raise ValueError("pixel_batch_size must be positive.")
+
+    n_pixels = int(manager.n_pixels)
+    n_ions = int(manager.n_ions)
+    coordinates = np.asarray(manager.coordinates)
+
+    for pixel_start in range(0, n_pixels, pixel_batch_size):
+        pixel_end = min(n_pixels, pixel_start + pixel_batch_size)
+        pixel_slice = slice(pixel_start, pixel_end)
+        batch_coords = coordinates[pixel_slice, :2]
+
+        batch_matrix = np.empty((pixel_end - pixel_start, n_ions), dtype=np.float32)
+        _read_binary_pixel_columns(manager, pixel_slice, batch_matrix, ion_block)
+
+        nonzero_mask = np.any(batch_matrix != 0, axis=1)
+        if not np.any(nonzero_mask):
+            continue
+
+        if np.all(nonzero_mask):
+            yield batch_matrix, batch_coords
+        else:
+            yield batch_matrix[nonzero_mask], batch_coords[nonzero_mask]
 
 
 # ---------------------------------------------------------------------------
@@ -396,7 +495,7 @@ def _is_continuous(data_manager: Any) -> bool:
 
 def _get_spatial_dimensions(data_manager: Any) -> tuple[int | None, int | None]:
     """Extract (width, height) from data_manager metadata."""
-    if isinstance(data_manager, IonImageDataManagerZarr):
+    if isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5, IonImageDataManagerBinary)):
         return int(data_manager.width), int(data_manager.height)
     meta = getattr(getattr(data_manager, "ms", None), "meta", None)
     w = getattr(meta, "max_count_of_pixels_x", None)
