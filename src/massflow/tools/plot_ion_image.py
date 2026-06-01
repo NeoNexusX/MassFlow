@@ -14,13 +14,23 @@ from massflow.data_manager import (
     IonImageDataManagerZarr,
     MSDataManagerImzML,
 )
+from massflow.tools.funs import infer_shared_mz
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tools")
 
+
+# ---------------------------------------------------------------------------
+# Supported manager types
+# ---------------------------------------------------------------------------
+
 IonImageManager = IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr
 SupportedDataManager = MSDataManagerImzML | IonImageManager
 
+
+# ---------------------------------------------------------------------------
+# imzML metadata helpers
+# ---------------------------------------------------------------------------
 
 def _ensure_imzml_loaded(manager: Any) -> None:
     if len(manager.ms) == 0:
@@ -43,10 +53,12 @@ def _batch_uses_shared_mz(
         return continuous
     if mz_data is None or mz_data.ndim != 1 or lengths.size == 0:
         return False
-    if mz_data.size != int(np.sum(lengths, dtype=np.int64)):
-        return True
-    return bool(lengths.size > 1 and np.all(lengths == mz_data.size))
+    return infer_shared_mz(mz_data, lengths)
 
+
+# ---------------------------------------------------------------------------
+# m/z selection helpers
+# ---------------------------------------------------------------------------
 
 def _nearest_mz_index(
     mz_axis: np.ndarray,
@@ -66,6 +78,10 @@ def _mz_window_indices(
     high = float(mz) + float(mz_tolerance)
     return np.flatnonzero((mz_axis >= low) & (mz_axis <= high))
 
+
+# ---------------------------------------------------------------------------
+# Spectrum reducers
+# ---------------------------------------------------------------------------
 
 def _sum_by_lengths(intensity_flat: np.ndarray, lengths: np.ndarray) -> np.ndarray:
     dtype = np.result_type(intensity_flat.dtype, np.float64)
@@ -120,6 +136,10 @@ def _sum_processed_mz_values(
 
     return values
 
+
+# ---------------------------------------------------------------------------
+# Spatial image construction helpers
+# ---------------------------------------------------------------------------
 
 def _infer_image_geometry(
     coordinates: np.ndarray,
@@ -190,6 +210,15 @@ def _imzml_image_geometry(manager: Any) -> tuple[bool, int | None, int | None]:
     return zero_based, width, height
 
 
+# ---------------------------------------------------------------------------
+# imzML backend readers
+# ---------------------------------------------------------------------------
+#
+# imzML may expose a shared m/z axis for continuous data or flattened
+# per-spectrum m/z values for processed data.  The public m/z semantics stay
+# the same in both cases: nearest peak when mz_tolerance is None, otherwise
+# sum the requested m/z window.
+
 def _read_imzml_tic_image(
     manager: Any,
     *,
@@ -209,6 +238,7 @@ def _read_imzml_tic_image(
         coordinates = np.asarray(coordinates)
         values = _sum_by_lengths(intensity_flat, lengths)
         if image is None:
+            # Allocate lazily so metadata dimensions can be filled from the first batch if needed.
             if width is None or height is None:
                 zero_based, width, height = _infer_image_geometry(coordinates, width=width, height=height)
             image = np.zeros((height, width), dtype=values.dtype)
@@ -247,6 +277,7 @@ def _read_imzml_ion_image(
         lengths = np.asarray(lengths, dtype=np.int64)
         coordinates = np.asarray(coordinates)
 
+        # Shared m/z axis: resolve the nearest ion or window once and reuse it for the whole batch.
         if _batch_uses_shared_mz(manager, mz_arr, lengths):
             if mz_arr is None:
                 raise ValueError("Shared m/z imzML batch did not include mz_axis.")
@@ -272,6 +303,7 @@ def _read_imzml_ion_image(
                     dtype=np.result_type(intensity_matrix.dtype, np.float64),
                 )
         else:
+            # Per-spectrum m/z arrays: each spectrum resolves nearest/window independently.
             values = _sum_processed_mz_values(
                 mz_arr,
                 intensity_flat,
@@ -282,6 +314,7 @@ def _read_imzml_ion_image(
 
         values = np.asarray(values)
         if image is None:
+            # Allocate lazily so metadata dimensions can be filled from the first batch if needed.
             if width is None or height is None:
                 zero_based, width, height = _infer_image_geometry(coordinates, width=width, height=height)
             image = np.zeros((height, width), dtype=values.dtype)
@@ -292,6 +325,14 @@ def _read_imzml_ion_image(
 
     return image
 
+
+# ---------------------------------------------------------------------------
+# Ion-image manager readers
+# ---------------------------------------------------------------------------
+#
+# Binary, H5, and Zarr managers already expose ion images on a common public
+# API.  TIC calculation still uses backend-specific fast paths where the
+# storage layout provides a cheaper full-ion sum.
 
 def _read_ion_manager_ion_image(
     manager: Any,
@@ -327,8 +368,10 @@ def _read_ion_manager_tic_image(manager: Any) -> np.ndarray:
     if n_ions <= 0:
         raise ValueError("Ion image source contains no ions.")
 
+    # Dense backends can sum ion blocks directly from the underlying (ion, y, x) dataset.
     if isinstance(manager, (IonImageDataManagerZarr, IonImageDataManagerH5)):
         return _read_dense_ion_manager_tic_image(manager)
+    # Binary stores (ion, pixel) data, so summing the memmap by pixel is cheaper.
     if isinstance(manager, IonImageDataManagerBinary):
         return _read_binary_ion_manager_tic_image(manager)
 
@@ -374,6 +417,10 @@ def _read_binary_ion_manager_tic_image(manager: IonImageDataManagerBinary) -> np
     _scatter_values_into_image(image, coords, values, zero_based=zero_based)
     return image
 
+
+# ---------------------------------------------------------------------------
+# Public read APIs
+# ---------------------------------------------------------------------------
 
 def read_ion_image(
     data_manager: SupportedDataManager,
@@ -425,6 +472,10 @@ def read_tic_image(
     raise TypeError("data_manager must be a supported data manager.")
 
 
+# ---------------------------------------------------------------------------
+# Plot rendering helper
+# ---------------------------------------------------------------------------
+
 def _plot_image(
     image: np.ndarray,
     *,
@@ -470,6 +521,10 @@ def _plot_image(
         plt.show()
     plt.close(fig)
 
+
+# ---------------------------------------------------------------------------
+# Public plot APIs
+# ---------------------------------------------------------------------------
 
 def plot_ion_image(
     data_manager: SupportedDataManager,
