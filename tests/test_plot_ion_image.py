@@ -103,6 +103,8 @@ def _expected_processed_ion_image(
     if mz_tolerance is not None:
         low = mz - mz_tolerance
         high = mz + mz_tolerance
+    else:
+        low = high = None
 
     for mz_flat, intensity_flat, lengths, coordinates in dm.flat_generator(
         batch_size=2,
@@ -288,7 +290,7 @@ class TestPlotIonImage:
             (IonImageDataManagerZarr, ".zarr"),
         ],
     )
-    def test_real_derived_ion_image_backend_paths_read_and_plot(
+    def test_real_derived_ion_image_backend_managers_read_and_plot(
         self,
         continuous_dm,
         tmp_path,
@@ -304,12 +306,13 @@ class TestPlotIonImage:
         )
 
         mz_axis = np.asarray(continuous_dm.ms.shared_mz_list)
-        image = read_ion_image(output_path, mz=float(mz_axis[1]))
-        tic_image = read_tic_image(output_path)
-        plot_path = tmp_path / f"plot{suffix}.png"
-        plot_ion_image(output_path, mz=float(mz_axis[1]), save_path=plot_path, show=False, dpi=123)
-        tic_cover_path = tmp_path / f"tic_cover{suffix}.png"
-        plot_tic_image(output_path, structure_only=True, save_path=tic_cover_path, show=False, dpi=123)
+        with manager_cls(filepath=output_path, mode="r") as backend_dm:
+            image = read_ion_image(backend_dm, mz=float(mz_axis[1]))
+            tic_image = read_tic_image(backend_dm)
+            plot_path = tmp_path / f"plot{suffix}.png"
+            plot_ion_image(backend_dm, mz=float(mz_axis[1]), save_path=plot_path, show=False, dpi=123)
+            tic_cover_path = tmp_path / f"tic_cover{suffix}.png"
+            plot_tic_image(backend_dm, structure_only=True, save_path=tic_cover_path, show=False, dpi=123)
 
         np.testing.assert_allclose(image, expected_stack[1], rtol=1e-5, atol=1e-5)
         np.testing.assert_allclose(tic_image, np.sum(expected_stack, axis=0), rtol=1e-5, atol=1e-5)

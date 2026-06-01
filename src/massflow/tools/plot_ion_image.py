@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Generator, Literal
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,70 +18,8 @@ from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tools")
 
-InputFormat = Literal["imzml", "ion_image_binary", "ion_image_h5", "ion_image_zarr"]
-_ION_IMAGE_FORMATS = {"ion_image_binary", "ion_image_h5", "ion_image_zarr"}
-
-
-def _infer_format_from_path(path: Path) -> InputFormat:
-    suffix = path.suffix.lower()
-    if suffix == ".imzml":
-        return "imzml"
-    if suffix in {".iib", ".bin"}:
-        return "ion_image_binary"
-    if suffix in {".h5", ".hdf5"}:
-        return "ion_image_h5"
-    if suffix == ".zarr":
-        return "ion_image_zarr"
-    raise ValueError(f"Cannot infer input format from path suffix: {path}")
-
-
-def _infer_format_from_manager(source: Any) -> InputFormat:
-    if isinstance(source, MSDataManagerImzML):
-        return "imzml"
-    if isinstance(source, IonImageDataManagerZarr):
-        return "ion_image_zarr"
-    if isinstance(source, IonImageDataManagerH5):
-        return "ion_image_h5"
-    if isinstance(source, IonImageDataManagerBinary):
-        return "ion_image_binary"
-    if hasattr(source, "flat_generator") and hasattr(source, "load_head_data"):
-        return "imzml"
-    if hasattr(source, "get_ion_image"):
-        return "ion_image_binary"
-    raise TypeError("source must be a supported path or data manager.")
-
-
-@contextmanager
-def _resolve_source(
-    source: str | Path | Any,
-) -> Generator[tuple[Any, InputFormat], None, None]:
-    if isinstance(source, (str, Path)):
-        path = Path(source)
-        source_format = _infer_format_from_path(path)
-        if source_format == "imzml":
-            manager = MSDataManagerImzML(filepath=str(path))
-            _ensure_imzml_loaded(manager)
-        elif source_format == "ion_image_binary":
-            manager = IonImageDataManagerBinary(filepath=path, mode="r")
-        elif source_format == "ion_image_h5":
-            manager = IonImageDataManagerH5(filepath=path, mode="r")
-        elif source_format == "ion_image_zarr":
-            manager = IonImageDataManagerZarr(filepath=path, mode="r")
-        else:
-            raise ValueError(f"Unsupported input format: {source_format}")
-
-        try:
-            yield manager, source_format
-        finally:
-            close = getattr(manager, "close", None)
-            if callable(close):
-                close()
-        return
-
-    source_format = _infer_format_from_manager(source)
-    if source_format == "imzml":
-        _ensure_imzml_loaded(source)
-    yield source, source_format
+IonImageManager = IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr
+SupportedDataManager = MSDataManagerImzML | IonImageManager
 
 
 def _ensure_imzml_loaded(manager: Any) -> None:
@@ -163,6 +100,8 @@ def _sum_processed_mz_values(
     if mz_tolerance is not None:
         low = float(mz) - float(mz_tolerance)
         high = float(mz) + float(mz_tolerance)
+    else:
+        low = high = None
 
     offset = 0
     for index, length_value in enumerate(lengths):
@@ -175,7 +114,7 @@ def _sum_processed_mz_values(
                 nearest = int(np.nanargmin(np.abs(mz_slice.astype(float, copy=False) - float(mz))))
                 values[index] = intensity_slice[nearest]
             else:
-                mask = (mz_slice >= low) & (mz_slice <= high) # pylint: disable=E0606
+                mask = (mz_slice >= low) & (mz_slice <= high)
                 values[index] = np.sum(intensity_slice[mask])
         offset = end
 
@@ -437,7 +376,7 @@ def _read_binary_ion_manager_tic_image(manager: IonImageDataManagerBinary) -> np
 
 
 def read_ion_image(
-    source: str | Path | Any,
+    data_manager: SupportedDataManager,
     *,
     mz: float | None = None,
     batch_size: int = 256,
@@ -445,43 +384,45 @@ def read_ion_image(
     mz_tolerance: float | None = None,
 ) -> np.ndarray:
     """Read a single ion image from imzML or an ion-image backend."""
-    with _resolve_source(source) as (manager, source_format):
-        logger.info(f"Reading ion image from {source_format}.")
-        if source_format == "imzml":
-            return _read_imzml_ion_image(
-                manager,
-                mz=mz,
-                batch_size=int(batch_size),
-                max_threads=int(max_threads),
-                mz_tolerance=mz_tolerance,
-            )
-        if source_format in _ION_IMAGE_FORMATS:
-            return _read_ion_manager_ion_image(
-                manager,
-                mz=mz,
-                mz_tolerance=mz_tolerance,
-            )
-    raise ValueError(f"Unsupported source format: {source_format}")
+    if isinstance(data_manager, MSDataManagerImzML):
+        logger.info("Reading ion image from imzML data manager.")
+        _ensure_imzml_loaded(data_manager)
+        return _read_imzml_ion_image(
+            data_manager,
+            mz=mz,
+            batch_size=int(batch_size),
+            max_threads=int(max_threads),
+            mz_tolerance=mz_tolerance,
+        )
+    if isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5, IonImageDataManagerBinary)):
+        logger.info("Reading ion image from ion-image data manager.")
+        return _read_ion_manager_ion_image(
+            data_manager,
+            mz=mz,
+            mz_tolerance=mz_tolerance,
+        )
+    raise TypeError("data_manager must be a supported data manager.")
 
 
 def read_tic_image(
-    source: str | Path | Any,
+    data_manager: SupportedDataManager,
     *,
     batch_size: int = 256,
     max_threads: int = 2,
 ) -> np.ndarray:
     """Read a TIC image from imzML or an ion-image backend."""
-    with _resolve_source(source) as (manager, source_format):
-        logger.info(f"Reading TIC image from {source_format}.")
-        if source_format == "imzml":
-            return _read_imzml_tic_image(
-                manager,
-                batch_size=int(batch_size),
-                max_threads=int(max_threads),
-            )
-        if source_format in _ION_IMAGE_FORMATS:
-            return _read_ion_manager_tic_image(manager)
-    raise ValueError(f"Unsupported source format: {source_format}")
+    if isinstance(data_manager, MSDataManagerImzML):
+        logger.info("Reading TIC image from imzML data manager.")
+        _ensure_imzml_loaded(data_manager)
+        return _read_imzml_tic_image(
+            data_manager,
+            batch_size=int(batch_size),
+            max_threads=int(max_threads),
+        )
+    if isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5, IonImageDataManagerBinary)):
+        logger.info("Reading TIC image from ion-image data manager.")
+        return _read_ion_manager_tic_image(data_manager)
+    raise TypeError("data_manager must be a supported data manager.")
 
 
 def _plot_image(
@@ -531,7 +472,7 @@ def _plot_image(
 
 
 def plot_ion_image(
-    source: str | Path | Any,
+    data_manager: SupportedDataManager,
     image_matrix: np.ndarray | None = None,
     *,
     mz: float | None = None,
@@ -547,7 +488,7 @@ def plot_ion_image(
     """Read and plot one ion image."""
     if image_matrix is None:
         image_matrix = read_ion_image(
-            source,
+            data_manager,
             mz=mz,
             batch_size=batch_size,
             max_threads=max_threads,
@@ -564,7 +505,7 @@ def plot_ion_image(
 
 
 def plot_tic_image(
-    source: str | Path | Any,
+    data_manager: SupportedDataManager,
     image_matrix: np.ndarray | None = None,
     *,
     batch_size: int = 256,
@@ -579,7 +520,7 @@ def plot_tic_image(
     """Read and plot a TIC image."""
     if image_matrix is None:
         image_matrix = read_tic_image(
-            source,
+            data_manager,
             batch_size=batch_size,
             max_threads=max_threads,
         )
