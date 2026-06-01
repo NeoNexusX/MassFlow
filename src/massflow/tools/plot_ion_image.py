@@ -33,11 +33,13 @@ SupportedDataManager = MSDataManagerImzML | IonImageManager
 # ---------------------------------------------------------------------------
 
 def _ensure_imzml_loaded(manager: Any) -> None:
+    """Load imzML spectrum headers if the manager has not been initialized yet."""
     if len(manager.ms) == 0:
         manager.load_head_data()
 
 
 def _imzml_is_continuous(manager: Any) -> bool | None:
+    """Return the imzML continuous flag from metadata when it is available."""
     meta = getattr(getattr(manager, "ms", None), "meta", None)
     continuous = getattr(meta, "continuous", None)
     return None if continuous is None else bool(continuous)
@@ -48,6 +50,7 @@ def _batch_uses_shared_mz(
     mz_data: np.ndarray | None,
     lengths: np.ndarray,
 ) -> bool:
+    """Determine whether an imzML batch uses one shared m/z axis for all spectra."""
     continuous = _imzml_is_continuous(manager)
     if continuous is not None:
         return continuous
@@ -64,6 +67,7 @@ def _nearest_mz_index(
     mz_axis: np.ndarray,
     mz: float,
 ) -> int:
+    """Return the index of the m/z value nearest to the requested target."""
     if mz_axis.ndim != 1 or mz_axis.size == 0:
         raise ValueError("mz_axis must be a non-empty 1-D array.")
     return int(np.nanargmin(np.abs(mz_axis.astype(float, copy=False) - float(mz))))
@@ -74,6 +78,7 @@ def _mz_window_indices(
     mz: float,
     mz_tolerance: float,
 ) -> np.ndarray:
+    """Return indices within the inclusive m/z tolerance window."""
     low = float(mz) - float(mz_tolerance)
     high = float(mz) + float(mz_tolerance)
     return np.flatnonzero((mz_axis >= low) & (mz_axis <= high))
@@ -84,6 +89,7 @@ def _mz_window_indices(
 # ---------------------------------------------------------------------------
 
 def _sum_by_lengths(intensity_flat: np.ndarray, lengths: np.ndarray) -> np.ndarray:
+    """Sum each flattened spectrum according to its length entry."""
     dtype = np.result_type(intensity_flat.dtype, np.float64)
     if lengths.size == 0:
         return np.zeros(0, dtype=dtype)
@@ -107,6 +113,7 @@ def _sum_processed_mz_values(
     mz: float,
     mz_tolerance: float | None,
 ) -> np.ndarray:
+    """Select nearest or window-summed intensities for processed imzML spectra."""
     if mz_flat is None:
         raise ValueError("Processed imzML ion image requires m/z data.")
     if mz_flat.size != int(np.sum(lengths, dtype=np.int64)):
@@ -147,6 +154,7 @@ def _infer_image_geometry(
     width: int | None = None,
     height: int | None = None,
 ) -> tuple[bool, int, int]:
+    """Infer zero-based coordinates and final image dimensions from pixel coordinates."""
     coords = np.asarray(coordinates)
     xy = coords[:, :2].astype(np.int64, copy=False)
     xs = xy[:, 0]
@@ -170,6 +178,7 @@ def _scatter_values_into_image(
     *,
     zero_based: bool,
 ) -> None:
+    """Scatter per-pixel values into an existing image array using x/y coordinates."""
     xy = coordinates[:, :2].astype(np.int64, copy=False)
     xs = xy[:, 0]
     ys = xy[:, 1]
@@ -181,6 +190,7 @@ def _scatter_values_into_image(
 
 
 def _imzml_image_geometry(manager: Any) -> tuple[bool, int | None, int | None]:
+    """Infer imzML image coordinate base and dimensions from metadata and spectra."""
     meta = getattr(getattr(manager, "ms", None), "meta", None)
     width = getattr(meta, "max_count_of_pixels_x", None)
     height = getattr(meta, "max_count_of_pixels_y", None)
@@ -225,6 +235,7 @@ def _read_imzml_tic_image(
     batch_size: int,
     max_threads: int,
 ) -> np.ndarray:
+    """Read a TIC image from imzML by summing each spectrum and scattering by coordinate."""
     zero_based, width, height = _imzml_image_geometry(manager)
     image: np.ndarray | None = None
 
@@ -258,6 +269,7 @@ def _read_imzml_ion_image(
     max_threads: int,
     mz_tolerance: float | None,
 ) -> np.ndarray:
+    """Read an imzML ion image using nearest-peak or m/z-window selection."""
     if mz is None:
         raise ValueError("'mz' is required.")
 
@@ -340,6 +352,7 @@ def _read_ion_manager_ion_image(
     mz: float | None,
     mz_tolerance: float | None,
 ) -> np.ndarray:
+    """Read one ion image from a Binary/H5/Zarr manager by m/z selection."""
     if mz is None:
         raise ValueError("'mz' is required.")
 
@@ -352,6 +365,7 @@ def _read_ion_manager_ion_image(
 
 
 def _sum_ion_manager_images(manager: Any, ion_indices: np.ndarray) -> np.ndarray:
+    """Sum multiple ion images from an ion-image manager into one image."""
     height = int(manager.height)
     width = int(manager.width)
     dtype = np.result_type(getattr(manager, "intensity_dtype", np.float32), np.float64)
@@ -364,6 +378,7 @@ def _sum_ion_manager_images(manager: Any, ion_indices: np.ndarray) -> np.ndarray
 
 
 def _read_ion_manager_tic_image(manager: Any) -> np.ndarray:
+    """Read a TIC image from an ion-image manager, using backend-specific fast paths."""
     n_ions = int(manager.n_ions)
     if n_ions <= 0:
         raise ValueError("Ion image source contains no ions.")
@@ -386,6 +401,7 @@ def _read_ion_manager_tic_image(manager: Any) -> np.ndarray:
 def _read_dense_ion_manager_tic_image(
     manager: IonImageDataManagerZarr | IonImageDataManagerH5,
 ) -> np.ndarray:
+    """Compute TIC for dense H5/Zarr managers by summing ion blocks from dset."""
     n_ions = int(manager.n_ions)
     height = int(manager.height)
     width = int(manager.width)
@@ -402,6 +418,7 @@ def _read_dense_ion_manager_tic_image(
 
 
 def _read_binary_ion_manager_tic_image(manager: IonImageDataManagerBinary) -> np.ndarray:
+    """Compute TIC for binary managers by summing the ion-major memmap by pixel."""
     values = np.sum(
         manager.intensity_matrix,
         axis=0,
@@ -430,7 +447,7 @@ def read_ion_image(
     max_threads: int = 2,
     mz_tolerance: float | None = None,
 ) -> np.ndarray:
-    """Read a single ion image from imzML or an ion-image backend."""
+    """Read a single ion image from a supported data manager."""
     if isinstance(data_manager, MSDataManagerImzML):
         logger.info("Reading ion image from imzML data manager.")
         _ensure_imzml_loaded(data_manager)
@@ -457,7 +474,7 @@ def read_tic_image(
     batch_size: int = 256,
     max_threads: int = 2,
 ) -> np.ndarray:
-    """Read a TIC image from imzML or an ion-image backend."""
+    """Read a total-ion-current image from a supported data manager."""
     if isinstance(data_manager, MSDataManagerImzML):
         logger.info("Reading TIC image from imzML data manager.")
         _ensure_imzml_loaded(data_manager)
@@ -486,6 +503,7 @@ def _plot_image(
     title: str | None,
     structure_only: bool = False,
 ) -> None:
+    """Render an image matrix to matplotlib, optionally saving or showing it."""
     render_figsize = figsize
     if structure_only and image.ndim >= 2 and image.shape[0] > 0:
         height, width = image.shape[:2]
@@ -540,7 +558,7 @@ def plot_ion_image(
     figsize: tuple[float, float] = (20, 5),
     title: str | None = None,
 ) -> None:
-    """Read and plot one ion image."""
+    """Read and plot a selected ion image, unless an image matrix is provided."""
     if image_matrix is None:
         image_matrix = read_ion_image(
             data_manager,
@@ -572,7 +590,7 @@ def plot_tic_image(
     title: str | None = None,
     structure_only: bool = False,
 ) -> None:
-    """Read and plot a TIC image."""
+    """Read and plot a TIC image, unless an image matrix is provided."""
     if image_matrix is None:
         image_matrix = read_tic_image(
             data_manager,
