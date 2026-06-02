@@ -169,10 +169,10 @@ class PreprocessorAPI(_TaskRegistrar):
         reference: np.ndarray | None = None,
         tolerance: float | None = None,
         units: str = "ppm",
-        binfun: str = "median",
+        binfun: str = "min",
         binratio: float = 2.0,
         min_count: int | None = None,
-        min_frequency: float | None = None,
+        min_frequency: float | None = 0.01,
         backend: Backend = "python",
     ) -> Self:
         """Register peak alignment flat task."""

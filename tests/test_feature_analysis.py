@@ -17,8 +17,8 @@ from massflow.tools.logger import get_logger
 logger = get_logger("massflow.tests.test_feature_analysis")
 
 
-FILEPATH = "/Users/dre/Desktop/data/Example_read/example.imzML"
-ROUND = 1
+FILEPATH = "data/example.imzML"
+ROUND = 5
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -28,7 +28,8 @@ def cleanup_output_dirs():
     dirs = [
         "./all_benchmark",
         "./ratio_0_2_benchmark",
-        "./ratio_0_1_benchmark",
+        "./ratio_0_4_benchmark",
+        "./ratio_1_0_benchmark",
         "./validation_imzml",
         "./validation_zarr",
         "./temp_zarr_dm"
@@ -43,10 +44,8 @@ def _run_feature_analysis(
     transform_batch_size: int | None,
     output_dir: str,
     random_state: int | None = None,
-    full_fit_transform: bool = False
 ) -> None:
     "Run feature analysis."
-
     run_analysis(
         data_manager,
         output_dir=output_dir,
@@ -56,7 +55,6 @@ def _run_feature_analysis(
         sample_ratio=sample_ratio,
         transform_batch_size=transform_batch_size,
         random_state=random_state,
-        full_fit_transform=full_fit_transform
     )
 
 
@@ -74,7 +72,6 @@ def _validate_results_zarr(path1: str, path2: str) -> bool:
 
 def _image_pixels_equal(path1: str, path2: str) -> bool:
     "Check if two images have the same pixel values."
-
     with Image.open(path1) as raw_img1, Image.open(path2) as raw_img2:
         img1 = raw_img1.convert("RGBA")
         img2 = raw_img2.convert("RGBA")
@@ -102,15 +99,16 @@ class TestRunUMAPKMeans:
 
     @pytest.mark.parametrize("sample_ratio, transform_batch_size, output_dir", [
         (0.2, 2048, "./ratio_0_2_benchmark"),
+        (0.4, 2048, "./ratio_0_4_benchmark"),
+        (1.0, 2048, "./ratio_1_0_benchmark"),
     ])
     @pytest.mark.parametrize("random_state", [None])
-    @pytest.mark.parametrize("full_fit_transform", [False])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_feature_analysis(self, benchmark, data_manager, sample_ratio, transform_batch_size, output_dir, random_state, full_fit_transform) -> None:
+    def test_feature_analysis(self, benchmark, data_manager, sample_ratio, transform_batch_size, output_dir, random_state) -> None:
         "Benchmark feature analysis."
         benchmark.pedantic(
             _run_feature_analysis,
-            args=(data_manager, sample_ratio, transform_batch_size, output_dir, random_state, full_fit_transform),
+            args=(data_manager, sample_ratio, transform_batch_size, output_dir, random_state),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=0,

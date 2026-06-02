@@ -45,7 +45,7 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
         temp_dir: str | os.PathLike[str] | None = None,
         mz_dtype: np.dtype | type = np.float64,
         intensity_dtype: np.dtype | type = np.float32,
-        ion_block: int = 256,
+        ion_block: int = 32,
         temp_workers: int = 4,
         merge_workers: int = 4,
         chunk_size: int = 1,

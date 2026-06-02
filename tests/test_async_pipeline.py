@@ -100,7 +100,7 @@ def _assert_ion_image_matches(ion_dm, mz_axis, pixel_matrix):
 class TestAsyncPipeline:
     """Test class for the massflow pipeline."""
 
-    @pytest.fixture(scope="module", params=["/Users/dre/Desktop/data/Example_read/example.imzML"])
+    @pytest.fixture(scope="module", params=["data/example.imzML"])
     def ms_raw_data(self, request) -> MSDataManagerImzML:
         """Fixture providing MSDataManagerImzML instance with fully initialized spectra for noise reduction tests."""
         data_file_path = Path(request.param)
@@ -112,9 +112,10 @@ class TestAsyncPipeline:
         request.addfinalizer(dm.close)
         return dm
 
-    @pytest.mark.parametrize("batch_size", [1024])
+    @pytest.mark.parametrize("batch_size", [256, 512])
     @pytest.mark.parametrize("queue_ab_size", [2])
     @pytest.mark.parametrize("queue_bc_size", [2])
+    @pytest.mark.parametrize("output_format", ["imzml", "ion_image_binary", "ion_image_h5", "ion_image_zarr"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_async_pipeline_benchmark(
         self,
@@ -123,11 +124,12 @@ class TestAsyncPipeline:
         batch_size: int,
         queue_ab_size: int,
         queue_bc_size: int,
+        output_format: str,
     ) -> None:
         """Whole pipeline runtime benchmark."""
         processed_dm = benchmark.pedantic(
             _run_pipeline,
-            args=(ms_raw_data, batch_size, queue_ab_size, queue_bc_size),
+            args=(ms_raw_data, batch_size, queue_ab_size, queue_bc_size, output_format),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=1,
