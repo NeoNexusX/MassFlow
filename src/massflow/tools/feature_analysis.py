@@ -27,6 +27,16 @@ logger = get_logger("massflow.tools.feature_analysis")
 # Low-level algorithm functions
 # ---------------------------------------------------------------------------
 
+def enable_umap_parallel_transform(reducer: umap.UMAP) -> None:
+    """Monkey-patch UMAP reducer to enable parallel batch transforms."""
+    index = reducer._knn_search_index # pylint: disable=protected-access
+    index.parallel_batch_queries = True # type: ignore
+
+    for attr in ("_search_function", "_deheap_function", "_rerank_function"):
+        if hasattr(index, attr):
+            delattr(index, attr)
+
+    index.prepare() # type: ignore
 
 def compute_streaming_umap_embeddings(
     data_manager: Any,
@@ -37,16 +47,16 @@ def compute_streaming_umap_embeddings(
     sample_ratio: float = 0.2,
     transform_batch_size: int = 512,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Sample-fit + batch-transform UMAP without building the full matrix."""
+    """Compute UMAP embeddings with streaming transform or full fit_transform."""
     reducer = umap.UMAP(
         metric=metric,
         n_components=n_components,
         random_state=random_state,
         force_approximation_algorithm=True,
     )
-
-    # ---- fit on sample ----
-    if isinstance(data_manager, MSDataManagerImzML):
+    if sample_ratio == 1.0:
+        sample_matrix, coordinates = _read_full_matrix(data_manager, batch_size=4096)
+    elif isinstance(data_manager, MSDataManagerImzML):
         sample_matrix = _read_imzml_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
         )
@@ -67,7 +77,13 @@ def compute_streaming_umap_embeddings(
         f"sample_matrix shape={sample_matrix.shape}"
     )
     reducer.fit(sample_matrix)
+    if sample_ratio == 1.0:
+        embeddings = reducer.transform(sample_matrix).astype(np.float32, copy=False) # type: ignore
+        return embeddings, coordinates
     del sample_matrix
+
+    # Enable parallel batch queries for repeated UMAP transforms.
+    enable_umap_parallel_transform(reducer)
 
     # ---- transform in batches ----
     embeddings_parts: list[np.ndarray] = []
@@ -79,21 +95,17 @@ def compute_streaming_umap_embeddings(
         )
     elif isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5)):
         batch_iter = _iter_dense_matrix_batches(
-            data_manager
+            data_manager, batch_size=transform_batch_size,
         )
     else:  # IonImageDataManagerBinary
         batch_iter = _iter_binary_matrix_batches(
-            data_manager,
+            data_manager, batch_size=transform_batch_size,
         )
 
     for batch_matrix, batch_coords in batch_iter:
         batch_matrix = np.nan_to_num(batch_matrix, copy=False)
-        for row_start in range(0, batch_matrix.shape[0], transform_batch_size):
-            row_end = min(batch_matrix.shape[0], row_start + transform_batch_size)
-            embeddings_parts.append(
-                reducer.transform(batch_matrix[row_start:row_end]).astype(np.float32, copy=False)  # type: ignore
-            )
-            coordinates_parts.append(batch_coords[row_start:row_end])
+        embeddings_parts.append(reducer.transform(batch_matrix).astype(np.float32, copy=False)) # type: ignore
+        coordinates_parts.append(batch_coords)
 
     if not embeddings_parts:
         raise ValueError("No non-zero spectra found during transform.")
@@ -125,6 +137,39 @@ def kmeans_clustering(
     ).fit_predict(embeddings)
 
     return clusters
+
+
+def _read_full_matrix(
+    data_manager: Any,
+    *,
+    batch_size: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build a full nonzero spectra matrix and coordinate matrix from the active backend."""
+    if isinstance(data_manager, MSDataManagerImzML):
+        batch_iter = _iter_imzml_matrix_batches(
+            data_manager, batch_size=batch_size,
+        )
+    elif isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5)):
+        batch_iter = _iter_dense_matrix_batches(
+            data_manager, batch_size=batch_size,
+        )
+    elif isinstance(data_manager, IonImageDataManagerBinary):
+        batch_iter = _iter_binary_matrix_batches(
+            data_manager, batch_size=batch_size,
+        )
+    else:
+        raise TypeError(f"Unsupported data_manager type: {type(data_manager).__name__}")
+
+    matrix_parts: list[np.ndarray] = []
+    coordinates_parts: list[np.ndarray] = []
+    for batch_matrix, batch_coords in batch_iter:
+        matrix_parts.append(batch_matrix)
+        coordinates_parts.append(batch_coords)
+
+    if not matrix_parts:
+        raise ValueError("No non-zero spectra found.")
+
+    return np.vstack(matrix_parts), np.vstack(coordinates_parts)
 
 
 # ---------------------------------------------------------------------------
@@ -265,20 +310,20 @@ def _read_dense_sample_matrix(
 def _iter_dense_matrix_batches(
     manager: IonImageDataManagerZarr | IonImageDataManagerH5,
     *,
-    pixel_batch_size: int = 20000,
+    batch_size: int = 20000,
     ion_block: int = 256,
 ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
     """Yield ``(batch_matrix, batch_coordinates)`` by pixel-batch from a dense backend."""
-    if pixel_batch_size <= 0:
-        raise ValueError("pixel_batch_size must be positive.")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive.")
 
     n_pixels = int(manager.n_pixels)
     n_ions = int(manager.n_ions)
     flat_idx = manager.flat_idx
     coordinates = np.asarray(manager.coordinates)
 
-    for pixel_start in range(0, n_pixels, pixel_batch_size):
-        pixel_end = min(n_pixels, pixel_start + pixel_batch_size)
+    for pixel_start in range(0, n_pixels, batch_size):
+        pixel_end = min(n_pixels, pixel_start + batch_size)
         batch_flat_idx = flat_idx[pixel_start:pixel_end]
         batch_coords = coordinates[pixel_start:pixel_end, :2]
 
@@ -350,19 +395,19 @@ def _read_binary_sample_matrix(
 def _iter_binary_matrix_batches(
     manager: IonImageDataManagerBinary,
     *,
-    pixel_batch_size: int = 20000,
+    batch_size: int = 20000,
     ion_block: int = 256,
 ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
     """Yield ``(batch_matrix, batch_coordinates)`` by pixel-batch from binary data."""
-    if pixel_batch_size <= 0:
-        raise ValueError("pixel_batch_size must be positive.")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive.")
 
     n_pixels = int(manager.n_pixels)
     n_ions = int(manager.n_ions)
     coordinates = np.asarray(manager.coordinates)
 
-    for pixel_start in range(0, n_pixels, pixel_batch_size):
-        pixel_end = min(n_pixels, pixel_start + pixel_batch_size)
+    for pixel_start in range(0, n_pixels, batch_size):
+        pixel_end = min(n_pixels, pixel_start + batch_size)
         pixel_slice = slice(pixel_start, pixel_end)
         batch_coords = coordinates[pixel_slice, :2]
 
@@ -477,6 +522,7 @@ def _validate_parameters(
     transform_batch_size: int | None,
     save_images: bool,
     save_matrix: bool,
+    random_state: int | None,
 ) -> None:
     if n_components != 3:
         raise ValueError("n_components must be 3 for RGB image output.")
@@ -486,6 +532,11 @@ def _validate_parameters(
         raise ValueError("transform_batch_size must be a positive integer or None.")
     if not save_images and not save_matrix:
         raise ValueError("At least one of save_images or save_matrix must be True.")
+    if random_state is not None:
+        logger.warning(
+            "Random state is set; UMAP forces single-threaded execution (n_jobs=1), "
+            "so runs may be slower. Set random_state=None to allow parallelism."
+        )
 
 def _is_continuous(data_manager: Any) -> bool:
     """Heuristic check for continuous/shared m/z axis."""
@@ -509,20 +560,20 @@ def run_analysis(
     data_manager: Any,
     *,
     output_dir: str | None = "./feature_analysis_output",
+    sample_ratio: float = 0.3,
+    transform_batch_size: int | None = 4096,
+    dpi: int = 300,
     save_images: bool = True,
     save_matrix: bool = False,
     n_components: int = 3,
     umap_metric: str = "cosine",
     n_clusters: int = 10,
     random_state: int | None = None,
-    sample_ratio: float = 0.3,
-    transform_batch_size: int | None = 2048,
-    dpi: int = 300,
 ) -> bool:
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
 
     # --- 1. Validate parameters and prepare output directory ------------
-    _validate_parameters(n_components, sample_ratio, transform_batch_size, save_images, save_matrix)
+    _validate_parameters(n_components, sample_ratio, transform_batch_size, save_images, save_matrix, random_state)
 
     out = Path(output_dir) if output_dir is not None else Path("./feature_analysis_output")
     out.mkdir(parents=True, exist_ok=True)
@@ -534,7 +585,7 @@ def run_analysis(
     width, height = _get_spatial_dimensions(data_manager)
     batch_size = 512 if transform_batch_size is None else int(transform_batch_size)
 
-    # --- 2. UMAP embedding with streaming fit/transform ----------------
+    # --- 2. UMAP embedding ---------------------------------------------
     scaled_embedding, coordinates = compute_streaming_umap_embeddings(
         data_manager,
         n_components=n_components,

@@ -17,7 +17,7 @@ from massflow.tools.logger import get_logger
 logger = get_logger("massflow.tests.test_feature_analysis")
 
 
-FILEPATH = "data/example.imzML"
+FILEPATH = "/Users/dre/Desktop/data/Example_read/example.imzML"
 ROUND = 1
 
 
@@ -42,7 +42,8 @@ def _run_feature_analysis(
     sample_ratio: float,
     transform_batch_size: int | None,
     output_dir: str,
-    random_state: int | None = None
+    random_state: int | None = None,
+    full_fit_transform: bool = False
 ) -> None:
     "Run feature analysis."
 
@@ -54,7 +55,8 @@ def _run_feature_analysis(
         n_clusters=10,
         sample_ratio=sample_ratio,
         transform_batch_size=transform_batch_size,
-        random_state=random_state
+        random_state=random_state,
+        full_fit_transform=full_fit_transform
     )
 
 
@@ -100,15 +102,15 @@ class TestRunUMAPKMeans:
 
     @pytest.mark.parametrize("sample_ratio, transform_batch_size, output_dir", [
         (0.2, 2048, "./ratio_0_2_benchmark"),
-        (0.1, 1024, "./ratio_0_1_benchmark")
     ])
     @pytest.mark.parametrize("random_state", [None])
+    @pytest.mark.parametrize("full_fit_transform", [False])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_feature_analysis(self, benchmark, data_manager, sample_ratio, transform_batch_size, output_dir, random_state) -> None:
+    def test_feature_analysis(self, benchmark, data_manager, sample_ratio, transform_batch_size, output_dir, random_state, full_fit_transform) -> None:
         "Benchmark feature analysis."
         benchmark.pedantic(
             _run_feature_analysis,
-            args=(data_manager, sample_ratio, transform_batch_size, output_dir, random_state),
+            args=(data_manager, sample_ratio, transform_batch_size, output_dir, random_state, full_fit_transform),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=0,
