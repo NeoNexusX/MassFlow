@@ -92,6 +92,7 @@ class FlatOutputSink:
             temp_dir=self.input_meta.temp_dir,
             temp_workers=self.input_meta.output_max_workers,
             merge_workers=self.input_meta.output_max_workers,
+            ion_block=self.input_meta.ion_block,
         )
 
     def write_chunk(self, chunk: FlatChunk) -> None:

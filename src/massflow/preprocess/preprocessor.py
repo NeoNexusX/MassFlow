@@ -42,6 +42,7 @@ class Preprocessor(PreprocessorAPI):
         data_manager: MSDataManagerImzML,
         *,
         batch_size: int = 256,
+        ion_block: int = 64,
         queue_ab_size: int = 1,
         queue_bc_size: int = 1,
         temp_dir: str = "./temp",
@@ -67,6 +68,7 @@ class Preprocessor(PreprocessorAPI):
         self.output_format = output_format
         self.output_path = output_path
         self.output_max_workers = output_max_workers
+        self.ion_block = ion_block
 
         self._tasks: list[PreprocessTask] = []
 
@@ -97,6 +99,7 @@ class Preprocessor(PreprocessorAPI):
                 temp_dir=self.temp_dir,
                 numba_max_threads=self.numba_max_threads,
                 output_max_workers=self.output_max_workers,
+                ion_block=self.ion_block,
                 queue_ab_size=self.queue_ab_size,
                 queue_bc_size=self.queue_bc_size,
                 result_path=self.output_path,
