@@ -13,6 +13,7 @@ logger = get_logger("massflow.peak_alignment")
 MIN_RELATIVE_RES = 5e-7  # 0.5 ppm
 MIN_ABSOLUTE_RES = 1e-4  # 0.0001 Da
 
+
 def _input_validation(
     reference: Optional[NDArray],
     tolerance: float,
@@ -20,7 +21,7 @@ def _input_validation(
     """Validate inputs for reference_computer and peak_aligner."""
     if reference is None or reference.size == 0:
         logger.error("Reference cannot be None or empty.")
-        raise ValueError("Reference cannot be None.")
+        raise ValueError("Reference cannot be None or empty.")
     if tolerance <= 0:
         logger.error("Tolerance must be a positive number.")
         raise ValueError("Tolerance must be a positive number.")

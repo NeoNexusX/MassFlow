@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 import time
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 import zarr
@@ -19,6 +20,11 @@ logger = get_logger("massflow.tests.test_feature_analysis")
 
 FILEPATH = "data/example.imzML"
 ROUND = 5
+
+
+def _require_imzml_pair(path: Path) -> None:
+    if not path.exists() or not path.with_suffix(".ibd").exists():
+        pytest.skip(f"Missing real imzML test data: {path} and matching .ibd")
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -91,6 +97,7 @@ class TestRunUMAPKMeans:
     @pytest.fixture(scope="class")
     def data_manager(self) -> Iterator[MSDataManagerImzML]:
         "Fixture for data manager."
+        _require_imzml_pair(Path(FILEPATH))
         data_manager = MSDataManagerImzML(filepath=FILEPATH)
         data_manager.load_head_data()
         yield data_manager

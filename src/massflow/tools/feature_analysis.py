@@ -554,16 +554,15 @@ def build_kmeans_image(
     n_clusters: int,
     width: int | None = None,
     height: int | None = None,
-    cmap_name: str = "tab20",
 ) -> np.ndarray:
     """Map cluster labels to a colour-coded spatial image."""
     scatter_x, scatter_y, _, w, h = _infer_spatial_params(
         coordinates, width=width, height=height,
     )
 
-    palette = (matplotlib.colormaps[cmap_name](range(20))[:, :3] * 255).astype(np.uint8)
+    palette = (np.asarray(matplotlib.colormaps["tab20"].colors)[:, :3] * 255).astype(np.uint8) # type: ignore
     if n_clusters > len(palette):
-        raise ValueError(f"n_clusters must be <= {len(palette)} when using {cmap_name} colors.")
+        raise ValueError(f"n_clusters must be <= {len(palette)}.")
     colors = palette[labels]
 
     image = np.zeros((h, w, 3), dtype=np.uint8)

@@ -42,7 +42,7 @@ class Preprocessor(PreprocessorAPI):
         data_manager: MSDataManagerImzML,
         *,
         batch_size: int = 256,
-        ion_block: int = 64,
+        ion_block: int = 32,
         queue_ab_size: int = 1,
         queue_bc_size: int = 1,
         temp_dir: str = "./temp",
