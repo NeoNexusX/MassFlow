@@ -583,12 +583,12 @@ def plot_tic_image(
     max_threads: int = 2,
     output_dir: str | Path = "./tic_image_output",
     save_image: bool = True,
-    save_matrix: bool = True,
+    save_matrix: bool = False,
     show: bool = False,
     dpi: int = 300,
     figsize: tuple[float, float] = (20, 5),
     title: str | None = None,
-    structure_only: bool = False,
+    structure_only: bool = True,
 ) -> bool:
     """Read and plot a TIC image."""
     out = Path(output_dir)

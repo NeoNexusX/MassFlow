@@ -22,6 +22,17 @@ from massflow.tools.logger import get_logger
 logger = get_logger("massflow.tools.feature_analysis")
 
 
+def _nan_to_num_inplace_chunks(matrix: np.ndarray, row_chunk_size: int = 128) -> np.ndarray:
+    """Replace NaN/Inf values in-place without one large temporary mask."""
+    if matrix.ndim <= 1:
+        np.nan_to_num(matrix, copy=False)
+        return matrix
+
+    for row_start in range(0, matrix.shape[0], row_chunk_size):
+        np.nan_to_num(matrix[row_start:row_start + row_chunk_size], copy=False)
+    return matrix
+
+
 # ---------------------------------------------------------------------------
 # Low-level algorithm functions
 # ---------------------------------------------------------------------------
@@ -79,7 +90,7 @@ def compute_streaming_umap_embeddings(
         random_state=random_state,
     )
 
-    sample_matrix = np.nan_to_num(sample_matrix, copy=False)
+    sample_matrix = _nan_to_num_inplace_chunks(sample_matrix)
     logger.info(
         f"Streaming UMAP fit: sample_ratio={sample_ratio}, "
         f"sample_matrix shape={sample_matrix.shape}"
@@ -145,6 +156,17 @@ def _iter_umap_matrix_batches(
     raise TypeError(f"Unsupported data_manager type: {type(data_manager).__name__}")
 
 
+def _estimate_umap_transform_batches(data_manager: Any, batch_size: int) -> int:
+    """Estimate source batch count for UMAP transform progress logging."""
+    if isinstance(data_manager, MSDataManagerImzML):
+        total_items = len(data_manager.ms)
+    elif isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5, IonImageDataManagerBinary)):
+        total_items = int(data_manager.n_pixels)
+    else:
+        raise TypeError(f"Unsupported data_manager type: {type(data_manager).__name__}")
+    return max(1, (total_items + batch_size - 1) // batch_size)
+
+
 def _transform_umap_batches(
     data_manager: Any,
     reducer: umap.UMAP,
@@ -154,15 +176,28 @@ def _transform_umap_batches(
     """Transform nonzero spectra batches with a fitted UMAP reducer."""
     embeddings_parts: list[np.ndarray] = []
     coordinates_parts: list[np.ndarray] = []
+    total_batches = _estimate_umap_transform_batches(data_manager, batch_size)
+    transformed_batches = 0
 
-    for batch_matrix, batch_coords in _iter_umap_matrix_batches(data_manager, batch_size=batch_size):
-        batch_matrix = np.nan_to_num(batch_matrix, copy=False)
+    for batch_idx, (batch_matrix, batch_coords) in enumerate(
+        _iter_umap_matrix_batches(data_manager, batch_size=batch_size),
+        start=1,
+    ):
+        transformed_batches = batch_idx
+        batch_matrix = _nan_to_num_inplace_chunks(batch_matrix)
         embeddings_parts.append(reducer.transform(batch_matrix).astype(np.float32, copy=False)) # type: ignore
         coordinates_parts.append(batch_coords)
+        if total_batches <= 10 or batch_idx % max(1, total_batches // 10) == 0 or batch_idx == total_batches:
+            progress = (batch_idx / total_batches) * 100
+            logger.info(
+                f"Transforming spectra with UMAP: transformed {batch_idx}/{total_batches} "
+                f"batches ({progress:.1f}%)."
+            )
 
     if not embeddings_parts:
         raise ValueError("No non-zero spectra found during transform.")
 
+    logger.info(f"UMAP transform complete: transformed {transformed_batches} nonzero batches.")
     return np.vstack(embeddings_parts), np.vstack(coordinates_parts)
 
 
@@ -620,8 +655,8 @@ def plot_umap_kmeans_image(
     data_manager: Any,
     *,
     output_dir: str | Path = "./feature_analysis_output",
-    sample_ratio: float = 0.2,
-    transform_batch_size: int | None = 4096,
+    sample_ratio: float = 0.1,
+    transform_batch_size: int | None = 1024,
     dpi: int = 300,
     save_images: bool = True,
     save_matrix: bool = False,
@@ -643,7 +678,7 @@ def plot_umap_kmeans_image(
         raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
 
     width, height = _get_spatial_dimensions(data_manager)
-    batch_size = 512 if transform_batch_size is None else int(transform_batch_size)
+    batch_size = 1024 if transform_batch_size is None else int(transform_batch_size)
 
     # --- 2. UMAP embedding ---------------------------------------------
     scaled_embedding, coordinates = compute_streaming_umap_embeddings(
@@ -680,8 +715,8 @@ def plot_umap_kmeans_image(
 
     # ---- 5. Save outputs ------------------------------------------------
     if save_images:
-        plt.imsave(str(out / "umap_image.png"), umap_img, dpi=dpi)
-        plt.imsave(str(out / "kmeans_image.png"), kmeans_img, dpi=dpi)
+        plt.imsave(str(out / "umap_image.jpg"), umap_img, dpi=dpi, pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True})
+        plt.imsave(str(out / "kmeans_image.jpg"), kmeans_img, dpi=dpi, pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True})
 
     if save_matrix:
         result_group = zarr.open_group(str(out / "umap_result.zarr"), mode="w")
