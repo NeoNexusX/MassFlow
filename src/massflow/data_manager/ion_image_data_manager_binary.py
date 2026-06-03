@@ -22,6 +22,7 @@ from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_m
 # HEADER_SIZE / HEADER_STRUCT 在 IonImageBinaryHeader 定义之后自动计算。
 UINT32_SIZE = np.dtype("<u4").itemsize
 _HEADER_SENTINEL = 0xFFFFFFFFFFFFFFFF
+_TEMP_WRITE_ION_BLOCK = 2048
 
 
 def _float_dtype_from_bits(bits: int, *, field_name: str) -> np.dtype:
@@ -129,7 +130,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
         temp_dir: str | os.PathLike[str] | None = None,
         mz_dtype: np.dtype | type = np.float64,
         intensity_dtype: np.dtype | type = np.float32,
-        ion_block: int = 1024,
+        ion_block: int = 256,
         temp_workers: int = 4,
         merge_workers: int = 4,
         metadata=None,
@@ -192,7 +193,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
         temp_dir: str | os.PathLike[str] | None = None,
         mz_dtype: np.dtype | type | None = None,
         intensity_dtype: np.dtype | type | None = None,
-        ion_block: int = 64,
+        ion_block: int = 256,
         temp_workers: int = 2,
         merge_workers: int = 2,
     ) -> "IonImageDataManagerBinary":
@@ -237,7 +238,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
         temp_dir: str | os.PathLike[str] | None = None,
         mz_dtype: np.dtype | type | None = None,
         intensity_dtype: np.dtype | type | None = None,
-        ion_block: int = 64,
+        ion_block: int = 256,
         temp_workers: int = 2,
         merge_workers: int = 2,
     ) -> "IonImageDataManagerBinary":
@@ -442,11 +443,13 @@ class IonImageDataManagerBinary(IonImageDataManager):
         n_ions: int,
         dtype: np.dtype,
     ) -> tuple[int, _BatchInfo]:
-        """把一个 pixel-major batch 转置为 [n_ions, batch_pixels] 并一次性写出。"""
+        """把一个 pixel-major batch 分块转置为 [n_ions, batch_pixels] 写出。"""
         matrix = np.asarray(intensity_flat, dtype=dtype).reshape(batch_pixels, n_ions)
-        block = np.ascontiguousarray(matrix.T)
         with batch_path.open("wb") as temp_file:
-            temp_file.write(memoryview(block))
+            for ion_start in range(0, n_ions, _TEMP_WRITE_ION_BLOCK):
+                ion_end = min(n_ions, ion_start + _TEMP_WRITE_ION_BLOCK)
+                block = np.ascontiguousarray(matrix[:, ion_start:ion_end].T)
+                temp_file.write(memoryview(block))
 
         return batch_index, _BatchInfo(path=batch_path, n_pixels=batch_pixels)
 

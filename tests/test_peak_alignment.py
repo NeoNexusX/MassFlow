@@ -1,6 +1,8 @@
 import os
 import time
 from typing import Optional, Literal
+from pathlib import Path
+
 import pytest
 import numpy as np
 from massflow.tools.logger import get_logger
@@ -13,13 +15,20 @@ logger = get_logger("massflow.test_peak_alignment")
 
 Backend = Literal["python", "cardinal"]
 
-FILEPATH = r"picked.imzML"
+FILEPATH = Path("./data/picked.imzML")
 MZ_RANGES = [(500, 600)]
 TOLERANCE = 0.10
 ROUND = 1
 
+
 if os.environ.get("R_HOME"):
     set_default_r_home(os.environ["R_HOME"])
+
+
+def _require_imzml_pair(path: Path) -> None:
+    if not path.exists() or not path.with_suffix(".ibd").exists():
+        pytest.skip(f"Missing real imzML test data: {path} and matching .ibd")
+
 
 def run_alignment_task(
     dm: MSDataManagerImzML,
@@ -31,7 +40,10 @@ def run_alignment_task(
 ) -> MSDataManagerImzML:
 
     aligned_manager = (
-        Preprocessor(dm)
+        Preprocessor(
+            data_manager=dm,
+            output_format="imzml"
+        )
         .peak_align(
             units=units,
             binfun=binfun,
@@ -42,7 +54,8 @@ def run_alignment_task(
         .start()
     )
 
-    return aligned_manager
+    return aligned_manager # type: ignore
+
 
 def validate_align_result(
     result_manager: MSDataManagerImzML, original_manager: MSDataManagerImzML
@@ -72,6 +85,7 @@ def validate_align_result(
     logger.info(
         f"Validation passed: {len(result_manager.ms)} spectra aligned to {len(ref_mz)} peaks"
     )
+
 
 def compare_align_result(
     py_manager: MSDataManagerImzML,
@@ -136,10 +150,12 @@ def compare_align_result(
         f"intensity_diff={intensity_rel_diff:.2%}"
     )
 
+
 class TestPeakAlignment:
     """test peak alignment functionality"""
     @pytest.fixture(scope="class")
     def data_manager(self) -> MSDataManagerImzML:
+        _require_imzml_pair(FILEPATH)
         mass_data = MassSpectrumSet()
         dm = MSDataManagerImzML(mass_data, filepath=FILEPATH)
         dm.load_head_data()

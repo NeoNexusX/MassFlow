@@ -2,12 +2,18 @@ import time
 from pathlib import Path
 import numpy as np
 import pytest
-from massflow.data_manager import MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5
+from massflow.data_manager import (
+    MSDataManagerImzML,
+    IonImageDataManagerBinary,
+    IonImageDataManagerH5,
+    IonImageDataManagerZarr,
+)
 from massflow.preprocess import Preprocessor
 from massflow.tools.logger import get_logger
 
-logger = get_logger("test_async_pipeline")
+logger = get_logger("massflow.tests.test_async_pipeline")
 ROUND = 1
+ION_NUM = 32
 
 
 def _run_pipeline(
@@ -48,8 +54,13 @@ def _close_after_test(request, data_manager):
     request.addfinalizer(data_manager.close)
     return data_manager
 
-def _sample_indices(size: int) -> list[int]:
-    return sorted({0, size // 2, size - 1})
+def _sample_indices(size: int, sample_count: int = ION_NUM) -> list[int]:
+    sample_count = min(size, sample_count)
+    if sample_count <= 0:
+        return []
+    if sample_count == 1:
+        return [0]
+    return np.linspace(0, size - 1, sample_count, dtype=np.int64).tolist()
 
 def _collect_imzml_matrix(data_manager: MSDataManagerImzML):
     mz_axis = None
@@ -89,7 +100,7 @@ def _assert_ion_image_matches(ion_dm, mz_axis, pixel_matrix):
 class TestAsyncPipeline:
     """Test class for the massflow pipeline."""
 
-    @pytest.fixture(scope="module", params=["/Users/dre/Desktop/data/Example_read/example.imzML"])
+    @pytest.fixture(scope="module", params=["data/example.imzML"])
     def ms_raw_data(self, request) -> MSDataManagerImzML:
         """Fixture providing MSDataManagerImzML instance with fully initialized spectra for noise reduction tests."""
         data_file_path = Path(request.param)
@@ -101,9 +112,10 @@ class TestAsyncPipeline:
         request.addfinalizer(dm.close)
         return dm
 
-    @pytest.mark.parametrize("batch_size", [1024])
+    @pytest.mark.parametrize("batch_size", [256, 512])
     @pytest.mark.parametrize("queue_ab_size", [2])
     @pytest.mark.parametrize("queue_bc_size", [2])
+    @pytest.mark.parametrize("output_format", ["imzml", "ion_image_binary", "ion_image_h5", "ion_image_zarr"])
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_async_pipeline_benchmark(
         self,
@@ -112,11 +124,12 @@ class TestAsyncPipeline:
         batch_size: int,
         queue_ab_size: int,
         queue_bc_size: int,
+        output_format: str,
     ) -> None:
         """Whole pipeline runtime benchmark."""
         processed_dm = benchmark.pedantic(
             _run_pipeline,
-            args=(ms_raw_data, batch_size, queue_ab_size, queue_bc_size),
+            args=(ms_raw_data, batch_size, queue_ab_size, queue_bc_size, output_format),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=1,
@@ -131,17 +144,19 @@ class TestAsyncPipeline:
         )
         mz_axis, pixel_matrix = _collect_imzml_matrix(imzml_dm) # type: ignore
 
+        output_path = tmp_path / "pipeline.iib"
         binary_dm = _close_after_test(
             request,
             _run_pipeline(
                 ms_raw_data,
                 output_format="ion_image_binary",
                 temp_dir=tmp_path / "binary",
-                output_path=tmp_path / "pipeline.iib",
+                output_path=output_path,
             ),
         )
 
         assert isinstance(binary_dm, IonImageDataManagerBinary)
+        assert output_path.exists()
         _assert_ion_image_matches(binary_dm, mz_axis, pixel_matrix)
         for pixel_idx in _sample_indices(binary_dm.n_pixels):
             np.testing.assert_allclose(
@@ -159,15 +174,114 @@ class TestAsyncPipeline:
         )
         mz_axis, pixel_matrix = _collect_imzml_matrix(imzml_dm) # type: ignore
 
+        output_path = tmp_path / "pipeline.h5"
         h5_dm = _close_after_test(
             request,
             _run_pipeline(
                 ms_raw_data,
                 output_format="ion_image_h5",
                 temp_dir=tmp_path / "h5",
-                output_path=tmp_path / "pipeline.h5",
+                output_path=output_path,
             ),
         )
 
         assert isinstance(h5_dm, IonImageDataManagerH5)
+        assert output_path.exists()
         _assert_ion_image_matches(h5_dm, mz_axis, pixel_matrix)
+
+    def test_zarr_matches_imzml(self, ms_raw_data, tmp_path, request):
+        """zarr output must match the same pipeline's imzML output."""
+        imzml_dm = _close_after_test(
+            request,
+            _run_pipeline(ms_raw_data, temp_dir=tmp_path / "imzml"),
+        )
+        mz_axis, pixel_matrix = _collect_imzml_matrix(imzml_dm) # type: ignore
+
+        output_path = tmp_path / "pipeline.zarr"
+        zarr_dm = _close_after_test(
+            request,
+            _run_pipeline(
+                ms_raw_data,
+                output_format="ion_image_zarr",
+                temp_dir=tmp_path / "zarr",
+                output_path=output_path,
+            ),
+        )
+
+        assert isinstance(zarr_dm, IonImageDataManagerZarr)
+        assert output_path.exists()
+        _assert_ion_image_matches(zarr_dm, mz_axis, pixel_matrix)
+
+    def test_three_output_formats_are_consistent(self, ms_raw_data, tmp_path, request):
+        """The three output formats must be consistent with each other."""
+        binary_path = tmp_path / "pipeline.iib"
+        binary_dm = _close_after_test(
+            request,
+            _run_pipeline(
+                ms_raw_data,
+                output_format="ion_image_binary",
+                temp_dir=tmp_path / "binary",
+                output_path=binary_path,
+            ),
+        )
+
+        h5_path = tmp_path / "pipeline.h5"
+        h5_dm = _close_after_test(
+            request,
+            _run_pipeline(
+                ms_raw_data,
+                output_format="ion_image_h5",
+                temp_dir=tmp_path / "h5",
+                output_path=h5_path,
+            ),
+        )
+
+        zarr_path = tmp_path / "pipeline.zarr"
+        zarr_dm = _close_after_test(
+            request,
+            _run_pipeline(
+                ms_raw_data,
+                output_format="ion_image_zarr",
+                temp_dir=tmp_path / "zarr",
+                output_path=zarr_path,
+            ),
+        )
+
+        assert isinstance(binary_dm, IonImageDataManagerBinary)
+        assert isinstance(h5_dm, IonImageDataManagerH5)
+        assert isinstance(zarr_dm, IonImageDataManagerZarr)
+        assert binary_path.exists()
+        assert h5_path.exists()
+        assert zarr_path.exists()
+
+        assert h5_dm.n_ions == binary_dm.n_ions == zarr_dm.n_ions
+        assert h5_dm.n_pixels == binary_dm.n_pixels == zarr_dm.n_pixels
+        np.testing.assert_allclose(h5_dm.mz_axis, binary_dm.mz_axis, rtol=1e-7, atol=1e-10)
+        np.testing.assert_allclose(zarr_dm.mz_axis, binary_dm.mz_axis, rtol=1e-7, atol=1e-10)
+
+        for ion_idx in _sample_indices(binary_dm.n_ions):
+            binary_image = binary_dm.get_ion_image(ion_idx)
+            np.testing.assert_allclose(
+                h5_dm.get_ion_image(ion_idx),
+                binary_image,
+                rtol=1e-5,
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                zarr_dm.get_ion_image(ion_idx),
+                binary_image,
+                rtol=1e-5,
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                h5_dm.get_ion_vector(ion_idx),
+                binary_dm.get_ion_vector(ion_idx),
+                rtol=1e-5,
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                zarr_dm.get_ion_vector(ion_idx),
+                binary_dm.get_ion_vector(ion_idx),
+                rtol=1e-5,
+                atol=1e-8,
+            )

@@ -20,6 +20,9 @@ from massflow.data_manager.ion_image_data_manager_binary import (
     _BatchInfo,
     IonImageDataManagerBinary,
 )
+from massflow.tools.logger import get_logger
+
+logger = get_logger("massflow.data_manager.ion_image_data_manager_zarr")
 
 
 class IonImageDataManagerZarr(IonImageDataManagerBinary):
@@ -43,7 +46,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         ion_block: int = 256,
         temp_workers: int = 4,
         merge_workers: int = 4,
-        chunk_size: int = 1,
+        chunk_size: int = 16,
         metadata=None,
         shared_mz_axis: np.ndarray | None = None,
     ):
@@ -52,6 +55,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         self._group: Any | None = None
         self._dset: Any | None = None
         self._flat_idx: np.ndarray | None = None
+        self._source_idx: np.ndarray | None = None
         self._coordinate_base: str | None = None
         self._chunk_size = max(1, int(chunk_size))
 
@@ -106,9 +110,19 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
 
         self.coordinates = np.vstack(self._coordinate_chunks)
         coordinate_index = _prepare_coordinate_index(self.coordinates, self._width, self._height)
+        if coordinate_index.duplicate_count:
+            logger.warning(
+                "Zarr ion-image output contains duplicate 2D pixels after coordinate normalization; "
+                "keeping the last spectrum for each duplicated pixel. "
+                f"duplicate_count={coordinate_index.duplicate_count}, "
+                f"coordinate_base={coordinate_index.coordinate_base}"
+            )
+        self.coordinates = coordinate_index.coordinates.astype("<u4", copy=False)
+        self._n_pixels = int(self.coordinates.shape[0])
         self._width = coordinate_index.width
         self._height = coordinate_index.height
         self._flat_idx = coordinate_index.flat_idx
+        self._source_idx = coordinate_index.source_idx
         self._coordinate_base = coordinate_index.coordinate_base
 
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -124,18 +138,22 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         dtype = self.intensity_dtype
         executor = self._io_executor
         batch_infos = self._batch_infos
+        input_npix = sum(batch_info.n_pixels for batch_info in batch_infos)
         assert n is not None and executor is not None
 
-        if self._flat_idx is None:
+        if self._flat_idx is None or self._source_idx is None:
             coordinate_index = _prepare_coordinate_index(self.coordinates, w, h)
             self._flat_idx = coordinate_index.flat_idx
+            self._source_idx = coordinate_index.source_idx
             self._coordinate_base = coordinate_index.coordinate_base
         flat_idx = self._flat_idx
+        source_idx = self._source_idx
 
-        mmaps: list[np.ndarray] = []
+        # Use pread instead of memmap so scanned temp pages do not accumulate in RSS.
+        batch_fds: list[int] = []
         try:
             for bi in batch_infos:
-                mmaps.append(np.memmap(bi.path, dtype=dtype, mode="r", shape=(n, bi.n_pixels), order="C"))
+                batch_fds.append(os.open(bi.path, os.O_RDONLY))
 
             root = zarr.open_group(str(self.filepath), mode="w")
             root.attrs.update(
@@ -163,19 +181,32 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             starts = list(range(0, n, block))
             if not starts:
                 return
+            total_blocks = len(starts)
 
-            curr = _read_scatter(mmaps, batch_infos, flat_idx, starts[0], min(n, starts[0] + block), npix, h, w, dtype)
+            curr = _read_scatter(
+                batch_fds,
+                batch_infos,
+                flat_idx,
+                source_idx,
+                starts[0],
+                min(n, starts[0] + block),
+                input_npix,
+                h,
+                w,
+                dtype,
+            )
             fut: Future | None = None
             if len(starts) > 1:
                 s1 = starts[1]
                 fut = executor.submit(
                     _read_scatter,
-                    mmaps,
+                    batch_fds,
                     batch_infos,
                     flat_idx,
+                    source_idx,
                     s1,
                     min(n, s1 + block),
-                    npix,
+                    input_npix,
                     h,
                     w,
                     dtype,
@@ -184,18 +215,30 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             for i, start in enumerate(starts):
                 end = min(n, start + block)
                 dset[start:end] = curr
+                written_blocks = i + 1
+                if (
+                    total_blocks <= 10
+                    or written_blocks % max(1, total_blocks // 10) == 0
+                    or written_blocks == total_blocks
+                ):
+                    progress = (written_blocks / total_blocks) * 100
+                    logger.info(
+                        f"Writing Zarr ion images: merged {written_blocks}/{total_blocks} "
+                        f"ion blocks from temporary files ({progress:.1f}%)."
+                    )
 
                 nxt: Future | None = None
                 if i + 2 < len(starts):
                     s2 = starts[i + 2]
                     nxt = executor.submit(
                         _read_scatter,
-                        mmaps,
+                        batch_fds,
                         batch_infos,
                         flat_idx,
+                        source_idx,
                         s2,
                         min(n, s2 + block),
-                        npix,
+                        input_npix,
                         h,
                         w,
                         dtype,
@@ -204,10 +247,8 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
                     curr = fut.result()
                 fut = nxt
         finally:
-            for mmap in mmaps:
-                mmap_ext = getattr(mmap, "_mmap", None)
-                if mmap_ext is not None and hasattr(mmap_ext, "close"):
-                    mmap_ext.close()
+            for batch_fd in batch_fds:
+                os.close(batch_fd)
 
     def _open_for_read(self) -> None:
         if self._group is not None:
@@ -232,6 +273,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             coordinate_base=None if coordinate_base == "auto" else coordinate_base,
         )
         self._flat_idx = coordinate_index.flat_idx
+        self._source_idx = coordinate_index.source_idx
         self._coordinate_base = coordinate_index.coordinate_base
 
     def get_ion_image(self, ion_idx: int) -> np.ndarray:
@@ -256,6 +298,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         self.mz_axis = None
         self._coordinates = None
         self._flat_idx = None
+        self._source_idx = None
         self._coordinate_base = None
         self._shutdown_io_executor()
         if self.mode == "w" and not self._finalized:
@@ -273,7 +316,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         ion_block=256,
         temp_workers=2,
         merge_workers=2,
-        chunk_size=1,
+        chunk_size=16,
     ) -> "IonImageDataManagerZarr":
         meta = data_manager.ms.meta
         if (
@@ -305,7 +348,10 @@ class _CoordinateIndex:
     width: int
     height: int
     flat_idx: np.ndarray
+    source_idx: np.ndarray
+    coordinates: np.ndarray
     coordinate_base: str
+    duplicate_count: int
 
 
 def _coord_samples(coords: np.ndarray, *, limit: int = 5) -> list[tuple[int, int]]:
@@ -365,21 +411,27 @@ def _prepare_coordinate_index(
         )
 
     flat_idx = (xy0[:, 1] * width + xy0[:, 0]).astype(np.intp, copy=False)
-    unique_flat_idx, counts = np.unique(flat_idx, return_counts=True)
-    if unique_flat_idx.size != flat_idx.size:
-        duplicate_flat = unique_flat_idx[counts > 1]
-        duplicate_rows = xy[np.isin(flat_idx, duplicate_flat[:5])]
-        raise ValueError(
-            "coordinates contain duplicate pixels after coordinate normalization: "
-            f"count={flat_idx.size - unique_flat_idx.size}, coordinate_base={base}, "
-            f"examples={_coord_samples(duplicate_rows)}"
-        )
+    unique_flat_idx = np.unique(flat_idx)
+    duplicate_count = int(flat_idx.size - unique_flat_idx.size)
+    if duplicate_count:
+        # Dense ion-image storage has one value per 2D pixel. Match the H5 scatter
+        # behavior by keeping the last spectrum written for each duplicate pixel.
+        _, reverse_idx = np.unique(flat_idx[::-1], return_index=True)
+        source_idx = (flat_idx.size - 1 - reverse_idx).astype(np.intp, copy=False)
+        source_idx.sort()
+        flat_idx = flat_idx[source_idx]
+        xy = xy[source_idx]
+    else:
+        source_idx = np.arange(flat_idx.size, dtype=np.intp)
 
     return _CoordinateIndex(
         width=width,
         height=height,
         flat_idx=flat_idx,
+        source_idx=source_idx,
+        coordinates=xy,
         coordinate_base=base,
+        duplicate_count=duplicate_count,
     )
 
 
@@ -396,9 +448,10 @@ def _create_array(group, name: str, *, data=None, shape=None, chunks=None, dtype
 
 
 def _read_scatter(
-    mmaps: list[np.ndarray],
+    batch_fds: list[int],
     batch_infos: list[_BatchInfo],
     flat_idx: np.ndarray,
+    source_idx: np.ndarray | None,
     ion_start: int,
     ion_end: int,
     n_pixels: int,
@@ -408,12 +461,24 @@ def _read_scatter(
 ) -> np.ndarray:
     """从所有 temp 文件读取一个 ion block，向量化散射为 (block, H, W)。"""
     n_block = ion_end - ion_start
+    itemsize = np.dtype(dtype).itemsize
     sparse = np.empty((n_block, n_pixels), dtype=dtype)
     pixel_start = 0
-    for mmap, batch_info in zip(mmaps, batch_infos):
+    for batch_fd, batch_info in zip(batch_fds, batch_infos):
         pixel_end = pixel_start + batch_info.n_pixels
-        sparse[:, pixel_start:pixel_end] = mmap[ion_start:ion_end, :]
+        nbytes = n_block * batch_info.n_pixels * itemsize
+        offset = ion_start * batch_info.n_pixels * itemsize
+        raw = os.pread(batch_fd, nbytes, offset)
+        if len(raw) != nbytes:
+            raise OSError(f"Short read while merging {batch_info.path}: expected {nbytes}, got {len(raw)}")
+        sparse[:, pixel_start:pixel_end] = np.frombuffer(raw, dtype=dtype).reshape(
+            n_block,
+            batch_info.n_pixels,
+        )
         pixel_start = pixel_end
+
+    if source_idx is not None and source_idx.size != n_pixels:
+        sparse = sparse[:, source_idx]
 
     dense = np.zeros((n_block, height * width), dtype=dtype)
     dense[:, flat_idx] = sparse

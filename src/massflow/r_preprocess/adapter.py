@@ -53,7 +53,7 @@ class CardinalAdapter:
         cls,
         data_manager: MSDataManagerImzML,
         width: int = 5,
-        method: str = "quantile", # "diff", "sd", "mad", "quantile", "filter", "cwt"
+        method: str = "mad", # "diff", "sd", "mad", "quantile", "filter", "cwt"
         snr: float = 2.0,
         return_type: str = "height", # "height", "area"
         prominence: float | None = None,

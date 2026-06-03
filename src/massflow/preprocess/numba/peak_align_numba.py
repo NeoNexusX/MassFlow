@@ -46,7 +46,7 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
     """
     n_ref = reference.size
     n_peak = mz_list.size
-    aligned = np.zeros(n_ref, dtype=np.float64)
+    aligned = np.zeros(n_ref, dtype=intensity.dtype)
 
     if n_peak == 0:
         return aligned
@@ -101,17 +101,17 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
 @jit(nopython=True, fastmath=True, cache=True, parallel=True)
 def align_spectra_flat_parallel_jit(
     mz_data: NDArray[np.float64],
-    intensity_flat: NDArray[np.float64],
+    intensity_flat: NDArray,
     lengths: NDArray[np.uint32],
     reference: NDArray[np.float64],
     tolerance: float,
     code: int,
     is_shared_mz: bool,
-) -> NDArray[np.float64]:
+) -> NDArray:
     """Align a flat batch of spectra in parallel."""
     n_spectra = lengths.size
     n_ref = reference.size
-    aligned = np.zeros((n_spectra, n_ref), dtype=np.float64)
+    aligned = np.zeros((n_spectra, n_ref), dtype=intensity_flat.dtype)
 
     n_total_int = intensity_flat.size
     n_total_mz = mz_data.size

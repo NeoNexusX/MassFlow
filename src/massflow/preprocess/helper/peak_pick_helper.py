@@ -15,7 +15,7 @@ def peak_picker(
     intensity: np.ndarray,
     lengths: np.ndarray,
     width: int = 5,
-    method: str = "quantile",
+    method: str = "mad",
     snr: float = 2.0,
     return_type: str = "height",
     prominence: float | None = None,

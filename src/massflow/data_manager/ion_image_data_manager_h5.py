@@ -17,15 +17,16 @@ import numpy as np
 
 from massflow.data_manager.ion_image_data_manager_binary import (
     _BatchInfo,
-    _float_bits,
     IonImageDataManagerBinary,
 )
+from massflow.tools.logger import get_logger
 
 if TYPE_CHECKING:
     import h5py
 
 # bitshuffle 预处理 + LZ4 最快压缩级别
 _H5_ARGS = hdf5plugin.Bitshuffle(nelems=0, cname="lz4", clevel=1)  # type: ignore
+logger = get_logger("massflow.data_manager.ion_image_data_manager_h5")
 
 
 class IonImageDataManagerH5(IonImageDataManagerBinary):
@@ -136,12 +137,11 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
         fidx = (ys[valid] * w + xs[valid])
         self.flat_idx = fidx
 
-        # 打开所有 temp 文件为 memmap
-        mmaps: list[np.ndarray] = []
+        # Use pread instead of memmap so scanned temp pages do not accumulate in RSS.
+        batch_fds: list[int] = []
         try:
             for bi in batch_infos:
-                mmaps.append(np.memmap(bi.path, dtype=dtype, mode="r",
-                                        shape=(n, bi.n_pixels), order="C"))
+                batch_fds.append(os.open(bi.path, os.O_RDONLY))
 
             with h5py.File(self.filepath, "w") as f:
                 f.attrs["width"], f.attrs["height"] = w, h
@@ -157,37 +157,46 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
                 starts = list(range(0, n, block))
                 if not starts:
                     return
+                total_blocks = len(starts)
 
                 # 第一个 block 同步准备
-                curr = _read_scatter(mmaps, batch_infos, fidx,
+                curr = _read_scatter(batch_fds, batch_infos, fidx,
                                      starts[0], min(n, starts[0] + block),
                                      npix, h, w, isize, dtype)
                 fut: Future | None = None
                 if len(starts) > 1:
                     s1 = starts[1]
-                    fut = executor.submit(_read_scatter, mmaps, batch_infos, fidx,
+                    fut = executor.submit(_read_scatter, batch_fds, batch_infos, fidx,
                                           s1, min(n, s1 + block), npix, h, w, isize, dtype)
 
                 # 流水线：写当前 block 同时预读下一个
                 for i, start in enumerate(starts):
                     end = min(n, start + block)
                     dset[start:end] = curr  # bitshuffle+lz4 压缩写入
+                    written_blocks = i + 1
+                    if (
+                        total_blocks <= 10
+                        or written_blocks % max(1, total_blocks // 10) == 0
+                        or written_blocks == total_blocks
+                    ):
+                        progress = (written_blocks / total_blocks) * 100
+                        logger.info(
+                            f"Writing H5 ion images: merged {written_blocks}/{total_blocks} "
+                            f"ion blocks from temporary files ({progress:.1f}%)."
+                        )
 
                     # 预读下下个 block
                     nxt: Future | None = None
                     if i + 2 < len(starts):
                         s2 = starts[i + 2]
-                        nxt = executor.submit(_read_scatter, mmaps, batch_infos, fidx,
+                        nxt = executor.submit(_read_scatter, batch_fds, batch_infos, fidx,
                                               s2, min(n, s2 + block), npix, h, w, isize, dtype)
                     if fut is not None:
                         curr = fut.result()
                     fut = nxt
         finally:
-            for m in mmaps:
-                # NumPy memmap 缺少公开的 close() 方法。
-                mmap_ext = getattr(m, "_mmap", None)
-                if mmap_ext is not None and hasattr(mmap_ext, "close"):
-                    mmap_ext.close()
+            for batch_fd in batch_fds:
+                os.close(batch_fd)
 
     # ---- 读路径 --------------------------------------------------------------
 
@@ -244,12 +253,12 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
                           temp_workers=2, merge_workers=2, chunk_size=1,
                           ) -> "IonImageDataManagerH5":
         meta = data_manager.ms.meta
-        
+
         if (getattr(meta, "continuous", None) is not True or 
             data_manager.ms.shared_mz_list is None or 
             len(data_manager.ms.shared_mz_list) == 0):
             raise ValueError("from_data_manager requires continuous=True metadata and a shared mz_axis.")
-            
+
         return cls(
             filepath=filepath, mode="w",
             width=int(meta.max_count_of_pixels_x),
@@ -266,7 +275,7 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
 # ---- 辅助函数（模块级，便于 pickle）-------------------------------------------
 
 def _read_scatter(
-    mmaps: list[np.ndarray],
+    batch_fds: list[int],
     batch_infos: list[_BatchInfo],
     flat_idx: np.ndarray,
     ion_start: int,
@@ -281,9 +290,14 @@ def _read_scatter(
     b = ion_end - ion_start
     sparse = np.empty((b, n_pixels), dtype=dtype)
     p = 0
-    for mm, bi in zip(mmaps, batch_infos):
-        sparse[:, p:p + bi.n_pixels] = mm[ion_start:ion_end, :]
+    for batch_fd, bi in zip(batch_fds, batch_infos):
+        nbytes = b * bi.n_pixels * itemsize
+        offset = ion_start * bi.n_pixels * itemsize
+        raw = os.pread(batch_fd, nbytes, offset)
+        if len(raw) != nbytes:
+            raise OSError(f"Short read while merging {bi.path}: expected {nbytes}, got {len(raw)}")
+        sparse[:, p:p + bi.n_pixels] = np.frombuffer(raw, dtype=dtype).reshape(b, bi.n_pixels)
         p += bi.n_pixels
     dense = np.zeros((b, height * width), dtype=dtype)
     dense[:, flat_idx] = sparse
-    return dense.reshape(b, height, width)
+    return dense.reshape(b, height, width) # pylint: disable=E1121

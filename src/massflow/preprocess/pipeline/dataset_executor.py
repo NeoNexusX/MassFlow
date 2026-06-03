@@ -4,11 +4,18 @@ from typing import cast, Callable
 import numpy as np
 from numpy.typing import NDArray
 
-from massflow.data_manager import MSDataManager, MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5
+from massflow.data_manager import (
+    MSDataManager,
+    MSDataManagerImzML,
+    IonImageDataManagerBinary,
+    IonImageDataManagerH5,
+    IonImageDataManagerZarr,
+)
 from massflow.preprocess.pipeline.types import (
     ION_IMAGE_OUTPUT_FORMATS,
     OUTPUT_FORMAT_ION_IMAGE_BINARY,
     OUTPUT_FORMAT_ION_IMAGE_H5,
+    OUTPUT_FORMAT_ION_IMAGE_ZARR,
     InputMetaData,
     OutputFormat,
     OutputMetaData,
@@ -20,9 +27,9 @@ logger = get_logger("massflow.preprocess.pipeline.dataset_executor")
 
 def _write_through_generator(
         data_manager: MSDataManager,
-        output_dm: IonImageDataManagerBinary | IonImageDataManagerH5,
+        output_dm: IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr,
         input_meta: InputMetaData,
-) -> IonImageDataManagerBinary | IonImageDataManagerH5:
+) -> IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
     """Use a generator to write data from an imzML manager to an ion image manager."""
     for mz_axis, intensity_flat, lengths, coordinates in data_manager.flat_generator(
         batch_size=input_meta.batch_size,
@@ -43,12 +50,14 @@ def imzml_to_ion_image_data_manager(
     input_meta: InputMetaData,
     output_format: OutputFormat,
     file_path: str,
-) -> IonImageDataManagerBinary | IonImageDataManagerH5:
+) -> IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
     """Convert an imzML manager to an ion image data manager by writing through a generator."""
     if output_format == OUTPUT_FORMAT_ION_IMAGE_BINARY:
         ion_image_cls = IonImageDataManagerBinary
     elif output_format == OUTPUT_FORMAT_ION_IMAGE_H5:
         ion_image_cls = IonImageDataManagerH5
+    elif output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR:
+        ion_image_cls = IonImageDataManagerZarr
     else:
         raise ValueError(f"Unsupported output format: {output_format}")
 
@@ -67,7 +76,7 @@ def _task_to_data_manager(
     task: PreprocessTask,
     input_meta: InputMetaData,
     output_meta: OutputMetaData,
-) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5:
+) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
     """Apply a task to a data manager and return an imzML manager."""
     apply_fn = cast(Callable[..., MSDataManagerImzML], task.apply_fn)
     processed_data = apply_fn(data_manager=data_manager, **task.kwargs)
@@ -98,7 +107,7 @@ def run_dataset_task(
     task: PreprocessTask,
     input_meta: InputMetaData,
     output_meta: OutputMetaData,
-) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | tuple[NDArray[np.float64], float]:
+) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr | tuple[NDArray[np.float64], float]:
     """Execute whole-dataset task."""
 
     if task.name == "reference_computer":
