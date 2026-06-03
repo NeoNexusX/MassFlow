@@ -39,7 +39,7 @@ class InputMetaData:
     queue_bc_size: int
     result_path: str | None
     result_format: OutputFormat
-    ion_block: int = 32
+    ion_block: int = 256
 
 
 @dataclass(slots=True)

@@ -342,7 +342,7 @@ def _read_dense_sample_matrix(
     sample_ratio: float,
     *,
     random_state: int | None = None,
-    ion_block: int = 64,
+    ion_block: int = 256,
 ) -> np.ndarray:
     """Randomly sample pixels from a dense (Zarr/H5) backend by ratio."""
     if sample_ratio <= 0 or sample_ratio > 1:
@@ -373,7 +373,7 @@ def _iter_dense_matrix_batches(
     manager: IonImageDataManagerZarr | IonImageDataManagerH5,
     *,
     batch_size: int = 256,
-    ion_block: int = 64,
+    ion_block: int = 256,
 ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
     """Yield ``(batch_matrix, batch_coordinates)`` by pixel-batch from a dense backend."""
     if batch_size <= 0:

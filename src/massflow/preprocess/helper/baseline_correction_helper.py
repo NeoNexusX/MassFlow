@@ -38,7 +38,8 @@ def baseline_corrector(
     m: Optional[int] = None,
     decreasing: bool = True,
     lengths: Optional[np.ndarray] = None,
-) -> tuple[np.ndarray, np.ndarray]:
+    return_baseline: bool = True,
+) -> tuple[np.ndarray, np.ndarray | None]:
     """
     Flat-mode baseline estimation and correction.
 
@@ -71,10 +72,13 @@ def baseline_corrector(
     else:
         raise ValueError("baseline_corrector only supports: locmin_numba, snip_numba")
 
-    scaled_baseline = baseline_scale * baseline
-    corrected = np.maximum(xi - scaled_baseline, 0.0)
+    if baseline_scale != 1.0:
+        baseline *= baseline_scale
+
+    corrected = xi - baseline
+    np.maximum(corrected, 0.0, out=corrected)
 
     return (
         corrected.astype(target_dtype, copy=False),
-        scaled_baseline.astype(target_dtype, copy=False),
+        baseline.astype(target_dtype, copy=False) if return_baseline else None,
     )

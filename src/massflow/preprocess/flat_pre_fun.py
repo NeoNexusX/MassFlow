@@ -61,6 +61,7 @@ class FlatPreprocess:
             m=m,
             decreasing=decreasing,
             lengths=lengths,
+            return_baseline=False,
         )
 
         return FlatBatchResult(mz_data=mz_data, intensity=baselined_intensity, lengths=lengths)

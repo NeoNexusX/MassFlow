@@ -476,12 +476,12 @@ def reference_computer(
 
 def peak_aligner(
     mz_data: NDArray[np.float64],
-    intensity: NDArray[np.float64],
+    intensity: NDArray,
     lengths: NDArray[np.uint32],
     reference: NDArray[np.float64],
     tolerance: float,
     units: str = "ppm",
-) -> NDArray[np.float64]:
+) -> NDArray:
     """Align a flat batch of spectra to a reference m/z axis."""
     _input_validation(reference=reference, tolerance=tolerance)
     out_intdtype = intensity.dtype
