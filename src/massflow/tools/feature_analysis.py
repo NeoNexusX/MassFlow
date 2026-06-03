@@ -17,7 +17,6 @@ from massflow.data_manager import IonImageDataManagerBinary
 from massflow.data_manager import IonImageDataManagerH5
 from massflow.data_manager import IonImageDataManagerZarr
 from massflow.data_manager import MSDataManagerImzML
-from massflow.tools.plot_ion_image import read_tic_image
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tools.feature_analysis")
@@ -617,10 +616,10 @@ def _get_spatial_dimensions(data_manager: Any) -> tuple[int | None, int | None]:
     return (int(w) if w else None), (int(h) if h else None)
 
 
-def run_analysis(
+def plot_umap_kmeans_image(
     data_manager: Any,
     *,
-    output_dir: str | None = "./feature_analysis_output",
+    output_dir: str | Path = "./feature_analysis_output",
     sample_ratio: float = 0.2,
     transform_batch_size: int | None = 4096,
     dpi: int = 300,
@@ -679,28 +678,15 @@ def run_analysis(
         height=height,
     )
 
-    # ---- 5. TIC ---------------------------------------------------------
-    tic_img = read_tic_image(data_manager)
-
-    # ---- 6. Save outputs ------------------------------------------------
+    # ---- 5. Save outputs ------------------------------------------------
     if save_images:
         plt.imsave(str(out / "umap_image.png"), umap_img, dpi=dpi)
         plt.imsave(str(out / "kmeans_image.png"), kmeans_img, dpi=dpi)
 
-        vmax = np.nanpercentile(tic_img, 95)
-        plt.imsave(
-            str(out / "tic_image.png"),
-            tic_img,
-            cmap="inferno",
-            vmax=vmax,
-            dpi=dpi,
-        )
-
     if save_matrix:
-        result_group = zarr.open_group(str(out / "result.zarr"), mode="w")
+        result_group = zarr.open_group(str(out / "umap_result.zarr"), mode="w")
         result_group.create_array("umap_image", data=umap_img)
         result_group.create_array("kmeans_image", data=kmeans_img)
-        result_group.create_array("tic_image", data=tic_img)
         result_group.attrs["format"] = "massflow_feature_analysis"
 
     logger.info(f"UMAP/KMeans analysis complete. Output: {out}")

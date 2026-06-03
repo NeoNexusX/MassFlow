@@ -28,9 +28,6 @@ _PROFILE_ONLY_TASKS = frozenset({"baseline_correction", "noise_reduction", "peak
 
 def _normalize_output_path(input_meta: InputMetaData, temp_dir: str) -> str | None:
     """Helper function to ensure output paths are properly set based on input metadata."""
-    if input_meta.result_format not in ION_IMAGE_OUTPUT_FORMATS:
-        return input_meta.result_path
-
     suffix = OUTPUT_FORMAT_SUFFIXES[input_meta.result_format]
     if input_meta.result_path:
         path = Path(input_meta.result_path)
@@ -38,7 +35,8 @@ def _normalize_output_path(input_meta: InputMetaData, temp_dir: str) -> str | No
         if path.suffix != suffix:
             path = path.with_suffix(suffix)
     else:
-        path = Path(temp_dir) / f"ion_image_output{suffix}"
+        output_name = "ion_image_output" if input_meta.result_format in ION_IMAGE_OUTPUT_FORMATS else "preprocess_output"
+        path = Path(temp_dir) / f"{output_name}{suffix}"
 
     return str(path)
 

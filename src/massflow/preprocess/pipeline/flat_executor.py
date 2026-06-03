@@ -4,6 +4,7 @@ from queue import Queue
 from threading import Event, Lock, Thread
 from typing import Callable, Optional, cast
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -63,7 +64,9 @@ class FlatOutputSink:
             output_meta=output_meta,
         )
         if output_meta.output_format not in ION_IMAGE_OUTPUT_FORMATS:
-            processed_data = MSDataManagerImzML(temp_dir=input_meta.temp_dir)
+            if output_meta.file_path is not None:
+                Path(output_meta.file_path).parent.mkdir(parents=True, exist_ok=True)
+            processed_data = MSDataManagerImzML(filepath=output_meta.file_path, temp_dir=input_meta.temp_dir)
             processed_data.copy_meta(source_data_manager)
             set_spectrum_type_metadata(processed_data.ms.meta, output_meta.spectrum_type)
             sink.data_manager = processed_data

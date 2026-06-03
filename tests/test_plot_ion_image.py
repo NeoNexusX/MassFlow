@@ -270,12 +270,12 @@ class TestPlotIonImage:
         np.testing.assert_allclose(image, expected, rtol=1e-6, atol=1e-6)
 
     def test_structure_only_tic_plot_from_real_imzml_only_changes_plot_style(self, continuous_dm, tmp_path):
-        plot_path = tmp_path / "structure_tic.png"
+        plot_path = tmp_path / "tic_image.png"
 
         plot_tic_image(
             continuous_dm,
             structure_only=True,
-            save_path=plot_path,
+            output_dir=tmp_path,
             show=False,
             dpi=123,
         )
@@ -311,8 +311,9 @@ class TestPlotIonImage:
             tic_image = read_tic_image(backend_dm)
             plot_path = tmp_path / f"plot{suffix}.png"
             plot_ion_image(backend_dm, mz=float(mz_axis[1]), save_path=plot_path, show=False, dpi=123)
-            tic_cover_path = tmp_path / f"tic_cover{suffix}.png"
-            plot_tic_image(backend_dm, structure_only=True, save_path=tic_cover_path, show=False, dpi=123)
+            tic_cover_dir = tmp_path / f"tic_cover{suffix}"
+            plot_tic_image(backend_dm, structure_only=True, output_dir=tic_cover_dir, show=False, dpi=123)
+            tic_cover_path = tic_cover_dir / "tic_image.png"
 
         np.testing.assert_allclose(image, expected_stack[1], rtol=1e-5, atol=1e-5)
         np.testing.assert_allclose(tic_image, np.sum(expected_stack, axis=0), rtol=1e-5, atol=1e-5)

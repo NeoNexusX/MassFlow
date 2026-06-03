@@ -7,6 +7,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+import zarr
 
 from massflow.data_manager import (
     IonImageDataManagerBinary,
@@ -546,7 +547,6 @@ def _plot_image(
 
 def plot_ion_image(
     data_manager: SupportedDataManager,
-    image_matrix: np.ndarray | None = None,
     *,
     mz: float | None = None,
     batch_size: int = 256,
@@ -558,15 +558,14 @@ def plot_ion_image(
     figsize: tuple[float, float] = (20, 5),
     title: str | None = None,
 ) -> None:
-    """Read and plot a selected ion image, unless an image matrix is provided."""
-    if image_matrix is None:
-        image_matrix = read_ion_image(
-            data_manager,
-            mz=mz,
-            batch_size=batch_size,
-            max_threads=max_threads,
-            mz_tolerance=mz_tolerance,
-        )
+    """Read and plot a selected ion image."""
+    image_matrix = read_ion_image(
+        data_manager,
+        mz=mz,
+        batch_size=batch_size,
+        max_threads=max_threads,
+        mz_tolerance=mz_tolerance,
+    )
     _plot_image(
         image_matrix,
         save_path=save_path,
@@ -579,30 +578,40 @@ def plot_ion_image(
 
 def plot_tic_image(
     data_manager: SupportedDataManager,
-    image_matrix: np.ndarray | None = None,
     *,
     batch_size: int = 256,
     max_threads: int = 2,
-    save_path: str | Path | None = None,
-    show: bool = True,
+    output_dir: str | Path = "./tic_image_output",
+    save_image: bool = True,
+    save_matrix: bool = True,
+    show: bool = False,
     dpi: int = 300,
     figsize: tuple[float, float] = (20, 5),
     title: str | None = None,
     structure_only: bool = False,
-) -> None:
-    """Read and plot a TIC image, unless an image matrix is provided."""
-    if image_matrix is None:
-        image_matrix = read_tic_image(
-            data_manager,
-            batch_size=batch_size,
-            max_threads=max_threads,
-        )
-    _plot_image(
-        image_matrix,
-        save_path=save_path,
-        show=bool(show),
-        dpi=int(dpi),
-        figsize=(float(figsize[0]), float(figsize[1])),
-        title=title,
-        structure_only=structure_only,
+) -> bool:
+    """Read and plot a TIC image."""
+    out = Path(output_dir)
+    image_matrix = read_tic_image(
+        data_manager,
+        batch_size=batch_size,
+        max_threads=max_threads,
     )
+    if save_image:
+        _plot_image(
+            image_matrix,
+            save_path=str(out / "tic_image.png"),
+            show=bool(show),
+            dpi=int(dpi),
+            figsize=(float(figsize[0]), float(figsize[1])),
+            title=title,
+            structure_only=structure_only,
+        )
+
+    if save_matrix:
+        result_group = zarr.open_group(str(out / "tic_result.zarr"), mode="w")
+        result_group.create_array("tic_matrix", data=image_matrix)
+
+    logger.info(f"TIC image plotting complete. Output: {out}")
+
+    return True
