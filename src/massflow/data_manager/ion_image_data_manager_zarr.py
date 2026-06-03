@@ -149,10 +149,11 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         flat_idx = self._flat_idx
         source_idx = self._source_idx
 
-        mmaps: list[np.ndarray] = []
+        # Use pread instead of memmap so scanned temp pages do not accumulate in RSS.
+        batch_fds: list[int] = []
         try:
             for bi in batch_infos:
-                mmaps.append(np.memmap(bi.path, dtype=dtype, mode="r", shape=(n, bi.n_pixels), order="C"))
+                batch_fds.append(os.open(bi.path, os.O_RDONLY))
 
             root = zarr.open_group(str(self.filepath), mode="w")
             root.attrs.update(
@@ -180,9 +181,10 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             starts = list(range(0, n, block))
             if not starts:
                 return
+            total_blocks = len(starts)
 
             curr = _read_scatter(
-                mmaps,
+                batch_fds,
                 batch_infos,
                 flat_idx,
                 source_idx,
@@ -198,7 +200,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
                 s1 = starts[1]
                 fut = executor.submit(
                     _read_scatter,
-                    mmaps,
+                    batch_fds,
                     batch_infos,
                     flat_idx,
                     source_idx,
@@ -213,13 +215,24 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             for i, start in enumerate(starts):
                 end = min(n, start + block)
                 dset[start:end] = curr
+                written_blocks = i + 1
+                if (
+                    total_blocks <= 10
+                    or written_blocks % max(1, total_blocks // 10) == 0
+                    or written_blocks == total_blocks
+                ):
+                    progress = (written_blocks / total_blocks) * 100
+                    logger.info(
+                        f"Writing Zarr ion images: merged {written_blocks}/{total_blocks} "
+                        f"ion blocks from temporary files ({progress:.1f}%)."
+                    )
 
                 nxt: Future | None = None
                 if i + 2 < len(starts):
                     s2 = starts[i + 2]
                     nxt = executor.submit(
                         _read_scatter,
-                        mmaps,
+                        batch_fds,
                         batch_infos,
                         flat_idx,
                         source_idx,
@@ -234,10 +247,8 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
                     curr = fut.result()
                 fut = nxt
         finally:
-            for mmap in mmaps:
-                mmap_ext = getattr(mmap, "_mmap", None)
-                if mmap_ext is not None and hasattr(mmap_ext, "close"):
-                    mmap_ext.close()
+            for batch_fd in batch_fds:
+                os.close(batch_fd)
 
     def _open_for_read(self) -> None:
         if self._group is not None:
@@ -437,7 +448,7 @@ def _create_array(group, name: str, *, data=None, shape=None, chunks=None, dtype
 
 
 def _read_scatter(
-    mmaps: list[np.ndarray],
+    batch_fds: list[int],
     batch_infos: list[_BatchInfo],
     flat_idx: np.ndarray,
     source_idx: np.ndarray | None,
@@ -450,11 +461,20 @@ def _read_scatter(
 ) -> np.ndarray:
     """从所有 temp 文件读取一个 ion block，向量化散射为 (block, H, W)。"""
     n_block = ion_end - ion_start
+    itemsize = np.dtype(dtype).itemsize
     sparse = np.empty((n_block, n_pixels), dtype=dtype)
     pixel_start = 0
-    for mmap, batch_info in zip(mmaps, batch_infos):
+    for batch_fd, batch_info in zip(batch_fds, batch_infos):
         pixel_end = pixel_start + batch_info.n_pixels
-        sparse[:, pixel_start:pixel_end] = mmap[ion_start:ion_end, :]
+        nbytes = n_block * batch_info.n_pixels * itemsize
+        offset = ion_start * batch_info.n_pixels * itemsize
+        raw = os.pread(batch_fd, nbytes, offset)
+        if len(raw) != nbytes:
+            raise OSError(f"Short read while merging {batch_info.path}: expected {nbytes}, got {len(raw)}")
+        sparse[:, pixel_start:pixel_end] = np.frombuffer(raw, dtype=dtype).reshape(
+            n_block,
+            batch_info.n_pixels,
+        )
         pixel_start = pixel_end
 
     if source_idx is not None and source_idx.size != n_pixels:
