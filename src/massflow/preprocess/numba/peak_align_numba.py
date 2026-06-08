@@ -59,8 +59,6 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
                 aligned[i] = intensity[idx]
         return aligned
 
-    upsample_code = 1 if code == 0 else (0 if code == 1 else 2)
-
     start_pos = search_nearest_jit(mz_list, reference, tolerance, code, -1, False)
     processed_mask = np.zeros(n_ref, dtype=np.bool_)
 
@@ -73,28 +71,28 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
         pj_int = int(pj)
 
         for i in range(pj_int, n_ref):
-            if processed_mask[i] or scalar_diff_jit(reference[i], curr_mz, upsample_code) > tolerance:
+            if processed_mask[i] or scalar_diff_jit(reference[i], curr_mz, code) > tolerance:
                 break
 
             q_arr = np.array([reference[i]], dtype=np.float64)
-            best_match_arr = search_nearest_jit(q_arr, mz_list, tolerance, code, -1, True)
+            best_match_arr = search_nearest_jit(q_arr, mz_list[j:], tolerance, code, -1, False)
             best_match_idx = best_match_arr[0]
 
             if best_match_idx != -1:
-                aligned[i] = intensity[best_match_idx]
-                processed_mask[i] = True
+                aligned[i] = intensity[j + best_match_idx]
+            processed_mask[i] = True
 
         for i in range(pj_int - 1, -1, -1):
-            if processed_mask[i] or scalar_diff_jit(reference[i], curr_mz, upsample_code) > tolerance:
+            if processed_mask[i] or scalar_diff_jit(reference[i], curr_mz, code) > tolerance:
                 break
 
             q_arr = np.array([reference[i]], dtype=np.float64)
-            best_match_arr = search_nearest_jit(q_arr, mz_list, tolerance, code, -1, True)
+            best_match_arr = search_nearest_jit(q_arr, mz_list[j:], tolerance, code, -1, False)
             best_match_idx = best_match_arr[0]
 
             if best_match_idx != -1:
-                aligned[i] = intensity[best_match_idx]
-                processed_mask[i] = True
+                aligned[i] = intensity[j + best_match_idx]
+            processed_mask[i] = True
 
     return aligned
 

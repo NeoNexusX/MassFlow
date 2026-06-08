@@ -200,11 +200,12 @@ class PreprocessorAPI(_TaskRegistrar):
                 min_frequency=min_frequency,
             )
 
+        align_tolerance = tolerance * 1e-6 if tolerance is not None and units == "ppm" else tolerance
         return self._register_task(
             "peak_align",
             scope="batch",
             apply_fn=FlatPreprocess.peak_align_flat,
             reference=reference,
-            tolerance=tolerance,
+            tolerance=align_tolerance,
             units=units,
         )

@@ -486,7 +486,7 @@ def peak_aligner(
     _input_validation(reference=reference, tolerance=tolerance)
     out_intdtype = intensity.dtype
     norm_units = _normalize_units(units)
-    tol_method = "x" if norm_units == "relative" else "abs"
+    tol_method = "y" if norm_units == "relative" else "abs"
     code = get_method_code(tol_method)
 
     reference_arr = np.asarray(reference, dtype=np.float64)
