@@ -41,6 +41,7 @@ class InputMetaData:
     result_path: str | None
     result_format: OutputFormat
     ion_block: int = 256
+    compute_mean_spectrum: bool = False
 
 
 @dataclass(slots=True)

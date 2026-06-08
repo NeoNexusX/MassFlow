@@ -49,6 +49,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         chunk_size: int = 16,
         metadata=None,
         shared_mz_axis: np.ndarray | None = None,
+        compute_mean_spectrum: bool = False,
     ):
         import uuid
 
@@ -58,6 +59,8 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         self._source_idx: np.ndarray | None = None
         self._coordinate_base: str | None = None
         self._chunk_size = max(1, int(chunk_size))
+        self._compute_mean_spectrum = compute_mean_spectrum
+        self._mean_spectrum: np.ndarray | None = None
 
         if filepath is None and mode == "w":
             filepath = Path("output") / f"{uuid.uuid4().hex}.zarr"
@@ -182,6 +185,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             if not starts:
                 return
             total_blocks = len(starts)
+            mean_spectrum = np.empty(n, dtype=np.float64) if self._compute_mean_spectrum else None
 
             curr = _read_scatter(
                 batch_fds,
@@ -215,6 +219,9 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             for i, start in enumerate(starts):
                 end = min(n, start + block)
                 dset[start:end] = curr
+                if mean_spectrum is not None:
+                    block_sum = np.sum(curr, axis=(1, 2), dtype=np.float64)
+                    mean_spectrum[start:end] = block_sum / flat_idx.size
                 written_blocks = i + 1
                 if (
                     total_blocks <= 10
@@ -246,6 +253,10 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
                 if fut is not None:
                     curr = fut.result()
                 fut = nxt
+
+            if mean_spectrum is not None:
+                _create_array(root, "mean_spectrum", data=mean_spectrum)
+                self._mean_spectrum = mean_spectrum
         finally:
             for batch_fd in batch_fds:
                 os.close(batch_fd)
@@ -275,6 +286,15 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         self._flat_idx = coordinate_index.flat_idx
         self._source_idx = coordinate_index.source_idx
         self._coordinate_base = coordinate_index.coordinate_base
+        if "mean_spectrum" in self._group:
+            self._mean_spectrum = np.asarray(self._group["mean_spectrum"][:])
+
+    @property
+    def mean_spectrum(self) -> np.ndarray | None:
+        """Return the pre-computed mean spectrum, or None if not available."""
+        if self._mean_spectrum is None:
+            self._open_for_read()
+        return self._mean_spectrum
 
     def get_ion_image(self, ion_idx: int) -> np.ndarray:
         """读取单张 ion image，返回 shape=(H, W)。"""
@@ -300,6 +320,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         self._flat_idx = None
         self._source_idx = None
         self._coordinate_base = None
+        self._mean_spectrum = None
         self._shutdown_io_executor()
         if self.mode == "w" and not self._finalized:
             self._cleanup_temp()
@@ -317,6 +338,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         temp_workers=2,
         merge_workers=2,
         chunk_size=16,
+        compute_mean_spectrum=False,
     ) -> "IonImageDataManagerZarr":
         meta = data_manager.ms.meta
         if (
@@ -340,6 +362,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
             chunk_size=chunk_size,
             metadata=meta,
             shared_mz_axis=data_manager.ms.shared_mz_list,
+            compute_mean_spectrum=compute_mean_spectrum,
         )
 
 

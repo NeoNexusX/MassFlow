@@ -24,6 +24,7 @@ def _run_pipeline(
     output_format="imzml",
     temp_dir="./temp",
     output_path=None,
+    compute_mean_spectrum=False,
 ):
     """Run the async pipeline once with specified parameters."""
     processed_data_manager = (
@@ -35,6 +36,7 @@ def _run_pipeline(
             temp_dir=str(temp_dir),
             output_format=output_format, # type: ignore
             output_path=None if output_path is None else str(output_path),
+            compute_mean_spectrum=compute_mean_spectrum,
         )
         .noise_reduction()
         .peak_pick()
@@ -211,6 +213,46 @@ class TestAsyncPipeline:
         assert isinstance(zarr_dm, IonImageDataManagerZarr)
         assert output_path.exists()
         _assert_ion_image_matches(zarr_dm, mz_axis, pixel_matrix)
+
+    def test_zarr_pipeline_computes_mean_spectrum(self, ms_raw_data, tmp_path, request):
+        output_path = tmp_path / "pipeline_mean.zarr"
+        zarr_dm = _close_after_test(
+            request,
+            _run_pipeline(
+                ms_raw_data,
+                output_format="ion_image_zarr",
+                temp_dir=tmp_path / "zarr_mean",
+                output_path=output_path,
+                compute_mean_spectrum=True,
+            ),
+        )
+
+        assert isinstance(zarr_dm, IonImageDataManagerZarr)
+        ion_indices = _sample_indices(zarr_dm.n_ions)
+        expected = np.array(
+            [zarr_dm.get_ion_vector(ion_idx).mean(dtype=np.float64) for ion_idx in ion_indices]
+        )
+        np.testing.assert_allclose(zarr_dm.mean_spectrum[ion_indices], expected, rtol=1e-7, atol=1e-10) # type: ignore
+
+    def test_zarr_conversion_computes_mean_spectrum(self, ms_raw_data, tmp_path, request):
+        output_path = tmp_path / "conversion_mean.zarr"
+        zarr_dm = _close_after_test(
+            request,
+            Preprocessor(
+                data_manager=ms_raw_data,
+                temp_dir=str(tmp_path / "conversion_mean"),
+                output_format="ion_image_zarr",
+                output_path=str(output_path),
+                compute_mean_spectrum=True,
+            ).start(),
+        )
+
+        assert isinstance(zarr_dm, IonImageDataManagerZarr)
+        ion_indices = _sample_indices(zarr_dm.n_ions)
+        expected = np.array(
+            [zarr_dm.get_ion_vector(ion_idx).mean(dtype=np.float64) for ion_idx in ion_indices]
+        )
+        np.testing.assert_allclose(zarr_dm.mean_spectrum[ion_indices], expected, rtol=1e-7, atol=1e-10) # type: ignore
 
     def test_three_output_formats_are_consistent(self, ms_raw_data, tmp_path, request):
         """The three output formats must be consistent with each other."""

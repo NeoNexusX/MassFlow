@@ -17,9 +17,11 @@ import numpy as np
 
 from massflow.data_manager.ion_image_data_manager import IonImageDataManager
 from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
+from massflow.tools.logger import get_logger
 
 # Header 中每个字段都是 little-endian uint64；sentinel 作为终止标记，
 # HEADER_SIZE / HEADER_STRUCT 在 IonImageBinaryHeader 定义之后自动计算。
+logger = get_logger("massflow.data_manager.ion_image_data_manager_binary")
 UINT32_SIZE = np.dtype("<u4").itemsize
 _HEADER_SENTINEL = 0xFFFFFFFFFFFFFFFF
 _TEMP_WRITE_ION_BLOCK = 2048
@@ -135,6 +137,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
         merge_workers: int = 4,
         metadata=None,
         shared_mz_axis: np.ndarray | None = None,
+        compute_mean_spectrum: bool = False,
     ):
         if filepath is None:
             if mode != "w":
@@ -167,6 +170,8 @@ class IonImageDataManagerBinary(IonImageDataManager):
 
         if mode not in {"r", "w"}:
             raise ValueError("mode must be 'r' or 'w'")
+        if compute_mean_spectrum:
+            logger.warning(f"{type(self).__name__} does not support mean spectrum computation; ignoring option.")
 
         if mode == "r":
             # 读模式只解析 header，并为三个数据区建立 memmap 视图。
@@ -196,6 +201,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
         ion_block: int = 256,
         temp_workers: int = 2,
         merge_workers: int = 2,
+        compute_mean_spectrum: bool = False,
     ) -> "IonImageDataManagerBinary":
         """
         从已有 MSDataManager 创建 binary writer。
@@ -225,6 +231,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
             merge_workers=merge_workers,
             metadata=meta,
             shared_mz_axis=data_manager.ms.shared_mz_list,
+            compute_mean_spectrum=compute_mean_spectrum,
         )
 
     @classmethod
@@ -241,6 +248,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
         ion_block: int = 256,
         temp_workers: int = 2,
         merge_workers: int = 2,
+        compute_mean_spectrum: bool = False,
     ) -> "IonImageDataManagerBinary":
         """
         Create an ion-image writer from the final flat pipeline output contract.
@@ -272,6 +280,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
             merge_workers=merge_workers,
             metadata=output_meta,
             shared_mz_axis=mz_axis,
+            compute_mean_spectrum=compute_mean_spectrum,
         )
 
     def _validate_metadata(self, metadata, shared_mz_axis: np.ndarray | None) -> None:

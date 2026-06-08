@@ -67,6 +67,7 @@ def imzml_to_ion_image_data_manager(
         temp_dir=input_meta.temp_dir,
         temp_workers=input_meta.output_max_workers,
         merge_workers=input_meta.output_max_workers,
+        compute_mean_spectrum=input_meta.compute_mean_spectrum,
     )
 
     return _write_through_generator(imzml_manager, output_dm, input_meta)

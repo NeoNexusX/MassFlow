@@ -182,6 +182,7 @@ def _write_tiny_zarr(
     width: int | None = 2,
     height: int | None = 2,
     chunk_size: int = 1,
+    compute_mean_spectrum: bool = False,
 ) -> IonImageDataManagerZarr:
     """Write a tiny two-ion Zarr store for correctness tests."""
     coords = np.asarray(coordinates, dtype=np.int64)
@@ -198,6 +199,7 @@ def _write_tiny_zarr(
         intensity_dtype=np.float32,
         ion_block=16,
         chunk_size=chunk_size,
+        compute_mean_spectrum=compute_mean_spectrum,
     )
     try:
         dm.write_flat_batch(
@@ -280,6 +282,29 @@ class TestZarrDataLoader:
 
 class TestZarrCorrectness:
     """Small synthetic checks for Zarr coordinate semantics."""
+
+    def test_mean_spectrum_uses_valid_pixels_and_roundtrips(self, tmp_path):
+        path = tmp_path / "mean.zarr"
+        dm = _write_tiny_zarr(
+            path,
+            tmp_path,
+            [(1, 1), (2, 1)],
+            compute_mean_spectrum=True,
+        )
+        try:
+            np.testing.assert_allclose(dm.mean_spectrum, np.array([1.5, 15.0])) # type: ignore
+        finally:
+            dm.close()
+
+        with IonImageDataManagerZarr(str(path), mode="r") as reopened:
+            np.testing.assert_allclose(reopened.mean_spectrum, np.array([1.5, 15.0])) # type: ignore
+
+    def test_mean_spectrum_is_absent_by_default(self, tmp_path):
+        dm = _write_tiny_zarr(tmp_path / "no_mean.zarr", tmp_path, [(1, 1), (2, 1)])
+        try:
+            assert dm.mean_spectrum is None
+        finally:
+            dm.close()
 
     def test_one_based_coordinates_roundtrip(self, tmp_path):
         path = tmp_path / "one.zarr"

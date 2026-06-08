@@ -50,6 +50,7 @@ class Preprocessor(PreprocessorAPI):
         output_format: OutputFormat = OUTPUT_FORMAT_IMZML,
         output_path: str | None = None,
         output_max_workers: int = 2,
+        compute_mean_spectrum: bool = False,
     ): # pylint: disable=super-init-not-called
         if data_manager is None or batch_size <= 0 or batch_size > 9056 or queue_ab_size <= 0 or queue_bc_size <= 0 :
             logger.error(f"Invalid parameter values. please check:"
@@ -69,6 +70,7 @@ class Preprocessor(PreprocessorAPI):
         self.output_path = output_path
         self.output_max_workers = output_max_workers
         self.ion_block = ion_block
+        self.compute_mean_spectrum = compute_mean_spectrum
 
         self._tasks: list[PreprocessTask] = []
 
@@ -104,6 +106,7 @@ class Preprocessor(PreprocessorAPI):
                 queue_bc_size=self.queue_bc_size,
                 result_path=self.output_path,
                 result_format=self.output_format, # type: ignore
+                compute_mean_spectrum=self.compute_mean_spectrum,
             ),
         )
         if not task_segments and self.output_format in ION_IMAGE_OUTPUT_FORMATS:

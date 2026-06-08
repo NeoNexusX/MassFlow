@@ -52,6 +52,7 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
         chunk_size: int = 1,
         metadata=None,
         shared_mz_axis: np.ndarray | None = None,
+        compute_mean_spectrum: bool = False,
     ):
         import uuid
 
@@ -68,6 +69,7 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
             temp_dir=temp_dir, mz_dtype=mz_dtype, intensity_dtype=intensity_dtype,
             ion_block=ion_block, temp_workers=temp_workers, merge_workers=merge_workers,
             metadata=metadata, shared_mz_axis=shared_mz_axis,
+            compute_mean_spectrum=compute_mean_spectrum,
         )
 
     # ---- properties ---------------------------------------------------------
@@ -251,6 +253,7 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
     def from_data_manager(cls, data_manager, filepath, *, temp_dir=None,
                           mz_dtype=None, intensity_dtype=None, ion_block=256,
                           temp_workers=2, merge_workers=2, chunk_size=1,
+                          compute_mean_spectrum=False,
                           ) -> "IonImageDataManagerH5":
         meta = data_manager.ms.meta
 
@@ -269,6 +272,7 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
             ion_block=ion_block, temp_workers=temp_workers, merge_workers=merge_workers,
             chunk_size=chunk_size,
             metadata=meta, shared_mz_axis=data_manager.ms.shared_mz_list,
+            compute_mean_spectrum=compute_mean_spectrum,
         )
 
 

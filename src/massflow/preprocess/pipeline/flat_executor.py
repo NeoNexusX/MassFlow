@@ -96,6 +96,7 @@ class FlatOutputSink:
             temp_workers=self.input_meta.output_max_workers,
             merge_workers=self.input_meta.output_max_workers,
             ion_block=self.input_meta.ion_block,
+            compute_mean_spectrum=self.input_meta.compute_mean_spectrum,
         )
 
     def write_chunk(self, chunk: FlatChunk) -> None:
