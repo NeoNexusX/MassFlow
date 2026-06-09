@@ -17,7 +17,9 @@ import numpy as np
 import zarr
 
 from massflow.data_manager.ion_image_data_manager_binary import (
+    _BINARY_OPEN_FLAG,
     _BatchInfo,
+    _pread,
     IonImageDataManagerBinary,
 )
 from massflow.tools.logger import get_logger
@@ -156,7 +158,7 @@ class IonImageDataManagerZarr(IonImageDataManagerBinary):
         batch_fds: list[int] = []
         try:
             for bi in batch_infos:
-                batch_fds.append(os.open(bi.path, os.O_RDONLY))
+                batch_fds.append(os.open(bi.path, os.O_RDONLY | _BINARY_OPEN_FLAG))
 
             root = zarr.open_group(str(self.filepath), mode="w")
             root.attrs.update(
@@ -491,7 +493,7 @@ def _read_scatter(
         pixel_end = pixel_start + batch_info.n_pixels
         nbytes = n_block * batch_info.n_pixels * itemsize
         offset = ion_start * batch_info.n_pixels * itemsize
-        raw = os.pread(batch_fd, nbytes, offset)
+        raw = _pread(batch_fd, nbytes, offset)
         if len(raw) != nbytes:
             raise OSError(f"Short read while merging {batch_info.path}: expected {nbytes}, got {len(raw)}")
         sparse[:, pixel_start:pixel_end] = np.frombuffer(raw, dtype=dtype).reshape(

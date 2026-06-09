@@ -16,7 +16,9 @@ import hdf5plugin
 import numpy as np
 
 from massflow.data_manager.ion_image_data_manager_binary import (
+    _BINARY_OPEN_FLAG,
     _BatchInfo,
+    _pread,
     IonImageDataManagerBinary,
 )
 from massflow.tools.logger import get_logger
@@ -143,7 +145,7 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
         batch_fds: list[int] = []
         try:
             for bi in batch_infos:
-                batch_fds.append(os.open(bi.path, os.O_RDONLY))
+                batch_fds.append(os.open(bi.path, os.O_RDONLY | _BINARY_OPEN_FLAG))
 
             with h5py.File(self.filepath, "w") as f:
                 f.attrs["width"], f.attrs["height"] = w, h
@@ -297,7 +299,7 @@ def _read_scatter(
     for batch_fd, bi in zip(batch_fds, batch_infos):
         nbytes = b * bi.n_pixels * itemsize
         offset = ion_start * bi.n_pixels * itemsize
-        raw = os.pread(batch_fd, nbytes, offset)
+        raw = _pread(batch_fd, nbytes, offset)
         if len(raw) != nbytes:
             raise OSError(f"Short read while merging {bi.path}: expected {nbytes}, got {len(raw)}")
         sparse[:, p:p + bi.n_pixels] = np.frombuffer(raw, dtype=dtype).reshape(b, bi.n_pixels)

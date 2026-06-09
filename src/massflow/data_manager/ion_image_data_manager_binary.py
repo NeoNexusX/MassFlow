@@ -6,6 +6,7 @@ import os
 import shutil
 import struct
 import tempfile
+import threading
 import uuid
 from copy import deepcopy
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -25,6 +26,28 @@ logger = get_logger("massflow.data_manager.ion_image_data_manager_binary")
 UINT32_SIZE = np.dtype("<u4").itemsize
 _HEADER_SENTINEL = 0xFFFFFFFFFFFFFFFF
 _TEMP_WRITE_ION_BLOCK = 2048
+_BINARY_OPEN_FLAG = getattr(os, "O_BINARY", 0)
+_OS_PREAD = getattr(os, "pread", None)
+_OS_PWRITE = getattr(os, "pwrite", None)
+_POSITIONED_IO_LOCK = threading.Lock()
+
+
+def _pread(fd: int, nbytes: int, offset: int) -> bytes:
+    """Read from an explicit offset, with a locked Windows fallback."""
+    if _OS_PREAD is not None:
+        return _OS_PREAD(fd, nbytes, offset)
+    with _POSITIONED_IO_LOCK:
+        os.lseek(fd, offset, os.SEEK_SET)
+        return os.read(fd, nbytes)
+
+
+def _pwrite(fd: int, data: Any, offset: int) -> int:
+    """Write at an explicit offset, with a locked Windows fallback."""
+    if _OS_PWRITE is not None:
+        return _OS_PWRITE(fd, data, offset)
+    with _POSITIONED_IO_LOCK:
+        os.lseek(fd, offset, os.SEEK_SET)
+        return os.write(fd, data)
 
 
 def _float_dtype_from_bits(bits: int, *, field_name: str) -> np.dtype:
@@ -534,17 +557,21 @@ class IonImageDataManagerBinary(IonImageDataManager):
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
         final_size = intensity_offset + self._n_ions * self._n_pixels * self.intensity_dtype.itemsize
 
-        fd = os.open(self.filepath, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o644)
+        fd = os.open(
+            self.filepath,
+            os.O_RDWR | os.O_CREAT | os.O_TRUNC | _BINARY_OPEN_FLAG,
+            0o644,
+        )
         batch_fds: list[int] = []
         try:
             # header、mz_axis、coordinates 都是一次性写入；大矩阵区域先
             # ftruncate 预分配，再由 _merge_intensity 分块 pwrite。
             os.write(fd, self.header.to_bytes())
-            os.pwrite(fd, self.mz_axis.astype(self.mz_dtype, copy=False).tobytes(order="C"), mz_offset)
-            os.pwrite(fd, self._coordinates.astype("<u4", copy=False).tobytes(order="C"), coordinate_offset)
+            _pwrite(fd, self.mz_axis.astype(self.mz_dtype, copy=False).tobytes(order="C"), mz_offset)
+            _pwrite(fd, self._coordinates.astype("<u4", copy=False).tobytes(order="C"), coordinate_offset)
             os.ftruncate(fd, final_size)
 
-            batch_fds = [os.open(info.path, os.O_RDONLY) for info in self._batch_infos]
+            batch_fds = [os.open(info.path, os.O_RDONLY | _BINARY_OPEN_FLAG) for info in self._batch_infos]
             self._merge_intensity(fd, batch_fds, intensity_offset)
         finally:
             for batch_fd in batch_fds:
@@ -559,9 +586,9 @@ class IonImageDataManagerBinary(IonImageDataManager):
     def _merge_intensity(self, output_fd: int, batch_fds: list[int], intensity_offset: int) -> None:
         """
         按 ion block 合并临时文件到最终 intensity_matrix。
-        每个临时文件内部布局是 [ion, pixel_in_batch]。这里使用 os.pread
-        显式指定读取 offset，最终写入使用 os.pwrite，避免共享文件指针带来
-        的 seek/read 竞争，也为后续并发 merge 留出空间。
+        每个临时文件内部布局是 [ion, pixel_in_batch]。这里使用 positioned
+        I/O 显式指定读写 offset，避免共享文件指针带来的竞争，也为后续并发
+        merge 留出空间。
         """
         itemsize = self.intensity_dtype.itemsize
         block_size = max(16, self.ion_block)
@@ -579,7 +606,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
                 # 横向拼成 [ion_block, all_pixels]。
                 nbytes = n_block * info.n_pixels * itemsize
                 offset = ion_start * info.n_pixels * itemsize
-                raw = os.pread(batch_fd, nbytes, offset)
+                raw = _pread(batch_fd, nbytes, offset)
                 if len(raw) != nbytes:
                     raise OSError(f"Short read while merging {info.path}: expected {nbytes}, got {len(raw)}")
                 pixel_end = pixel_start + info.n_pixels
@@ -592,7 +619,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
             output_offset = intensity_offset + ion_start * self._n_pixels * itemsize
             # band 已经是 C-contiguous；memoryview 避免 band.tobytes() 再复制一份
             # 大块 bytes，和 benchmark 脚本的写法保持一致。
-            os.pwrite(output_fd, memoryview(np.ascontiguousarray(band)), output_offset)
+            _pwrite(output_fd, memoryview(np.ascontiguousarray(band)), output_offset)
 
         ion_starts = range(0, n_ions, block_size)
         if self._io_executor is None:
