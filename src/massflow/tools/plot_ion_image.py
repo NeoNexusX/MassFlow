@@ -511,17 +511,16 @@ def _plot_image(
         render_figsize = (float(figsize[1]) * float(width) / float(height), float(figsize[1]))
 
     fig, ax = plt.subplots(1, 1, figsize=render_figsize, dpi=int(dpi))
-    vmax = float(np.nanpercentile(image, 95)) if image.size else None
-    if vmax is not None and not np.isfinite(vmax):
-        vmax = None
+    positive_values = image[np.isfinite(image) & (image > 0)]
+    vmax = float(np.percentile(positive_values, 95)) if positive_values.size else 1.0
 
     if structure_only:
-        ax.imshow(image, cmap="inferno", vmax=vmax)
+        ax.imshow(image, cmap="inferno", vmin=0, vmax=vmax)
         ax.set_axis_off()
         ax.set_position((0, 0, 1, 1))
         fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
     else:
-        mappable = ax.imshow(image, cmap="inferno", vmax=vmax)
+        mappable = ax.imshow(image, cmap="inferno", vmin=0, vmax=vmax)
         if title:
             ax.set_title(title)
         ax.set_xlabel("x")

@@ -42,12 +42,25 @@ def _pread(fd: int, nbytes: int, offset: int) -> bytes:
 
 
 def _pwrite(fd: int, data: Any, offset: int) -> int:
-    """Write at an explicit offset, with a locked Windows fallback."""
+    """Write the complete buffer at an explicit offset."""
+    view = memoryview(data).cast("B")
+    total = len(view)
     if _OS_PWRITE is not None:
-        return _OS_PWRITE(fd, data, offset)
+        while view:
+            written = _OS_PWRITE(fd, view, offset)
+            if written == 0:
+                raise OSError("Positioned write returned zero bytes.")
+            view = view[written:]
+            offset += written
+        return total
     with _POSITIONED_IO_LOCK:
         os.lseek(fd, offset, os.SEEK_SET)
-        return os.write(fd, data)
+        while view:
+            written = os.write(fd, view)
+            if written == 0:
+                raise OSError("Write returned zero bytes.")
+            view = view[written:]
+    return total
 
 
 def _float_dtype_from_bits(bits: int, *, field_name: str) -> np.dtype:
@@ -234,13 +247,13 @@ class IonImageDataManagerBinary(IonImageDataManager):
         仅接受 continuous=True 的元数据转换。若数据类型不符，立即报错。
         """
         meta = data_manager.ms.meta
-        
+
         # 在创建对象前进行验证，确保元数据符合要求
-        if (getattr(meta, "continuous", None) is not True or 
-            data_manager.ms.shared_mz_list is None or 
+        if (getattr(meta, "continuous", None) is not True or
+            data_manager.ms.shared_mz_list is None or
             len(data_manager.ms.shared_mz_list) == 0):
             raise ValueError("from_data_manager requires continuous=True metadata and a shared mz_axis.")
-        
+
         return cls(
             filepath=filepath,
             mode="w",
@@ -566,7 +579,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
         try:
             # header、mz_axis、coordinates 都是一次性写入；大矩阵区域先
             # ftruncate 预分配，再由 _merge_intensity 分块 pwrite。
-            os.write(fd, self.header.to_bytes())
+            _pwrite(fd, self.header.to_bytes(), 0)
             _pwrite(fd, self.mz_axis.astype(self.mz_dtype, copy=False).tobytes(order="C"), mz_offset)
             _pwrite(fd, self._coordinates.astype("<u4", copy=False).tobytes(order="C"), coordinate_offset)
             os.ftruncate(fd, final_size)

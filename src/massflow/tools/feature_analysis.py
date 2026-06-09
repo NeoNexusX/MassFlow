@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -20,6 +21,29 @@ from massflow.data_manager import MSDataManagerImzML
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tools.feature_analysis")
+
+TAB20_COLOR_NAMES = (
+    "blue",
+    "light_blue",
+    "orange",
+    "light_orange",
+    "green",
+    "light_green",
+    "red",
+    "light_red",
+    "purple",
+    "light_purple",
+    "brown",
+    "light_brown",
+    "pink",
+    "light_pink",
+    "gray",
+    "light_gray",
+    "yellow_green",
+    "light_yellow_green",
+    "cyan",
+    "light_cyan",
+)
 
 
 def _nan_to_num_inplace_chunks(matrix: np.ndarray, row_chunk_size: int = 128) -> np.ndarray:
@@ -606,6 +630,41 @@ def build_kmeans_image(
     return image
 
 
+def build_kmeans_label_image(
+    labels: np.ndarray,
+    coordinates: np.ndarray,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+) -> np.ndarray:
+    """Map cluster labels to a spatial integer-label image."""
+    scatter_x, scatter_y, _, w, h = _infer_spatial_params(
+        coordinates, width=width, height=height,
+    )
+
+    image = np.full((h, w), -1, dtype=np.int32)
+    valid = (scatter_x >= 0) & (scatter_x < w) & (scatter_y >= 0) & (scatter_y < h)
+    image[scatter_y[valid], scatter_x[valid]] = labels[valid]
+
+    return image
+
+
+def _tab20_label_colors(n_clusters: int) -> dict[str, Any]:
+    """Build the human-readable label-to-colour mapping for saved KMeans results."""
+    palette = (np.asarray(matplotlib.colormaps["tab20"].colors)[:, :3] * 255).astype(np.uint8) # type: ignore
+    return {
+        "palette": "tab20",
+        "labels": {
+            str(label): {
+                "rgb": [int(channel) for channel in palette[label]],
+                "hex": f"#{palette[label, 0]:02x}{palette[label, 1]:02x}{palette[label, 2]:02x}",
+                "color_name": TAB20_COLOR_NAMES[label],
+            }
+            for label in range(n_clusters)
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # High-level orchestration
 # ---------------------------------------------------------------------------
@@ -618,6 +677,7 @@ def _validate_parameters(
     save_images: bool,
     save_matrix: bool,
     random_state: int | None,
+    n_clusters: int,
 ) -> None:
     if n_components != 3:
         raise ValueError("n_components must be 3 for RGB image output.")
@@ -632,6 +692,8 @@ def _validate_parameters(
             "Random state is set; UMAP forces single-threaded execution (n_jobs=1), "
             "so runs may be slower. Set random_state=None to allow parallelism."
         )
+    if n_clusters <= 0 or n_clusters > 20:
+        raise ValueError("n_clusters must be in the range [1, 20] for tab20 color mapping.")
 
 def _is_continuous(data_manager: Any) -> bool:
     """Heuristic check for continuous/shared m/z axis."""
@@ -668,7 +730,7 @@ def plot_umap_kmeans_image(
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
 
     # --- 1. Validate parameters and prepare output directory ------------
-    _validate_parameters(n_components, sample_ratio, transform_batch_size, save_images, save_matrix, random_state)
+    _validate_parameters(n_components, sample_ratio, transform_batch_size, save_images, save_matrix, random_state, n_clusters)
 
     out = Path(output_dir) if output_dir is not None else Path("./feature_analysis_output")
     out.mkdir(parents=True, exist_ok=True)
@@ -719,10 +781,21 @@ def plot_umap_kmeans_image(
         plt.imsave(str(out / "kmeans_image.jpg"), kmeans_img, dpi=dpi, pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True})
 
     if save_matrix:
+        kmeans_label_img = build_kmeans_label_image(
+            labels,
+            coordinates,
+            width=width,
+            height=height,
+        )
         result_group = zarr.open_group(str(out / "umap_result.zarr"), mode="w")
         result_group.create_array("umap_image", data=umap_img)
         result_group.create_array("kmeans_image", data=kmeans_img)
+        result_group.create_array("kmeans_label_image", data=kmeans_label_img)
         result_group.attrs["format"] = "massflow_feature_analysis"
+        (out / "kmeans_label_colors.json").write_text(
+            json.dumps(_tab20_label_colors(n_clusters), indent=2),
+            encoding="utf-8",
+        )
 
     logger.info(f"UMAP/KMeans analysis complete. Output: {out}")
     return True
