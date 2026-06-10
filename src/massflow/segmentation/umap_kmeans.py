@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -44,6 +45,69 @@ TAB20_COLOR_NAMES = (
     "cyan",
     "light_cyan",
 )
+
+
+def _read_zarr_array(result_group: zarr.Group, name: str) -> np.ndarray:
+    """Read a required Zarr array as a NumPy array."""
+    if name not in result_group:
+        raise ValueError(f"Zarr group must contain '{name}'.")
+    array = result_group[name]
+    if not isinstance(array, zarr.Array):
+        raise ValueError(f"Zarr group item '{name}' must be an array.")
+    return np.asarray(array)
+
+
+@dataclass(frozen=True, slots=True)
+class FeatureAnalysisResult:
+    """Spatial UMAP/KMeans outputs and their human-readable label colors."""
+
+    umap_image: np.ndarray = field(repr=False)
+    kmeans_image: np.ndarray = field(repr=False)
+    kmeans_label_image: np.ndarray = field(repr=False)
+    label_colors: dict[int, str]
+
+    def __post_init__(self) -> None:
+        if self.kmeans_label_image.ndim != 2:
+            raise ValueError("kmeans_label_image must be a two-dimensional array.")
+        expected_image_shape = (*self.kmeans_label_image.shape, 3)
+        if self.umap_image.shape != expected_image_shape:
+            raise ValueError("umap_image must have shape (height, width, 3).")
+        if self.kmeans_image.shape != expected_image_shape:
+            raise ValueError("kmeans_image must have shape (height, width, 3).")
+
+    @classmethod
+    def from_zarr(cls, zarr_path: str | Path) -> FeatureAnalysisResult:
+        """Load a feature-analysis result from a saved Zarr group."""
+        result_group = zarr.open_group(str(zarr_path), mode="r")
+        label_image = _read_zarr_array(result_group, "kmeans_label_image")
+        labels = np.unique(label_image[label_image >= 0])
+        saved_colors = result_group.attrs.get("label_colors", {})
+        if saved_colors:
+            if not isinstance(saved_colors, dict):
+                raise ValueError("Zarr attribute 'label_colors' must be an object.")
+            label_colors = {
+                int(label): str(color_name)
+                for label, color_name in saved_colors.items()
+            }
+        else:
+            label_colors = {
+                int(label): TAB20_COLOR_NAMES[int(label)]
+                for label in labels
+            }
+        return cls(
+            umap_image=_read_zarr_array(result_group, "umap_image"),
+            kmeans_image=_read_zarr_array(result_group, "kmeans_image"),
+            kmeans_label_image=label_image,
+            label_colors=label_colors,
+        )
+
+    def print_label_colors(self) -> None:
+        """Log the KMeans label-to-color mapping."""
+        mapping = ", ".join(
+            f"{label}: {color_name}"
+            for label, color_name in sorted(self.label_colors.items())
+        )
+        logger.info(f"KMeans label colors: {mapping}")
 
 
 def _nan_to_num_inplace_chunks(matrix: np.ndarray, row_chunk_size: int = 128) -> np.ndarray:
@@ -649,20 +713,9 @@ def build_kmeans_label_image(
     return image
 
 
-def _tab20_label_colors(n_clusters: int) -> dict[str, Any]:
-    """Build the human-readable label-to-colour mapping for saved KMeans results."""
-    palette = (np.asarray(matplotlib.colormaps["tab20"].colors)[:, :3] * 255).astype(np.uint8) # type: ignore
-    return {
-        "palette": "tab20",
-        "labels": {
-            str(label): {
-                "rgb": [int(channel) for channel in palette[label]],
-                "hex": f"#{palette[label, 0]:02x}{palette[label, 1]:02x}{palette[label, 2]:02x}",
-                "color_name": TAB20_COLOR_NAMES[label],
-            }
-            for label in range(n_clusters)
-        },
-    }
+def _tab20_label_colors(n_clusters: int) -> dict[int, str]:
+    """Build the human-readable label-to-colour mapping for KMeans results."""
+    return {label: TAB20_COLOR_NAMES[label] for label in range(n_clusters)}
 
 
 # ---------------------------------------------------------------------------
@@ -674,8 +727,6 @@ def _validate_parameters(
     n_components: int,
     sample_ratio: float,
     transform_batch_size: int | None,
-    save_images: bool,
-    save_matrix: bool,
     random_state: int | None,
     n_clusters: int,
 ) -> None:
@@ -685,8 +736,6 @@ def _validate_parameters(
         raise ValueError("sample_ratio must be in (0, 1].")
     if transform_batch_size is not None and transform_batch_size <= 0:
         raise ValueError("transform_batch_size must be a positive integer or None.")
-    if not save_images and not save_matrix:
-        raise ValueError("At least one of save_images or save_matrix must be True.")
     if random_state is not None:
         logger.warning(
             "Random state is set; UMAP forces single-threaded execution (n_jobs=1), "
@@ -721,16 +770,16 @@ def plot_umap_kmeans_image(
     transform_batch_size: int | None = 1024,
     dpi: int = 300,
     save_images: bool = True,
-    save_matrix: bool = False,
+    save_matrix: Literal["npz", "zarr"] = "npz",
     n_components: int = 3,
     umap_metric: str = "cosine",
     n_clusters: int = 10,
     random_state: int | None = None,
-) -> bool:
+) -> FeatureAnalysisResult:
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
 
     # --- 1. Validate parameters and prepare output directory ------------
-    _validate_parameters(n_components, sample_ratio, transform_batch_size, save_images, save_matrix, random_state, n_clusters)
+    _validate_parameters(n_components, sample_ratio, transform_batch_size, random_state, n_clusters)
 
     out = Path(output_dir) if output_dir is not None else Path("./feature_analysis_output")
     out.mkdir(parents=True, exist_ok=True)
@@ -774,28 +823,41 @@ def plot_umap_kmeans_image(
         width=width,
         height=height,
     )
+    kmeans_label_img = build_kmeans_label_image(
+        labels,
+        coordinates,
+        width=width,
+        height=height,
+    )
+    label_colors = _tab20_label_colors(n_clusters)
+    result = FeatureAnalysisResult(
+        umap_image=umap_img,
+        kmeans_image=kmeans_img,
+        kmeans_label_image=kmeans_label_img,
+        label_colors=label_colors,
+    )
 
     # ---- 5. Save outputs ------------------------------------------------
     if save_images:
         plt.imsave(str(out / "umap_image.jpg"), umap_img, dpi=dpi, pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True})
         plt.imsave(str(out / "kmeans_image.jpg"), kmeans_img, dpi=dpi, pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True})
 
-    if save_matrix:
-        kmeans_label_img = build_kmeans_label_image(
-            labels,
-            coordinates,
-            width=width,
-            height=height,
-        )
+    if save_matrix == "zarr":
         result_group = zarr.open_group(str(out / "umap_result.zarr"), mode="w")
-        result_group.create_array("umap_image", data=umap_img)
-        result_group.create_array("kmeans_image", data=kmeans_img)
-        result_group.create_array("kmeans_label_image", data=kmeans_label_img)
+        result_group.create_array("umap_image", data=result.umap_image)
+        result_group.create_array("kmeans_image", data=result.kmeans_image)
+        result_group.create_array("kmeans_label_image", data=result.kmeans_label_image)
         result_group.attrs["format"] = "massflow_feature_analysis"
+        result_group.attrs["label_colors"] = {
+            str(label): color_name for label, color_name in result.label_colors.items()
+        }
         (out / "kmeans_label_colors.json").write_text(
-            json.dumps(_tab20_label_colors(n_clusters), indent=2),
+            json.dumps(result.label_colors, indent=2),
             encoding="utf-8",
         )
+    elif save_matrix == "npz":
+        # 将三个矩阵存储成npz文件: TODO
 
     logger.info(f"UMAP/KMeans analysis complete. Output: {out}")
-    return True
+    result.print_label_colors()
+    return result

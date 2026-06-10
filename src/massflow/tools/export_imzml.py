@@ -38,7 +38,7 @@ _WRITER_METADATA_KEYS = {
 
 def export_imzml(
     source: str | os.PathLike[str] | IonImageSource,
-    output_filepath: str | os.PathLike[str],
+    output_path: str | os.PathLike[str],
     *,
     source_format: str = "auto",
     temp_dir: str | os.PathLike[str] | None = None,
@@ -59,7 +59,7 @@ def export_imzml(
     ion_block_size = _positive_int(ion_block_size, "ion_block_size")
     spectrum_batch_size = _positive_int(spectrum_batch_size, "spectrum_batch_size")
     writer_metadata = _writer_metadata(metadata)
-    imzml_path, ibd_path = _output_paths(output_filepath)
+    imzml_path, ibd_path = _output_paths(output_path)
     imzml_path.parent.mkdir(parents=True, exist_ok=True)
 
     with _open_source(source, source_format) as data_manager:
@@ -120,8 +120,8 @@ def _writer_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
     return dict(metadata)
 
 
-def _output_paths(output_filepath: str | os.PathLike[str]) -> tuple[Path, Path]:
-    output_path = Path(output_filepath)
+def _output_paths(output_path: str | os.PathLike[str]) -> tuple[Path, Path]:
+    output_path = Path(output_path)
     base_path = output_path.with_suffix("") if output_path.suffix else output_path
     return base_path.with_suffix(".imzML"), base_path.with_suffix(".ibd")
 

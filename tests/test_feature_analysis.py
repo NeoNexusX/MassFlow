@@ -12,7 +12,7 @@ from PIL import Image
 
 from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess.preprocessor import Preprocessor
-from massflow.tools.feature_analysis import plot_umap_kmeans_image
+from massflow.segmentation.umap_kmeans import plot_umap_kmeans_image
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tests.test_feature_analysis")
