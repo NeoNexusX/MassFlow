@@ -56,7 +56,7 @@ def _run_feature_analysis(
         data_manager,
         output_dir=output_dir,
         save_images=True,
-        save_matrix=True,
+        save_matrix="zarr",
         n_clusters=10,
         sample_ratio=sample_ratio,
         transform_batch_size=transform_batch_size,

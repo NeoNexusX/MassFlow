@@ -21,7 +21,7 @@ from massflow.data_manager import IonImageDataManagerZarr
 from massflow.data_manager import MSDataManagerImzML
 from massflow.tools.logger import get_logger
 
-logger = get_logger("massflow.tools.feature_analysis")
+logger = get_logger("massflow.segmentation.feature_analysis")
 
 TAB20_COLOR_NAMES = (
     "blue",
@@ -100,6 +100,24 @@ class FeatureAnalysisResult:
             kmeans_label_image=label_image,
             label_colors=label_colors,
         )
+
+    @classmethod
+    def from_npz(cls, npz_path: str | Path) -> FeatureAnalysisResult:
+        """Load a feature-analysis result from a saved NPZ file."""
+        with np.load(npz_path, allow_pickle=False) as result_file:
+            label_colors = {
+                int(label): str(color_name)
+                for label, color_name in zip(
+                    result_file["label_color_labels"],
+                    result_file["label_color_names"],
+                )
+            }
+            return cls(
+                umap_image=result_file["umap_image"],
+                kmeans_image=result_file["kmeans_image"],
+                kmeans_label_image=result_file["kmeans_label_image"],
+                label_colors=label_colors,
+            )
 
     def print_label_colors(self) -> None:
         """Log the KMeans label-to-color mapping."""
@@ -768,9 +786,9 @@ def plot_umap_kmeans_image(
     output_dir: str | Path = "./feature_analysis_output",
     sample_ratio: float = 0.1,
     transform_batch_size: int | None = 1024,
-    dpi: int = 300,
+    dpi: int = 600,
     save_images: bool = True,
-    save_matrix: Literal["npz", "zarr"] = "npz",
+    save_matrix: Literal["npz", "zarr"] | None = None,
     n_components: int = 3,
     umap_metric: str = "cosine",
     n_clusters: int = 10,
@@ -780,6 +798,8 @@ def plot_umap_kmeans_image(
 
     # --- 1. Validate parameters and prepare output directory ------------
     _validate_parameters(n_components, sample_ratio, transform_batch_size, random_state, n_clusters)
+    if save_matrix not in {None, "npz", "zarr"}:
+        raise ValueError("save_matrix must be None, 'npz', or 'zarr'.")
 
     out = Path(output_dir) if output_dir is not None else Path("./feature_analysis_output")
     out.mkdir(parents=True, exist_ok=True)
@@ -843,7 +863,7 @@ def plot_umap_kmeans_image(
         plt.imsave(str(out / "kmeans_image.jpg"), kmeans_img, dpi=dpi, pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True})
 
     if save_matrix == "zarr":
-        result_group = zarr.open_group(str(out / "umap_result.zarr"), mode="w")
+        result_group = zarr.open_group(str(out / "umap_kmeans_result.zarr"), mode="w")
         result_group.create_array("umap_image", data=result.umap_image)
         result_group.create_array("kmeans_image", data=result.kmeans_image)
         result_group.create_array("kmeans_label_image", data=result.kmeans_label_image)
@@ -856,7 +876,19 @@ def plot_umap_kmeans_image(
             encoding="utf-8",
         )
     elif save_matrix == "npz":
-        # 将三个矩阵存储成npz文件: TODO
+        color_items = sorted(result.label_colors.items())
+        np.savez_compressed(
+            out / "umap_kmeans_result.npz",
+            umap_image=result.umap_image,
+            kmeans_image=result.kmeans_image,
+            kmeans_label_image=result.kmeans_label_image,
+            label_color_labels=np.asarray([label for label, _ in color_items], dtype=np.int32),
+            label_color_names=np.asarray([color_name for _, color_name in color_items]),
+        )
+        (out / "kmeans_label_colors.json").write_text(
+            json.dumps(result.label_colors, indent=2),
+            encoding="utf-8",
+        )
 
     logger.info(f"UMAP/KMeans analysis complete. Output: {out}")
     result.print_label_colors()

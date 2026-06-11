@@ -8,9 +8,14 @@ import numpy as np
 from scipy.ndimage import binary_propagation
 
 from massflow.segmentation.umap_kmeans import FeatureAnalysisResult
+from massflow.tools.logger import get_logger
 
-FeatureAnalysisSource = FeatureAnalysisResult | str | Path
+logger= get_logger("massflow.segmentation.cluster_segmentation")
 
+
+# ---------------------------------------------------------------------------
+# Output and input helpers
+# ---------------------------------------------------------------------------
 
 def _save_transparent_image(
     image: np.ndarray,
@@ -25,15 +30,6 @@ def _save_transparent_image(
     rgba[..., :3] = image
     rgba[..., 3] = mask * 255
     plt.imsave(str(output_path), rgba)
-
-
-def _resolve_feature_analysis(
-    source: FeatureAnalysisSource,
-) -> FeatureAnalysisResult:
-    """Resolve an in-memory result or load one from a Zarr path."""
-    if isinstance(source, FeatureAnalysisResult):
-        return source
-    return FeatureAnalysisResult.from_zarr(source)
 
 
 def _save_outputs(
@@ -61,8 +57,12 @@ def _normalize_labels(labels: Sequence[int] | None, *, parameter_name: str) -> n
     return normalized if normalized.size else None
 
 
+# ---------------------------------------------------------------------------
+# Direct cluster removal
+# ---------------------------------------------------------------------------
+
 def remove_clusters(
-    source: FeatureAnalysisSource,
+    source: FeatureAnalysisResult,
     labels_to_remove: Sequence[int],
     *,
     output_dir: str | Path = "./cluster_segmentation_output",
@@ -72,12 +72,15 @@ def remove_clusters(
     if labels is None:
         raise ValueError("labels_to_remove must contain at least one label.")
 
-    result = _resolve_feature_analysis(source)
-    label_image = result.kmeans_label_image
+    label_image = source.kmeans_label_image
     mask = ((label_image >= 0) & ~np.isin(label_image, labels)).astype(np.uint8)
-    _save_outputs(mask, result.kmeans_image, result.umap_image, output_dir)
+    _save_outputs(mask, source.kmeans_image, source.umap_image, output_dir)
     return mask
 
+
+# ---------------------------------------------------------------------------
+# Exterior-background topology helpers
+# ---------------------------------------------------------------------------
 
 def _exterior_background(remaining: np.ndarray) -> np.ndarray:
     """Return non-remaining pixels connected to the image boundary."""
@@ -131,8 +134,12 @@ def _adjacent_remaining(remaining: np.ndarray, removed: np.ndarray) -> np.ndarra
     )
 
 
+# ---------------------------------------------------------------------------
+# Background-layer removal
+# ---------------------------------------------------------------------------
+
 def remove_background(
-    source: FeatureAnalysisSource,
+    source: FeatureAnalysisResult,
     labels_to_remove: Sequence[int] | None = None,
     *,
     remove_num: int = 1,
@@ -143,8 +150,7 @@ def remove_background(
         raise ValueError("remove_num must be a positive integer.")
 
     labels = _normalize_labels(labels_to_remove, parameter_name="labels_to_remove")
-    result = _resolve_feature_analysis(source)
-    label_image = result.kmeans_label_image
+    label_image = source.kmeans_label_image
     remaining = label_image >= 0
     previous_removed: np.ndarray | None = None
 
@@ -165,12 +171,16 @@ def remove_background(
         previous_removed = removed
 
     mask = remaining.astype(np.uint8)
-    _save_outputs(mask, result.kmeans_image, result.umap_image, output_dir)
+    _save_outputs(mask, source.kmeans_image, source.umap_image, output_dir)
     return mask
 
 
+# ---------------------------------------------------------------------------
+# Enclosed-cluster retention
+# ---------------------------------------------------------------------------
+
 def keep_clusters(
-    source: FeatureAnalysisSource,
+    source: FeatureAnalysisResult,
     labels_to_keep: Sequence[int],
     *,
     output_dir: str | Path = "./cluster_segmentation_output",
@@ -180,8 +190,7 @@ def keep_clusters(
     if labels is None:
         raise ValueError("labels_to_keep must contain at least one label.")
 
-    result = _resolve_feature_analysis(source)
-    label_image = result.kmeans_label_image
+    label_image = source.kmeans_label_image
     valid = label_image >= 0
     keep_labels = valid & np.isin(label_image, labels)
     traversable = ~keep_labels
@@ -197,5 +206,5 @@ def keep_clusters(
     )
 
     mask = (valid & ~exterior_reachable).astype(np.uint8)
-    _save_outputs(mask, result.kmeans_image, result.umap_image, output_dir)
+    _save_outputs(mask, source.kmeans_image, source.umap_image, output_dir)
     return mask
