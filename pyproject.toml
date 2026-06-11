@@ -25,6 +25,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mcp = [
+    "mcp>=1.0.0",
+]
 r = [
     "rpy2>=3.6.4",
 ]
@@ -46,6 +49,9 @@ addopts = "--benchmark-warmup=off --benchmark-disable-gc"
 [tool.pytest_benchmark]
 # Force time unit to seconds
 timer = "time.perf_counter"
+
+[project.scripts]
+massflow-mcp-server = "massflow.mcp_server.server:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

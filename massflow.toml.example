@@ -1,0 +1,14 @@
+[agent_tools]
+# Optional default output directory for CLI tools.
+default_output_dir = "outputs"
+max_threads = 8
+qc_sample_size = 16
+preprocess_qc_sample_size = 12
+noise_method = "sd"
+batch_size = 256
+
+[mcp_server]
+# Formal use with Claude Code should normally stay on stdio.
+transport = "stdio"
+host = "127.0.0.1"
+port = 8000

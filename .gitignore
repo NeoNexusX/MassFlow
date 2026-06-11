@@ -138,6 +138,9 @@ celerybeat.pid
 # Environments
 .env
 .envrc
+.conda-env/
+.conda-env.broken/
+.conda/
 .venv
 env/
 venv/
@@ -220,9 +223,13 @@ docs/docs/.vitepress/dist/
 logs/
 .TEMP/
 .trae/
+.mcp.json
+outputs/
 *.pdf
 *.ipynb
 *.pymon
 *.benchmark
 *temp*/*
 *.cpp
+
+.dev-submit-worktree/

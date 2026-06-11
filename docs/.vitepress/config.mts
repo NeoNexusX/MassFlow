@@ -114,7 +114,8 @@ export default withMermaid(
           { text: 'Naming Conventions', link: '/naming-conventions' },
           { text: 'Data Structures', link: '/ms-data-structures' },
           { text: 'Noise Reduction', link: '/noise_reduction' },
-          { text: 'Testing Guide', link: '/testing_guide' }
+          { text: 'Testing Guide', link: '/testing_guide' },
+          { text: 'Claude Code Integration', link: '/claude-code-integration' }
         ]
       },
     ],
