@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, Literal
 
@@ -19,113 +18,10 @@ from massflow.data_manager import IonImageDataManagerBinary
 from massflow.data_manager import IonImageDataManagerH5
 from massflow.data_manager import IonImageDataManagerZarr
 from massflow.data_manager import MSDataManagerImzML
+from massflow.segmentation.segmentation_pipeline import TAB20_COLOR_NAMES, UmapKmeansResult
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.segmentation.feature_analysis")
-
-TAB20_COLOR_NAMES = (
-    "blue",
-    "light_blue",
-    "orange",
-    "light_orange",
-    "green",
-    "light_green",
-    "red",
-    "light_red",
-    "purple",
-    "light_purple",
-    "brown",
-    "light_brown",
-    "pink",
-    "light_pink",
-    "gray",
-    "light_gray",
-    "yellow_green",
-    "light_yellow_green",
-    "cyan",
-    "light_cyan",
-)
-
-
-def _read_zarr_array(result_group: zarr.Group, name: str) -> np.ndarray:
-    """Read a required Zarr array as a NumPy array."""
-    if name not in result_group:
-        raise ValueError(f"Zarr group must contain '{name}'.")
-    array = result_group[name]
-    if not isinstance(array, zarr.Array):
-        raise ValueError(f"Zarr group item '{name}' must be an array.")
-    return np.asarray(array)
-
-
-@dataclass(frozen=True, slots=True)
-class UmapKmeansResult:
-    """Spatial UMAP/KMeans outputs and their human-readable label colors."""
-
-    umap_image: np.ndarray = field(repr=False)
-    kmeans_image: np.ndarray = field(repr=False)
-    kmeans_label_image: np.ndarray = field(repr=False)
-    label_colors: dict[int, str]
-
-    def __post_init__(self) -> None:
-        if self.kmeans_label_image.ndim != 2:
-            raise ValueError("kmeans_label_image must be a two-dimensional array.")
-        expected_image_shape = (*self.kmeans_label_image.shape, 3)
-        if self.umap_image.shape != expected_image_shape:
-            raise ValueError("umap_image must have shape (height, width, 3).")
-        if self.kmeans_image.shape != expected_image_shape:
-            raise ValueError("kmeans_image must have shape (height, width, 3).")
-
-    @classmethod
-    def from_zarr(cls, zarr_path: str | Path) -> UmapKmeansResult:
-        """Load a feature-analysis result from a saved Zarr group."""
-        result_group = zarr.open_group(str(zarr_path), mode="r")
-        label_image = _read_zarr_array(result_group, "kmeans_label_image")
-        labels = np.unique(label_image[label_image >= 0])
-        saved_colors = result_group.attrs.get("label_colors", {})
-        if saved_colors:
-            if not isinstance(saved_colors, dict):
-                raise ValueError("Zarr attribute 'label_colors' must be an object.")
-            label_colors = {
-                int(label): str(color_name)
-                for label, color_name in saved_colors.items()
-            }
-        else:
-            label_colors = {
-                int(label): TAB20_COLOR_NAMES[int(label)]
-                for label in labels
-            }
-        return cls(
-            umap_image=_read_zarr_array(result_group, "umap_image"),
-            kmeans_image=_read_zarr_array(result_group, "kmeans_image"),
-            kmeans_label_image=label_image,
-            label_colors=label_colors,
-        )
-
-    @classmethod
-    def from_npz(cls, npz_path: str | Path) -> UmapKmeansResult:
-        """Load a feature-analysis result from a saved NPZ file."""
-        with np.load(npz_path, allow_pickle=False) as result_file:
-            label_colors = {
-                int(label): str(color_name)
-                for label, color_name in zip(
-                    result_file["label_color_labels"],
-                    result_file["label_color_names"],
-                )
-            }
-            return cls(
-                umap_image=result_file["umap_image"],
-                kmeans_image=result_file["kmeans_image"],
-                kmeans_label_image=result_file["kmeans_label_image"],
-                label_colors=label_colors,
-            )
-
-    def print_label_colors(self) -> None:
-        """Log the KMeans label-to-color mapping."""
-        mapping = ", ".join(
-            f"{label}: {color_name}"
-            for label, color_name in sorted(self.label_colors.items())
-        )
-        logger.info(f"KMeans label colors: {mapping}")
 
 
 def _nan_to_num_inplace_chunks(matrix: np.ndarray, row_chunk_size: int = 128) -> np.ndarray:
@@ -783,7 +679,7 @@ def _get_spatial_dimensions(data_manager: Any) -> tuple[int | None, int | None]:
 def plot_umap_kmeans_image(
     data_manager: Any,
     *,
-    output_dir: str | Path = "./feature_analysis_output",
+    output_dir: str | Path = "./umap_kmeans_output",
     sample_ratio: float = 0.1,
     transform_batch_size: int | None = 1024,
     dpi: int = 600,
@@ -801,7 +697,7 @@ def plot_umap_kmeans_image(
     if save_matrix not in {None, "npz", "zarr"}:
         raise ValueError("save_matrix must be None, 'npz', or 'zarr'.")
 
-    out = Path(output_dir) if output_dir is not None else Path("./feature_analysis_output")
+    out = Path(output_dir) if output_dir is not None else Path("./umap_kmeans_output")
     out.mkdir(parents=True, exist_ok=True)
 
     if isinstance(data_manager, MSDataManagerImzML) and _is_continuous(data_manager) is False:

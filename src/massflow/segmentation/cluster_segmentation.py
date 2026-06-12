@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.ndimage import binary_propagation
 
-from massflow.segmentation.umap_kmeans import UmapKmeansResult
+from massflow.segmentation.segmentation_pipeline import UmapKmeansResult
 from massflow.tools.logger import get_logger
 
 logger= get_logger("massflow.segmentation.cluster_segmentation")
@@ -65,7 +65,7 @@ def remove_clusters(
     source: UmapKmeansResult,
     labels_to_remove: Sequence[int],
     *,
-    output_dir: str | Path = "./cluster_segmentation_output",
+    output_dir: str | Path = "./segmentation_output",
 ) -> np.ndarray:
     """Remove every pixel belonging to the specified labels."""
     labels = _normalize_labels(labels_to_remove, parameter_name="labels_to_remove")
@@ -123,17 +123,6 @@ def _select_outermost_label(
     return int(boundary_labels[np.argmax(counts)])
 
 
-def _adjacent_remaining(remaining: np.ndarray, removed: np.ndarray) -> np.ndarray:
-    """Return remaining pixels that touch the previously removed layer."""
-    padded = np.pad(removed, 1, mode="constant", constant_values=False)
-    return remaining & (
-        padded[:-2, 1:-1]
-        | padded[2:, 1:-1]
-        | padded[1:-1, :-2]
-        | padded[1:-1, 2:]
-    )
-
-
 # ---------------------------------------------------------------------------
 # Background-layer removal
 # ---------------------------------------------------------------------------
@@ -143,7 +132,7 @@ def remove_background(
     labels_to_remove: Sequence[int] | None = None,
     *,
     remove_num: int = 1,
-    output_dir: str | Path = "./background_removal_output",
+    output_dir: str | Path = "./segmentation_output",
 ) -> np.ndarray:
     """Remove exterior label-component layers and save transparent result images."""
     if remove_num < 1:
@@ -152,14 +141,9 @@ def remove_background(
     labels = _normalize_labels(labels_to_remove, parameter_name="labels_to_remove")
     label_image = source.kmeans_label_image
     remaining = label_image >= 0
-    previous_removed: np.ndarray | None = None
 
     for _ in range(remove_num):
-        if previous_removed is None:
-            frontier = _exterior_boundary(remaining, _exterior_background(remaining))
-        else:
-            frontier = _adjacent_remaining(remaining, previous_removed)
-
+        frontier = _exterior_boundary(remaining, _exterior_background(remaining))
         outermost_label = _select_outermost_label(label_image, frontier, labels)
         if outermost_label is None:
             break
@@ -168,7 +152,6 @@ def remove_background(
         seeds = frontier & label_region
         removed = np.asarray(binary_propagation(seeds, mask=label_region), dtype=bool)
         remaining[removed] = False
-        previous_removed = removed
 
     mask = remaining.astype(np.uint8)
     _save_outputs(mask, source.kmeans_image, source.umap_image, output_dir)
@@ -183,7 +166,7 @@ def keep_clusters(
     source: UmapKmeansResult,
     labels_to_keep: Sequence[int],
     *,
-    output_dir: str | Path = "./cluster_segmentation_output",
+    output_dir: str | Path = "./segmentation_output",
 ) -> np.ndarray:
     """Keep specified labels and all regions topologically enclosed by them."""
     labels = _normalize_labels(labels_to_keep, parameter_name="labels_to_keep")
