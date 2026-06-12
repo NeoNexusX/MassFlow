@@ -58,7 +58,7 @@ def _read_zarr_array(result_group: zarr.Group, name: str) -> np.ndarray:
 
 
 @dataclass(frozen=True, slots=True)
-class FeatureAnalysisResult:
+class UmapKmeansResult:
     """Spatial UMAP/KMeans outputs and their human-readable label colors."""
 
     umap_image: np.ndarray = field(repr=False)
@@ -76,7 +76,7 @@ class FeatureAnalysisResult:
             raise ValueError("kmeans_image must have shape (height, width, 3).")
 
     @classmethod
-    def from_zarr(cls, zarr_path: str | Path) -> FeatureAnalysisResult:
+    def from_zarr(cls, zarr_path: str | Path) -> UmapKmeansResult:
         """Load a feature-analysis result from a saved Zarr group."""
         result_group = zarr.open_group(str(zarr_path), mode="r")
         label_image = _read_zarr_array(result_group, "kmeans_label_image")
@@ -102,7 +102,7 @@ class FeatureAnalysisResult:
         )
 
     @classmethod
-    def from_npz(cls, npz_path: str | Path) -> FeatureAnalysisResult:
+    def from_npz(cls, npz_path: str | Path) -> UmapKmeansResult:
         """Load a feature-analysis result from a saved NPZ file."""
         with np.load(npz_path, allow_pickle=False) as result_file:
             label_colors = {
@@ -793,7 +793,7 @@ def plot_umap_kmeans_image(
     umap_metric: str = "cosine",
     n_clusters: int = 10,
     random_state: int | None = None,
-) -> FeatureAnalysisResult:
+) -> UmapKmeansResult:
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
 
     # --- 1. Validate parameters and prepare output directory ------------
@@ -850,7 +850,7 @@ def plot_umap_kmeans_image(
         height=height,
     )
     label_colors = _tab20_label_colors(n_clusters)
-    result = FeatureAnalysisResult(
+    result = UmapKmeansResult(
         umap_image=umap_img,
         kmeans_image=kmeans_img,
         kmeans_label_image=kmeans_label_img,

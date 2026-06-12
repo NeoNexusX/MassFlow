@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -25,13 +25,16 @@ logger = get_logger("massflow.tools")
 # Supported manager types
 # ---------------------------------------------------------------------------
 
-IonImageManager = IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr
+IonImageManager = (
+    IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr
+)
 SupportedDataManager = MSDataManagerImzML | IonImageManager
 
 
 # ---------------------------------------------------------------------------
 # imzML metadata helpers
 # ---------------------------------------------------------------------------
+
 
 def _ensure_imzml_loaded(manager: Any) -> None:
     """Load imzML spectrum headers if the manager has not been initialized yet."""
@@ -64,6 +67,7 @@ def _batch_uses_shared_mz(
 # m/z selection helpers
 # ---------------------------------------------------------------------------
 
+
 def _nearest_mz_index(
     mz_axis: np.ndarray,
     mz: float,
@@ -88,6 +92,7 @@ def _mz_window_indices(
 # ---------------------------------------------------------------------------
 # Spectrum reducers
 # ---------------------------------------------------------------------------
+
 
 def _sum_by_lengths(intensity_flat: np.ndarray, lengths: np.ndarray) -> np.ndarray:
     """Sum each flattened spectrum according to its length entry."""
@@ -118,9 +123,13 @@ def _sum_processed_mz_values(
     if mz_flat is None:
         raise ValueError("Processed imzML ion image requires m/z data.")
     if mz_flat.size != int(np.sum(lengths, dtype=np.int64)):
-        raise ValueError("Processed imzML ion image requires flattened per-spectrum m/z data.")
+        raise ValueError(
+            "Processed imzML ion image requires flattened per-spectrum m/z data."
+        )
 
-    values = np.zeros(lengths.size, dtype=np.result_type(intensity_flat.dtype, np.float64))
+    values = np.zeros(
+        lengths.size, dtype=np.result_type(intensity_flat.dtype, np.float64)
+    )
     if mz_tolerance is not None:
         low = float(mz) - float(mz_tolerance)
         high = float(mz) + float(mz_tolerance)
@@ -135,7 +144,9 @@ def _sum_processed_mz_values(
         intensity_slice = intensity_flat[offset:end]
         if length > 0:
             if mz_tolerance is None:
-                nearest = int(np.nanargmin(np.abs(mz_slice.astype(float, copy=False) - float(mz))))
+                nearest = int(
+                    np.nanargmin(np.abs(mz_slice.astype(float, copy=False) - float(mz)))
+                )
                 values[index] = intensity_slice[nearest]
             else:
                 mask = (mz_slice >= low) & (mz_slice <= high)
@@ -149,6 +160,7 @@ def _sum_processed_mz_values(
 # Spatial image construction helpers
 # ---------------------------------------------------------------------------
 
+
 def _infer_image_geometry(
     coordinates: np.ndarray,
     *,
@@ -160,7 +172,9 @@ def _infer_image_geometry(
     xy = coords[:, :2].astype(np.int64, copy=False)
     xs = xy[:, 0]
     ys = xy[:, 1]
-    zero_based = bool((xs.size > 0 and int(xs.min()) == 0) or (ys.size > 0 and int(ys.min()) == 0))
+    zero_based = bool(
+        (xs.size > 0 and int(xs.min()) == 0) or (ys.size > 0 and int(ys.min()) == 0)
+    )
 
     if width is None:
         width = int(xs.max()) + 1 if zero_based else int(xs.max())
@@ -186,8 +200,38 @@ def _scatter_values_into_image(
     scatter_x = xs if zero_based else xs - 1
     scatter_y = ys if zero_based else ys - 1
     height, width = image.shape[:2]
-    valid = (scatter_x >= 0) & (scatter_x < width) & (scatter_y >= 0) & (scatter_y < height)
+    valid = (
+        (scatter_x >= 0) & (scatter_x < width) & (scatter_y >= 0) & (scatter_y < height)
+    )
     image[scatter_y[valid], scatter_x[valid]] = values[valid]
+
+
+def _valid_region_mask(
+    data_manager: SupportedDataManager,
+    image_shape: tuple[int, int],
+) -> np.ndarray:
+    """Build an occupancy mask from the pixels present in the data manager."""
+    if isinstance(data_manager, MSDataManagerImzML):
+        coordinates = np.asarray(
+            [(spectrum.x, spectrum.y, spectrum.z) for spectrum in data_manager.ms]
+        )
+    else:
+        coordinates = np.asarray(data_manager.coordinates)
+
+    height, width = image_shape
+    zero_based, _, _ = _infer_image_geometry(
+        coordinates,
+        width=width,
+        height=height,
+    )
+    mask = np.zeros(image_shape, dtype=bool)
+    _scatter_values_into_image(
+        mask,
+        coordinates,
+        np.ones(coordinates.shape[0], dtype=bool),
+        zero_based=zero_based,
+    )
+    return mask
 
 
 def _imzml_image_geometry(manager: Any) -> tuple[bool, int | None, int | None]:
@@ -230,6 +274,7 @@ def _imzml_image_geometry(manager: Any) -> tuple[bool, int | None, int | None]:
 # the same in both cases: nearest peak when mz_tolerance is None, otherwise
 # sum the requested m/z window.
 
+
 def _read_imzml_tic_image(
     manager: Any,
     *,
@@ -252,7 +297,9 @@ def _read_imzml_tic_image(
         if image is None:
             # Allocate lazily so metadata dimensions can be filled from the first batch if needed.
             if width is None or height is None:
-                zero_based, width, height = _infer_image_geometry(coordinates, width=width, height=height)
+                zero_based, width, height = _infer_image_geometry(
+                    coordinates, width=width, height=height
+                )
             image = np.zeros((height, width), dtype=values.dtype)
         _scatter_values_into_image(image, coordinates, values, zero_based=zero_based)
 
@@ -301,7 +348,9 @@ def _read_imzml_ion_image(
                 raise ValueError("All imzML batches must use the same shared mz_axis.")
 
             if not np.all(lengths == n_ions):
-                raise ValueError("Shared m/z imzML batches must have uniform spectrum lengths.")
+                raise ValueError(
+                    "Shared m/z imzML batches must have uniform spectrum lengths."
+                )
             intensity_matrix = intensity_flat.reshape(lengths.size, n_ions)
             if mz_tolerance is None:
                 if selected_idx is None:
@@ -309,7 +358,9 @@ def _read_imzml_ion_image(
                 values = intensity_matrix[:, selected_idx]
             else:
                 if selected_indices is None:
-                    selected_indices = _mz_window_indices(mz_arr, float(mz), float(mz_tolerance))
+                    selected_indices = _mz_window_indices(
+                        mz_arr, float(mz), float(mz_tolerance)
+                    )
                 values = np.sum(
                     intensity_matrix[:, selected_indices],
                     axis=1,
@@ -329,7 +380,9 @@ def _read_imzml_ion_image(
         if image is None:
             # Allocate lazily so metadata dimensions can be filled from the first batch if needed.
             if width is None or height is None:
-                zero_based, width, height = _infer_image_geometry(coordinates, width=width, height=height)
+                zero_based, width, height = _infer_image_geometry(
+                    coordinates, width=width, height=height
+                )
             image = np.zeros((height, width), dtype=values.dtype)
         _scatter_values_into_image(image, coordinates, values, zero_based=zero_based)
 
@@ -347,8 +400,9 @@ def _read_imzml_ion_image(
 # API.  TIC calculation still uses backend-specific fast paths where the
 # storage layout provides a cheaper full-ion sum.
 
+
 def _read_ion_manager_ion_image(
-    manager: Any,
+    manager: IonImageManager,
     *,
     mz: float | None,
     mz_tolerance: float | None,
@@ -365,7 +419,10 @@ def _read_ion_manager_ion_image(
     return np.asarray(manager.get_ion_image(ion_idx))
 
 
-def _sum_ion_manager_images(manager: Any, ion_indices: np.ndarray) -> np.ndarray:
+def _sum_ion_manager_images(
+    manager: IonImageManager,
+    ion_indices: np.ndarray,
+) -> np.ndarray:
     """Sum multiple ion images from an ion-image manager into one image."""
     height = int(manager.height)
     width = int(manager.width)
@@ -378,7 +435,7 @@ def _sum_ion_manager_images(manager: Any, ion_indices: np.ndarray) -> np.ndarray
     return image
 
 
-def _read_ion_manager_tic_image(manager: Any) -> np.ndarray:
+def _read_ion_manager_tic_image(manager: IonImageManager) -> np.ndarray:
     """Read a TIC image from an ion-image manager, using backend-specific fast paths."""
     n_ions = int(manager.n_ions)
     if n_ions <= 0:
@@ -391,12 +448,7 @@ def _read_ion_manager_tic_image(manager: Any) -> np.ndarray:
     if isinstance(manager, IonImageDataManagerBinary):
         return _read_binary_ion_manager_tic_image(manager)
 
-    ion_image = np.asarray(manager.get_ion_image(0))
-    tic_image = np.zeros(ion_image.shape, dtype=np.result_type(ion_image.dtype, np.float64))
-    tic_image += ion_image
-    for ion_idx in range(1, n_ions):
-        tic_image += np.asarray(manager.get_ion_image(ion_idx))
-    return tic_image
+    raise TypeError("manager must be a supported ion-image data manager.")
 
 
 def _read_dense_ion_manager_tic_image(
@@ -418,7 +470,9 @@ def _read_dense_ion_manager_tic_image(
     return tic_image
 
 
-def _read_binary_ion_manager_tic_image(manager: IonImageDataManagerBinary) -> np.ndarray:
+def _read_binary_ion_manager_tic_image(
+    manager: IonImageDataManagerBinary,
+) -> np.ndarray:
     """Compute TIC for binary managers by summing the ion-major memmap by pixel."""
     values = np.sum(
         manager.intensity_matrix,
@@ -440,6 +494,7 @@ def _read_binary_ion_manager_tic_image(manager: IonImageDataManagerBinary) -> np
 # Public read APIs
 # ---------------------------------------------------------------------------
 
+
 def read_ion_image(
     data_manager: SupportedDataManager,
     *,
@@ -449,6 +504,9 @@ def read_ion_image(
     mz_tolerance: float | None = None,
 ) -> np.ndarray:
     """Read a single ion image from a supported data manager."""
+    if mz_tolerance is not None and mz_tolerance < 0:
+        raise ValueError("mz_tolerance must be non-negative.")
+
     if isinstance(data_manager, MSDataManagerImzML):
         logger.info("Reading ion image from imzML data manager.")
         _ensure_imzml_loaded(data_manager)
@@ -459,7 +517,7 @@ def read_ion_image(
             max_threads=int(max_threads),
             mz_tolerance=mz_tolerance,
         )
-    if isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5, IonImageDataManagerBinary)):
+    if isinstance(data_manager, IonImageManager):
         logger.info("Reading ion image from ion-image data manager.")
         return _read_ion_manager_ion_image(
             data_manager,
@@ -484,7 +542,7 @@ def read_tic_image(
             batch_size=int(batch_size),
             max_threads=int(max_threads),
         )
-    if isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5, IonImageDataManagerBinary)):
+    if isinstance(data_manager, IonImageManager):
         logger.info("Reading TIC image from ion-image data manager.")
         return _read_ion_manager_tic_image(data_manager)
     raise TypeError("data_manager must be a supported data manager.")
@@ -494,6 +552,7 @@ def read_tic_image(
 # Plot rendering helper
 # ---------------------------------------------------------------------------
 
+
 def _plot_image(
     image: np.ndarray,
     *,
@@ -502,25 +561,47 @@ def _plot_image(
     dpi: int,
     figsize: tuple[float, float],
     title: str | None,
+    valid_mask: np.ndarray | None = None,
     structure_only: bool = False,
+    cmap: str = "viridis",
+    percentiles: tuple[float, float] = (0, 95),
+    scale_factor: float = 1,
 ) -> None:
     """Render an image matrix to matplotlib, optionally saving or showing it."""
-    render_figsize = figsize
+    if structure_only and valid_mask is None:
+        raise ValueError("valid_mask is required when structure_only=True.")
+
+    render_figsize = (
+        float(figsize[0]) * scale_factor,
+        float(figsize[1]) * scale_factor,
+    )
     if structure_only and image.ndim >= 2 and image.shape[0] > 0:
         height, width = image.shape[:2]
-        render_figsize = (float(figsize[1]) * float(width) / float(height), float(figsize[1]))
+        render_height = float(figsize[1]) * scale_factor
+        render_figsize = (render_height * float(width) / float(height), render_height)
 
     fig, ax = plt.subplots(1, 1, figsize=render_figsize, dpi=int(dpi))
     positive_values = image[np.isfinite(image) & (image > 0)]
-    vmax = float(np.percentile(positive_values, 95)) if positive_values.size else 1.0
+    vmin, vmax = (
+        np.percentile(positive_values, percentiles)
+        if positive_values.size
+        else (0.0, 1.0)
+    )
 
     if structure_only:
-        ax.imshow(image, cmap="inferno", vmin=0, vmax=vmax)
+        structure_mask = cast(np.ndarray, valid_mask)
+        structure_image = np.ma.masked_where(
+            ~np.isfinite(image) | ~structure_mask,
+            image,
+        )
+        ax.imshow(structure_image, cmap=cmap, vmin=vmin, vmax=vmax)
         ax.set_axis_off()
         ax.set_position((0, 0, 1, 1))
         fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        fig.patch.set_alpha(0)
+        ax.patch.set_alpha(0)
     else:
-        mappable = ax.imshow(image, cmap="inferno", vmin=0, vmax=vmax)
+        mappable = ax.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax)
         if title:
             ax.set_title(title)
         ax.set_xlabel("x")
@@ -532,7 +613,13 @@ def _plot_image(
         output_path = Path(save_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if structure_only:
-            fig.savefig(output_path, dpi=int(dpi), bbox_inches=None, pad_inches=0)
+            fig.savefig(
+                output_path,
+                dpi=int(dpi),
+                bbox_inches=None,
+                pad_inches=0,
+                transparent=True,
+            )
         else:
             fig.savefig(output_path, dpi=int(dpi), bbox_inches="tight")
     if show:
@@ -543,6 +630,18 @@ def _plot_image(
 # ---------------------------------------------------------------------------
 # Public plot APIs
 # ---------------------------------------------------------------------------
+
+
+def _validate_plot_options(
+    percentiles: tuple[float, float],
+    scale_factor: float,
+) -> None:
+    """Validate shared plot rendering options."""
+    if not 0 <= percentiles[0] < percentiles[1] <= 100:
+        raise ValueError("percentiles must be increasing values from 0 to 100.")
+    if scale_factor <= 0:
+        raise ValueError("scale_factor must be positive.")
+
 
 def plot_ion_image(
     data_manager: SupportedDataManager,
@@ -556,14 +655,23 @@ def plot_ion_image(
     dpi: int = 300,
     figsize: tuple[float, float] = (20, 5),
     title: str | None = None,
+    structure_only: bool = False,
+    cmap: str = "viridis",
+    percentiles: tuple[float, float] = (0, 95),
+    scale_factor: float = 1,
 ) -> None:
     """Read and plot a selected ion image."""
+    _validate_plot_options(percentiles, scale_factor)
+
     image_matrix = read_ion_image(
         data_manager,
         mz=mz,
         batch_size=batch_size,
         max_threads=max_threads,
         mz_tolerance=mz_tolerance,
+    )
+    valid_mask = (
+        _valid_region_mask(data_manager, image_matrix.shape) if structure_only else None
     )
     _plot_image(
         image_matrix,
@@ -572,6 +680,11 @@ def plot_ion_image(
         dpi=int(dpi),
         figsize=(float(figsize[0]), float(figsize[1])),
         title=title,
+        structure_only=structure_only,
+        cmap=cmap,
+        percentiles=percentiles,
+        scale_factor=float(scale_factor),
+        valid_mask=valid_mask,
     )
 
 
@@ -588,6 +701,9 @@ def plot_tic_image(
     figsize: tuple[float, float] = (20, 5),
     title: str | None = None,
     structure_only: bool = True,
+    cmap: str = "viridis",
+    percentiles: tuple[float, float] = (0, 95),
+    scale_factor: float = 1,
 ) -> bool:
     """Read and plot a TIC image."""
     out = Path(output_dir)
@@ -597,6 +713,12 @@ def plot_tic_image(
         max_threads=max_threads,
     )
     if save_image:
+        _validate_plot_options(percentiles, scale_factor)
+        valid_mask = (
+            _valid_region_mask(data_manager, image_matrix.shape)
+            if structure_only
+            else None
+        )
         _plot_image(
             image_matrix,
             save_path=str(out / "tic_image.png"),
@@ -605,6 +727,10 @@ def plot_tic_image(
             figsize=(float(figsize[0]), float(figsize[1])),
             title=title,
             structure_only=structure_only,
+            cmap=cmap,
+            percentiles=percentiles,
+            scale_factor=float(scale_factor),
+            valid_mask=valid_mask,
         )
 
     if save_matrix:

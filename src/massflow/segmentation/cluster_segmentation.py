@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.ndimage import binary_propagation
 
-from massflow.segmentation.umap_kmeans import FeatureAnalysisResult
+from massflow.segmentation.umap_kmeans import UmapKmeansResult
 from massflow.tools.logger import get_logger
 
 logger= get_logger("massflow.segmentation.cluster_segmentation")
@@ -62,7 +62,7 @@ def _normalize_labels(labels: Sequence[int] | None, *, parameter_name: str) -> n
 # ---------------------------------------------------------------------------
 
 def remove_clusters(
-    source: FeatureAnalysisResult,
+    source: UmapKmeansResult,
     labels_to_remove: Sequence[int],
     *,
     output_dir: str | Path = "./cluster_segmentation_output",
@@ -139,7 +139,7 @@ def _adjacent_remaining(remaining: np.ndarray, removed: np.ndarray) -> np.ndarra
 # ---------------------------------------------------------------------------
 
 def remove_background(
-    source: FeatureAnalysisResult,
+    source: UmapKmeansResult,
     labels_to_remove: Sequence[int] | None = None,
     *,
     remove_num: int = 1,
@@ -180,7 +180,7 @@ def remove_background(
 # ---------------------------------------------------------------------------
 
 def keep_clusters(
-    source: FeatureAnalysisResult,
+    source: UmapKmeansResult,
     labels_to_keep: Sequence[int],
     *,
     output_dir: str | Path = "./cluster_segmentation_output",
