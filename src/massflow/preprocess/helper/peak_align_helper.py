@@ -22,6 +22,8 @@ def _input_validation(
     if reference is None or reference.size == 0:
         logger.error("Reference cannot be None or empty.")
         raise ValueError("Reference cannot be None or empty.")
+    if reference.size > 1 and not np.all(reference[:-1] <= reference[1:]):
+        raise ValueError("reference must be sorted in ascending order")
     if tolerance <= 0:
         logger.error("Tolerance must be a positive number.")
         raise ValueError("Tolerance must be a positive number.")

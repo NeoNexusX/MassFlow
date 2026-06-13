@@ -10,7 +10,7 @@ from scipy.ndimage import binary_propagation
 from massflow.segmentation.segmentation_pipeline import UmapKmeansResult
 from massflow.tools.logger import get_logger
 
-logger= get_logger("massflow.segmentation.cluster_segmentation")
+logger = get_logger("massflow.segmentation.cluster_segmentation")
 
 
 # ---------------------------------------------------------------------------
