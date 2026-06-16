@@ -14,10 +14,12 @@ import zarr
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import MinMaxScaler
 
-from massflow.data_manager import IonImageDataManagerBinary
-from massflow.data_manager import IonImageDataManagerH5
-from massflow.data_manager import IonImageDataManagerZarr
-from massflow.data_manager import MSDataManagerImzML
+from massflow.data_manager import (
+    IonImageDataManagerBinary,
+    IonImageDataManagerH5,
+    IonImageDataManagerZarr,
+    MSDataManagerImzML,
+)
 from massflow.segmentation.segmentation_pipeline import TAB20_COLOR_NAMES, UmapKmeansResult
 from massflow.tools.logger import get_logger
 
@@ -637,12 +639,11 @@ def _tab20_label_colors(n_clusters: int) -> dict[int, str]:
 # ---------------------------------------------------------------------------
 
 
-def _validate_parameters(
+def _validate_umap_parameters(
     n_components: int,
     sample_ratio: float,
     transform_batch_size: int | None,
     random_state: int | None,
-    n_clusters: int,
 ) -> None:
     if n_components != 3:
         raise ValueError("n_components must be 3 for RGB image output.")
@@ -655,6 +656,21 @@ def _validate_parameters(
             "Random state is set; UMAP forces single-threaded execution (n_jobs=1), "
             "so runs may be slower. Set random_state=None to allow parallelism."
         )
+
+
+def _validate_parameters(
+    n_components: int,
+    sample_ratio: float,
+    transform_batch_size: int | None,
+    random_state: int | None,
+    n_clusters: int,
+) -> None:
+    _validate_umap_parameters(
+        n_components,
+        sample_ratio,
+        transform_batch_size,
+        random_state,
+    )
     if n_clusters <= 0 or n_clusters > 20:
         raise ValueError("n_clusters must be in the range [1, 20] for tab20 color mapping.")
 
@@ -674,6 +690,80 @@ def _get_spatial_dimensions(data_manager: Any) -> tuple[int | None, int | None]:
     w = getattr(meta, "max_count_of_pixels_x", None)
     h = getattr(meta, "max_count_of_pixels_y", None)
     return (int(w) if w else None), (int(h) if h else None)
+
+
+def _run_umap_stage(
+    data_manager: Any,
+    *,
+    n_components: int,
+    sample_ratio: float,
+    transform_batch_size: int | None,
+    umap_metric: str,
+    random_state: int | None,
+) -> tuple[np.ndarray, np.ndarray, int | None, int | None]:
+    if isinstance(data_manager, MSDataManagerImzML) and _is_continuous(data_manager) is False:
+        logger.error("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
+        raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
+
+    width, height = _get_spatial_dimensions(data_manager)
+    batch_size = 1024 if transform_batch_size is None else int(transform_batch_size)
+    scaled_embedding, coordinates = compute_streaming_umap_embeddings(
+        data_manager,
+        n_components=n_components,
+        metric=umap_metric,
+        random_state=random_state,
+        sample_ratio=sample_ratio,
+        transform_batch_size=batch_size,
+    )
+    return scaled_embedding, coordinates, width, height
+
+
+def _save_rgb_image(image: np.ndarray, output_path: str | Path, *, dpi: int) -> None:
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    plt.imsave(
+        str(output),
+        image,
+        dpi=dpi,
+        pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True},
+    )
+
+
+def plot_umap_image(
+    data_manager: Any,
+    *,
+    output_path: str | Path = "./umap_image.jpg",
+    dpi: int = 600,
+    sample_ratio: float = 0.1,
+    transform_batch_size: int | None = 1024,
+    n_components: int = 3,
+    umap_metric: str = "cosine",
+    random_state: int | None = None,
+) -> np.ndarray:
+    """Run UMAP analysis, save the spatial UMAP image, and return it."""
+    _validate_umap_parameters(
+        n_components,
+        sample_ratio,
+        transform_batch_size,
+        random_state,
+    )
+    scaled_embedding, coordinates, width, height = _run_umap_stage(
+        data_manager,
+        n_components=n_components,
+        sample_ratio=sample_ratio,
+        transform_batch_size=transform_batch_size,
+        umap_metric=umap_metric,
+        random_state=random_state,
+    )
+    umap_img = build_umap_image(
+        scaled_embedding,
+        coordinates,
+        width=width,
+        height=height,
+    )
+    _save_rgb_image(umap_img, output_path, dpi=dpi)
+    logger.info(f"UMAP image saved to: {output_path}")
+    return umap_img
 
 
 def plot_umap_kmeans_image(
@@ -700,21 +790,14 @@ def plot_umap_kmeans_image(
     out = Path(output_dir) if output_dir is not None else Path("./umap_kmeans_output")
     out.mkdir(parents=True, exist_ok=True)
 
-    if isinstance(data_manager, MSDataManagerImzML) and _is_continuous(data_manager) is False:
-        logger.error("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
-        raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
-
-    width, height = _get_spatial_dimensions(data_manager)
-    batch_size = 1024 if transform_batch_size is None else int(transform_batch_size)
-
     # --- 2. UMAP embedding ---------------------------------------------
-    scaled_embedding, coordinates = compute_streaming_umap_embeddings(
+    scaled_embedding, coordinates, width, height = _run_umap_stage(
         data_manager,
         n_components=n_components,
-        metric=umap_metric,
-        random_state=random_state,
         sample_ratio=sample_ratio,
-        transform_batch_size=batch_size,
+        transform_batch_size=transform_batch_size,
+        umap_metric=umap_metric,
+        random_state=random_state,
     )
 
     # ---- 3. KMeans on the *same* scaled embedding -----------------------
@@ -755,8 +838,8 @@ def plot_umap_kmeans_image(
 
     # ---- 5. Save outputs ------------------------------------------------
     if save_images:
-        plt.imsave(str(out / "umap_image.jpg"), umap_img, dpi=dpi, pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True})
-        plt.imsave(str(out / "kmeans_image.jpg"), kmeans_img, dpi=dpi, pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True})
+        _save_rgb_image(umap_img, out / "umap_image.jpg", dpi=dpi)
+        _save_rgb_image(kmeans_img, out / "kmeans_image.jpg", dpi=dpi)
 
     if save_matrix == "zarr":
         result_group = zarr.open_group(str(out / "umap_kmeans_result.zarr"), mode="w")
