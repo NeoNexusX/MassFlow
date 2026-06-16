@@ -7,12 +7,15 @@ from typing import Callable, Literal
 import numpy as np
 
 from massflow.data_manager import MSDataManagerImzML
-from massflow.preprocess.numba.peak_filter_numba import (
+from massflow.preprocess.numba.stat_filter_numba import (
     aggregate_peak_profile_flat_parallel_jit,
     count_peaks_flat_parallel_jit,
     filter_peaks_flat_parallel_jit,
     sum_intensity_flat_parallel_jit,
 )
+from massflow.tools.logger import get_logger
+
+logger = get_logger("massflow.preprocess.peak_filter_helper")
 
 IntensityMethod = Literal["mean", "sum"]
 
@@ -259,12 +262,12 @@ def _build_intensity_mask(
 def filter_peaks_by_stats(
     data_manager: MSDataManagerImzML,
     *,
+    profile: PeakFilterProfile | None = None,
     min_count: int | None = None,
     min_frequency: float | None = None,
     intensity_method: IntensityMethod = "mean",
     min_intensity: float | None = None,
     intensity_quantile: float | None = None,
-    profile: PeakFilterProfile | None = None,
     output_path: str | Path | None = None,
     temp_dir: str | Path | None = None,
 ) -> MSDataManagerImzML:
@@ -372,23 +375,3 @@ def compute_peak_counts(data_manager: MSDataManagerImzML) -> np.ndarray:
     """Compute the occurrence count spectrum across all spectra."""
     counts, _ = _aggregate_batches(data_manager, count_peaks_flat_parallel_jit)
     return counts
-
-
-# ---------------------------------------------------------------
-# 这一部分实现根据同位素知识过滤
-# ---------------------------------------------------------------
-
-def filter_peaks_by_isotopes(
-    data_manager: MSDataManagerImzML,
-    mz_tolerance: float = 0.01,
-    max_charge: int = 3,
-    min_isotope_count: int = 2,
-    output_path: str | Path | None = None,
-    temp_dir: str | Path | None = None,
-) -> MSDataManagerImzML:
-    """Filter peaks based on expected isotopic patterns."""
-    # This function would implement logic to identify isotopic clusters
-    # and filter peaks that do not fit expected patterns. The implementation
-    # would likely involve multiple passes through the data and is non-trivial.
-    # For now, this is a placeholder to indicate where such functionality would go.
-    raise NotImplementedError("Isotope-based peak filtering is not yet implemented.")

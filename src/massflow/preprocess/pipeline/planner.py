@@ -21,8 +21,9 @@ _OPERATION_ORDER: dict[str, int] = {
     "noise_reduction": 20,
     "normalization": 30,
     "peak_pick": 40,
-    "reference_computer": 50,
-    "peak_align": 60,
+    "filter_peaks_by_isotopes": 50,
+    "reference_computer": 60,
+    "peak_align": 70,
     }
 _PROFILE_ONLY_TASKS = frozenset({"baseline_correction", "noise_reduction", "peak_pick"})
 

@@ -163,6 +163,33 @@ class PreprocessorAPI(_TaskRegistrar):
             min_frequency=min_frequency,
         )
 
+    def filter_peaks_by_isotopes(
+        self,
+        *,
+        mz_tolerance: float = 10.0,
+        units: Literal["da", "ppm"] = "ppm",
+        min_charge: int = 1,
+        max_charge: int = 3,
+        min_isotope_count: int = 3,
+        max_isotope_count: int = 10,
+        use_decreasing_model: bool = True,
+        start_intensity_check: int = 2,
+    ) -> Self:
+        """Register per-spectrum isotope filtering after peak picking."""
+        return self._register_task(
+            "filter_peaks_by_isotopes",
+            scope="batch",
+            apply_fn=FlatPreprocess.isotope_filter_flat,
+            mz_tolerance=mz_tolerance,
+            units=units,
+            min_charge=min_charge,
+            max_charge=max_charge,
+            min_isotope_count=min_isotope_count,
+            max_isotope_count=max_isotope_count,
+            use_decreasing_model=use_decreasing_model,
+            start_intensity_check=start_intensity_check,
+        )
+
     def peak_align(
         self,
         *,
