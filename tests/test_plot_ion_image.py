@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -213,6 +214,18 @@ class TestPlotIonImage:
         mask = _valid_region_mask(dm, (2, 2))
 
         np.testing.assert_array_equal(mask, [[True, False], [False, False]])
+
+    def test_zarr_valid_region_mask_uses_canonical_zero_based_coordinates(self):
+        dm = object.__new__(IonImageDataManagerZarr)
+        dm._reader = SimpleNamespace(  # type: ignore[attr-defined]
+            coordinates=np.array([[2, 1, 0]], dtype=np.uint32)
+        )
+
+        mask = _valid_region_mask(dm, (2, 3))
+
+        expected = np.zeros((2, 3), dtype=bool)
+        expected[1, 2] = True
+        np.testing.assert_array_equal(mask, expected)
 
     @pytest.fixture(scope="class")
     def continuous_dm(self):

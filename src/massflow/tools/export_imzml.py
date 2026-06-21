@@ -219,7 +219,9 @@ def _create_pixel_major_temp(
 
 
 def _read_ion_block(source: IonImageSource, start: int, end: int) -> np.ndarray:
-    if isinstance(source, (IonImageDataManagerZarr, IonImageDataManagerH5)):
+    if isinstance(source, IonImageDataManagerZarr):
+        return source.get_ion_block(start, end)
+    if isinstance(source, IonImageDataManagerH5):
         dense = np.asarray(source.dset[start:end])
         return dense.reshape(end - start, -1)[:, source.flat_idx]
     return np.asarray(source.intensity_matrix[start:end])

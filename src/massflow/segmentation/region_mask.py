@@ -56,11 +56,19 @@ def _normalize_mask(mask: np.ndarray, *, width: int, height: int) -> np.ndarray:
     return normalized.astype(bool, copy=False)
 
 
-def _select_coordinates(mask: np.ndarray, coordinates: np.ndarray) -> np.ndarray:
+def _select_coordinates(
+    mask: np.ndarray,
+    coordinates: np.ndarray,
+    coordinate_base: str | None = None,
+) -> np.ndarray:
     """Return which coordinates fall inside the mask."""
     xy = np.asarray(coordinates)[:, :2].astype(np.int64, copy=False)
-    zero_based = bool(np.any(xy == 0))
-    xy0 = xy if zero_based else xy - 1
+    if coordinate_base == "zero":
+        xy0 = xy
+    elif coordinate_base == "one":
+        xy0 = xy - 1
+    else:
+        xy0 = xy if bool(np.any(xy == 0)) else xy - 1
     return mask[xy0[:, 1], xy0[:, 0]]
 
 
@@ -144,7 +152,11 @@ def _selected_coordinates(
     mask: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return selected coordinate rows and their source indices."""
-    selected = _select_coordinates(mask, data_manager.coordinates)
+    selected = _select_coordinates(
+        mask,
+        data_manager.coordinates,
+        getattr(data_manager, "_coordinate_base", None),
+    )
     selected_indices = np.flatnonzero(selected)
     if selected_indices.size == 0:
         raise ValueError("mask does not retain any source pixels.")
@@ -199,7 +211,7 @@ def _write_binary_masked(
 
 
 def _masked_dense_block(
-    data_manager: IonImageDataManagerH5 | IonImageDataManagerZarr,
+    data_manager: IonImageDataManagerH5,
     mask: np.ndarray,
     start: int,
     end: int,
@@ -261,41 +273,52 @@ def _write_zarr_masked(
     *,
     batch_size: int,
 ) -> IonImageDataManagerZarr:
-    """Write masked dense ion-image blocks directly to a new Zarr group."""
-    coordinates, _ = _selected_coordinates(data_manager, mask)
-    chunk_size = int(data_manager.dset.chunks[0])
+    """Write selected compact ion vectors to a new Zarr group."""
+    output_path = Path(output_path)
+    if output_path.suffix != ".zarr":
+        output_path = Path(f"{output_path}.zarr")
+    coordinates, selected_indices = _selected_coordinates(data_manager, mask)
+    n_pixels = int(selected_indices.size)
+    chunk_points = int(data_manager.intensity.chunks[0])
     output_group = zarr.open_group(str(output_path), mode="w")
     output_group.attrs.update(
         {
-            "width": data_manager.width,
-            "height": data_manager.height,
-            "n_ions": data_manager.n_ions,
-            "n_pixels": int(coordinates.shape[0]),
-            "intensity_dtype": str(np.dtype(data_manager.intensity_dtype)),
-            "mz_dtype": str(np.dtype(data_manager.mz_dtype)),
-            "coordinate_base": getattr(data_manager, "_coordinate_base") or "auto",
+            "format": "massflow.msi_zarr",
+            "format_version": "1.0",
+            "write_state": "writing",
+            "coordinate_order": ["x", "y", "z"],
+            "coordinate_base": 0,
+            "spatial_shape": [data_manager.height, data_manager.width],
         }
     )
-    output_group.create_array("mz_axis", data=np.asarray(data_manager.mz_axis))
-    output_group.create_array(
+    axes_group = output_group.create_group("axes")
+    axes_group.create_array(
         "coordinates",
         data=coordinates.astype("<u4", copy=False),
     )
-    output_images = output_group.create_array(
-        "ion_images",
-        shape=(data_manager.n_ions, data_manager.height, data_manager.width),
-        chunks=(chunk_size, data_manager.height, data_manager.width),
+    mz_array = axes_group.create_array(
+        "mz", data=np.asarray(data_manager.mz_axis, dtype="<f8")
+    )
+    mz_array.attrs["unit"] = "m/z"
+    data_group = output_group.create_group("data")
+    data_group.attrs.update({"row_axis": "ion", "encoding": "continuous"})
+    output_intensity = data_group.create_array(
+        "intensity",
+        shape=(data_manager.n_ions * n_pixels,),
+        chunks=(max(n_pixels, chunk_points),),
         dtype=data_manager.intensity_dtype,
+    )
+    data_group.create_array(
+        "offsets",
+        data=(np.arange(data_manager.n_ions + 1, dtype=np.int64) * n_pixels),
     )
     for start in range(0, data_manager.n_ions, batch_size):
         end = min(data_manager.n_ions, start + batch_size)
-        output_images[start:end] = _masked_dense_block(
-            data_manager,
-            mask,
-            start,
-            end,
-        )
+        block = data_manager.get_ion_block(start, end)[:, selected_indices]
+        output_intensity[start * n_pixels : end * n_pixels] = block.reshape(-1)
 
+    data_manager.meta.to_zarr(output_group)
+    output_group.attrs["write_state"] = "complete"
     return IonImageDataManagerZarr(output_path, mode="r")
 
 

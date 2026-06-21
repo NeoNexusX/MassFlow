@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import os
-import shutil
 import struct
-import tempfile
 import threading
 import uuid
 from copy import deepcopy
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import astuple, dataclass, fields
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 
 from massflow.data_manager.ion_image_data_manager import IonImageDataManager
 from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
+from massflow.tools.ion_major_temp_store import BatchInfo, IonMajorTempStore
 from massflow.tools.logger import get_logger
 
 # Header 中每个字段都是 little-endian uint64；sentinel 作为终止标记，
@@ -25,20 +24,9 @@ from massflow.tools.logger import get_logger
 logger = get_logger("massflow.data_manager.ion_image_data_manager_binary")
 UINT32_SIZE = np.dtype("<u4").itemsize
 _HEADER_SENTINEL = 0xFFFFFFFFFFFFFFFF
-_TEMP_WRITE_ION_BLOCK = 2048
 _BINARY_OPEN_FLAG = getattr(os, "O_BINARY", 0)
-_OS_PREAD = getattr(os, "pread", None)
 _OS_PWRITE = getattr(os, "pwrite", None)
 _POSITIONED_IO_LOCK = threading.Lock()
-
-
-def _pread(fd: int, nbytes: int, offset: int) -> bytes:
-    """Read from an explicit offset, with a locked Windows fallback."""
-    if _OS_PREAD is not None:
-        return _OS_PREAD(fd, nbytes, offset)
-    with _POSITIONED_IO_LOCK:
-        os.lseek(fd, offset, os.SEEK_SET)
-        return os.read(fd, nbytes)
 
 
 def _pwrite(fd: int, data: Any, offset: int) -> int:
@@ -81,12 +69,6 @@ def _float_bits(dtype: np.dtype, *, field_name: str, allowed: set[int]) -> int:
     if bits not in allowed:
         raise ValueError(f"{field_name} must be one of {sorted(allowed)} bits, got {bits}")
     return bits
-
-
-@dataclass(slots=True)
-class _BatchInfo:
-    path: Path
-    n_pixels: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,16 +175,11 @@ class IonImageDataManagerBinary(IonImageDataManager):
         self._coordinates: np.ndarray | None = None
         self._intensity_matrix: np.memmap | None = None
 
-        self._batch_infos: list[_BatchInfo] = []
         self._coordinate_chunks: list[np.ndarray] = []
-        self._pending_temp_futures: set[Future[tuple[int, _BatchInfo]]] = set()
-        self._io_executor: ThreadPoolExecutor | None = None
-        self._batch_counter = 0
         self._n_ions: int | None = None
         self._n_pixels = 0
         self._finalized = False
-        self._owns_temp_dir = False
-        self._temp_root: Path | None = None
+        self._temp_store: IonMajorTempStore | None = None
 
         if mode not in {"r", "w"}:
             raise ValueError("mode must be 'r' or 'w'")
@@ -218,12 +195,11 @@ class IonImageDataManagerBinary(IonImageDataManager):
         _float_bits(self.intensity_dtype, field_name="intensity_dtype", allowed={16, 32, 64})
         self._validate_metadata(metadata, shared_mz_axis)
 
-        base_temp = Path(temp_dir) if temp_dir is not None else Path(tempfile.gettempdir())
-        base_temp.mkdir(parents=True, exist_ok=True)
-        self._temp_root = base_temp / f"ion_image_binary_{uuid.uuid4().hex}"
-        self._temp_root.mkdir(parents=True, exist_ok=False)
-        self._owns_temp_dir = True
-        self._io_executor = ThreadPoolExecutor(max_workers=max(self.temp_workers, self.merge_workers))
+        self._temp_store = IonMajorTempStore(
+            temp_dir=temp_dir,
+            dtype=self.intensity_dtype,
+            workers=self.temp_workers,
+        )
 
     @classmethod
     def from_data_manager(
@@ -420,8 +396,8 @@ class IonImageDataManagerBinary(IonImageDataManager):
             raise ValueError("write_flat_batch is only available in write mode.")
         if self._finalized:
             raise ValueError("Cannot write after finalize().")
-        if self._temp_root is None:
-            raise RuntimeError("Temporary directory is not initialized.")
+        if self._temp_store is None:
+            raise RuntimeError("Temporary store is not initialized.")
 
         lengths = np.asarray(lengths)
         coordinates = np.asarray(coordinates)
@@ -455,83 +431,15 @@ class IonImageDataManagerBinary(IonImageDataManager):
         if intensity_flat.size != batch_pixels * self._n_ions:
             raise ValueError("intensity_flat size must equal batch_pixels * n_ions.")
 
-        batch_index = self._batch_counter
-        self._batch_counter += 1
-        batch_path = self._temp_root / f"batch_{batch_index:05d}.bin"
-        if self._io_executor is None:
-            raise RuntimeError("I/O executor is not initialized.")
-
         # 方案只保存 xy，不保存 z；坐标等到 finalize 时一次性写入最终文件。
         xy = coordinates[:, :2].astype("<u4", copy=False)
         self._coordinate_chunks.append(xy.copy())
         self._n_pixels += batch_pixels
-
-        future = self._io_executor.submit(
-            self._write_temp_batch,
-            batch_index,
-            batch_path,
+        self._temp_store.append_batch(
             intensity_flat,
-            batch_pixels,
-            self._n_ions,
-            self.intensity_dtype,
+            n_pixels=batch_pixels,
+            n_ions=self._n_ions,
         )
-        self._pending_temp_futures.add(future)
-        if len(self._pending_temp_futures) >= self.temp_workers:
-            self._collect_temp_futures(return_when=FIRST_COMPLETED)
-
-    @staticmethod
-    def _write_temp_batch(
-        batch_index: int,
-        batch_path: Path,
-        intensity_flat: np.ndarray,
-        batch_pixels: int,
-        n_ions: int,
-        dtype: np.dtype,
-    ) -> tuple[int, _BatchInfo]:
-        """把一个 pixel-major batch 分块转置为 [n_ions, batch_pixels] 写出。"""
-        matrix = np.asarray(intensity_flat, dtype=dtype).reshape(batch_pixels, n_ions)
-        with batch_path.open("wb") as temp_file:
-            for ion_start in range(0, n_ions, _TEMP_WRITE_ION_BLOCK):
-                ion_end = min(n_ions, ion_start + _TEMP_WRITE_ION_BLOCK)
-                block = np.ascontiguousarray(matrix[:, ion_start:ion_end].T)
-                temp_file.write(memoryview(block))
-
-        return batch_index, _BatchInfo(path=batch_path, n_pixels=batch_pixels)
-
-    def _collect_temp_futures(self, *, return_when) -> None:
-        """收集已完成的临时写出任务，并保持异常能在主线程暴露。"""
-        def add_batch_info(result: tuple[int, _BatchInfo]) -> None:
-            _batch_index, batch_info = result
-            self._batch_infos.append(batch_info)
-
-        self._pending_temp_futures = self._collect_futures(
-            self._pending_temp_futures,
-            return_when=return_when,
-            on_result=add_batch_info,
-        )
-
-    @staticmethod
-    def _collect_futures(
-        pending: set[Future[Any]],
-        *,
-        return_when: str,
-        on_result: Callable[[Any], None] | None = None,
-    ) -> set[Future[Any]]:
-        """等待一批 future，抛出异常并可消费已完成结果。"""
-        if not pending:
-            return set()
-        done, remaining = wait(pending, return_when=return_when)
-        for future in done:
-            result = future.result()
-            if on_result is not None:
-                on_result(result)
-        return set(remaining)
-
-    def _finish_temp_writes(self) -> None:
-        """等待所有后台临时 batch 写出完成，并按 batch index 排序。"""
-        while self._pending_temp_futures:
-            self._collect_temp_futures(return_when=FIRST_COMPLETED)
-        self._batch_infos.sort(key=lambda info: info.path.name)
 
     def finalize(self) -> None:
         """合并所有临时 batch，写出最终 binary 文件。"""
@@ -539,9 +447,14 @@ class IonImageDataManagerBinary(IonImageDataManager):
             return
         if self._finalized:
             return
-        self._finish_temp_writes()
-        if self._n_ions is None or self._mz_axis is None or not self._coordinate_chunks:
+        if (
+            self._temp_store is None
+            or self._n_ions is None
+            or self._mz_axis is None
+            or not self._coordinate_chunks
+        ):
             raise ValueError("No ion-image batches were written.")
+        batch_infos = self._temp_store.finish()
         self._coordinates = np.vstack(self._coordinate_chunks)
         if self._width is None:
             self._width = int(np.max(self._coordinates[:, 0]))
@@ -575,7 +488,6 @@ class IonImageDataManagerBinary(IonImageDataManager):
             os.O_RDWR | os.O_CREAT | os.O_TRUNC | _BINARY_OPEN_FLAG,
             0o644,
         )
-        batch_fds: list[int] = []
         try:
             # header、mz_axis、coordinates 都是一次性写入；大矩阵区域先
             # ftruncate 预分配，再由 _merge_intensity 分块 pwrite。
@@ -584,19 +496,21 @@ class IonImageDataManagerBinary(IonImageDataManager):
             _pwrite(fd, self._coordinates.astype("<u4", copy=False).tobytes(order="C"), coordinate_offset)
             os.ftruncate(fd, final_size)
 
-            batch_fds = [os.open(info.path, os.O_RDONLY | _BINARY_OPEN_FLAG) for info in self._batch_infos]
-            self._merge_intensity(fd, batch_fds, intensity_offset)
+            self._merge_intensity(fd, batch_infos, intensity_offset)
         finally:
-            for batch_fd in batch_fds:
-                os.close(batch_fd)
             os.close(fd)
 
         self._finalized = True
-        self._shutdown_io_executor()
-        self._cleanup_temp()
+        self._temp_store.close()
+        self._temp_store = None
         self._open_for_read()
 
-    def _merge_intensity(self, output_fd: int, batch_fds: list[int], intensity_offset: int) -> None:
+    def _merge_intensity(
+        self,
+        output_fd: int,
+        batch_infos: list[BatchInfo],
+        intensity_offset: int,
+    ) -> None:
         """
         按 ion block 合并临时文件到最终 intensity_matrix。
         每个临时文件内部布局是 [ion, pixel_in_batch]。这里使用 positioned
@@ -608,50 +522,38 @@ class IonImageDataManagerBinary(IonImageDataManager):
         n_ions = self._n_ions
         assert n_ions is not None
 
-        def merge_ion_block(ion_start: int) -> None:
+        assert self._temp_store is not None
+
+        def merge_block(ion_start: int) -> None:
             ion_end = min(n_ions, ion_start + block_size)
             n_block = ion_end - ion_start
             band = np.empty((n_block, self._n_pixels), dtype=self.intensity_dtype)
 
             pixel_start = 0
-            for batch_fd, info in zip(batch_fds, self._batch_infos):
-                # 对同一个 ion block，从每个 batch 文件读取对应 band，然后
-                # 横向拼成 [ion_block, all_pixels]。
-                nbytes = n_block * info.n_pixels * itemsize
-                offset = ion_start * info.n_pixels * itemsize
-                raw = _pread(batch_fd, nbytes, offset)
-                if len(raw) != nbytes:
-                    raise OSError(f"Short read while merging {info.path}: expected {nbytes}, got {len(raw)}")
+            for info in batch_infos:
                 pixel_end = pixel_start + info.n_pixels
-                band[:, pixel_start:pixel_end] = np.frombuffer(raw, dtype=self.intensity_dtype).reshape(
-                    n_block,
-                    info.n_pixels,
+                band[:, pixel_start:pixel_end] = self._temp_store.read_ion_block(
+                    info,
+                    ion_start,
+                    ion_end,
                 )
                 pixel_start = pixel_end
 
             output_offset = intensity_offset + ion_start * self._n_pixels * itemsize
-            # band 已经是 C-contiguous；memoryview 避免 band.tobytes() 再复制一份
-            # 大块 bytes，和 benchmark 脚本的写法保持一致。
             _pwrite(output_fd, memoryview(np.ascontiguousarray(band)), output_offset)
 
-        ion_starts = range(0, n_ions, block_size)
-        if self._io_executor is None:
-            raise RuntimeError("I/O executor is not initialized.")
-
-        pending_merge_futures: set[Future[None]] = set()
-        for ion_start in ion_starts:
-            pending_merge_futures.add(self._io_executor.submit(merge_ion_block, ion_start))
-            if len(pending_merge_futures) >= self.merge_workers:
-                pending_merge_futures = self._collect_futures(
-                    pending_merge_futures,
-                    return_when=FIRST_COMPLETED,
-                )
-
-        while pending_merge_futures:
-            pending_merge_futures = self._collect_futures(
-                pending_merge_futures,
-                return_when=FIRST_COMPLETED,
-            )
+        pending: set[Future[None]] = set()
+        with ThreadPoolExecutor(max_workers=self.merge_workers) as executor:
+            for ion_start in range(0, n_ions, block_size):
+                pending.add(executor.submit(merge_block, ion_start))
+                if len(pending) >= self.merge_workers:
+                    done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        future.result()
+            while pending:
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for future in done:
+                    future.result()
 
     def _open_for_read(self) -> None:
         """解析 header,并把三个数据区映射成 NumPy 视图。"""
@@ -728,19 +630,9 @@ class IonImageDataManagerBinary(IonImageDataManager):
         self.mz_axis = None
         self._coordinates = None
         self._intensity_matrix = None
-        self._shutdown_io_executor()
-        if self.mode == "w" and not self._finalized:
-            self._cleanup_temp()
-
-    def _shutdown_io_executor(self) -> None:
-        if self._io_executor is not None:
-            self._io_executor.shutdown(wait=True)
-            self._io_executor = None
-
-    def _cleanup_temp(self) -> None:
-        if self._owns_temp_dir and self._temp_root is not None:
-            shutil.rmtree(self._temp_root, ignore_errors=True)
-            self._temp_root = None
+        if self._temp_store is not None:
+            self._temp_store.close()
+            self._temp_store = None
 
     def __del__(self):
         self.close()

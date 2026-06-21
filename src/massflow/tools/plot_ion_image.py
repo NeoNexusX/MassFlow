@@ -219,11 +219,14 @@ def _valid_region_mask(
         coordinates = np.asarray(data_manager.coordinates)
 
     height, width = image_shape
-    zero_based, _, _ = _infer_image_geometry(
-        coordinates,
-        width=width,
-        height=height,
-    )
+    if isinstance(data_manager, IonImageDataManagerZarr):
+        zero_based = True
+    else:
+        zero_based, _, _ = _infer_image_geometry(
+            coordinates,
+            width=width,
+            height=height,
+        )
     mask = np.zeros(image_shape, dtype=bool)
     _scatter_values_into_image(
         mask,
@@ -441,8 +444,10 @@ def _read_ion_manager_tic_image(manager: IonImageManager) -> np.ndarray:
     if n_ions <= 0:
         raise ValueError("Ion image source contains no ions.")
 
-    # Dense backends can sum ion blocks directly from the underlying (ion, y, x) dataset.
-    if isinstance(manager, (IonImageDataManagerZarr, IonImageDataManagerH5)):
+    if isinstance(manager, IonImageDataManagerZarr):
+        return _read_zarr_ion_manager_tic_image(manager)
+    # H5 can sum ion blocks directly from the underlying dense dataset.
+    if isinstance(manager, IonImageDataManagerH5):
         return _read_dense_ion_manager_tic_image(manager)
     # Binary stores (ion, pixel) data, so summing the memmap by pixel is cheaper.
     if isinstance(manager, IonImageDataManagerBinary):
@@ -452,7 +457,7 @@ def _read_ion_manager_tic_image(manager: IonImageManager) -> np.ndarray:
 
 
 def _read_dense_ion_manager_tic_image(
-    manager: IonImageDataManagerZarr | IonImageDataManagerH5,
+    manager: IonImageDataManagerH5,
 ) -> np.ndarray:
     """Compute TIC for dense H5/Zarr managers by summing ion blocks from dset."""
     n_ions = int(manager.n_ions)
@@ -468,6 +473,27 @@ def _read_dense_ion_manager_tic_image(
         tic_image += np.sum(dense_block, axis=0, dtype=dtype)
 
     return tic_image
+
+
+def _read_zarr_ion_manager_tic_image(
+    manager: IonImageDataManagerZarr,
+) -> np.ndarray:
+    """Compute TIC from compact ion-major Zarr rows."""
+    values = manager.tic
+    if values is None:
+        values = np.zeros(manager.n_pixels, dtype=np.float64)
+        ion_block = max(1, int(manager.ion_block))
+        for start in range(0, manager.n_ions, ion_block):
+            end = min(manager.n_ions, start + ion_block)
+            values += np.sum(
+                manager.get_ion_block(start, end),
+                axis=0,
+                dtype=np.float64,
+            )
+    image = np.zeros((manager.height, manager.width), dtype=values.dtype)
+    coords = np.asarray(manager.coordinates, dtype=np.int64)
+    image[coords[:, 1], coords[:, 0]] = values
+    return image
 
 
 def _read_binary_ion_manager_tic_image(

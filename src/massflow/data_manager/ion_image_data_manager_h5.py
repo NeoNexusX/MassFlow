@@ -7,24 +7,18 @@ Phase 2（finalize）从 temp 文件按 ion block 读取 → 向量化散射 →
 from __future__ import annotations
 
 import os
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import h5py
 import hdf5plugin
 import numpy as np
 
-from massflow.data_manager.ion_image_data_manager_binary import (
-    _BINARY_OPEN_FLAG,
-    _BatchInfo,
-    _pread,
-    IonImageDataManagerBinary,
-)
+from massflow.data_manager.ion_image_data_manager_binary import IonImageDataManagerBinary
+from massflow.tools.ion_major_temp_store import BatchInfo, IonMajorTempStore
 from massflow.tools.logger import get_logger
 
-if TYPE_CHECKING:
-    import h5py
 
 # bitshuffle 预处理 + LZ4 最快压缩级别
 _H5_ARGS = hdf5plugin.Bitshuffle(nelems=0, cname="lz4", clevel=1)  # type: ignore
@@ -35,7 +29,7 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
     """HDF5 离子图像后端。
 
     继承 binary 版本的 Phase 1（temp 文件转置写入），
-    重写 finalize 实现 H5 合并写入，重写读路径直接解压 chunk。
+    重写 finalize 实现 H5 合并写入，重写读路径直接解压 chunk。codex: 注释不应该这样写，不要提重写之类的，别人又没有看过以前的代码
     """
 
     def __init__(
@@ -106,9 +100,14 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
         """合并 temp 文件 → H5（bitshuffle+lz4 压缩）。"""
         if self.mode != "w" or self._finalized:
             return
-        self._finish_temp_writes()
-        if self._n_ions is None or self._mz_axis is None or not self._coordinate_chunks:
+        if (
+            self._temp_store is None
+            or self._n_ions is None
+            or self._mz_axis is None
+            or not self._coordinate_chunks
+        ):
             raise ValueError("No ion-image batches were written.")
+        batch_infos = self._temp_store.finish()
         self.coordinates = np.vstack(self._coordinate_chunks)
         if self.width is None:
             self.width = int(np.max(self.coordinates[:, 0]))
@@ -116,21 +115,18 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
             self.height = int(np.max(self.coordinates[:, 1]))
 
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
-        self._merge_to_h5()
+        self._merge_to_h5(batch_infos)
         self._finalized = True
-        self._shutdown_io_executor()
-        self._cleanup_temp()
+        self._temp_store.close()
+        self._temp_store = None
         self._open_for_read()
 
-    def _merge_to_h5(self) -> None:
-        """从 temp 文件读取并散射写入 H5，双缓冲流水线。"""
+    def _merge_to_h5(self, batch_infos: list[BatchInfo]) -> None:
+        """从 temp 文件读取并散射写入 H5。"""
         n, h, w = self._n_ions, self.height, self.width
         npix = self._n_pixels
-        isize = self.intensity_dtype.itemsize
         dtype = self.intensity_dtype
-        executor = self._io_executor
-        batch_infos = self._batch_infos
-        assert n is not None and executor is not None
+        assert n is not None and self._temp_store is not None
 
         # 散射索引（所有 ion 共用）
         xs = self.coordinates[:, 0].astype(np.int64, copy=False)
@@ -141,66 +137,52 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
         fidx = (ys[valid] * w + xs[valid])
         self.flat_idx = fidx
 
-        # Use pread instead of memmap so scanned temp pages do not accumulate in RSS.
-        batch_fds: list[int] = []
-        try:
-            for bi in batch_infos:
-                batch_fds.append(os.open(bi.path, os.O_RDONLY | _BINARY_OPEN_FLAG))
-
-            with h5py.File(self.filepath, "w") as f:
-                f.attrs["width"], f.attrs["height"] = w, h
-                f.attrs["n_ions"], f.attrs["n_pixels"] = n, npix
-                f.create_dataset("mz_axis", data=self.mz_axis)
-                f.create_dataset("coordinates", data=self.coordinates, dtype="<u4")
-                dset = f.create_dataset(
-                    "ion_images", shape=(n, h, w),
-                    chunks=(self._chunk_size, h, w), dtype=dtype, **_H5_ARGS,
-                )
-
-                block = max(16, self.ion_block)
-                starts = list(range(0, n, block))
-                if not starts:
-                    return
-                total_blocks = len(starts)
-
-                # 第一个 block 同步准备
-                curr = _read_scatter(batch_fds, batch_infos, fidx,
-                                     starts[0], min(n, starts[0] + block),
-                                     npix, h, w, isize, dtype)
-                fut: Future | None = None
-                if len(starts) > 1:
-                    s1 = starts[1]
-                    fut = executor.submit(_read_scatter, batch_fds, batch_infos, fidx,
-                                          s1, min(n, s1 + block), npix, h, w, isize, dtype)
-
-                # 流水线：写当前 block 同时预读下一个
-                for i, start in enumerate(starts):
+        with h5py.File(self.filepath, "w") as f:
+            f.attrs["width"], f.attrs["height"] = w, h
+            f.attrs["n_ions"], f.attrs["n_pixels"] = n, npix
+            f.create_dataset("mz_axis", data=self.mz_axis)
+            f.create_dataset("coordinates", data=self.coordinates, dtype="<u4")
+            dset = f.create_dataset(
+                "ion_images", shape=(n, h, w),
+                chunks=(self._chunk_size, h, w), dtype=dtype, **_H5_ARGS,
+            )
+            block = max(16, self.ion_block)
+            starts = list(range(0, n, block))
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future: Future[np.ndarray] | None = None
+                for index, start in enumerate(starts):
                     end = min(n, start + block)
-                    dset[start:end] = curr  # bitshuffle+lz4 压缩写入
-                    written_blocks = i + 1
-                    if (
-                        total_blocks <= 10
-                        or written_blocks % max(1, total_blocks // 10) == 0
-                        or written_blocks == total_blocks
-                    ):
-                        progress = (written_blocks / total_blocks) * 100
-                        logger.info(
-                            f"Writing H5 ion images: merged {written_blocks}/{total_blocks} "
-                            f"ion blocks from temporary files ({progress:.1f}%)."
+                    if future is None:
+                        current = _read_scatter(
+                            self._temp_store,
+                            batch_infos,
+                            fidx,
+                            start,
+                            end,
+                            npix,
+                            h,
+                            w,
+                            dtype,
                         )
-
-                    # 预读下下个 block
-                    nxt: Future | None = None
-                    if i + 2 < len(starts):
-                        s2 = starts[i + 2]
-                        nxt = executor.submit(_read_scatter, batch_fds, batch_infos, fidx,
-                                              s2, min(n, s2 + block), npix, h, w, isize, dtype)
-                    if fut is not None:
-                        curr = fut.result()
-                    fut = nxt
-        finally:
-            for batch_fd in batch_fds:
-                os.close(batch_fd)
+                    else:
+                        current = future.result()
+                    future = None
+                    if index + 1 < len(starts):
+                        next_start = starts[index + 1]
+                        next_end = min(n, next_start + block)
+                        future = executor.submit(
+                            _read_scatter,
+                            self._temp_store,
+                            batch_infos,
+                            fidx,
+                            next_start,
+                            next_end,
+                            npix,
+                            h,
+                            w,
+                            dtype,
+                        )
+                    dset[start:end] = current
 
     # ---- 读路径 --------------------------------------------------------------
 
@@ -247,9 +229,9 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
             self.dset = None
         self.mz_axis = None
         self._coordinates = None
-        self._shutdown_io_executor()
-        if self.mode == "w" and not self._finalized:
-            self._cleanup_temp()
+        if self._temp_store is not None:
+            self._temp_store.close()
+            self._temp_store = None
 
     @classmethod
     def from_data_manager(cls, data_manager, filepath, *, temp_dir=None,
@@ -281,28 +263,24 @@ class IonImageDataManagerH5(IonImageDataManagerBinary):
 # ---- 辅助函数（模块级，便于 pickle）-------------------------------------------
 
 def _read_scatter(
-    batch_fds: list[int],
-    batch_infos: list[_BatchInfo],
+    temp_store: IonMajorTempStore,
+    batch_infos: list[BatchInfo],
     flat_idx: np.ndarray,
     ion_start: int,
     ion_end: int,
     n_pixels: int,
     height: int,
     width: int,
-    itemsize: int,
     dtype: np.dtype,
 ) -> np.ndarray:
     """从所有 temp 文件读取一个 ion block，向量化散射为 (block, H, W)。"""
     b = ion_end - ion_start
     sparse = np.empty((b, n_pixels), dtype=dtype)
     p = 0
-    for batch_fd, bi in zip(batch_fds, batch_infos):
-        nbytes = b * bi.n_pixels * itemsize
-        offset = ion_start * bi.n_pixels * itemsize
-        raw = _pread(batch_fd, nbytes, offset)
-        if len(raw) != nbytes:
-            raise OSError(f"Short read while merging {bi.path}: expected {nbytes}, got {len(raw)}")
-        sparse[:, p:p + bi.n_pixels] = np.frombuffer(raw, dtype=dtype).reshape(b, bi.n_pixels)
+    for bi in batch_infos:
+        sparse[:, p:p + bi.n_pixels] = temp_store.read_ion_block(
+            bi, ion_start, ion_end
+        )
         p += bi.n_pixels
     dense = np.zeros((b, height * width), dtype=dtype)
     dense[:, flat_idx] = sparse

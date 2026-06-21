@@ -134,7 +134,11 @@ def _read_umap_sample_matrix(
         return _read_imzml_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
         ), None
-    if isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5)):
+    if isinstance(data_manager, IonImageDataManagerZarr):
+        return _read_zarr_sample_matrix(
+            data_manager, sample_ratio, random_state=random_state,
+        ), None
+    if isinstance(data_manager, IonImageDataManagerH5):
         return _read_dense_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
         ), None
@@ -153,7 +157,9 @@ def _iter_umap_matrix_batches(
     """Iterate nonzero spectra batches for UMAP transform."""
     if isinstance(data_manager, MSDataManagerImzML):
         return _iter_imzml_matrix_batches(data_manager, batch_size=batch_size)
-    if isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5)):
+    if isinstance(data_manager, IonImageDataManagerZarr):
+        return _iter_zarr_matrix_batches(data_manager, batch_size=batch_size)
+    if isinstance(data_manager, IonImageDataManagerH5):
         return _iter_dense_matrix_batches(data_manager, batch_size=batch_size)
     if isinstance(data_manager, IonImageDataManagerBinary):
         return _iter_binary_matrix_batches(data_manager, batch_size=batch_size)
@@ -259,7 +265,11 @@ def _read_full_matrix(
         batch_iter = _iter_imzml_matrix_batches(
             data_manager, batch_size=batch_size,
         )
-    elif isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5)):
+    elif isinstance(data_manager, IonImageDataManagerZarr):
+        batch_iter = _iter_zarr_matrix_batches(
+            data_manager, batch_size=batch_size,
+        )
+    elif isinstance(data_manager, IonImageDataManagerH5):
         batch_iter = _iter_dense_matrix_batches(
             data_manager, batch_size=batch_size,
         )
@@ -352,13 +362,70 @@ def _deduplicate_last_by_xy(
     return values[keep], coordinates[keep]
 
 
-# --- Dense ion-image backend (Zarr / H5) -----------------------------------
+# --- Compact Zarr ion-image backend ----------------------------------------
+
+
+def _read_zarr_pixel_columns(
+    manager: IonImageDataManagerZarr,
+    pixel_indices: np.ndarray,
+    out: np.ndarray,
+    ion_block: int,
+) -> None:
+    """Fill pixel spectra by reading compact ion-major blocks."""
+    n_ions = int(manager.n_ions)
+    for ion_start in range(0, n_ions, ion_block):
+        ion_end = min(n_ions, ion_start + ion_block)
+        out[:, ion_start:ion_end] = manager.get_ion_block(
+            ion_start, ion_end
+        )[:, pixel_indices].T
+
+
+def _read_zarr_sample_matrix(
+    manager: IonImageDataManagerZarr,
+    sample_ratio: float,
+    *,
+    random_state: int | None = None,
+    ion_block: int = 256,
+) -> np.ndarray:
+    if sample_ratio <= 0 or sample_ratio > 1:
+        raise ValueError("sample_ratio must be in (0, 1].")
+    sample_count = max(1, int(np.ceil(manager.n_pixels * sample_ratio)))
+    rng = np.random.default_rng(random_state)
+    pixel_indices = np.sort(
+        rng.choice(manager.n_pixels, size=sample_count, replace=False)
+    )
+    matrix = np.empty((sample_count, manager.n_ions), dtype=np.float32)
+    _read_zarr_pixel_columns(manager, pixel_indices, matrix, ion_block)
+    matrix = matrix[np.any(matrix != 0, axis=1)]
+    if matrix.shape[0] == 0:
+        raise ValueError("All sampled spectra are zero; cannot build sample matrix.")
+    return matrix
+
+
+def _iter_zarr_matrix_batches(
+    manager: IonImageDataManagerZarr,
+    *,
+    batch_size: int = 256,
+    ion_block: int = 256,
+) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    coordinates = np.asarray(manager.coordinates)
+    for pixel_start in range(0, manager.n_pixels, batch_size):
+        pixel_end = min(manager.n_pixels, pixel_start + batch_size)
+        pixel_indices = np.arange(pixel_start, pixel_end)
+        matrix = np.empty((pixel_indices.size, manager.n_ions), dtype=np.float32)
+        _read_zarr_pixel_columns(manager, pixel_indices, matrix, ion_block)
+        nonzero = np.any(matrix != 0, axis=1)
+        if np.any(nonzero):
+            yield matrix[nonzero], coordinates[pixel_start:pixel_end, :2][nonzero]
+
+
+# --- Dense ion-image backend (H5) ------------------------------------------
 #
 # Both Zarr and H5 store ion images as (ion, y, x) in a dense dataset
 # (manager.dset) and provide a flat_idx mapping from pixel index into the
 # H*W flat image space.  These helpers are shared by both backends.
 def _read_dense_pixel_columns(
-    manager: IonImageDataManagerZarr | IonImageDataManagerH5,
+    manager: IonImageDataManagerH5,
     pixel_flat_idx: np.ndarray,
     out: np.ndarray,
     ion_block: int,
@@ -376,7 +443,7 @@ def _read_dense_pixel_columns(
 
 
 def _read_dense_sample_matrix(
-    manager: IonImageDataManagerZarr | IonImageDataManagerH5,
+    manager: IonImageDataManagerH5,
     sample_ratio: float,
     *,
     random_state: int | None = None,
@@ -408,7 +475,7 @@ def _read_dense_sample_matrix(
 
 
 def _iter_dense_matrix_batches(
-    manager: IonImageDataManagerZarr | IonImageDataManagerH5,
+    manager: IonImageDataManagerH5,
     *,
     batch_size: int = 256,
     ion_block: int = 256,
