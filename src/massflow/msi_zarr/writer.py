@@ -7,29 +7,26 @@ from __future__ import annotations
 import os
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Literal, cast
+from typing import cast
 
 import numpy as np
 import zarr
 
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
+from massflow.msi_zarr.schema import (
+    ZARR_FORMAT_NAME,
+    ZARR_FORMAT_VERSION,
+    ZARR_MODE_AUTO,
+    ZARR_MODE_CONTINUOUS,
+    ZARR_MODE_PROCESSED,
+    ZarrRowAxis,
+    ZarrStorageMode,
+    ZarrWriteMode,
+)
 from massflow.tools.ion_major_temp_store import BatchInfo, IonMajorTempStore
 from massflow.tools.logger import get_logger
 
-logger = get_logger("massflow.tools.zarr_writer")
-
-# ---------------------------------------------------------------------------
-# Schema definitions
-# ---------------------------------------------------------------------------
-
-ZARR_FORMAT_NAME = "massflow.msi_zarr"
-ZARR_FORMAT_VERSION = "1.0"
-ZARR_MODE_CONTINUOUS: Literal["continuous"] = "continuous"
-ZARR_MODE_PROCESSED: Literal["processed"] = "processed"
-ZARR_MODE_AUTO: Literal["auto"] = "auto"
-ZarrStorageMode = Literal["continuous", "processed"]
-ZarrWriteMode = Literal["auto", "continuous", "processed"]
-ZarrRowAxis = Literal["pixel", "ion"]
+logger = get_logger("massflow.msi_zarr.zarr_writer")
 
 
 class MSIZarrWriter:

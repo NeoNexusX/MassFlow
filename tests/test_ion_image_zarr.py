@@ -16,11 +16,11 @@ import zarr
 from torch.utils.data import DataLoader
 
 from massflow.data_manager import IonImageDataManagerZarr, MSDataManagerImzML
+from massflow.msi_zarr import MSIZarrReader
+from massflow.msi_zarr.writer import prepare_coordinate_index
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.morch import IonImageZarrDataset
 from massflow.segmentation.region_mask import apply_region_mask
-from massflow.tools.zarr_reader import MSIZarrReader
-from massflow.tools.zarr_writer import prepare_coordinate_index
 
 EXAMPLE_IMZML = Path("/Users/dre/Desktop/data/Example_read/example.imzML")
 EXAMPLE_ZARR_DIR = Path("data")

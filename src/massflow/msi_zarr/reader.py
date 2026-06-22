@@ -9,7 +9,7 @@ import numpy as np
 import zarr
 
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
-from massflow.tools.zarr_writer import (
+from massflow.msi_zarr.schema import (
     ZARR_FORMAT_NAME,
     ZARR_FORMAT_VERSION,
     ZARR_MODE_CONTINUOUS,
@@ -17,6 +17,9 @@ from massflow.tools.zarr_writer import (
     ZarrRowAxis,
     ZarrStorageMode,
 )
+from massflow.tools.logger import get_logger
+
+logger = get_logger("massflow.msi_zarr.zarr_reader")
 
 
 class MSIZarrReader:

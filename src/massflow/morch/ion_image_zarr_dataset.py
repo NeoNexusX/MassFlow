@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
+from massflow.msi_zarr import MSIZarrReader
 from massflow.morch.ion_image_binary_dataset import IonImageIndexDataset
 from massflow.morch.ion_image_dataset import IonImageDataset
-from massflow.tools.zarr_reader import MSIZarrReader
 
 
 class IonImageZarrDataset(IonImageDataset):

@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 
 from massflow.data_manager import MSDataManagerZarr
-from massflow.tools.zarr_reader import MSIZarrReader
-from massflow.tools.zarr_writer import (
+from massflow.msi_zarr import (
+    MSIZarrReader,
     MSIZarrWriter,
     ZARR_MODE_CONTINUOUS,
     ZARR_MODE_PROCESSED,

@@ -10,13 +10,13 @@ from pathlib import Path
 import numpy as np
 
 from massflow.data_manager.ion_image_data_manager import IonImageDataManager
-from massflow.module.ms_meta_data_zarr import MetaDataZarr
-from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
-from massflow.tools.zarr_reader import MSIZarrReader
-from massflow.tools.zarr_writer import (
+from massflow.msi_zarr import (
+    MSIZarrReader,
     MSIZarrWriter,
     ZARR_MODE_CONTINUOUS,
 )
+from massflow.module.ms_meta_data_zarr import MetaDataZarr
+from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
 
 
 class IonImageDataManagerZarr(IonImageDataManager):
