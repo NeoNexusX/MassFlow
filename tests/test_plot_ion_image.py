@@ -298,7 +298,7 @@ class TestPlotIonImage:
         plot_tic_image(
             continuous_dm,
             structure_only=True,
-            output_dir=tmp_path,
+            output_path=plot_path,
             show=False,
             dpi=123,
         )
@@ -333,9 +333,9 @@ class TestPlotIonImage:
             image = read_ion_image(backend_dm, mz=float(mz_axis[1]))
             tic_image = read_tic_image(backend_dm)
             plot_path = tmp_path / f"plot{suffix}.png"
-            plot_ion_image(backend_dm, mz=float(mz_axis[1]), save_path=plot_path, show=False, dpi=123)
+            plot_ion_image(backend_dm, mz=float(mz_axis[1]), output_path=plot_path, show=False, dpi=123)
             tic_cover_dir = tmp_path / f"tic_cover{suffix}"
-            plot_tic_image(backend_dm, structure_only=True, output_dir=tic_cover_dir, show=False, dpi=123)
+            plot_tic_image(backend_dm, structure_only=True, output_path=tic_cover_dir / "tic_image.png", show=False, dpi=123)
             tic_cover_path = tic_cover_dir / "tic_image.png"
 
         np.testing.assert_allclose(image, expected_stack[1], rtol=1e-5, atol=1e-5)

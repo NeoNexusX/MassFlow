@@ -30,7 +30,7 @@ def plot_peak_filter_histogram(
     intensity_log_x: bool = True,
     log_y: bool = False,
     show: bool = True,
-    save_path: str | Path | None = None,
+    output_path: str | Path | None = None,
     dpi: int = 150,
     figsize: tuple[float, float] = (14, 5),
 ) -> PeakFilterProfile:
@@ -164,8 +164,8 @@ def plot_peak_filter_histogram(
         fontsize="large",
     )
     fig.tight_layout()
-    if save_path is not None:
-        output_path = Path(save_path)
+    if output_path is not None:
+        output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
     if show:

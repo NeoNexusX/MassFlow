@@ -588,7 +588,7 @@ def read_tic_image(
 def _plot_image(
     image: np.ndarray,
     *,
-    save_path: str | Path | None,
+    output_path: str | Path | None,
     show: bool,
     dpi: int,
     figsize: tuple[float, float],
@@ -641,8 +641,8 @@ def _plot_image(
         fig.colorbar(mappable, ax=ax)
         fig.tight_layout()
 
-    if save_path:
-        output_path = Path(save_path)
+    if output_path:
+        output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if structure_only:
             fig.savefig(
@@ -682,7 +682,7 @@ def plot_ion_image(
     batch_size: int = 256,
     max_threads: int = 2,
     mz_tolerance: float | None = None,
-    save_path: str | Path | None = None,
+    output_path: str | Path | None = None,
     show: bool = True,
     dpi: int = 300,
     figsize: tuple[float, float] = (20, 5),
@@ -707,7 +707,7 @@ def plot_ion_image(
     )
     _plot_image(
         image_matrix,
-        save_path=save_path,
+        output_path=output_path,
         show=bool(show),
         dpi=int(dpi),
         figsize=(float(figsize[0]), float(figsize[1])),
@@ -725,7 +725,7 @@ def plot_tic_image(
     *,
     batch_size: int = 256,
     max_threads: int = 2,
-    output_dir: str | Path = "./tic_image_output",
+    output_path: str | Path = "./tic_image_output/tic_image.png",
     save_image: bool = True,
     save_matrix: bool = False,
     show: bool = False,
@@ -738,7 +738,7 @@ def plot_tic_image(
     scale_factor: float = 1,
 ) -> bool:
     """Read and plot a TIC image."""
-    out = Path(output_dir)
+    path = Path(output_path)
     image_matrix = read_tic_image(
         data_manager,
         batch_size=batch_size,
@@ -753,7 +753,7 @@ def plot_tic_image(
         )
         _plot_image(
             image_matrix,
-            save_path=str(out / "tic_image.png"),
+            output_path=str(path),
             show=bool(show),
             dpi=int(dpi),
             figsize=(float(figsize[0]), float(figsize[1])),
@@ -766,9 +766,9 @@ def plot_tic_image(
         )
 
     if save_matrix:
-        result_group = zarr.open_group(str(out / "tic_result.zarr"), mode="w")
+        result_group = zarr.open_group(str(path.parent / "tic_result.zarr"), mode="w")
         result_group.create_array("tic_matrix", data=image_matrix)
 
-    logger.info(f"TIC image plotting complete. Output: {out}")
+    logger.info(f"TIC image plotting complete. Output: {path.parent}")
 
     return True
