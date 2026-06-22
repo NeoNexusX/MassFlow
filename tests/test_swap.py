@@ -17,11 +17,9 @@ def data_swap_out_direct(raw_dm):
 
     swap_dm = MSDataManagerImzML(temp_dir="./temp_swap")
     swap_dm.copy_meta(raw_dm)
-    writer = swap_dm.writer
-
     for raw_spec in raw_dm.ms:
 
-        writer.add_spectrum(
+        swap_dm.add_spectrum(
             raw_spec.mz_list, raw_spec.intensity, raw_spec.coordinate.get_tuple()
         )
 

@@ -532,7 +532,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
             pixel_start = 0
             for info in batch_infos:
                 pixel_end = pixel_start + info.n_pixels
-                band[:, pixel_start:pixel_end] = self._temp_store.read_ion_block(
+                band[:, pixel_start:pixel_end] = self._temp_store.read_ion_block( # type: ignore
                     info,
                     ion_start,
                     ion_end,
@@ -619,6 +619,11 @@ class IonImageDataManagerBinary(IonImageDataManager):
         if ion_idx < 0 or ion_idx >= self.n_ions:
             raise IndexError(f"ion_idx out of range: {ion_idx}")
         return np.asarray(self.intensity_matrix[ion_idx])
+
+    def get_ion_block(self, start: int, end: int) -> np.ndarray:
+        if start < 0 or end < start or end > self.n_ions:
+            raise IndexError(f"ion range out of bounds: [{start}, {end})")
+        return np.asarray(self.intensity_matrix[start:end])
 
     def get_pixel_spectrum(self, pixel_idx: int) -> np.ndarray:
         """返回某个像素的完整强度谱，即 D[:, pixel_idx]。"""

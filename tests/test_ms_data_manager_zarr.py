@@ -99,11 +99,18 @@ def test_zarr_to_zarr_preserves_zero_based_subset_coordinates(tmp_path):
 
     source = MSDataManagerZarr(filepath=source_path, mode="r")
     source.load_head_data()
-    output = MSDataManagerZarr.from_data_manager(
-        source,
-        tmp_path / "copy.zarr",
-        batch_size=1,
+    output = MSDataManagerZarr(
+        filepath=tmp_path / "copy.zarr",
+        mode="w",
+        storage_mode=source.storage_mode,
     )
+    output.copy_meta(source)
+    for mz_axis, intensity, lengths, coordinates in source.flat_generator(
+        batch_size=1,
+        include_mz=True,
+    ):
+        output.write_flat_batch(intensity, lengths, coordinates, mz_axis)
+    output.finalize()
     try:
         copied = MSIZarrReader(output.zarr_filepath)
         try:

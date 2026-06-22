@@ -459,37 +459,43 @@ def _read_ion_manager_tic_image(manager: IonImageManager) -> np.ndarray:
 def _read_dense_ion_manager_tic_image(
     manager: IonImageDataManagerH5,
 ) -> np.ndarray:
-    """Compute TIC for dense H5/Zarr managers by summing ion blocks from dset."""
+    """Compute TIC for H5 managers by summing compact ion blocks."""
     n_ions = int(manager.n_ions)
     height = int(manager.height)
     width = int(manager.width)
-    dtype = np.result_type(manager.dset.dtype, np.float64)
-    tic_image = np.zeros((height, width), dtype=dtype)
+    dtype = np.result_type(manager.intensity_dtype, np.float64)
+    values = np.zeros(manager.n_pixels, dtype=dtype)
     ion_block = max(1, int(getattr(manager, "ion_block", 256)))
 
     for ion_start in range(0, n_ions, ion_block):
         ion_end = min(n_ions, ion_start + ion_block)
-        dense_block = np.asarray(manager.dset[ion_start:ion_end])
-        tic_image += np.sum(dense_block, axis=0, dtype=dtype)
-
-    return tic_image
+        values += np.sum(
+            manager.get_ion_block(ion_start, ion_end),
+            axis=0,
+            dtype=dtype,
+        )
+    image = np.zeros((height, width), dtype=dtype)
+    coordinates = np.asarray(manager.coordinates, dtype=np.int64)
+    xy = coordinates[:, :2]
+    if not bool(np.any(xy == 0)):
+        xy = xy - 1
+    image[xy[:, 1], xy[:, 0]] = values
+    return image
 
 
 def _read_zarr_ion_manager_tic_image(
     manager: IonImageDataManagerZarr,
 ) -> np.ndarray:
     """Compute TIC from compact ion-major Zarr rows."""
-    values = manager.tic
-    if values is None:
-        values = np.zeros(manager.n_pixels, dtype=np.float64)
-        ion_block = max(1, int(manager.ion_block))
-        for start in range(0, manager.n_ions, ion_block):
-            end = min(manager.n_ions, start + ion_block)
-            values += np.sum(
-                manager.get_ion_block(start, end),
-                axis=0,
-                dtype=np.float64,
-            )
+    values = np.zeros(manager.n_pixels, dtype=np.float64)
+    ion_block = max(1, int(manager.ion_block))
+    for start in range(0, manager.n_ions, ion_block):
+        end = min(manager.n_ions, start + ion_block)
+        values += np.sum(
+            manager.get_ion_block(start, end),
+            axis=0,
+            dtype=np.float64,
+        )
     image = np.zeros((manager.height, manager.width), dtype=values.dtype)
     coords = np.asarray(manager.coordinates, dtype=np.int64)
     image[coords[:, 1], coords[:, 0]] = values

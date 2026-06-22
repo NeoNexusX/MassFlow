@@ -57,11 +57,11 @@ def _zarr_has_chunk_size(path: Path, chunk_size: int) -> bool:
     if not path.exists():
         return False
     try:
-        dm = IonImageDataManagerZarr(str(path), mode="r")
+        reader = MSIZarrReader(path)
         try:
-            return dm.reader.row_axis == "ion"
+            return reader.row_axis == "ion"
         finally:
-            dm.close()
+            reader.close()
     except Exception:
         return False
 
@@ -390,7 +390,7 @@ class TestZarrCorrectness:
         try:
             assert dm.width == 2
             assert dm.height == 2
-            assert dm._coordinate_base == "zero"
+            assert dm.coordinate_base == 0
             np.testing.assert_array_equal(
                 dm.coordinates, np.array([[0, 0, 0], [1, 0, 0]])
             )
@@ -420,7 +420,7 @@ class TestZarrCorrectness:
         try:
             assert dm.width == 2
             assert dm.height == 1
-            assert dm._coordinate_base == "zero"
+            assert dm.coordinate_base == 0
             np.testing.assert_array_equal(dm.get_ion_image(0), np.array([[1, 2]], dtype=np.float32))
             np.testing.assert_array_equal(dm.get_ion_vector(0), np.array([1, 2], dtype=np.float32))
         finally:
@@ -435,7 +435,7 @@ class TestZarrCorrectness:
             height=1,
         )
         try:
-            assert dm._coordinate_base == "zero"
+            assert dm.coordinate_base == 0
             np.testing.assert_array_equal(dm.get_ion_image(0), np.array([[0, 1, 2]], dtype=np.float32))
             np.testing.assert_array_equal(dm.get_ion_vector(0), np.array([1, 2], dtype=np.float32))
         finally:

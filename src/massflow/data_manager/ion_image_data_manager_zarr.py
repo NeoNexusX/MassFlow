@@ -39,8 +39,6 @@ class IonImageDataManagerZarr(IonImageDataManager):
         metadata=None,
         shared_mz_axis: np.ndarray | None = None,
         compute_mean_spectrum: bool = False,
-        compute_tic: bool = False,
-        coordinate_base: int | None = None,
     ) -> None:
         del merge_workers
         if mode not in {"r", "w"}:
@@ -54,18 +52,19 @@ class IonImageDataManagerZarr(IonImageDataManager):
         self.mode = mode
         self._width = width
         self._height = height
-        self.mz_dtype = np.dtype(np.float64)
+        self.mz_dtype = np.dtype(mz_dtype).newbyteorder("<")
+        if self.mz_dtype.kind != "f" or self.mz_dtype.itemsize not in {4, 8}:
+            raise ValueError("mz_dtype must be float32 or float64.")
         self.intensity_dtype = np.dtype(intensity_dtype)
         self.ion_block = max(1, int(ion_block))
         self.meta = MetaDataZarr.from_metadata(metadata)
         self._reader: MSIZarrReader | None = None
         self._writer: MSIZarrWriter | None = None
         self._finalized = False
-        self._coordinate_base = "zero"
         self._shared_mz_axis = (
             None
             if shared_mz_axis is None
-            else np.asarray(shared_mz_axis, dtype="<f8")
+            else np.asarray(shared_mz_axis, dtype=self.mz_dtype)
         )
         if mode == "r":
             self._open_for_read()
@@ -78,25 +77,22 @@ class IonImageDataManagerZarr(IonImageDataManager):
                 metadata=self.meta,
                 width=width,
                 height=height,
+                mz_dtype=self.mz_dtype,
                 intensity_dtype=self.intensity_dtype,
                 target_chunk_bytes=max(1, int(chunk_size)) * 1024 * 1024,
                 temp_dir=temp_dir,
                 temp_workers=temp_workers,
                 ion_block=self.ion_block,
                 compute_mean_spectrum=compute_mean_spectrum,
-                compute_tic=compute_tic,
-                coordinate_base=coordinate_base,
             )
 
-    @property
-    def reader(self) -> MSIZarrReader:
+    def _require_reader(self) -> MSIZarrReader:
         if self._reader is None:
             self._open_for_read()
         assert self._reader is not None
         return self._reader
 
-    @property
-    def writer(self) -> MSIZarrWriter:
+    def _require_writer(self) -> MSIZarrWriter:
         if self._writer is None:
             raise ValueError("Writer is only available in write mode.")
         return self._writer
@@ -117,56 +113,24 @@ class IonImageDataManagerZarr(IonImageDataManager):
 
     @property
     def n_ions(self) -> int:
-        return self.reader.n_ions
+        return self._require_reader().n_ions
 
     @property
     def n_pixels(self) -> int:
-        return self.reader.n_pixels
+        return self._require_reader().n_pixels
 
     @property
     def mz_axis(self) -> np.ndarray:
-        assert self.reader.shared_mz_axis is not None
-        return np.asarray(self.reader.shared_mz_axis[:], dtype=np.float64)
+        return self._require_reader().read_shared_mz_axis()
 
     @property
     def coordinates(self) -> np.ndarray:
-        return np.asarray(self.reader.coordinates[:])
-
-    @property
-    def intensity(self):
-        return self.reader.intensity
-
-    @property
-    def offsets(self):
-        return self.reader.offsets
-
-    @property
-    def dset(self):
-        """Compatibility alias for the one-dimensional intensity array."""
-        return self.reader.intensity
-
-    @property
-    def flat_idx(self) -> np.ndarray:
-        coords = self.coordinates.astype(np.int64, copy=False)
-        return coords[:, 1] * self.width + coords[:, 0]
+        return self._require_reader().read_coordinates()
 
     @property
     def mean_spectrum(self) -> np.ndarray | None:
-        if "stats" not in self.reader.root:
-            return None
-        stats = self.reader.root["stats"]
-        if "mean_spectrum" not in stats:
-            return None
-        return np.asarray(stats["mean_spectrum"][:])
+        return self._require_reader().read_stat("mean_spectrum")
 
-    @property
-    def tic(self) -> np.ndarray | None:
-        if "stats" not in self.reader.root:
-            return None
-        stats = self.reader.root["stats"]
-        if "tic" not in stats:
-            return None
-        return np.asarray(stats["tic"][:])
 
     def write_flat_batch(
         self,
@@ -175,36 +139,28 @@ class IonImageDataManagerZarr(IonImageDataManager):
         coordinates: np.ndarray,
         mz_axis: np.ndarray,
     ) -> None:
-        self.writer.write_flat_batch(
+        self._require_writer().write_flat_batch(
             intensity_flat=intensity_flat,
             lengths=lengths,
             coordinates=coordinates,
             mz_axis=mz_axis,
         )
 
-    def add_spectrum(
-        self,
-        intensity: np.ndarray,
-        coordinates: np.ndarray,
-        mz: np.ndarray,
-    ) -> None:
-        self.writer.add_spectrum(intensity, coordinates, mz)
-
     def finalize(self) -> None:
         if self.mode != "w" or self._finalized:
             return
-        self.writer.finalize()
+        self._require_writer().finalize()
         self._finalized = True
         self._open_for_read()
 
     def get_ion_image(self, ion_idx: int) -> np.ndarray:
-        return self.reader.read_ion_image(ion_idx)
+        return self._require_reader().read_ion_image(ion_idx)
 
     def get_ion_vector(self, ion_idx: int) -> np.ndarray:
-        return self.reader.read_ion_vector(ion_idx)
+        return self._require_reader().read_ion_vector(ion_idx)
 
     def get_ion_block(self, start: int, end: int) -> np.ndarray:
-        return self.reader.read_rows(start, end)
+        return self._require_reader().read_rows(start, end)
 
     def get_pixel_spectrum(self, pixel_idx: int) -> np.ndarray:
         raise NotImplementedError(
@@ -226,8 +182,8 @@ class IonImageDataManagerZarr(IonImageDataManager):
         if self._reader.row_axis != "ion":
             raise ValueError("IonImageDataManagerZarr requires an ion-major store.")
         self._height, self._width = self._reader.spatial_shape
-        self.intensity_dtype = np.dtype(self._reader.intensity.dtype)
-        self.mz_dtype = np.dtype(np.float64)
+        self.intensity_dtype = self._reader.intensity_dtype
+        self.mz_dtype = self._reader.mz_dtype
         self.meta = self._reader.metadata
 
     @staticmethod
@@ -251,16 +207,14 @@ class IonImageDataManagerZarr(IonImageDataManager):
         filepath,
         *,
         temp_dir=None,
-        mz_dtype=None,
+        mz_dtype=np.float64,
         intensity_dtype=None,
         ion_block=256,
         temp_workers=2,
         merge_workers=2,
         chunk_size=4,
         compute_mean_spectrum=False,
-        compute_tic=False,
     ) -> "IonImageDataManagerZarr":
-        del mz_dtype
         meta = data_manager.ms.meta
         if (
             getattr(meta, "continuous", None) is not True
@@ -276,6 +230,7 @@ class IonImageDataManagerZarr(IonImageDataManager):
             width=int(meta.max_count_of_pixels_x),
             height=int(meta.max_count_of_pixels_y),
             temp_dir=temp_dir,
+            mz_dtype=mz_dtype,
             intensity_dtype=(
                 data_manager.intensity_dtype
                 if intensity_dtype is None
@@ -288,8 +243,6 @@ class IonImageDataManagerZarr(IonImageDataManager):
             metadata=meta,
             shared_mz_axis=data_manager.ms.shared_mz_list,
             compute_mean_spectrum=compute_mean_spectrum,
-            compute_tic=compute_tic,
-            coordinate_base=_manager_coordinate_base(data_manager),
         )
 
     @classmethod
@@ -301,16 +254,14 @@ class IonImageDataManagerZarr(IonImageDataManager):
         shared_mz_axis: np.ndarray,
         output_spectrum_type: SpectrumType = "centroid",
         temp_dir=None,
-        mz_dtype=None,
+        mz_dtype=np.float64,
         intensity_dtype=None,
         ion_block=256,
         temp_workers=2,
         merge_workers=2,
         chunk_size=4,
         compute_mean_spectrum=False,
-        compute_tic=False,
     ) -> "IonImageDataManagerZarr":
-        del mz_dtype
         output_meta = deepcopy(data_manager.ms.meta)
         output_meta.continuous = True
         output_meta.processed = None
@@ -321,6 +272,7 @@ class IonImageDataManagerZarr(IonImageDataManager):
             width=int(output_meta.max_count_of_pixels_x),
             height=int(output_meta.max_count_of_pixels_y),
             temp_dir=temp_dir,
+            mz_dtype=mz_dtype,
             intensity_dtype=(
                 data_manager.intensity_dtype
                 if intensity_dtype is None
@@ -333,15 +285,4 @@ class IonImageDataManagerZarr(IonImageDataManager):
             metadata=output_meta,
             shared_mz_axis=np.asarray(shared_mz_axis, dtype="<f8"),
             compute_mean_spectrum=compute_mean_spectrum,
-            compute_tic=compute_tic,
-            coordinate_base=_manager_coordinate_base(data_manager),
         )
-
-
-def _manager_coordinate_base(data_manager) -> int | None:
-    base = getattr(data_manager, "_coordinate_base", None)
-    if base in {0, "zero"}:
-        return 0
-    if base in {1, "one"}:
-        return 1
-    return None

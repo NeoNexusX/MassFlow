@@ -218,7 +218,7 @@ class TestPlotIonImage:
     def test_zarr_valid_region_mask_uses_canonical_zero_based_coordinates(self):
         dm = object.__new__(IonImageDataManagerZarr)
         dm._reader = SimpleNamespace(  # type: ignore[attr-defined]
-            coordinates=np.array([[2, 1, 0]], dtype=np.uint32)
+            read_coordinates=lambda: np.array([[2, 1, 0]], dtype=np.uint32)
         )
 
         mask = _valid_region_mask(dm, (2, 3))

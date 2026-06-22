@@ -420,26 +420,19 @@ def _iter_zarr_matrix_batches(
 
 
 # --- Dense ion-image backend (H5) ------------------------------------------
-#
-# Both Zarr and H5 store ion images as (ion, y, x) in a dense dataset
-# (manager.dset) and provide a flat_idx mapping from pixel index into the
-# H*W flat image space.  These helpers are shared by both backends.
 def _read_dense_pixel_columns(
     manager: IonImageDataManagerH5,
-    pixel_flat_idx: np.ndarray,
+    pixel_indices: np.ndarray,
     out: np.ndarray,
     ion_block: int,
 ) -> None:
-    """Fill *out* ``(n_pixels_subset, n_ions)`` by reading ion-blocks from *manager.dset*."""
+    """Fill ``out`` by reading compact ion blocks through the manager API."""
     n_ions = int(manager.n_ions)
-    h, w = int(manager.height), int(manager.width)
-    hw = h * w
 
     for ion_start in range(0, n_ions, ion_block):
         ion_end = min(n_ions, ion_start + ion_block)
-        dense_block = np.asarray(manager.dset[ion_start:ion_end])  # (block, H, W)
-        flat = dense_block.reshape(ion_end - ion_start, hw)        # (block, H*W)
-        out[:, ion_start:ion_end] = flat[:, pixel_flat_idx].T
+        block = manager.get_ion_block(ion_start, ion_end)
+        out[:, ion_start:ion_end] = block[:, pixel_indices].T
 
 
 def _read_dense_sample_matrix(
@@ -455,15 +448,13 @@ def _read_dense_sample_matrix(
 
     n_pixels = int(manager.n_pixels)
     n_ions = int(manager.n_ions)
-    flat_idx = manager.flat_idx
     sample_count = max(1, int(np.ceil(n_pixels * sample_ratio)))
 
     rng = np.random.default_rng(random_state)
     pixel_indices = np.sort(rng.choice(n_pixels, size=sample_count, replace=False))
 
-    sample_flat_idx = flat_idx[pixel_indices]
     sample_matrix = np.empty((sample_count, n_ions), dtype=np.float32)
-    _read_dense_pixel_columns(manager, sample_flat_idx, sample_matrix, ion_block)
+    _read_dense_pixel_columns(manager, pixel_indices, sample_matrix, ion_block)
 
     nonzero_mask = np.any(sample_matrix != 0, axis=1)
     sample_matrix = sample_matrix[nonzero_mask]
@@ -486,16 +477,15 @@ def _iter_dense_matrix_batches(
 
     n_pixels = int(manager.n_pixels)
     n_ions = int(manager.n_ions)
-    flat_idx = manager.flat_idx
     coordinates = np.asarray(manager.coordinates)
 
     for pixel_start in range(0, n_pixels, batch_size):
         pixel_end = min(n_pixels, pixel_start + batch_size)
-        batch_flat_idx = flat_idx[pixel_start:pixel_end]
+        pixel_indices = np.arange(pixel_start, pixel_end)
         batch_coords = coordinates[pixel_start:pixel_end, :2]
 
         batch_matrix = np.empty((pixel_end - pixel_start, n_ions), dtype=np.float32)
-        _read_dense_pixel_columns(manager, batch_flat_idx, batch_matrix, ion_block)
+        _read_dense_pixel_columns(manager, pixel_indices, batch_matrix, ion_block)
 
         nonzero_mask = np.any(batch_matrix != 0, axis=1)
         if not np.any(nonzero_mask):

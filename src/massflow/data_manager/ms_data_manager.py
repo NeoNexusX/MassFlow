@@ -4,18 +4,20 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 
+from __future__ import annotations
+
 import os
-import uuid
 import random
 import tempfile
+import uuid
 from abc import ABC, abstractmethod
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from typing import Generator,Any
+from typing import Any, Generator
+
 import numpy as np
-from massflow.tools.logger import get_logger
+
 from massflow.module import MassSpectrumSet
-from massflow.tools.stream_imzml_writer import ImzMLWriter
+from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.datamanager")
 
@@ -55,7 +57,6 @@ class MSDataManager(ABC):
 
         # file swap and path control part
         self._init_file_base_path(filepath, temp_dir)
-        self._writer = None
 
 
     def _init_file_base_path(self, filepath: str | None ,temp_dir: str | None):
@@ -65,13 +66,11 @@ class MSDataManager(ABC):
             base_dir = tempfile.gettempdir() if temp_dir is None else temp_dir
             os.makedirs(base_dir ,exist_ok=True)
             self.file_base_path = os.path.join(base_dir, f"temp_{uuid.uuid4().hex}")
-            self.swap_filepath = self.file_base_path
         else:
             base_path = filepath
             while (next_base := os.path.splitext(base_path)[0]) != base_path:
                 base_path = next_base
             self.file_base_path = base_path
-            self.swap_filepath = None
 
 
     def _init_target_locs(self, target_locs):
@@ -87,18 +86,6 @@ class MSDataManager(ABC):
 
 
 ############# Data define part #############
-
-    @property
-    def imzml_filepath(self) -> str:
-        """Return full .imzML path derived from the base path."""
-        return f"{self.file_base_path}.imzML"
-
-    @property
-    def ibd_filepath(self) -> str:
-        """
-        Return full .ibd path derived from the base path.
-        """
-        return f"{self.file_base_path}.ibd"
 
     @property
     def max_threads(self) -> int:
@@ -126,24 +113,6 @@ class MSDataManager(ABC):
         """set thread pool executor"""
         self._threads_executor = executor
 
-    @property
-    def writer(self):
-        """return writer."""
-        if self.ms.meta is not None:
-            if self._writer is None:
-                logger.info("Creating ImzMLWriter from MS meta data")
-                self._writer = ImzMLWriter.from_ms_meta(
-                    output_filename=str(self.file_base_path),
-                    meta=self.ms.meta,
-                    mz_dtype=self.mz_dtype,
-                    intensity_dtype=self.intensity_dtype
-                )
-            return self._writer
-        else:
-            logger.error("MS meta data is None. Please load or copy[use copy_meta method] meta data first.")
-            raise ValueError("MS meta data is None. Please load or copy meta data first.")
-
-
 ############# Method define part #############
     @abstractmethod
     def copy_meta(self, source_dm: "MSDataManager"):
@@ -167,11 +136,21 @@ class MSDataManager(ABC):
 
     @abstractmethod
     def matrix_generator(self, batch_size: int = 256, include_mz: bool = True, max_threads: int = 0) -> Generator[tuple, Any, None]:
-        ...
+        """Generate batches of spectra data in matrix format."""
 
     @abstractmethod
     def flat_generator(self, batch_size: int = 256, include_mz: bool = True, max_threads: int = 0) -> Generator[tuple, Any, None]:
-        ...
+        """Generate batches of spectra data in flat format."""
+
+    @abstractmethod
+    def write_flat_batch(
+        self,
+        intensity_flat: np.ndarray,
+        lengths: np.ndarray,
+        coordinates: np.ndarray,
+        mz_axis: np.ndarray | None,
+    ) -> None:
+        """Write one flat spectrum batch using the backend's storage format."""
 
 
 ############# Method part #############
@@ -244,30 +223,10 @@ class MSDataManager(ABC):
 
 
     def close(self):
-        """
-        Close any resources held by the data manager.
-        """
-        # Close writer first to release file locks
-        self.close_writer()
-
-        # Thread pool shutdown
+        """Close resources shared by all data-manager implementations."""
         if self._threads_executor is not None:
             self._threads_executor.shutdown(wait=True)
             self._threads_executor = None
-
-        # Temporary swap file cleanup
-        swap_path_str = getattr(self, "swap_filepath", None)
-        if swap_path_str:
-            swap_base = Path(swap_path_str)
-            suffixes = [".imzML", ".ibd", ".fdata", ".log", ".metadata", ".IBD"]
-            #del all related files with the base name
-            [swap_base.with_suffix(s).unlink(missing_ok=True) for s in suffixes]  #pylint: disable=expression-not-assigned
-
-
-    def close_writer(self):
-        """close ImzMLWriter."""
-        if self._writer is not None:
-            self._writer.close()
 
 
     def clear_all_data_memory(self):
@@ -276,61 +235,6 @@ class MSDataManager(ABC):
         """
         for spec in self.ms:
             spec.clear_data()
-
-
-    def swap_matrix_data_out2disk(
-        self,
-        mz_data: np.ndarray | None,
-        intensity_matrix: np.ndarray,
-        lengths: np.ndarray,
-        coordinates: np.ndarray
-    ):
-        """swap out a matrix of spectra to disk to free memory."""
-        if mz_data is None:
-            logger.error("mz_data is None. Cannot swap matrix data to disk without m/z information.")
-            raise ValueError("mz_data is None. Cannot swap matrix data to disk without m/z information.")
-
-        if not np.issubdtype(coordinates.dtype, np.integer):
-            coordinates = coordinates.astype(np.int32, copy=False)
-
-        is_shared_mz = mz_data.ndim == 1
-
-        for i,(intensity_row, length, coord) in enumerate(zip(intensity_matrix, lengths, coordinates)):
-            length = int(length)
-
-            mz = mz_data[:length] if is_shared_mz else mz_data[i, :length]
-            intensity = intensity_row[:length]
-
-            self.writer.add_spectrum(mz, intensity, tuple(coord.tolist()))
-
-
-    def write_flat_batch(
-        self,
-        intensity_flat: np.ndarray,
-        lengths: np.ndarray,
-        coordinates: np.ndarray,
-        mz_axis: np.ndarray | None,
-        user_params_list: list[list] | None = None,
-    ):
-        """Write a flat batch of spectra to disk in imzML/ibd form."""
-        if len(lengths) == 0:
-            return
-
-        if (intensity_flat.ndim != 1 or lengths.ndim != 1
-            or (mz_axis is not None and mz_axis.ndim != 1)):
-            logger.error("intensity_flat/lengths/mz_axis must be 1-D arrays.")
-            raise ValueError("intensity_flat/lengths/mz_axis must be 1-D arrays.")
-
-        if not np.issubdtype(lengths.dtype, np.integer):
-            lengths = lengths.astype(np.int64, copy=False)
-
-        self.writer.swap_flat_out2disk(
-            mz_flat=mz_axis,
-            intensity_flat=intensity_flat,
-            lengths=lengths,
-            coords=coordinates,
-            user_params_list=user_params_list,
-        )
 
 
     def __enter__(self):

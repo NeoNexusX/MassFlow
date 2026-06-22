@@ -1,11 +1,13 @@
 """Unified reader and writer for the MassFlow MSI Zarr schema."""
 
+# pylint: disable=too-many-lines
+
 from __future__ import annotations
 
 import os
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import zarr
@@ -19,11 +21,12 @@ logger = get_logger("massflow.tools.zarr_io")
 
 ZARR_FORMAT_NAME = "massflow.msi_zarr"
 ZARR_FORMAT_VERSION = "1.0"
-ZARR_MODE_CONTINUOUS = "continuous"
-ZARR_MODE_PROCESSED = "processed"
+ZARR_MODE_CONTINUOUS: Literal["continuous"] = "continuous"
+ZARR_MODE_PROCESSED: Literal["processed"] = "processed"
+ZARR_MODE_AUTO: Literal["auto"] = "auto"
 ZarrStorageMode = Literal["continuous", "processed"]
+ZarrWriteMode = Literal["auto", "continuous", "processed"]
 ZarrRowAxis = Literal["pixel", "ion"]
-CoordinateBase = Literal[0, 1]
 
 
 class MSIZarrReader:
@@ -31,25 +34,28 @@ class MSIZarrReader:
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
         self.path = _normalize_zarr_path(path)
-        self.root = zarr.open_group(self.path, mode="r")
+        self.root: zarr.Group = zarr.open_group(self.path, mode="r")
         self._validate_structure()
-        self.data = self.root["data"]
-        self.intensity = self.data["intensity"]
-        self.offsets = self.data["offsets"]
-        self.coordinates = self.root["axes/coordinates"]
+        self.data = cast(zarr.Group, self.root["data"])
+        axes = cast(zarr.Group, self.root["axes"])
+        self.intensity = cast(zarr.Array, self.data["intensity"])
+        self.offsets = cast(zarr.Array, self.data["offsets"])
+        self.coordinates = cast(zarr.Array, axes["coordinates"])
         self.shared_mz_axis = (
-            self.root["axes/mz"] if "mz" in self.root["axes"] else None
+            cast(zarr.Array, axes["mz"]) if "mz" in axes else None
         )
-        self.point_mz = self.data["mz"] if "mz" in self.data else None
+        self.point_mz = (
+            cast(zarr.Array, self.data["mz"]) if "mz" in self.data else None
+        )
         self.metadata = MetaDataZarr.from_zarr(self.root)
 
     @property
-    def row_axis(self) -> str:
-        return str(self.data.attrs["row_axis"])
+    def row_axis(self) -> ZarrRowAxis:
+        return cast(ZarrRowAxis, str(self.data.attrs["row_axis"]))
 
     @property
-    def encoding(self) -> str:
-        return str(self.data.attrs["encoding"])
+    def encoding(self) -> ZarrStorageMode:
+        return cast(ZarrStorageMode, str(self.data.attrs["encoding"]))
 
     @property
     def n_rows(self) -> int:
@@ -67,13 +73,78 @@ class MSIZarrReader:
 
     @property
     def spatial_shape(self) -> tuple[int, int]:
-        height, width = self.root.attrs["spatial_shape"]
+        spatial_shape = self.root.attrs["spatial_shape"]
+        if not isinstance(spatial_shape, (list, tuple)) or len(spatial_shape) != 2:
+            raise ValueError("spatial_shape must contain height and width.")
+        height, width = cast(tuple[int, int], tuple(spatial_shape))
         return int(height), int(width)
+
+    @property
+    def intensity_dtype(self) -> np.dtype:
+        return np.dtype(self.intensity.dtype)
+
+    @property
+    def mz_dtype(self) -> np.dtype:
+        array = self.shared_mz_axis if self.shared_mz_axis is not None else self.point_mz
+        if array is None:
+            raise ValueError("This store does not contain m/z values.")
+        return np.dtype(array.dtype)
+
+    def read_coordinates(self, indices: np.ndarray | None = None) -> np.ndarray:
+        if indices is None:
+            return np.asarray(self.coordinates[:])
+        indices = np.asarray(indices, dtype=np.int64)
+        return np.asarray(
+            self.coordinates.get_orthogonal_selection((indices, slice(None)))
+        )
+
+    def read_shared_mz_axis(self) -> np.ndarray:
+        if self.shared_mz_axis is None:
+            raise ValueError("This store does not have a shared m/z axis.")
+        return np.asarray(self.shared_mz_axis[:])
+
+    def read_stat(self, name: str) -> np.ndarray | None:
+        if "stats" not in self.root:
+            return None
+        stats = cast(zarr.Group, self.root["stats"])
+        if name not in stats:
+            return None
+        array = cast(zarr.Array, stats[name])
+        return np.asarray(array[:])
+
+    def read_flat_batch(
+        self,
+        indices: np.ndarray,
+        *,
+        include_mz: bool = True,
+    ) -> tuple[np.ndarray | None, np.ndarray, np.ndarray, np.ndarray]:
+        if self.row_axis != "pixel":
+            raise ValueError("read_flat_batch requires a pixel-major store.")
+        indices = np.asarray(indices, dtype=np.int64)
+        if indices.ndim != 1:
+            raise ValueError("indices must be one-dimensional.")
+        coordinates = self.read_coordinates(indices)
+        if indices.size == 0:
+            empty = np.array([], dtype=self.intensity_dtype)
+            return None, empty, np.array([], dtype="<u4"), coordinates
+
+        starts = self._read_offsets(indices)
+        ends = self._read_offsets(indices + 1)
+        lengths = (ends - starts).astype("<u4")
+        intensity = self._read_indexed_values(self.intensity, indices, starts, ends)
+        if self.encoding == ZARR_MODE_CONTINUOUS:
+            mz = self.read_shared_mz_axis()
+        elif include_mz:
+            assert self.point_mz is not None
+            mz = self._read_indexed_values(self.point_mz, indices, starts, ends)
+        else:
+            mz = None
+        return mz, intensity, lengths, coordinates
 
     def read_row(self, index: int) -> np.ndarray:
         index = self._normalize_row_index(index)
-        start = int(self.offsets[index])
-        end = int(self.offsets[index + 1])
+        start = _read_array_int(self.offsets, index)
+        end = _read_array_int(self.offsets, index + 1)
         return np.asarray(self.intensity[start:end])
 
     def read_rows(self, start: int, end: int) -> np.ndarray:
@@ -81,8 +152,8 @@ class MSIZarrReader:
         end = min(self.n_rows, int(end))
         if end < start:
             raise ValueError("end must be greater than or equal to start.")
-        point_start = int(self.offsets[start])
-        point_end = int(self.offsets[end])
+        point_start = _read_array_int(self.offsets, start)
+        point_end = _read_array_int(self.offsets, end)
         values = np.asarray(self.intensity[point_start:point_end])
         if start == end:
             return values.reshape((0, 0))
@@ -99,13 +170,13 @@ class MSIZarrReader:
         intensity = self.read_row(pixel_index)
         if self.encoding == ZARR_MODE_CONTINUOUS:
             assert self.shared_mz_axis is not None
-            mz = np.asarray(self.shared_mz_axis[:], dtype=np.float64)
+            mz = np.asarray(self.shared_mz_axis[:])
         else:
             assert self.point_mz is not None
             pixel_index = self._normalize_row_index(pixel_index)
-            start = int(self.offsets[pixel_index])
-            end = int(self.offsets[pixel_index + 1])
-            mz = np.asarray(self.point_mz[start:end], dtype=np.float64)
+            start = _read_array_int(self.offsets, pixel_index)
+            end = _read_array_int(self.offsets, pixel_index + 1)
+            mz = np.asarray(self.point_mz[start:end])
         return mz, intensity
 
     def read_ion_vector(self, ion_index: int) -> np.ndarray:
@@ -149,26 +220,52 @@ class MSIZarrReader:
             if np.any(lengths != self.shared_mz_axis.shape[0]):
                 raise ValueError("Every continuous spectrum must match axes/mz.")
         if "stats" in self.root:
-            stats = self.root["stats"]
+            stats = cast(zarr.Group, self.root["stats"])
             if "mean_spectrum" in stats:
+                mean_spectrum = cast(zarr.Array, stats["mean_spectrum"])
                 if self.shared_mz_axis is None:
                     raise ValueError(
                         "stats/mean_spectrum requires a shared m/z axis."
                     )
-                if stats["mean_spectrum"].ndim != 1 or int(
-                    stats["mean_spectrum"].shape[0]
+                if mean_spectrum.ndim != 1 or int(
+                    mean_spectrum.shape[0]
                 ) != int(self.shared_mz_axis.shape[0]):
                     raise ValueError(
                         "stats/mean_spectrum must match axes/mz length."
                     )
-            if "tic" in stats and (
-                stats["tic"].ndim != 1
-                or int(stats["tic"].shape[0]) != self.n_pixels
-            ):
-                raise ValueError("stats/tic must match the coordinate count.")
 
     def close(self) -> None:
-        self.root = None
+        """Release reader resources.
+
+        Zarr groups do not hold a closeable file handle, so no explicit action
+        is required.
+        """
+
+    def _read_offsets(self, indices: np.ndarray) -> np.ndarray:
+        if indices.size > 1 and bool(np.all(np.diff(indices) == 1)):
+            start = int(indices[0])
+            end = int(indices[-1]) + 1
+            return np.asarray(self.offsets[start:end], dtype=np.int64)
+        return np.asarray(
+            self.offsets.get_orthogonal_selection((indices,)),
+            dtype=np.int64,
+        )
+
+    def _read_indexed_values(
+        self,
+        array: Any,
+        indices: np.ndarray,
+        starts: np.ndarray,
+        ends: np.ndarray,
+    ) -> np.ndarray:
+        if indices.size > 1 and bool(np.all(np.diff(indices) == 1)):
+            return np.asarray(array[int(starts[0]) : int(ends[-1])])
+        return np.concatenate(
+            [
+                np.asarray(array[int(start) : int(end)])
+                for start, end in zip(starts, ends)
+            ]
+        )
 
     def _normalize_row_index(self, index: int) -> int:
         index = int(index)
@@ -201,7 +298,11 @@ class MSIZarrReader:
             )
         if attrs.get("write_state") != "complete":
             raise ValueError("Zarr store is not finalized.")
-        if list(attrs["coordinate_order"]) != ["x", "y", "z"]:
+        coordinate_order = attrs["coordinate_order"]
+        if (
+            not isinstance(coordinate_order, (list, tuple))
+            or list(coordinate_order) != ["x", "y", "z"]
+        ):
             raise ValueError("coordinate_order must be ['x', 'y', 'z'].")
         if attrs["coordinate_base"] != 0:
             raise ValueError("coordinate_base must be 0.")
@@ -221,8 +322,8 @@ class MSIZarrReader:
             raise ValueError("Zarr store requires data/ and axes/.")
         if "metadata" not in self.root:
             raise ValueError("Zarr store requires metadata/.")
-        data = self.root["data"]
-        axes = self.root["axes"]
+        data = cast(zarr.Group, self.root["data"])
+        axes = cast(zarr.Group, self.root["axes"])
         if "intensity" not in data or "offsets" not in data:
             raise ValueError("data/intensity and data/offsets are required.")
         if "coordinates" not in axes:
@@ -242,9 +343,9 @@ class MSIZarrReader:
                 )
         elif "mz" not in data or "mz" in axes:
             raise ValueError("processed stores require data/mz and forbid axes/mz.")
-        intensity = data["intensity"]
-        offsets = data["offsets"]
-        coordinates = axes["coordinates"]
+        intensity = cast(zarr.Array, data["intensity"])
+        offsets = cast(zarr.Array, data["offsets"])
+        coordinates = cast(zarr.Array, axes["coordinates"])
         if offsets.ndim != 1 or intensity.ndim != 1:
             raise ValueError("data/intensity and data/offsets must be 1-D.")
         if not np.can_cast(offsets.dtype, np.dtype(np.int64), casting="safe"):
@@ -254,31 +355,37 @@ class MSIZarrReader:
         if np.dtype(coordinates.dtype) != np.dtype("<u4"):
             raise ValueError("axes/coordinates must use <u4.")
         if encoding == ZARR_MODE_CONTINUOUS:
-            shared_mz = axes["mz"]
-            if shared_mz.ndim != 1 or np.dtype(shared_mz.dtype) != np.dtype("<f8"):
-                raise ValueError("axes/mz must be a 1-D <f8 array.")
+            shared_mz = cast(zarr.Array, axes["mz"])
+            if shared_mz.ndim != 1 or not _is_supported_mz_dtype(shared_mz.dtype):
+                raise ValueError("axes/mz must be a 1-D <f4 or <f8 array.")
             if shared_mz.attrs.get("unit") != "m/z":
                 raise ValueError("axes/mz attrs.unit must be 'm/z'.")
         else:
-            point_mz = data["mz"]
-            if point_mz.ndim != 1 or np.dtype(point_mz.dtype) != np.dtype("<f8"):
-                raise ValueError("data/mz must be a 1-D <f8 array.")
+            point_mz = cast(zarr.Array, data["mz"])
+            if point_mz.ndim != 1 or not _is_supported_mz_dtype(point_mz.dtype):
+                raise ValueError("data/mz must be a 1-D <f4 or <f8 array.")
             if point_mz.attrs.get("unit") != "m/z":
                 raise ValueError("data/mz attrs.unit must be 'm/z'.")
         n_rows = int(offsets.shape[0]) - 1
         if n_rows < 0:
             raise ValueError("data/offsets must contain at least one value.")
-        if int(offsets[0]) != 0 or int(offsets[-1]) != int(intensity.shape[0]):
+        if (
+            _read_array_int(offsets, 0) != 0
+            or _read_array_int(offsets, -1) != int(intensity.shape[0])
+        ):
             raise ValueError("data/offsets boundaries do not match intensity.")
         if row_axis == "pixel" and n_rows != int(coordinates.shape[0]):
             raise ValueError("pixel-major row count must equal coordinate count.")
-        if row_axis == "ion" and n_rows != int(axes["mz"].shape[0]):
-            raise ValueError("ion-major row count must equal axes/mz length.")
-        if encoding == ZARR_MODE_PROCESSED and (
-            int(data["mz"].shape[0]) != int(intensity.shape[0])
-        ):
-            raise ValueError("data/mz length must equal data/intensity length.")
-        metadata_attrs = self.root["metadata"].attrs
+        if row_axis == "ion":
+            shared_mz = cast(zarr.Array, axes["mz"])
+            if n_rows != int(shared_mz.shape[0]):
+                raise ValueError("ion-major row count must equal axes/mz length.")
+        if encoding == ZARR_MODE_PROCESSED:
+            point_mz = cast(zarr.Array, data["mz"])
+            if int(point_mz.shape[0]) != int(intensity.shape[0]):
+                raise ValueError("data/mz length must equal data/intensity length.")
+        metadata = cast(zarr.Group, self.root["metadata"])
+        metadata_attrs = metadata.attrs
         continuous = metadata_attrs.get("continuous")
         processed = metadata_attrs.get("processed")
         if encoding == ZARR_MODE_CONTINUOUS and (
@@ -303,10 +410,11 @@ class MSIZarrWriter:
         path: str | os.PathLike[str],
         *,
         row_axis: ZarrRowAxis,
-        encoding: ZarrStorageMode,
+        encoding: ZarrWriteMode,
         metadata: MetaDataBase | None,
         width: int | None = None,
         height: int | None = None,
+        mz_dtype: np.dtype | type = np.float64,
         intensity_dtype: np.dtype | type = np.float32,
         target_chunk_bytes: int = 4 * 1024 * 1024,
         add_buffer_size: int = 256,
@@ -314,37 +422,42 @@ class MSIZarrWriter:
         temp_workers: int = 4,
         ion_block: int = 256,
         compute_mean_spectrum: bool = False,
-        compute_tic: bool = False,
-        coordinate_base: CoordinateBase | None = None,
+        coordinate_base: Literal[0, 1] | None = None,
     ) -> None:
         if row_axis not in {"pixel", "ion"}:
             raise ValueError("row_axis must be 'pixel' or 'ion'.")
-        if encoding not in {ZARR_MODE_CONTINUOUS, ZARR_MODE_PROCESSED}:
-            raise ValueError("encoding must be 'continuous' or 'processed'.")
+        if encoding not in {
+            ZARR_MODE_AUTO,
+            ZARR_MODE_CONTINUOUS,
+            ZARR_MODE_PROCESSED,
+        }:
+            raise ValueError(
+                "encoding must be 'auto', 'continuous', or 'processed'."
+            )
         if row_axis == "ion" and encoding != ZARR_MODE_CONTINUOUS:
             raise ValueError("ion-major output requires continuous encoding.")
         self.path = _normalize_zarr_path(path)
-        self.row_axis = row_axis
-        self.encoding = encoding
+        self.row_axis: ZarrRowAxis = row_axis
+        self.encoding: ZarrWriteMode = encoding
         self.meta = MetaDataZarr.from_metadata(metadata)
         self.width = None if width is None else int(width)
         self.height = None if height is None else int(height)
+        self.mz_dtype = _normalize_mz_dtype(mz_dtype)
         self.intensity_dtype = np.dtype(intensity_dtype)
         self.target_chunk_bytes = max(1, int(target_chunk_bytes))
         self.add_buffer_size = max(1, int(add_buffer_size))
         self.ion_block = max(1, int(ion_block))
         self.compute_mean_spectrum = bool(compute_mean_spectrum)
-        self.compute_tic = bool(compute_tic)
         if coordinate_base not in {None, 0, 1}:
             raise ValueError("coordinate_base must be 0, 1, or None.")
-        self.coordinate_base = coordinate_base
+        self.coordinate_base: Literal[0, 1] | None = coordinate_base
         self._temp_dir = temp_dir
         self._temp_workers = max(1, int(temp_workers))
-        self._root: Any | None = None
-        self._data: Any | None = None
-        self._intensity: Any | None = None
-        self._offsets: Any | None = None
-        self._point_mz: Any | None = None
+        self._root: zarr.Group | None = None
+        self._data: zarr.Group | None = None
+        self._intensity: zarr.Array | None = None
+        self._offsets: zarr.Array | None = None
+        self._point_mz: zarr.Array | None = None
         self._shared_mz: np.ndarray | None = None
         self._coordinates: list[np.ndarray] = []
         self._temp_store: IonMajorTempStore | None = None
@@ -354,6 +467,9 @@ class MSIZarrWriter:
         self._add_intensity: list[np.ndarray] = []
         self._add_mz: list[np.ndarray] = []
         self._add_coordinates: list[np.ndarray] = []
+        self._pending_batches: list[
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+        ] = []
 
     def add_spectrum(
         self,
@@ -362,7 +478,7 @@ class MSIZarrWriter:
         mz: np.ndarray,
     ) -> None:
         intensity = np.asarray(intensity, dtype=self.intensity_dtype)
-        mz = np.asarray(mz, dtype=np.float64)
+        mz = np.asarray(mz, dtype=self.mz_dtype)
         if intensity.ndim != 1 or mz.ndim != 1 or intensity.size != mz.size:
             raise ValueError("intensity and mz must be equal-length 1-D arrays.")
         self._add_intensity.append(intensity.copy())
@@ -376,14 +492,14 @@ class MSIZarrWriter:
         intensity_flat: np.ndarray,
         lengths: np.ndarray,
         coordinates: np.ndarray,
-        mz_axis: np.ndarray,
+        mz_axis: np.ndarray | None,
     ) -> None:
         if self._finalized:
             raise ValueError("Cannot write after finalize().")
         lengths = np.asarray(lengths, dtype=np.int64)
         coordinates = _ensure_xyz_coordinates(coordinates)
         intensity = np.asarray(intensity_flat, dtype=self.intensity_dtype)
-        mz = np.asarray(mz_axis, dtype=np.float64)
+        mz = np.asarray(mz_axis, dtype=self.mz_dtype)
         if lengths.ndim != 1 or intensity.ndim != 1 or mz.ndim != 1:
             raise ValueError("intensity_flat, lengths, and mz_axis must be 1-D.")
         if lengths.size == 0:
@@ -394,6 +510,31 @@ class MSIZarrWriter:
             raise ValueError("coordinates row count must equal lengths size.")
         if intensity.size != int(np.sum(lengths, dtype=np.int64)):
             raise ValueError("intensity_flat size must equal sum(lengths).")
+
+        if self.encoding == ZARR_MODE_AUTO:
+            detected = _infer_encoding(mz, lengths)
+            if detected is None:
+                if self._pending_batches:
+                    first_mz = self._pending_batches[0][3]
+                    self.encoding = (
+                        ZARR_MODE_CONTINUOUS
+                        if np.array_equal(mz, first_mz)
+                        else ZARR_MODE_PROCESSED
+                    )
+                    self._flush_pending_batches()
+                else:
+                    self._pending_batches.append(
+                        (
+                            intensity.copy(),
+                            lengths.copy(),
+                            coordinates.copy(),
+                            mz.copy(),
+                        )
+                    )
+                    return
+            else:
+                self.encoding = detected
+                self._flush_pending_batches()
 
         self._set_or_validate_shared_mz(mz, lengths)
         self._coordinates.append(coordinates.copy())
@@ -407,6 +548,11 @@ class MSIZarrWriter:
         if self._finalized:
             return
         self._flush_add_buffer()
+        if self.encoding == ZARR_MODE_AUTO:
+            if not self._pending_batches:
+                raise ValueError("No spectra were written.")
+            self.encoding = ZARR_MODE_PROCESSED
+            self._flush_pending_batches()
         if self._n_input_pixels == 0:
             raise ValueError("No spectra were written.")
         coordinates = np.vstack(self._coordinates)
@@ -457,6 +603,7 @@ class MSIZarrWriter:
         self._intensity = None
         self._offsets = None
         self._point_mz = None
+        self._pending_batches.clear()
 
     def _write_pixel_batch(
         self,
@@ -488,7 +635,8 @@ class MSIZarrWriter:
                 dtype=self.intensity_dtype,
                 workers=self._temp_workers,
             )
-        self._temp_store.append_batch(
+        temp_store = self._temp_store
+        temp_store.append_batch(
             intensity,
             n_pixels=int(lengths.size),
             n_ions=int(self._shared_mz.size),
@@ -498,11 +646,13 @@ class MSIZarrWriter:
         if self._root is not None:
             return
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self._root = zarr.open_group(self.path, mode="w")
+        root = zarr.open_group(self.path, mode="w")
+        self._root = root
         self._write_root_attrs(state="writing")
-        axes = self._root.create_group("axes")
-        self._data = self._root.create_group("data")
-        self._data.attrs.update(
+        axes = root.create_group("axes")
+        data = root.create_group("data")
+        self._data = data
+        data.attrs.update(
             {"row_axis": self.row_axis, "encoding": self.encoding}
         )
         row_length = (
@@ -516,13 +666,13 @@ class MSIZarrWriter:
             self.intensity_dtype.itemsize,
             self.target_chunk_bytes,
         )
-        self._intensity = self._data.create_array(
+        self._intensity = data.create_array(
             "intensity",
             shape=(0,),
             chunks=(chunk_points,),
             dtype=self.intensity_dtype,
         )
-        self._offsets = self._data.create_array(
+        self._offsets = data.create_array(
             "offsets",
             data=np.array([0], dtype="<i8"),
             chunks=(max(2, min(4096, int(lengths.size) + 1)),),
@@ -532,19 +682,20 @@ class MSIZarrWriter:
             mz_array = axes.create_array("mz", data=self._shared_mz)
             mz_array.attrs["unit"] = "m/z"
         else:
-            self._point_mz = self._data.create_array(
+            point_mz = data.create_array(
                 "mz",
                 shape=(0,),
                 chunks=(chunk_points,),
-                dtype="<f8",
+                dtype=self.mz_dtype,
             )
-            self._point_mz.attrs["unit"] = "m/z"
+            point_mz.attrs["unit"] = "m/z"
+            self._point_mz = point_mz
 
     def _finalize_pixel(self, coordinate_index: "CoordinateIndex") -> None:
         assert self._root is not None
         if coordinate_index.source_idx.size != self._n_input_pixels:
             self._compact_pixel_arrays(coordinate_index.source_idx)
-        axes = self._root["axes"]
+        axes = cast(zarr.Group, self._root["axes"])
         axes.create_array(
             "coordinates",
             data=coordinate_index.coordinates.astype("<u4", copy=False),
@@ -578,37 +729,42 @@ class MSIZarrWriter:
     def _finalize_ion(self, coordinate_index: "CoordinateIndex") -> None:
         if self._temp_store is None or self._shared_mz is None:
             raise ValueError("Ion-major writer has no temporary data.")
-        batches = self._temp_store.finish()
+        temp_store = self._temp_store
+        shared_mz = self._shared_mz
+        batches = temp_store.finish()
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self._root = zarr.open_group(self.path, mode="w")
+        root = zarr.open_group(self.path, mode="w")
+        self._root = root
         self._write_root_attrs(state="writing")
-        axes = self._root.create_group("axes")
+        axes = root.create_group("axes")
         axes.create_array(
             "coordinates",
             data=coordinate_index.coordinates.astype("<u4", copy=False),
         )
-        mz_array = axes.create_array("mz", data=self._shared_mz)
+        mz_array = axes.create_array("mz", data=shared_mz)
         mz_array.attrs["unit"] = "m/z"
-        self._data = self._root.create_group("data")
-        self._data.attrs.update(
+        data = root.create_group("data")
+        self._data = data
+        data.attrs.update(
             {"row_axis": self.row_axis, "encoding": self.encoding}
         )
         n_pixels = int(coordinate_index.coordinates.shape[0])
-        n_ions = int(self._shared_mz.size)
+        n_ions = int(shared_mz.size)
         rows_per_chunk = _rows_per_chunk(
             n_pixels,
             self.intensity_dtype.itemsize,
             self.target_chunk_bytes,
         )
         chunk_points = max(1, rows_per_chunk * n_pixels)
-        self._intensity = self._data.create_array(
+        intensity_array = data.create_array(
             "intensity",
             shape=(n_ions * n_pixels,),
             chunks=(chunk_points,),
             dtype=self.intensity_dtype,
         )
+        self._intensity = intensity_array
         offsets = np.arange(n_ions + 1, dtype=np.int64) * n_pixels
-        self._offsets = self._data.create_array("offsets", data=offsets.astype("<i8"))
+        self._offsets = data.create_array("offsets", data=offsets.astype("<i8"))
         selections = _split_source_indices(coordinate_index.source_idx, batches)
         merge_rows = max(rows_per_chunk, self.ion_block)
         merge_rows = ((merge_rows + rows_per_chunk - 1) // rows_per_chunk) * rows_per_chunk
@@ -617,13 +773,12 @@ class MSIZarrWriter:
             if self.compute_mean_spectrum
             else None
         )
-        tic = np.zeros(n_pixels, dtype=np.float64) if self.compute_tic else None
 
         def assemble_band(ion_start: int, ion_end: int) -> np.ndarray:
             band = np.empty((ion_end - ion_start, n_pixels), dtype=self.intensity_dtype)
             output_start = 0
             for batch, local_indices in zip(batches, selections):
-                source = self._temp_store.read_ion_block(batch, ion_start, ion_end)
+                source = temp_store.read_ion_block(batch, ion_start, ion_end)
                 output_end = output_start + local_indices.size
                 band[:, output_start:output_end] = source[:, local_indices]
                 output_start = output_end
@@ -646,37 +801,29 @@ class MSIZarrWriter:
                     future = executor.submit(assemble_band, next_start, next_end)
                 point_start = ion_start * n_pixels
                 point_end = ion_end * n_pixels
-                self._intensity[point_start:point_end] = band.reshape(-1)
+                intensity_array[point_start:point_end] = band.reshape(-1)
                 if mean_spectrum is not None:
                     mean_spectrum[ion_start:ion_end] = np.mean(
                         band, axis=1, dtype=np.float64
                     )
-                if tic is not None:
-                    tic += np.sum(band, axis=0, dtype=np.float64)
-        self._write_stats(mean_spectrum=mean_spectrum, tic=tic)
+        self._write_mean_spectrum(mean_spectrum)
 
-    def _write_stats(
+    def _write_mean_spectrum(
         self,
-        *,
         mean_spectrum: np.ndarray | None,
-        tic: np.ndarray | None,
     ) -> None:
-        if mean_spectrum is None and tic is None:
+        if mean_spectrum is None:
             return
         assert self._root is not None
         stats = self._root.create_group("stats")
-        if mean_spectrum is not None:
-            array = stats.create_array("mean_spectrum", data=mean_spectrum)
-            array.attrs.update(
-                {
-                    "reduced_axis": "pixel",
-                    "denominator": "sampled_pixels",
-                    "source": "/data",
-                }
-            )
-        if tic is not None:
-            array = stats.create_array("tic", data=tic)
-            array.attrs.update({"reduced_axis": "mz", "source": "/data"})
+        array = stats.create_array("mean_spectrum", data=mean_spectrum)
+        array.attrs.update(
+            {
+                "reduced_axis": "pixel",
+                "denominator": "sampled_pixels",
+                "source": "/data",
+            }
+        )
 
     def _set_or_validate_shared_mz(
         self,
@@ -690,7 +837,7 @@ class MSIZarrWriter:
                 raise ValueError("Processed mz size must equal sum(lengths).")
             return
         if self._shared_mz is None:
-            self._shared_mz = mz.astype("<f8", copy=True)
+            self._shared_mz = mz.copy()
         elif not np.array_equal(mz, self._shared_mz):
             raise ValueError("All continuous batches must share the same m/z axis.")
         assert self._shared_mz is not None
@@ -703,16 +850,27 @@ class MSIZarrWriter:
         lengths = np.asarray([row.size for row in self._add_intensity], dtype="<u4")
         intensity = np.concatenate(self._add_intensity)
         coordinates = _ensure_xyz_coordinates(np.vstack(self._add_coordinates))
+        shared_mz = all(
+            np.array_equal(row, self._add_mz[0]) for row in self._add_mz[1:]
+        )
         if self.encoding == ZARR_MODE_CONTINUOUS:
-            mz = self._add_mz[0]
-            if any(not np.array_equal(row, mz) for row in self._add_mz[1:]):
+            if not shared_mz:
                 raise ValueError("Continuous add_spectrum calls must share m/z.")
+            mz = self._add_mz[0]
+        elif self.encoding == ZARR_MODE_AUTO and shared_mz:
+            mz = self._add_mz[0]
         else:
             mz = np.concatenate(self._add_mz)
         self._add_intensity.clear()
         self._add_mz.clear()
         self._add_coordinates.clear()
         self.write_flat_batch(intensity, lengths, coordinates, mz)
+
+    def _flush_pending_batches(self) -> None:
+        pending = self._pending_batches
+        self._pending_batches = []
+        for intensity, lengths, coordinates, mz in pending:
+            self.write_flat_batch(intensity, lengths, coordinates, mz)
 
     def _write_root_attrs(self, *, state: str) -> None:
         assert self._root is not None
@@ -733,22 +891,27 @@ class MSIZarrWriter:
 
     def _validate_written_structure(self) -> None:
         assert self._root is not None
-        data = self._root["data"]
-        axes = self._root["axes"]
-        offsets = data["offsets"]
-        intensity = data["intensity"]
-        coordinates = axes["coordinates"]
-        if int(offsets[0]) != 0 or int(offsets[-1]) != int(intensity.shape[0]):
+        data = cast(zarr.Group, self._root["data"])
+        axes = cast(zarr.Group, self._root["axes"])
+        offsets = cast(zarr.Array, data["offsets"])
+        intensity = cast(zarr.Array, data["intensity"])
+        coordinates = cast(zarr.Array, axes["coordinates"])
+        if (
+            _read_array_int(offsets, 0) != 0
+            or _read_array_int(offsets, -1) != int(intensity.shape[0])
+        ):
             raise ValueError("Written offsets do not match intensity.")
         n_rows = int(offsets.shape[0]) - 1
         if self.row_axis == "pixel" and n_rows != int(coordinates.shape[0]):
             raise ValueError("Written pixel row count does not match coordinates.")
-        if self.row_axis == "ion" and n_rows != int(axes["mz"].shape[0]):
-            raise ValueError("Written ion row count does not match axes/mz.")
-        if self.encoding == ZARR_MODE_PROCESSED and (
-            int(data["mz"].shape[0]) != int(intensity.shape[0])
-        ):
-            raise ValueError("Written data/mz does not match intensity.")
+        if self.row_axis == "ion":
+            shared_mz = cast(zarr.Array, axes["mz"])
+            if n_rows != int(shared_mz.shape[0]):
+                raise ValueError("Written ion row count does not match axes/mz.")
+        if self.encoding == ZARR_MODE_PROCESSED:
+            point_mz = cast(zarr.Array, data["mz"])
+            if int(point_mz.shape[0]) != int(intensity.shape[0]):
+                raise ValueError("Written data/mz does not match intensity.")
 
 
 class CoordinateIndex:
@@ -773,7 +936,7 @@ def prepare_coordinate_index(
     *,
     width: int | None,
     height: int | None,
-    coordinate_base: CoordinateBase | None = None,
+    coordinate_base: Literal[0, 1] | None = None,
 ) -> CoordinateIndex:
     """Normalize coordinates and keep the last duplicate occurrence."""
     coords = _ensure_xyz_coordinates(coordinates).astype(np.int64, copy=False)
@@ -818,9 +981,48 @@ def storage_mode_from_metadata(metadata: MetaDataBase | None) -> ZarrStorageMode
     raise ValueError("Metadata must declare continuous=True or processed=True.")
 
 
+def _infer_encoding(
+    mz_axis: np.ndarray,
+    lengths: np.ndarray,
+) -> ZarrStorageMode | None:
+    total_points = int(np.sum(lengths, dtype=np.int64))
+    shared_axis = bool(
+        mz_axis.size == int(lengths[0])
+        and np.all(lengths == lengths[0])
+    )
+    point_axis = mz_axis.size == total_points
+    if shared_axis and point_axis:
+        return None
+    if shared_axis:
+        return ZARR_MODE_CONTINUOUS
+    if point_axis:
+        return ZARR_MODE_PROCESSED
+    raise ValueError(
+        "Cannot infer Zarr encoding from flat batch: "
+        f"mz_size={mz_axis.size}, total_points={total_points}, "
+        f"lengths={lengths.tolist()}."
+    )
+
+
 def _normalize_zarr_path(path: str | os.PathLike[str]) -> str:
     value = str(path)
     return value if value.endswith(".zarr") else f"{value}.zarr"
+
+
+def _read_array_int(array: zarr.Array, index: int) -> int:
+    """Read one integer scalar without exposing Zarr's broad selection type."""
+    return int(np.asarray(array[index]).item())
+
+
+def _normalize_mz_dtype(dtype: np.dtype | type) -> np.dtype:
+    normalized = np.dtype(dtype)
+    if normalized.kind != "f" or normalized.itemsize not in {4, 8}:
+        raise ValueError("mz_dtype must be float32 or float64.")
+    return normalized.newbyteorder("<")
+
+
+def _is_supported_mz_dtype(dtype: np.dtype | type) -> bool:
+    return np.dtype(dtype) in {np.dtype("<f4"), np.dtype("<f8")}
 
 
 def _ensure_xyz_coordinates(coordinates: np.ndarray) -> np.ndarray:

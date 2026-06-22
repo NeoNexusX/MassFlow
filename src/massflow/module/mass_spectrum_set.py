@@ -13,7 +13,6 @@ from typing import List, Tuple,Literal,overload,Union, Optional
 import matplotlib.pyplot as plt
 from massflow.tools.logger import get_logger
 from massflow.module.ms_meta_data import MetaDataBase
-from massflow.module.ms_meta_data_imzml import MetaDataImzMl
 from massflow.module.spectrum import Spectrum
 
 
@@ -49,11 +48,11 @@ class MassSpectrumSet:
           the first available z-key in `self._coordinate_index` (iteration order).
     """
 
-    def __init__(self):
+    def __init__(self, meta: MetaDataBase | None = None):
         """
         Initialize an empty MS collection.
         """
-        self.meta :MetaDataBase = MetaDataImzMl()
+        self.meta = MetaDataBase() if meta is None else meta
         self._queue = [] # queue for mapping from index to spectrum
         self._coordinate_index = {}  # Dict for mapping from coordinates to spectrum
         self._shared_mz_list = None
@@ -351,4 +350,3 @@ class MassSpectrumSet:
             plt.savefig(save_path, dpi=dpi)
         else:
             plt.show()
-

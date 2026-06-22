@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from os import PathLike
 from typing import Any, Generator
 
 import numpy as np
@@ -11,16 +10,12 @@ from massflow.data_manager.ms_data_manager import MSDataManager
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.module.spectrum_zarr import SpectrumZarr
 from massflow.tools.zarr_io import (
+    ZARR_MODE_AUTO,
     ZARR_MODE_CONTINUOUS,
     ZARR_MODE_PROCESSED,
     ZarrStorageMode,
     MSIZarrReader,
     MSIZarrWriter,
-    storage_mode_from_metadata,
-)
-from massflow.tools.infer_spectrum_type import (
-    SpectrumType,
-    set_spectrum_type_metadata,
 )
 from massflow.tools.logger import get_logger
 
@@ -42,7 +37,6 @@ class MSDataManagerZarr(MSDataManager):
         mode: str = "r",
         storage_mode: ZarrStorageMode | None = None,
         chunk_size: int = 256,
-        coordinate_base: int | None = None,
     ):
         if mode not in {"r", "w"}:
             raise ValueError("mode must be 'r' or 'w'")
@@ -63,17 +57,11 @@ class MSDataManagerZarr(MSDataManager):
         self.mode = mode
         self._temp_dir = temp_dir
         self._chunk_size = max(1, int(chunk_size))
-        self._input_coordinate_base = coordinate_base
-        self._coordinate_base = "zero" if mode == "r" else None
         self.ms.meta = MetaDataZarr()
-        # storage_mode lives on meta only; encode the constructor request into meta now
-        # so write paths can recover it via storage_mode_from_metadata, and copy_meta
-        # can preserve it across a meta replacement.
-        if storage_mode is not None:
-            _set_storage_mode_metadata(self.ms.meta, storage_mode)
-        self._storage_mode: str | None = None
+        self._storage_mode: ZarrStorageMode | None = storage_mode
         self._finalized = False
         self._reader: MSIZarrReader | None = None
+        self._writer: MSIZarrWriter | None = None
 
     @property
     def zarr_filepath(self) -> str:
@@ -81,16 +69,18 @@ class MSDataManagerZarr(MSDataManager):
         return f"{self.file_base_path}.zarr"
 
     @property
-    def storage_mode(self) -> str:
-        if self._storage_mode is None:
+    def storage_mode(self) -> ZarrStorageMode:
+        if self.mode == "r":
             self._open_arrays_for_read()
-        if self._storage_mode is None:
-            raise ValueError("Zarr storage mode has not been initialized.")
-        return self._storage_mode
+            assert self._storage_mode is not None
+            return self._storage_mode
+        encoding = self._require_writer().encoding
+        if encoding == ZARR_MODE_AUTO:
+            raise ValueError("Zarr storage mode has not been determined.")
+        return encoding
 
-    @property
-    def writer(self) -> MSIZarrWriter:
-        """Return the streaming Zarr writer."""
+    def _require_writer(self) -> MSIZarrWriter:
+        """Return the internal streaming Zarr writer."""
         if self.ms.meta is None:
             raise ValueError(
                 "MS meta data is None. Please load or copy meta data first."
@@ -99,50 +89,43 @@ class MSDataManagerZarr(MSDataManager):
             self._writer = MSIZarrWriter(
                 self.zarr_filepath,
                 row_axis="pixel",
-                encoding=storage_mode_from_metadata(self.ms.meta),
+                encoding=(
+                    ZARR_MODE_AUTO
+                    if self._storage_mode is None
+                    else self._storage_mode
+                ),
                 metadata=self.ms.meta,
                 width=getattr(self.ms.meta, "max_count_of_pixels_x", None),
                 height=getattr(self.ms.meta, "max_count_of_pixels_y", None),
+                mz_dtype=self.mz_dtype,
                 intensity_dtype=self.intensity_dtype,
                 target_chunk_bytes=4 * 1024 * 1024,
                 add_buffer_size=self._chunk_size,
                 temp_dir=self._temp_dir,
-                coordinate_base=self._input_coordinate_base,
             )
         return self._writer
 
-    @property
-    def reader(self) -> MSIZarrReader:
+    def _require_reader(self) -> MSIZarrReader:
         if self._reader is None:
             self._reader = MSIZarrReader(self.zarr_filepath)
         return self._reader
 
     def copy_meta(self, source_dm: MSDataManager):
         """Copy metadata from another data manager, dropping fields that may change here."""
-        # Preserve a storage_mode that was already declared on this manager (typically
-        # set in __init__ via the storage_mode argument); the source's value is dropped
-        # below because this manager owns its own write/finalize.
-        declared_mode = _meta_storage_mode(self.ms.meta) if self.ms.meta else None
         self.ms.meta = MetaDataZarr.from_metadata(source_dm.ms.meta)
-        # These fields are determined by this manager's own write/finalize, not the source.
         for key in ("continuous", "processed", "spectrum_count_num"):
-            self.ms.meta._meta.pop(key, None)
-        if declared_mode is not None:
-            _set_storage_mode_metadata(self.ms.meta, declared_mode)
+            self.ms.meta._meta.pop(key, None) # pylint: disable=protected-access
 
     def extract_metadata(self):
         """Load metadata from the Zarr metadata group."""
-        self.ms.meta = self.reader.metadata
+        self.ms.meta = self._require_reader().metadata
 
     def preload_hook(self, *args, **kwargs):
         """Load metadata and shared m/z axis before building spectrum placeholders."""
         self.extract_metadata()
         self._open_arrays_for_read()
         if self.storage_mode == ZARR_MODE_CONTINUOUS and self.ms.shared_mz_list is None:
-            assert self.reader.shared_mz_axis is not None
-            self.ms.shared_mz_list = np.asarray(
-                self.reader.shared_mz_axis[:], dtype=self.mz_dtype
-            )
+            self.ms.shared_mz_list = self._require_reader().read_shared_mz_axis()
 
     def loading_hook(self, *args, **kwargs):
         """Hook invoked while spectra are being loaded."""
@@ -156,7 +139,8 @@ class MSDataManagerZarr(MSDataManager):
         """Load Zarr metadata and add lazy SpectrumZarr placeholders into `ms`."""
         logger.info(f"Loading data from Zarr file: {self.zarr_filepath}")
         self.preload_hook()
-        coordinates = np.asarray(self.reader.coordinates[:])
+        reader = self._require_reader()
+        coordinates = reader.read_coordinates()
         for index, coord in enumerate(coordinates):
             x, y = int(coord[0]), int(coord[1])
             if (
@@ -164,7 +148,7 @@ class MSDataManagerZarr(MSDataManager):
                 and self.target_locs[0][1] <= y <= self.target_locs[1][1]
             ):
                 spectrum = SpectrumZarr(
-                    reader=self.reader,
+                    reader=reader,
                     index=index,
                     coordinates=coord.tolist(),
                     shared_mz_list=self.ms.shared_mz_list,
@@ -185,7 +169,7 @@ class MSDataManagerZarr(MSDataManager):
             raise ValueError("write_flat_batch is only available in write mode.")
         if self._finalized:
             raise ValueError("Cannot write after finalize().")
-        self.writer.write_flat_batch(
+        self._require_writer().write_flat_batch(
             intensity_flat=intensity_flat,
             lengths=lengths,
             coordinates=coordinates,
@@ -196,7 +180,7 @@ class MSDataManagerZarr(MSDataManager):
         """Finalize the Zarr writer."""
         if self.mode != "w" or self._finalized:
             return
-        self.writer.finalize()
+        self._require_writer().finalize()
         self._finalized = True
 
     def matrix_generator(
@@ -250,129 +234,38 @@ class MSDataManagerZarr(MSDataManager):
 
         for batch_start in range(0, total, batch_size):
             batch_indices = indices[batch_start : batch_start + batch_size]
-            lengths = self._batch_lengths(batch_indices)
-            coordinates = np.asarray(
-                self.reader.coordinates.get_orthogonal_selection(
-                    (batch_indices, slice(None))
+            mz_data, intensity, lengths, coordinates = (
+                self._require_reader().read_flat_batch(
+                    batch_indices,
+                    include_mz=include_mz,
                 )
             )
-            intensity = self._read_flat_values(self.reader.intensity, batch_indices)
-
             if self.storage_mode == ZARR_MODE_CONTINUOUS:
-                mz_data = self._shared_mz_axis()
-            elif include_mz:
-                assert self.reader.point_mz is not None
-                mz_data = self._read_flat_values(self.reader.point_mz, batch_indices)
-            else:
-                mz_data = None
-
+                self.ms.shared_mz_list = mz_data
             yield mz_data, intensity, lengths, coordinates
 
     def close(self):
         """Close the Zarr reader and writer."""
         if self._reader is not None:
             self._reader.close()
+            self._reader = None
+        if self._writer is not None:
+            self._writer.close()
+            self._writer = None
         super().close()
 
-    @classmethod
-    def from_flat_output_contract(
-        cls,
-        data_manager,
-        filepath: str | PathLike[str],
-        *,
-        output_spectrum_type: SpectrumType = "centroid",
-        storage_mode: ZarrStorageMode,
-        temp_dir: str | PathLike[str] | None = None,
-        mz_dtype: Any | None = None,
-        intensity_dtype: Any | None = None,
-        chunk_size: int = 256,
-    ) -> "MSDataManagerZarr":
-        output_dm = cls(
-            filepath=filepath,
-            mode="w",
-            storage_mode=storage_mode,
-            temp_dir=temp_dir,
-            mz_dtype=data_manager.mz_dtype if mz_dtype is None else mz_dtype,
-            intensity_dtype=(
-                data_manager.intensity_dtype
-                if intensity_dtype is None
-                else intensity_dtype
-            ),
-            chunk_size=chunk_size,
-            coordinate_base=_manager_coordinate_base(data_manager),
-        )
-        output_dm.copy_meta(data_manager)
-        set_spectrum_type_metadata(output_dm.ms.meta, output_spectrum_type)
-        return output_dm
-
-    @classmethod
-    def from_data_manager(
-        cls,
-        data_manager,
-        filepath: str | PathLike[str],
-        *,
-        temp_dir: str | PathLike[str] | None = None,
-        mz_dtype: Any | None = None,
-        intensity_dtype: Any | None = None,
-        chunk_size: int = 256,
-        batch_size: int = 256,
-        storage_mode: ZarrStorageMode | None = None,
-    ) -> "MSDataManagerZarr":
-        if storage_mode is None:
-            storage_mode = storage_mode_from_metadata(data_manager.ms.meta)
-        output_dm = cls(
-            filepath=filepath,
-            mode="w",
-            storage_mode=storage_mode,
-            temp_dir=temp_dir,
-            mz_dtype=data_manager.mz_dtype if mz_dtype is None else mz_dtype,
-            intensity_dtype=(
-                data_manager.intensity_dtype
-                if intensity_dtype is None
-                else intensity_dtype
-            ),
-            chunk_size=chunk_size,
-            coordinate_base=_manager_coordinate_base(data_manager),
-        )
-        output_dm.copy_meta(data_manager)
-        for (
-            mz_axis,
-            intensity_flat,
-            lengths,
-            coordinates,
-        ) in data_manager.flat_generator(
-            batch_size=batch_size,
-            include_mz=True,
-        ):
-            output_dm.write_flat_batch(
-                intensity_flat=intensity_flat,
-                lengths=lengths,
-                coordinates=coordinates,
-                mz_axis=mz_axis,
-            )
-        output_dm.finalize()
-        return output_dm
-
-    def _shared_mz_axis(self) -> np.ndarray:
-        if self.ms.shared_mz_list is None:
-            assert self.reader.shared_mz_axis is not None
-            self.ms.shared_mz_list = np.asarray(
-                self.reader.shared_mz_axis[:], dtype=self.mz_dtype
-            )
-        return np.asarray(self.ms.shared_mz_list, dtype=self.mz_dtype)
-
     def _open_arrays_for_read(self) -> None:
-        if self.reader.row_axis != "pixel":
+        reader = self._require_reader()
+        if reader.row_axis != "pixel":
             raise ValueError("MSDataManagerZarr requires a pixel-major Zarr store.")
-        self._storage_mode = self.reader.encoding
-        self.intensity_dtype = np.dtype(self.reader.intensity.dtype)
-        if self.reader.shared_mz_axis is not None:
-            self.mz_dtype = np.dtype(self.reader.shared_mz_axis.dtype)
-        elif self.reader.point_mz is not None:
-            self.mz_dtype = np.dtype(self.reader.point_mz.dtype)
+        if reader.encoding not in {ZARR_MODE_CONTINUOUS, ZARR_MODE_PROCESSED}:
+            raise ValueError(f"Unsupported Zarr storage mode: {reader.encoding}.")
+        self._storage_mode = reader.encoding
+        self.intensity_dtype = reader.intensity_dtype
+        self.mz_dtype = reader.mz_dtype
 
     def _target_indices(self) -> np.ndarray:
-        coords = np.asarray(self.reader.coordinates[:])
+        coords = self._require_reader().read_coordinates()
         xs = coords[:, 0].astype(np.int64, copy=False)
         ys = coords[:, 1].astype(np.int64, copy=False)
         mask = (
@@ -382,62 +275,3 @@ class MSDataManagerZarr(MSDataManager):
             & (ys <= self.target_locs[1][1])
         )
         return np.nonzero(mask)[0].astype(np.int64, copy=False)
-
-    def _batch_lengths(self, indices: np.ndarray) -> np.ndarray:
-        if _is_contiguous_indices(indices):
-            start = int(indices[0])
-            end = int(indices[-1]) + 2
-            return np.diff(np.asarray(self.reader.offsets[start:end])).astype("<u4")
-        starts = np.asarray(self.reader.offsets.get_orthogonal_selection((indices,)))
-        ends = np.asarray(self.reader.offsets.get_orthogonal_selection((indices + 1,)))
-        return (ends - starts).astype("<u4")
-
-    def _read_flat_values(self, array: Any, indices: np.ndarray) -> np.ndarray:
-        if _is_contiguous_indices(indices):
-            start = int(self.reader.offsets[int(indices[0])])
-            end = int(self.reader.offsets[int(indices[-1]) + 1])
-            return np.asarray(array[start:end])
-        parts = []
-        for index in indices:
-            start = int(self.reader.offsets[int(index)])
-            end = int(self.reader.offsets[int(index) + 1])
-            parts.append(np.asarray(array[start:end]))
-        if not parts:
-            return np.array([], dtype=array.dtype)
-        return np.concatenate(parts)
-
-
-def _is_contiguous_indices(indices: np.ndarray) -> bool:
-    return bool(indices.size > 0 and np.all(np.diff(indices) == 1))
-
-
-def _set_storage_mode_metadata(meta: MetaDataZarr, storage_mode: str) -> None:
-    if storage_mode == ZARR_MODE_CONTINUOUS:
-        meta.continuous = True
-        meta.processed = None
-        return
-    if storage_mode == ZARR_MODE_PROCESSED:
-        meta.continuous = None
-        meta.processed = True
-        return
-    raise ValueError("storage_mode must be 'continuous' or 'processed'.")
-
-
-def _meta_storage_mode(meta: Any) -> ZarrStorageMode | None:
-    """Read storage_mode declared on a meta object, or None if not set."""
-    if meta is None:
-        return None
-    if getattr(meta, "continuous", None) is True:
-        return ZARR_MODE_CONTINUOUS
-    if getattr(meta, "processed", None) is True:
-        return ZARR_MODE_PROCESSED
-    return None
-
-
-def _manager_coordinate_base(data_manager: Any) -> int | None:
-    base = getattr(data_manager, "_coordinate_base", None)
-    if base in {0, "zero"}:
-        return 0
-    if base in {1, "one"}:
-        return 1
-    return None
