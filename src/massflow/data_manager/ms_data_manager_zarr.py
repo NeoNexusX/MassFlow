@@ -9,12 +9,12 @@ import numpy as np
 from massflow.data_manager.ms_data_manager import MSDataManager
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.module.spectrum_zarr import SpectrumZarr
-from massflow.tools.zarr_io import (
+from massflow.tools.zarr_reader import MSIZarrReader
+from massflow.tools.zarr_writer import (
     ZARR_MODE_AUTO,
     ZARR_MODE_CONTINUOUS,
     ZARR_MODE_PROCESSED,
     ZarrStorageMode,
-    MSIZarrReader,
     MSIZarrWriter,
 )
 from massflow.tools.logger import get_logger
@@ -36,7 +36,7 @@ class MSDataManagerZarr(MSDataManager):
         intensity_dtype: Any = np.float32,
         mode: str = "r",
         storage_mode: ZarrStorageMode | None = None,
-        chunk_size: int = 256,
+        chunk_size: int = 4,
     ):
         if mode not in {"r", "w"}:
             raise ValueError("mode must be 'r' or 'w'")
@@ -94,13 +94,12 @@ class MSDataManagerZarr(MSDataManager):
                     if self._storage_mode is None
                     else self._storage_mode
                 ),
-                metadata=self.ms.meta,
+                metadata=self.ms.meta, # type: ignore
                 width=getattr(self.ms.meta, "max_count_of_pixels_x", None),
                 height=getattr(self.ms.meta, "max_count_of_pixels_y", None),
                 mz_dtype=self.mz_dtype,
                 intensity_dtype=self.intensity_dtype,
-                target_chunk_bytes=4 * 1024 * 1024,
-                add_buffer_size=self._chunk_size,
+                target_chunk_bytes=self._chunk_size * 1024 * 1024,
                 temp_dir=self._temp_dir,
             )
         return self._writer
@@ -112,9 +111,7 @@ class MSDataManagerZarr(MSDataManager):
 
     def copy_meta(self, source_dm: MSDataManager):
         """Copy metadata from another data manager, dropping fields that may change here."""
-        self.ms.meta = MetaDataZarr.from_metadata(source_dm.ms.meta)
-        for key in ("continuous", "processed", "spectrum_count_num"):
-            self.ms.meta._meta.pop(key, None) # pylint: disable=protected-access
+        self.ms.meta.copy(source_dm.ms.meta)
 
     def extract_metadata(self):
         """Load metadata from the Zarr metadata group."""
@@ -143,10 +140,7 @@ class MSDataManagerZarr(MSDataManager):
         coordinates = reader.read_coordinates()
         for index, coord in enumerate(coordinates):
             x, y = int(coord[0]), int(coord[1])
-            if (
-                self.target_locs[0][0] <= x <= self.target_locs[1][0]
-                and self.target_locs[0][1] <= y <= self.target_locs[1][1]
-            ):
+            if self.target_locs[0][0] <= x <= self.target_locs[1][0] and self.target_locs[0][1] <= y <= self.target_locs[1][1]:
                 spectrum = SpectrumZarr(
                     reader=reader,
                     index=index,

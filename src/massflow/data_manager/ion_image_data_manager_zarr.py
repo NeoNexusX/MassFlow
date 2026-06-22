@@ -12,8 +12,8 @@ import numpy as np
 from massflow.data_manager.ion_image_data_manager import IonImageDataManager
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
-from massflow.tools.zarr_io import (
-    MSIZarrReader,
+from massflow.tools.zarr_reader import MSIZarrReader
+from massflow.tools.zarr_writer import (
     MSIZarrWriter,
     ZARR_MODE_CONTINUOUS,
 )
@@ -57,7 +57,9 @@ class IonImageDataManagerZarr(IonImageDataManager):
             raise ValueError("mz_dtype must be float32 or float64.")
         self.intensity_dtype = np.dtype(intensity_dtype)
         self.ion_block = max(1, int(ion_block))
-        self.meta = MetaDataZarr.from_metadata(metadata)
+        self.meta = MetaDataZarr()
+        if metadata is not None:
+            self.meta.copy(metadata, exclude=False)
         self._reader: MSIZarrReader | None = None
         self._writer: MSIZarrWriter | None = None
         self._finalized = False
@@ -129,8 +131,7 @@ class IonImageDataManagerZarr(IonImageDataManager):
 
     @property
     def mean_spectrum(self) -> np.ndarray | None:
-        return self._require_reader().read_stat("mean_spectrum")
-
+        return self._require_reader().read_mean_spectrum()
 
     def write_flat_batch(
         self,

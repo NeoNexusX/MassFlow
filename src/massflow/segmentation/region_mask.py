@@ -4,13 +4,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import h5py
+import hdf5plugin
 import numpy as np
+import zarr
 
 from massflow.data_manager import (
     IonImageDataManagerBinary,
     IonImageDataManagerH5,
     IonImageDataManagerZarr,
     MSDataManagerImzML,
+)
+
+from massflow.data_manager.ion_image_data_manager_binary import (
+    HEADER_SIZE,
+    UINT32_SIZE,
+    IonImageBinaryHeader,
 )
 
 DataManager = (
@@ -146,16 +155,180 @@ def _selected_coordinates(
     selected = _select_coordinates(
         mask,
         data_manager.coordinates,
-        (
-            "zero"
-            if getattr(data_manager, "coordinate_base", None) == 0
-            else None
-        ),
+        getattr(data_manager, "_coordinate_base", None),
     )
     selected_indices = np.flatnonzero(selected)
     if selected_indices.size == 0:
         raise ValueError("mask does not retain any source pixels.")
     return np.asarray(data_manager.coordinates)[selected_indices], selected_indices
+
+
+# --- Binary ion-image backend ----------------------------------------------
+
+
+def _write_binary_masked(
+    data_manager: IonImageDataManagerBinary,
+    mask: np.ndarray,
+    output_path: str | Path,
+    *,
+    batch_size: int,
+) -> IonImageDataManagerBinary:
+    """Write selected Binary pixel columns directly to a new Binary file."""
+    coordinates, selected_indices = _selected_coordinates(data_manager, mask)
+    mz_axis = np.asarray(data_manager.mz_axis, dtype=data_manager.mz_dtype)
+    coordinates = coordinates[:, :2].astype("<u4", copy=False)
+    n_pixels = int(selected_indices.size)
+    mz_offset = HEADER_SIZE
+    coordinate_offset = mz_offset + data_manager.n_ions * data_manager.mz_dtype.itemsize
+    intensity_offset = coordinate_offset + n_pixels * 2 * UINT32_SIZE
+    header = IonImageBinaryHeader(
+        width=data_manager.width,
+        height=data_manager.height,
+        n_ions=data_manager.n_ions,
+        n_pixels=n_pixels,
+        mz_dtype_bits=data_manager.mz_dtype.itemsize * 8,
+        intensity_dtype_bits=data_manager.intensity_dtype.itemsize * 8,
+        mz_offset=mz_offset,
+        coordinate_offset=coordinate_offset,
+        intensity_offset=intensity_offset,
+    )
+
+    with Path(output_path).open("wb") as output_file:
+        output_file.write(header.to_bytes())
+        output_file.write(memoryview(np.ascontiguousarray(mz_axis)))
+        output_file.write(memoryview(np.ascontiguousarray(coordinates)))
+        for start in range(0, data_manager.n_ions, batch_size):
+            end = min(data_manager.n_ions, start + batch_size)
+            block = np.ascontiguousarray(
+                data_manager.intensity_matrix[start:end, selected_indices]
+            )
+            output_file.write(memoryview(block))
+
+    return IonImageDataManagerBinary(output_path, mode="r")
+
+
+# --- Dense ion-image block masking (H5 / Zarr) -----------------------------
+
+
+def _masked_dense_block(
+    data_manager: IonImageDataManagerH5,
+    mask: np.ndarray,
+    start: int,
+    end: int,
+) -> np.ndarray:
+    """Read a dense ion-image block and zero pixels outside the mask."""
+    block = np.asarray(data_manager._dset[start:end])  # type: ignore  # pylint: disable=protected-access
+    block *= mask
+    return block
+
+
+# --- H5 ion-image backend ---------------------------------------------------
+
+
+def _write_h5_masked(
+    data_manager: IonImageDataManagerH5,
+    mask: np.ndarray,
+    output_path: str | Path,
+    *,
+    batch_size: int,
+) -> IonImageDataManagerH5:
+    """Write masked dense ion-image blocks directly to a new H5 file."""
+    coordinates, _ = _selected_coordinates(data_manager, mask)
+    chunk_size = int(data_manager._dset.chunks[0])  # type: ignore  # pylint: disable=protected-access
+    compression = hdf5plugin.Bitshuffle(nelems=0, cname="lz4", clevel=1)  # type: ignore
+
+    with h5py.File(output_path, "w") as output_file:
+        output_file.attrs["width"] = data_manager.width
+        output_file.attrs["height"] = data_manager.height
+        output_file.attrs["n_ions"] = data_manager.n_ions
+        output_file.attrs["n_pixels"] = coordinates.shape[0]
+        output_file.create_dataset("mz_axis", data=np.asarray(data_manager.mz_axis))
+        output_file.create_dataset("coordinates", data=coordinates, dtype="<u4")
+        output_images = output_file.create_dataset(
+            "ion_images",
+            shape=(data_manager.n_ions, data_manager.height, data_manager.width),
+            chunks=(chunk_size, data_manager.height, data_manager.width),
+            dtype=data_manager.intensity_dtype,
+            **compression,
+        )
+        for start in range(0, data_manager.n_ions, batch_size):
+            end = min(data_manager.n_ions, start + batch_size)
+            output_images[start:end] = _masked_dense_block(
+                data_manager,
+                mask,
+                start,
+                end,
+            )
+
+    return IonImageDataManagerH5(output_path, mode="r")
+
+
+# --- Zarr ion-image backend -------------------------------------------------
+
+
+def _write_zarr_masked(
+    data_manager: IonImageDataManagerZarr,
+    mask: np.ndarray,
+    output_path: str | Path,
+    *,
+    batch_size: int,
+) -> IonImageDataManagerZarr:
+    """Write selected compact ion vectors to a new Zarr group."""
+    output_path = Path(output_path)
+    if output_path.suffix != ".zarr":
+        output_path = Path(f"{output_path}.zarr")
+    coordinates, selected_indices = _selected_coordinates(data_manager, mask)
+    n_pixels = int(selected_indices.size)
+    reader = data_manager._reader  # pylint: disable=protected-access
+    assert reader is not None
+    chunk_points = int(reader.intensity.chunks[0])
+    output_group = zarr.open_group(str(output_path), mode="w")
+    output_group.attrs.update(
+        {
+            "format": "massflow.msi_zarr",
+            "format_version": "1.0",
+            "write_state": "writing",
+            "coordinate_order": ["x", "y", "z"],
+            "coordinate_base": 1,
+            "spatial_shape": [data_manager.height, data_manager.width],
+        }
+    )
+    axes_group = output_group.create_group("axes")
+    axes_group.create_array(
+        "coordinates",
+        data=coordinates.astype("<u4", copy=False),
+    )
+    mz_axis = np.asarray(data_manager.mz_axis, dtype=data_manager.mz_dtype)
+    mz_array = axes_group.create_array("mz", data=mz_axis)
+    mz_array.attrs["unit"] = "m/z"
+    data_group = output_group.create_group("data")
+    data_group.attrs.update({"row_axis": "ion", "encoding": "continuous"})
+    output_intensity = data_group.create_array(
+        "intensity",
+        shape=(data_manager.n_ions * n_pixels,),
+        chunks=(max(n_pixels, chunk_points),),
+        dtype=data_manager.intensity_dtype,
+    )
+    data_group.create_array(
+        "offsets",
+        data=(np.arange(data_manager.n_ions + 1, dtype=np.int64) * n_pixels),
+    )
+    for start in range(0, data_manager.n_ions, batch_size):
+        end = min(data_manager.n_ions, start + batch_size)
+        block = data_manager.get_ion_block(start, end)[:, selected_indices]
+        output_intensity[start * n_pixels : end * n_pixels] = block.reshape(-1)
+
+    data_manager.meta.to_zarr(output_group)
+    # Reader 校验 metadata 必须 continuous=True 且 processed != True。
+    metadata_group = output_group["metadata"]
+    metadata_group.attrs["continuous"] = True
+    if "processed" in metadata_group.attrs:
+        del metadata_group.attrs["processed"]
+    output_group.attrs["write_state"] = "complete"
+    return IonImageDataManagerZarr(output_path, mode="r")
+
+
+# --- Ion-image backend dispatch --------------------------------------------
 
 
 def _apply_ion_image_mask(
@@ -164,72 +337,28 @@ def _apply_ion_image_mask(
     output_path: str | Path,
     *,
     batch_size: int,
-    temp_dir: str | Path | None,
 ) -> IonImageDataManager:
-    """Copy selected pixels through the common ion-image writer contract."""
-    coordinates, selected_indices = _selected_coordinates(data_manager, mask)
-    mz_axis = np.asarray(data_manager.mz_axis)
+    """Apply a mask directly to ion-major blocks and return the same backend type."""
     if isinstance(data_manager, IonImageDataManagerZarr):
-        output: IonImageDataManager = IonImageDataManagerZarr(
+        return _write_zarr_masked(
+            data_manager,
+            mask,
             output_path,
-            mode="w",
-            width=data_manager.width,
-            height=data_manager.height,
-            temp_dir=temp_dir,
-            intensity_dtype=data_manager.intensity_dtype,
-            metadata=data_manager.meta,
-            shared_mz_axis=mz_axis,
+            batch_size=batch_size,
         )
-    elif isinstance(data_manager, IonImageDataManagerH5):
-        output = IonImageDataManagerH5(
+    if isinstance(data_manager, IonImageDataManagerH5):
+        return _write_h5_masked(
+            data_manager,
+            mask,
             output_path,
-            mode="w",
-            width=data_manager.width,
-            height=data_manager.height,
-            temp_dir=temp_dir,
-            mz_dtype=data_manager.mz_dtype,
-            intensity_dtype=data_manager.intensity_dtype,
-            shared_mz_axis=mz_axis,
+            batch_size=batch_size,
         )
-    else:
-        output = IonImageDataManagerBinary(
-            output_path,
-            mode="w",
-            width=data_manager.width,
-            height=data_manager.height,
-            temp_dir=temp_dir,
-            mz_dtype=data_manager.mz_dtype,
-            intensity_dtype=data_manager.intensity_dtype,
-            shared_mz_axis=mz_axis,
-        )
-
-    n_ions = int(data_manager.n_ions)
-    ion_block = max(1, int(data_manager.ion_block))
-    try:
-        for pixel_start in range(0, selected_indices.size, batch_size):
-            pixel_end = min(selected_indices.size, pixel_start + batch_size)
-            pixel_indices = selected_indices[pixel_start:pixel_end]
-            matrix = np.empty(
-                (pixel_indices.size, n_ions),
-                dtype=data_manager.intensity_dtype,
-            )
-            for ion_start in range(0, n_ions, ion_block):
-                ion_end = min(n_ions, ion_start + ion_block)
-                matrix[:, ion_start:ion_end] = data_manager.get_ion_block(
-                    ion_start,
-                    ion_end,
-                )[:, pixel_indices].T
-            output.write_flat_batch(
-                intensity_flat=matrix.reshape(-1),
-                lengths=np.full(pixel_indices.size, n_ions, dtype="<u4"),
-                coordinates=coordinates[pixel_start:pixel_end],
-                mz_axis=mz_axis,
-            )
-        output.finalize()
-        return output
-    except BaseException:
-        output.close()
-        raise
+    return _write_binary_masked(
+        data_manager,
+        mask,
+        output_path,
+        batch_size=batch_size,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -247,8 +376,8 @@ def apply_region_mask(
 ) -> DataManager:
     """Return a same-type manager containing only mask-valid pixels.
 
-    ``batch_size`` controls spectrum batches. ``temp_dir`` is used by output
-    writers that stage intermediate data.
+    ``batch_size`` controls spectrum batches for imzML and ion-image blocks for
+    Binary/H5/Zarr. ``temp_dir`` is only used by the imzML writer.
     """
     if batch_size <= 0:
         raise ValueError("batch_size must be positive.")
@@ -271,5 +400,4 @@ def apply_region_mask(
         normalized_mask,
         output_path,
         batch_size=batch_size,
-        temp_dir=temp_dir,
     )

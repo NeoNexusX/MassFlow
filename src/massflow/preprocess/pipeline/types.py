@@ -7,10 +7,17 @@ from massflow.tools.infer_spectrum_type import SpectrumType
 
 TaskScope = Literal["batch", "dataset"]
 SegmentScope = Literal["batch", "dataset"]
-OutputFormat = Literal["imzml", "ion_image_binary", "ion_image_h5", "ion_image_zarr"]
+OutputFormat = Literal[
+    "imzml",
+    "spectra_zarr",
+    "ion_image_binary",
+    "ion_image_h5",
+    "ion_image_zarr",
+]
 IonImageOutputFormat = Literal["ion_image_binary", "ion_image_h5", "ion_image_zarr"]
 
 OUTPUT_FORMAT_IMZML: OutputFormat = "imzml"
+OUTPUT_FORMAT_SPECTRA_ZARR: OutputFormat = "spectra_zarr"
 OUTPUT_FORMAT_ION_IMAGE_BINARY: IonImageOutputFormat = "ion_image_binary"
 OUTPUT_FORMAT_ION_IMAGE_H5: IonImageOutputFormat = "ion_image_h5"
 OUTPUT_FORMAT_ION_IMAGE_ZARR: IonImageOutputFormat = "ion_image_zarr"
@@ -18,10 +25,17 @@ ION_IMAGE_OUTPUT_FORMATS: frozenset[IonImageOutputFormat] = frozenset(
     {OUTPUT_FORMAT_ION_IMAGE_BINARY, OUTPUT_FORMAT_ION_IMAGE_H5, OUTPUT_FORMAT_ION_IMAGE_ZARR}
 )
 OUTPUT_FORMATS: frozenset[OutputFormat] = frozenset(
-    {OUTPUT_FORMAT_IMZML, OUTPUT_FORMAT_ION_IMAGE_BINARY, OUTPUT_FORMAT_ION_IMAGE_H5, OUTPUT_FORMAT_ION_IMAGE_ZARR}
+    {
+        OUTPUT_FORMAT_IMZML,
+        OUTPUT_FORMAT_SPECTRA_ZARR,
+        OUTPUT_FORMAT_ION_IMAGE_BINARY,
+        OUTPUT_FORMAT_ION_IMAGE_H5,
+        OUTPUT_FORMAT_ION_IMAGE_ZARR,
+    }
 )
 OUTPUT_FORMAT_SUFFIXES: dict[OutputFormat, str] = {
     OUTPUT_FORMAT_IMZML: ".imzML",
+    OUTPUT_FORMAT_SPECTRA_ZARR: ".zarr",
     OUTPUT_FORMAT_ION_IMAGE_BINARY: ".iib",
     OUTPUT_FORMAT_ION_IMAGE_H5: ".h5",
     OUTPUT_FORMAT_ION_IMAGE_ZARR: ".zarr",

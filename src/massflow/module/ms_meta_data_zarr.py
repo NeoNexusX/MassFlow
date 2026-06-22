@@ -7,6 +7,8 @@ from typing import Any
 import numpy as np
 
 from massflow.module.ms_meta_data import MetaDataBase, MetaField
+from massflow.tools.logger import get_logger
+logger = get_logger("massflow.module.meta_data_zarr")
 
 
 class MetaDataZarr(MetaDataBase):
@@ -56,15 +58,6 @@ class MetaDataZarr(MetaDataBase):
         self.spectrum_count_num = spectrum_count_num
 
     @classmethod
-    def from_metadata(cls, source: MetaDataBase | None) -> "MetaDataZarr":
-        """Create Zarr metadata from any MassFlow metadata object."""
-        meta = cls()
-        if source is None:
-            return meta
-        meta.copy(source)
-        return meta
-
-    @classmethod
     def from_zarr(cls, root: Any) -> "MetaDataZarr":
         """Load metadata from a MassFlow spectra Zarr root group."""
         group = root["metadata"] if "metadata" in root else root
@@ -90,19 +83,34 @@ class MetaDataZarr(MetaDataBase):
         if self.mask is not None:
             group.create_array("mask", data=np.asarray(self.mask), overwrite=True)
 
-    def copy(self, other: MetaDataBase):
+    def copy(self, other: MetaDataBase, exclude: bool = True):
         """Copy compatible metadata fields from another metadata object."""
         if other is None:
+            logger.warning("Source MS has no metadata to copy or meta is none.")
             return
+
+        if exclude:
+            exclude_keys = {
+                "mask",
+                "filepath",
+                "spectrum_count_num",
+                "continuous",
+                "processed",
+                "centroid_spectrum",
+                "profile_spectrum",
+            }
+        else:
+            exclude_keys = set()
+
+        # Iterate through all attributes and copy if they exist in self and are not excluded
         for key, value in other.items():
-            if key == "mask":
-                if value is not None:
-                    self.mask = np.asarray(value).copy()
+            if key in exclude_keys:
                 continue
-            if hasattr(type(self), key):
+
+            if hasattr(self, key):
                 setattr(self, key, value)
-            else:
-                self._set(key, value)
+
+        logger.info("Metadata copy completed.")
 
 
 def _json_scalar(value: Any):

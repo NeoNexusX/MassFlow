@@ -204,7 +204,6 @@ class MSDataManager(ABC):
             raise ValueError("Image dimensions missing in meta data.")
 
         # Get image dimensions
-        # Get image dimensions
         width = int(self.ms.meta.max_count_of_pixels_x)
         height = int(self.ms.meta.max_count_of_pixels_y)
 
@@ -215,8 +214,8 @@ class MSDataManager(ABC):
         xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict),dtype=np.int16,)
         ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for y in ydict),dtype=np.int16,)
 
-        valid = (0 <= xs) & (xs < width) & (0 <= ys) & (ys < height)
-        mask[ys[valid], xs[valid]] = 1
+        valid = (1 <= xs) & (xs <= width) & (1 <= ys) & (ys <= height)
+        mask[ys[valid] - 1, xs[valid] - 1] = 1
 
         # Cache mask in metadata and return
         self.ms.meta.mask = mask

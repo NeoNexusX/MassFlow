@@ -5,6 +5,7 @@ import tempfile
 from massflow.preprocess.pipeline.types import (
     ION_IMAGE_OUTPUT_FORMATS,
     OUTPUT_FORMAT_IMZML,
+    OUTPUT_FORMAT_SPECTRA_ZARR,
     OUTPUT_FORMAT_SUFFIXES,
     InputMetaData,
     OutputMetaData,
@@ -102,7 +103,22 @@ def make_task_segments(tasks, input_spectrum_type, input_meta: InputMetaData) ->
         output_meta = OutputMetaData(output_format=OUTPUT_FORMAT_IMZML, spectrum_type=current_spectrum_type, file_path=None)
         task_segments.append(Segment(scope="dataset", tasks=[dataset_task], input_meta=input_meta, output_meta=output_meta))
 
-    if task_segments:
+    if input_meta.result_format == OUTPUT_FORMAT_SPECTRA_ZARR and (
+        not task_segments or task_segments[-1].scope == "dataset"
+    ):
+        task_segments.append(
+            Segment(
+                scope="batch",
+                tasks=[],
+                input_meta=input_meta,
+                output_meta=OutputMetaData(
+                    output_format=OUTPUT_FORMAT_SPECTRA_ZARR,
+                    spectrum_type=current_spectrum_type,
+                    file_path=input_meta.result_path,
+                ),
+            )
+        )
+    elif task_segments:
         last_segment = task_segments[-1]
         task_segments[-1] = replace(
             last_segment,

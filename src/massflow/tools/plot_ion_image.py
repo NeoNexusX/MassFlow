@@ -220,7 +220,7 @@ def _valid_region_mask(
 
     height, width = image_shape
     if isinstance(data_manager, IonImageDataManagerZarr):
-        zero_based = True
+        zero_based = False
     else:
         zero_based, _, _ = _infer_image_geometry(
             coordinates,
@@ -498,7 +498,7 @@ def _read_zarr_ion_manager_tic_image(
         )
     image = np.zeros((manager.height, manager.width), dtype=values.dtype)
     coords = np.asarray(manager.coordinates, dtype=np.int64)
-    image[coords[:, 1], coords[:, 0]] = values
+    image[coords[:, 1] - 1, coords[:, 0] - 1] = values
     return image
 
 

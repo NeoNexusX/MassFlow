@@ -1,7 +1,13 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from massflow.data_manager import MSDataManagerImzML, IonImageDataManagerBinary, IonImageDataManagerH5, IonImageDataManagerZarr
+from massflow.data_manager import (
+    MSDataManagerImzML,
+    MSDataManagerZarr,
+    IonImageDataManagerBinary,
+    IonImageDataManagerH5,
+    IonImageDataManagerZarr,
+)
 from massflow.preprocess.pipeline.flat_executor import run_flat_task
 from massflow.preprocess.pipeline.dataset_executor import run_dataset_task
 from massflow.preprocess.pipeline.types import Segment
@@ -22,7 +28,7 @@ def _del_last_dm(
 def _flat_segment(
     data_manager: MSDataManagerImzML,
     segment: Segment,
-) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
+) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
     """Run a batch-level segment and return the resulting data manager."""
     return run_flat_task(
         data_manager=data_manager, # type: ignore

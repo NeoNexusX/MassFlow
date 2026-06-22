@@ -6,7 +6,7 @@ import numpy as np
 
 from massflow.morch.ion_image_binary_dataset import IonImageIndexDataset
 from massflow.morch.ion_image_dataset import IonImageDataset
-from massflow.tools.zarr_io import MSIZarrReader
+from massflow.tools.zarr_reader import MSIZarrReader
 
 
 class IonImageZarrDataset(IonImageDataset):
@@ -19,7 +19,9 @@ class IonImageZarrDataset(IonImageDataset):
         self._n = int(data_manager.n_ions)
         self._np_dtype = np.dtype(data_manager.intensity_dtype)
         coordinates = np.asarray(data_manager.coordinates, dtype=np.int64)
-        self._flat_idx = coordinates[:, 1] * self._width + coordinates[:, 0]
+        self._flat_idx = (
+            (coordinates[:, 1] - 1) * self._width + coordinates[:, 0] - 1
+        )
         self._reader: MSIZarrReader | None = None
 
     @property

@@ -4,6 +4,7 @@ from typing import Any, Callable, Optional
 
 from massflow.data_manager import (
     MSDataManagerImzML,
+    MSDataManagerZarr,
     IonImageDataManagerBinary,
     IonImageDataManagerH5,
     IonImageDataManagerZarr,
@@ -59,7 +60,10 @@ class Preprocessor(PreprocessorAPI):
             raise ValueError("Invalid parameter values.")
 
         if output_format not in OUTPUT_FORMATS:
-            raise ValueError("output_format must be 'imzml', 'ion_image_binary', 'ion_image_h5', or 'ion_image_zarr'.")
+            raise ValueError(
+                "output_format must be 'imzml', 'spectra_zarr', "
+                "'ion_image_binary', 'ion_image_h5', or 'ion_image_zarr'."
+            )
         self.data_manager = data_manager
         self.batch_size = batch_size
         self.temp_dir = temp_dir
@@ -92,7 +96,7 @@ class Preprocessor(PreprocessorAPI):
         )
         return self
 
-    def start(self) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
+    def start(self) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
         task_segments, input_meta = make_task_segments(
             list(self._tasks),
             input_spectrum_type=resolve_spectrum_type(self.data_manager),

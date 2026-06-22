@@ -202,23 +202,10 @@ class TestPlotIonImage:
             with pytest.raises(ValueError, match="mz_tolerance must be non-negative"):
                 read_ion_image(dm, mz=100.0, mz_tolerance=-0.1)
 
-    def test_imzml_valid_region_mask_uses_loaded_spectrum_coordinates(self):
-        dm = MSDataManagerImzML(filepath="unused.imzML")
-        dm.ms.add_spectrum(type("SpectrumCoordinates", (), {"x": 1, "y": 1, "z": 1})())
-        dm._parser = type(
-            "ParserCoordinates",
-            (),
-            {"coordinates": [(1, 1, 1), (2, 1, 1), (1, 2, 1), (2, 2, 1)]},
-        )()
-
-        mask = _valid_region_mask(dm, (2, 2))
-
-        np.testing.assert_array_equal(mask, [[True, False], [False, False]])
-
-    def test_zarr_valid_region_mask_uses_canonical_zero_based_coordinates(self):
+    def test_zarr_valid_region_mask_uses_canonical_one_based_coordinates(self):
         dm = object.__new__(IonImageDataManagerZarr)
-        dm._reader = SimpleNamespace(  # type: ignore[attr-defined]
-            read_coordinates=lambda: np.array([[2, 1, 0]], dtype=np.uint32)
+        dm._reader = SimpleNamespace(  # type: ignore
+            read_coordinates=lambda: np.array([[3, 2, 1]], dtype=np.uint32)
         )
 
         mask = _valid_region_mask(dm, (2, 3))

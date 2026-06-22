@@ -11,16 +11,18 @@ import numpy as np
 from massflow.data_manager import (
     MSDataManager,
     MSDataManagerImzML,
+    MSDataManagerZarr,
     IonImageDataManagerBinary,
     IonImageDataManagerH5,
     IonImageDataManagerZarr,
 )
 from massflow.preprocess.flat_pre_fun import FlatBatchResult
 from massflow.preprocess.pipeline.types import (
-    ION_IMAGE_OUTPUT_FORMATS,
+    OUTPUT_FORMAT_IMZML,
     OUTPUT_FORMAT_ION_IMAGE_BINARY,
     OUTPUT_FORMAT_ION_IMAGE_H5,
     OUTPUT_FORMAT_ION_IMAGE_ZARR,
+    OUTPUT_FORMAT_SPECTRA_ZARR,
     InputMetaData,
     OutputMetaData,
     PreprocessTask,
@@ -48,7 +50,7 @@ class FlatOutputSink:
     source_data_manager: MSDataManager
     input_meta: InputMetaData
     output_meta: OutputMetaData
-    data_manager: MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr | None = None
+    data_manager: MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr | None = None
 
     @classmethod
     def create(
@@ -63,10 +65,25 @@ class FlatOutputSink:
             input_meta=input_meta,
             output_meta=output_meta,
         )
-        if output_meta.output_format not in ION_IMAGE_OUTPUT_FORMATS:
+        if output_meta.output_format in {
+            OUTPUT_FORMAT_IMZML,
+            OUTPUT_FORMAT_SPECTRA_ZARR,
+        }:
             if output_meta.file_path is not None:
                 Path(output_meta.file_path).parent.mkdir(parents=True, exist_ok=True)
-            processed_data = MSDataManagerImzML(filepath=output_meta.file_path, temp_dir=input_meta.temp_dir)
+            if output_meta.output_format == OUTPUT_FORMAT_SPECTRA_ZARR:
+                processed_data: MSDataManagerImzML | MSDataManagerZarr = (
+                    MSDataManagerZarr(
+                        filepath=output_meta.file_path,
+                        mode="w",
+                        temp_dir=input_meta.temp_dir,
+                    )
+                )
+            else:
+                processed_data = MSDataManagerImzML(
+                    filepath=output_meta.file_path,
+                    temp_dir=input_meta.temp_dir,
+                )
             processed_data.copy_meta(source_data_manager)
             set_spectrum_type_metadata(processed_data.ms.meta, output_meta.spectrum_type)
             sink.data_manager = processed_data
@@ -109,12 +126,21 @@ class FlatOutputSink:
             mz_axis=chunk.mz_data, # type: ignore
         )
 
-    def finalize(self) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
+    def finalize(self) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
         if self.data_manager is None:
             raise ValueError("No batches were written.")
         if isinstance(self.data_manager, MSDataManagerImzML):
             self.data_manager.close_writer()
             self.data_manager.load_head_data()
+        elif isinstance(self.data_manager, MSDataManagerZarr):
+            self.data_manager.finalize()
+            self.data_manager.close()
+            result = MSDataManagerZarr(
+                filepath=self.output_meta.file_path,
+                mode="r",
+            )
+            result.load_head_data()
+            self.data_manager = result
         else:
             self.data_manager.finalize()
         return self.data_manager
@@ -264,7 +290,7 @@ def run_flat_task(
     tasks: list[PreprocessTask],
     input_meta: InputMetaData,
     output_meta: OutputMetaData,
-) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
+) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
     total_batches = (len(data_manager.ms) + input_meta.batch_size - 1) // input_meta.batch_size
 
     data_sink = FlatOutputSink.create(
