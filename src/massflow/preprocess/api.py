@@ -7,6 +7,7 @@ from massflow.preprocess.helper.peak_align_helper import reference_computer
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
 from massflow.preprocess.pipeline.types import TaskScope
 from massflow.r_preprocess.adapter import CardinalAdapter
+from massflow.preprocess.helper.stat_filter_helper import filter_peaks_by_stats, IntensityMethod
 from massflow.tools.logger import get_logger
 logger = get_logger("massflow.preprocess.api")
 
@@ -235,4 +236,35 @@ class PreprocessorAPI(_TaskRegistrar):
             reference=reference,
             tolerance=align_tolerance,
             units=units,
+        )
+
+    def filter_peaks_by_stats(
+        self,
+        *,
+        min_count: int | None = None,
+        min_frequency: float | None = None,
+        intensity_method: IntensityMethod = "mean",
+        min_intensity: float | None = None,
+        intensity_quantile: float | None = 0.01,
+        output_path: str | None = None,
+    ) -> Self:
+        """Register dataset task to filter peaks by stats like mean intensity or frequency."""
+        if (
+        min_count is None
+        and min_frequency is None
+        and min_intensity is None
+        and intensity_quantile is None
+        ):
+            raise ValueError("At least one peak filtering threshold must be provided.")
+
+        return self._register_task(
+            "filter_peaks_by_stats",
+            scope="dataset",
+            apply_fn=filter_peaks_by_stats,
+            min_count=min_count,
+            min_frequency=min_frequency,
+            intensity_method=intensity_method,
+            min_intensity=min_intensity,
+            intensity_quantile=intensity_quantile,
+            output_path=output_path,
         )

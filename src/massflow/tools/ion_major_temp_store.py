@@ -96,7 +96,6 @@ class IonMajorTempStore:
             info,
             values,
             n_ions,
-            self.dtype,
         )
         self._pending.add(future)
         if len(self._pending) >= self.workers:
@@ -157,7 +156,6 @@ class IonMajorTempStore:
         info: BatchInfo,
         values: np.ndarray,
         n_ions: int,
-        dtype: np.dtype,
     ) -> tuple[int, BatchInfo]:
         matrix = values.reshape(info.n_pixels, n_ions)
         with info.path.open("wb") as output:

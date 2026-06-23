@@ -11,7 +11,7 @@ from massflow.msi_zarr.schema import (
     ZarrStorageMode,
     ZarrWriteMode,
 )
-from massflow.msi_zarr.writer import MSIZarrWriter
+from massflow.msi_zarr.writer import MSIZarrWriter, update_metadata_attrs
 
 
 __all__ = [
@@ -25,4 +25,5 @@ __all__ = [
     "ZarrRowAxis",
     "ZarrStorageMode",
     "ZarrWriteMode",
+    "update_metadata_attrs",
 ]

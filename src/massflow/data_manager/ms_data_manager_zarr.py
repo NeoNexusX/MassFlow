@@ -14,6 +14,7 @@ from massflow.msi_zarr import (
     ZARR_MODE_CONTINUOUS,
     ZARR_MODE_PROCESSED,
     ZarrStorageMode,
+    update_metadata_attrs,
 )
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.module.spectrum_zarr import SpectrumZarr
@@ -176,6 +177,10 @@ class MSDataManagerZarr(MSDataManager):
             return
         self._require_writer().finalize()
         self._finalized = True
+
+    def add_metadata(self, metadata: dict) -> None:
+        """Upsert key/value pairs into the on-disk metadata attrs."""
+        update_metadata_attrs(self.zarr_filepath, metadata)
 
     def matrix_generator(
         self,

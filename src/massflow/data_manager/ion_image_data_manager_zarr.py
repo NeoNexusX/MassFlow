@@ -14,6 +14,7 @@ from massflow.msi_zarr import (
     MSIZarrReader,
     MSIZarrWriter,
     ZARR_MODE_CONTINUOUS,
+    update_metadata_attrs,
 )
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
@@ -146,6 +147,10 @@ class IonImageDataManagerZarr(IonImageDataManager):
             coordinates=coordinates,
             mz_axis=mz_axis,
         )
+
+    def add_metadata(self, metadata: dict) -> None:
+        """Upsert key/value pairs into the on-disk metadata attrs."""
+        update_metadata_attrs(self.filepath, metadata)
 
     def finalize(self) -> None:
         if self.mode != "w" or self._finalized:

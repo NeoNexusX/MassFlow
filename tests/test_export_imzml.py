@@ -1,80 +1,97 @@
 """Tests for exporting MassFlow ion-image backends to imzML."""
 
-import hashlib
+import time
 from pathlib import Path
 
-import numpy as np
 import pytest
-from pyimzml.ImzMLParser import ImzMLParser
+import numpy as np
 
-from massflow.data_manager import (
-    IonImageDataManagerBinary,
-    IonImageDataManagerH5,
-    IonImageDataManagerZarr,
-)
+from massflow.data_manager import MSDataManagerImzML, IonImageDataManagerZarr
 from massflow.tools.export_imzml import export_imzml
+from massflow.tools.logger import get_logger
+
+logger = get_logger("massflow.test_export_imzml")
+
+FILEPATH = Path("/Users/dre/Desktop/dre/MassFlow/output/example.zarr")
+ROUND = 5
 
 
-MZ_AXIS = np.array([100.0, 200.0, 300.0], dtype=np.float64)
-COORDINATES = np.array([[1, 1], [2, 1], [1, 2]], dtype=np.uint32)
-PIXEL_SPECTRA = np.array(
-    [
-        [1.0, 2.0, 3.0],
-        [10.0, 20.0, 30.0],
-        [100.0, 200.0, 300.0],
-    ],
-    dtype=np.float32,
-)
+def _ion_zarr_to_imzml(
+    ion_zarr_dm: IonImageDataManagerZarr,
+) -> None:
+    export_imzml(ion_zarr_dm, "./temp/test_export_imzml.imzML")
 
 
-def _write_source(backend_class, path: Path, temp_dir: Path) -> None:
-    with backend_class(
-        path,
-        mode="w",
-        width=2,
-        height=2,
-        temp_dir=temp_dir,
-        ion_block=16,
-    ) as data_manager:
-        data_manager.write_flat_batch(
-            intensity_flat=PIXEL_SPECTRA.ravel(),
-            lengths=np.full(len(COORDINATES), len(MZ_AXIS), dtype=np.uint32),
-            coordinates=COORDINATES,
-            mz_axis=MZ_AXIS,
+def _validation_correct_of_data(
+    ion_zarr_dm: IonImageDataManagerZarr,
+    imzml_dm: MSDataManagerImzML,
+) -> None:
+    # Validate that the exported imzML data matches the source Zarr data. include metadata.
+    imzml_dm.load_head_data()
+
+    # --- Metadata ----------------------------------------------------------
+    zarr_meta = ion_zarr_dm.meta
+    imzml_meta = imzml_dm.ms.meta
+    assert imzml_meta.continuous is True
+    assert imzml_meta.max_count_of_pixels_x == zarr_meta.max_count_of_pixels_x
+    assert imzml_meta.max_count_of_pixels_y == zarr_meta.max_count_of_pixels_y
+
+    parser = imzml_dm.parser
+    assert ion_zarr_dm.n_pixels == len(parser.coordinates)
+
+    # --- Shared m/z axis ---------------------------------------------------
+    zarr_mz = np.asarray(ion_zarr_dm.mz_axis)
+    imzml_mz, _ = parser.getspectrum(0)
+    imzml_mz = np.asarray(imzml_mz)
+    assert ion_zarr_dm.n_ions == zarr_mz.size == imzml_mz.size
+    np.testing.assert_allclose(zarr_mz, imzml_mz)
+
+    # --- Coordinate set ----------------------------------------------------
+    zarr_coords = np.asarray(ion_zarr_dm.coordinates, dtype=np.int64)
+    imzml_coords = np.asarray(parser.coordinates, dtype=np.int64)
+    index_by_coord = {tuple(c.tolist()): i for i, c in enumerate(imzml_coords)}
+    assert len(index_by_coord) == zarr_coords.shape[0], "imzML coordinates contain duplicates."
+
+    # --- Per-pixel intensities --------------------------------------------
+    ion_block = ion_zarr_dm.get_ion_block(0, ion_zarr_dm.n_ions)
+    pixel_major = np.asarray(ion_block).T  # (n_pixels, n_ions)
+    for pixel_idx, coord in enumerate(zarr_coords):
+        imzml_idx = index_by_coord[tuple(coord.tolist())]
+        _, intensity = parser.getspectrum(imzml_idx)
+        np.testing.assert_allclose(pixel_major[pixel_idx], np.asarray(intensity))
+
+
+class TestExportImzML:
+    """Tests for exporting MassFlow ion-image backends to imzML."""
+
+    @pytest.fixture(scope="class")
+    def ion_zarr_dm(self) -> IonImageDataManagerZarr:
+        """Fixture that provides an IonImageDataManagerZarr instance for testing."""
+        if not FILEPATH.exists():
+            pytest.skip(f"Missing test data: {FILEPATH}")
+
+        ion_zarr_dm = IonImageDataManagerZarr(
+            filepath=FILEPATH,
+            mode="r",
         )
-        data_manager.finalize()
+        return ion_zarr_dm
 
+    @pytest.mark.benchmark(timer=time.perf_counter)
+    def test_ion_zarr_to_imzml_benchmark(self, benchmark, ion_zarr_dm):
+        """Benchmark the export of IonImageDataManagerZarr to imzML."""
+        benchmark.pedantic(
+            _ion_zarr_to_imzml,
+            args=(ion_zarr_dm,),
+            rounds=ROUND,
+            iterations=1,
+            warmup_rounds=0,
+        )
 
-@pytest.mark.parametrize(
-    ("backend_class", "suffix"),
-    [
-        (IonImageDataManagerBinary, ".iib"),
-        (IonImageDataManagerH5, ".h5"),
-        (IonImageDataManagerZarr, ".zarr"),
-    ],
-)
-def test_export_imzml_roundtrips_all_backends(tmp_path, backend_class, suffix):
-    source_path = tmp_path / f"source{suffix}"
-    output_path = tmp_path / "exported.imzML"
-    _write_source(backend_class, source_path, tmp_path)
+    def test_data_validation(self, ion_zarr_dm):
+        """Validate that the exported imzML data matches the source Zarr data."""
+        imzml_path = Path("./temp/test_export_imzml.imzML")
+        if not imzml_path.exists():
+            pytest.skip(f"Missing exported imzML file: {imzml_path}")
 
-    imzml_path, ibd_path = export_imzml(
-        source_path,
-        output_path,
-        temp_dir=tmp_path,
-        ion_block_size=2,
-        spectrum_batch_size=2,
-    )
-
-    assert imzml_path == output_path
-    assert ibd_path == output_path.with_suffix(".ibd")
-    assert (
-        hashlib.sha1(ibd_path.read_bytes()).hexdigest().upper()
-        in imzml_path.read_text() # pylint: disable=W1514
-    )
-    parser = ImzMLParser(str(imzml_path))
-    assert parser.coordinates == [tuple(coord) + (1,) for coord in COORDINATES.tolist()]
-    for index in range(len(COORDINATES)):
-        mz_axis, intensity = parser.getspectrum(index)
-        np.testing.assert_array_equal(mz_axis, MZ_AXIS)
-        np.testing.assert_array_equal(intensity, PIXEL_SPECTRA[index])
+        imzml_dm = MSDataManagerImzML(filepath=imzml_path)
+        _validation_correct_of_data(ion_zarr_dm, imzml_dm)

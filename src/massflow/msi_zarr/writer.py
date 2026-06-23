@@ -636,6 +636,24 @@ def _infer_encoding(
     )
 
 
+def update_metadata_attrs(
+    path: str | os.PathLike[str],
+    items: dict,
+) -> None:
+    """Upsert key/value pairs into a finalized MSI Zarr store's metadata group.
+
+    Existing keys are overwritten; new keys are inserted. Values must be
+    JSON-serializable scalars accepted by Zarr attrs.
+    """
+    if not items:
+        return
+    root = zarr.open_group(_normalize_zarr_path(path), mode="r+")
+    if "metadata" not in root:
+        raise ValueError("Zarr store has no metadata group.")
+    metadata = cast(zarr.Group, root["metadata"])
+    metadata.attrs.update(items)
+
+
 def _normalize_zarr_path(path: str | os.PathLike[str]) -> str:
     value = str(path)
     return value if value.endswith(".zarr") else f"{value}.zarr"
