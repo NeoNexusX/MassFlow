@@ -2,110 +2,142 @@
 
 English | [简体中文](README_CN.md)
 
-MassFlow is a modular preprocessing and data management framework for Mass Spectrometry Imaging (MSI) data.
+MassFlow is a modular, high-performance preprocessing and data management framework for Mass Spectrometry Imaging (MSI) data.
 
-## Get the code
+## Project structure
+
+```
+MassFlow/                        # uv workspace root
+├── src/massflow/                # Core MSI framework (massflow package)
+│   ├── data_manager/            # Data managers (MSDataManager, MSDataManagerImzML)
+│   ├── module/                  # Core data models
+│   │   ├── spectrum.py          # Spectrum base type
+│   │   ├── spectrum_imzml.py    # ImzML spectrum with lazy loading
+│   │   ├── mass_spectrum_set.py # Collection of spectra
+│   │   └── ms_meta_data.py      # Metadata structures (ImzMlMetaData, …)
+│   ├── preprocess/              # Preprocessing pipeline
+│   │   ├── api.py               # Chainable task registration API (PreprocessorAPI)
+│   │   ├── preprocessor.py      # Pipeline executor (Preprocessor)
+│   │   └── flat_pre_fun.py      # Flat-array preprocessing (FlatPreprocess)
+│   ├── r_preprocess/            # R/Cardinal adapter
+│   └── tools/                   # Utility functions
+├── mzorbit/                     # Agent layer workspace member (mzorbit package)
+│   └── README.md                # mzorbit developer guide
+├── tests/                       # massflow test suite
+├── docs/                        # VitePress documentation (en + zh)
+├── main.py                      # Quick smoke-test entry point
+├── pyproject.toml               # massflow package + workspace root config
+├── uv.lock                      # Locked dependency graph (commit this)
+└── LICENSE
+```
+
+### Workspace layout
+
+```
+massflow  (src/massflow)  ←── core framework, no agent knowledge
+    ▲
+    │ depends on
+mzorbit  (mzorbit/) ←── agent layer: tools, MCP server, annotation
+```
+
+Both packages share a single `uv.lock` managed by the workspace root.
+
+---
+
+## Online documentation
+
+https://neonexusx.github.io/MassFlow/
+
+---
+
+## Quick start (development)
+
+### 1. Install uv
 
 ```bash
-# Clone the repository
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+### 2. Clone and sync
+
+```bash
 git clone https://github.com/NeoNexusX/MassFlow.git
 cd MassFlow
+uv sync
 ```
 
-## Online Documentation
+`uv sync` installs **both** `massflow` and `mzorbit` as editable packages in one step. No separate `pip install -e .` needed.
 
-Online Documentation: https://neonexusx.github.io/MassFlow/
-
-## Project Structure
-
-```
-MassFlow/
-├── .github/                 # GitHub configuration (Issue templates, Workflows)
-├── .vscode/                 # VSCode configuration
-├── data/                    # Example data
-├── docs/                    # Documentation (VitePress)
-│   ├── en/
-│   └── zh/
-├── logs/                    # Runtime logs
-├── src/
-│   └── massflow/            # Core source code
-│       ├── data_manager/         # Data managers (MSDataManager, MSDataManagerImzML)
-│       ├── module/               # Core data models
-│       │   ├── spectrum.py       # Spectrum base type
-│       │   ├── spectrum_imzml.py # ImzML spectrum with lazy loading
-│       │   ├── mass_spectrum_set.py  # Collection of spectra
-│       │   ├── ms_meta_data.py       # Metadata structures (ImzMlMetaData, etc.)
-│       │   └── ...
-│       ├── preprocess/              # Preprocessing pipeline
-│       │   ├── api.py               # Chainable task registration API (PreprocessorAPI)
-│       │   ├── preprocessor.py      # Pipeline executor (Preprocessor)
-│       │   ├── flat_pre_fun.py      # Flat-array preprocessing (FlatPreprocess)
-│       │   └── ...
-│       ├── r_preprocess/       # R/Cardinal adapter
-│       └── tools/              # Utility functions
-├── tests/                   # Test cases
-├── LICENSE
-├── main.py
-├── package.json
-├── pyproject.toml           # Project configuration and dependencies
-└── README.md
-```
-
-## Development & Contribution
-
-### Quick Dev Start
-
-It is recommended to run the following code (main.py) directly to verify data loading:
+### 3. Optional extras
 
 ```bash
-# Close conda first:
-conda deactivate
-
-# Install uv:
-please follow :https://docs.astral.sh/uv/getting-started/installation/
-
-# For Example:
-# Linux && macOS:
-curl -LsSf https://astral.sh/uv/install.sh | sh 
-# Windows:
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# Install dependencies:
-uv sync 
-uv pip install -e .
-
-# Install optional R backend dependencies (requires local R):
+# R/Cardinal backend (requires a local R installation)
 uv sync --extra r
 
-#run the code
+# MCP server support for mzorbit
+uv sync --extra mcp
+```
+
+### 4. Smoke test
+
+```bash
 uv run python main.py
 ```
 
-- Default installation (`uv sync`) does not include R/Cardinal backend dependencies.
-- If you need Cardinal backend (`backend="cardinal"`), install extra dependency group `r` and make sure R is installed and available in PATH (or set `R_HOME`).
+---
 
-- please read Contribution Guide: `docs/en/contribution.md` and `docs/zh/contribution.md`  first 
-- Naming Conventions: `docs/en/naming-conventions.md` and `docs/zh/naming-conventions.md`
-- Commit Convention: Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `refactor:`, `test:`)
-- Recommended Extensions: Python, Pylance, Pylint, H5Web
+## Running tests
+
+```bash
+# massflow core tests
+uv run pytest tests/
+
+# mzorbit tests
+uv run --package mzorbit pytest mzorbit/tests/
+
+# All tests in one shot
+uv run pytest tests/ mzorbit/tests/
+```
+
+---
+
+## mzorbit (agent layer)
+
+`mzorbit` is the agent interface on top of MassFlow. It provides:
+
+- CLI commands (`python -m mzorbit <cmd>`) for loading, QC, preprocessing, annotation, and end-to-end workflow
+- An MCP server (`mzorbit-mcp-server`) that exposes these tools to MCP clients such as Claude Code and Cursor
+
+See [mzorbit/README.md](mzorbit/README.md) for the full developer guide, CLI reference, and MCP setup.
+
+---
+
+## Development guidelines
+
+- **Commit convention**: Conventional Commits — `feat:`, `fix:`, `docs:`, `refactor:`, `test:`
+- **Naming conventions**: see `docs/en/naming-conventions.md` / `docs/zh/naming-conventions.md`
+- **Contribution guide**: see `docs/en/contribution.md` / `docs/zh/contribution.md`
+- **Recommended VS Code extensions**: Python, Pylance, Pylint, H5Web
+- **R backend**: only needed when using `backend="cardinal"`. Set `R_HOME` if R is not on `PATH`.
+
+---
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+GNU General Public License v3.0 — see [LICENSE](LICENSE).
+
+---
 
 ## References
 
-- MATLAB Mass Spectrometry Preprocessing: https://www.mathworks.com/help/bioinfo/ug/preprocessing-raw-mass-spectrometry-data.html
-- Cardinal MSI: https://cardinalmsi.org/
-  - Cardinal  Guide Book;https://bioconductor.org/packages/devel/bioc/vignettes/Cardinal/inst/doc/Cardinal3-guide.html
-  - Cardinal  Github：https://github.com/kuwisdelu/Cardinal
-  - Matter Github：https://github.com/kuwisdelu/matter
-- PyOpenMS: https://pyopenms.readthedocs.io/
-  - github：https://github.com/OpenMS/OpenMS
-  - docs：https://github.com/OpenMS/OpenMS-docs
-  - contributing libraries ：https://github.com/OpenMS/contrib
-  - Flash APP ：https://github.com/OpenMS/FLASHApp
+- [MATLAB Mass Spectrometry Preprocessing](https://www.mathworks.com/help/bioinfo/ug/preprocessing-raw-mass-spectrometry-data.html)
+- [Cardinal MSI](https://cardinalmsi.org/) · [Guide](https://bioconductor.org/packages/devel/bioc/vignettes/Cardinal/inst/doc/Cardinal3-guide.html) · [GitHub](https://github.com/kuwisdelu/Cardinal)
+- [PyOpenMS](https://pyopenms.readthedocs.io/) · [GitHub](https://github.com/OpenMS/OpenMS)
 
 ## Feedback
 
-For support or to report issues, please open an issue on the GitHub repository.
+Open an issue on the [GitHub repository](https://github.com/NeoNexusX/MassFlow/issues).

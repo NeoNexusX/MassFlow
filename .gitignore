@@ -225,4 +225,7 @@ logs/
 *.pymon
 *.benchmark
 *temp*/*
-*.cpp
+*.codex
+.mcp.json
+codex.json
+opencode.json
