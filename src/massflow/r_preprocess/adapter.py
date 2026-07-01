@@ -27,7 +27,8 @@ class CardinalAdapter:
         units: str = "ppm",
         binfun: str = "min",
         binratio: float = 2.0,
-        temp_dir: str = "./temp_align_data"
+        temp_dir: str = "./temp_align_data",
+        output_path: str | None = None,
     ) -> MSDataManagerImzML:
         """
         Call Cardinal::peakAlign for peak alignment.
@@ -41,6 +42,7 @@ class CardinalAdapter:
             data_manager=data_manager,
             func="peakAlign",
             temp_dir=temp_dir,
+            output_path=output_path,
             ref=r_reference,
             tolerance=r_tolerance,
             units=units,
@@ -60,7 +62,8 @@ class CardinalAdapter:
         relheight: float | None = None,
         nbins: int = 1,
         overlap: float = 0.5,
-        temp_dir: str = "./temp_pick_data"
+        temp_dir: str = "./temp_pick_data",
+        output_path: str | None = None,
     ) -> MSDataManagerImzML:
         """
         Call Cardinal::peakPick for peak picking.
@@ -76,6 +79,7 @@ class CardinalAdapter:
             data_manager=data_manager,
             func="peakPick",
             temp_dir=temp_dir,
+            output_path=output_path,
             realize=True,
             width=width,
             method=method,
@@ -219,6 +223,7 @@ class CardinalAdapter:
         temp_dir: str = "./temp_cardinal",
         *,
         realize: bool = False,
+        output_path: str | None = None,
         **kwargs,
     ) -> MSDataManagerImzML:
         """
@@ -236,7 +241,9 @@ class CardinalAdapter:
             raise AttributeError(f"Cardinal function '{func}' is not available.")
 
         # Build output data manager and copy metadata from source dataset.
-        dm_cardinal = MSDataManagerImzML(MassSpectrumSet(), temp_dir=temp_dir)
+        # `filepath` (when provided) decides the output location; otherwise a random
+        # name under `temp_dir` is used (see MSDataManager._init_file_base_path).
+        dm_cardinal = MSDataManagerImzML(MassSpectrumSet(), filepath=output_path, temp_dir=temp_dir)
         dm_cardinal.copy_meta(data_manager)
 
         # Read source imzML as Cardinal MSImagingExperiment.

@@ -4,6 +4,7 @@ from typing import Any, Callable, Optional
 
 from massflow.data_manager import (
     MSDataManagerImzML,
+    MSDataManagerZarr,
     IonImageDataManagerBinary,
     IonImageDataManagerH5,
     IonImageDataManagerZarr,
@@ -50,6 +51,7 @@ class Preprocessor(PreprocessorAPI):
         output_format: OutputFormat = OUTPUT_FORMAT_IMZML,
         output_path: str | None = None,
         output_max_workers: int = 2,
+        compute_mean_spectrum: bool = False,
     ): # pylint: disable=super-init-not-called
         if data_manager is None or batch_size <= 0 or batch_size > 9056 or queue_ab_size <= 0 or queue_bc_size <= 0 :
             logger.error(f"Invalid parameter values. please check:"
@@ -58,7 +60,10 @@ class Preprocessor(PreprocessorAPI):
             raise ValueError("Invalid parameter values.")
 
         if output_format not in OUTPUT_FORMATS:
-            raise ValueError("output_format must be 'imzml', 'ion_image_binary', 'ion_image_h5', or 'ion_image_zarr'.")
+            raise ValueError(
+                "output_format must be 'imzml', 'spectra_zarr', "
+                "'ion_image_binary', 'ion_image_h5', or 'ion_image_zarr'."
+            )
         self.data_manager = data_manager
         self.batch_size = batch_size
         self.temp_dir = temp_dir
@@ -69,6 +74,7 @@ class Preprocessor(PreprocessorAPI):
         self.output_path = output_path
         self.output_max_workers = output_max_workers
         self.ion_block = ion_block
+        self.compute_mean_spectrum = compute_mean_spectrum
 
         self._tasks: list[PreprocessTask] = []
 
@@ -90,7 +96,7 @@ class Preprocessor(PreprocessorAPI):
         )
         return self
 
-    def start(self) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
+    def start(self) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
         task_segments, input_meta = make_task_segments(
             list(self._tasks),
             input_spectrum_type=resolve_spectrum_type(self.data_manager),
@@ -104,6 +110,7 @@ class Preprocessor(PreprocessorAPI):
                 queue_bc_size=self.queue_bc_size,
                 result_path=self.output_path,
                 result_format=self.output_format, # type: ignore
+                compute_mean_spectrum=self.compute_mean_spectrum,
             ),
         )
         if not task_segments and self.output_format in ION_IMAGE_OUTPUT_FORMATS:

@@ -1,12 +1,17 @@
+"""Flat-array preprocessing functions for mass spectrometry data."""
+
+from typing import Literal, Optional
 from dataclasses import dataclass
-from typing import Optional
+
 import numpy as np
+
 from massflow.preprocess.helper.baseline_correction_helper import baseline_corrector
 from massflow.preprocess.helper.est_noise_helper import estimator
 from massflow.preprocess.helper.noise_reduction_helper import smoother
 from massflow.preprocess.helper.normalizer_helper import normalizer
 from massflow.preprocess.helper.peak_pick_helper import peak_picker
 from massflow.preprocess.helper.peak_align_helper import peak_aligner
+from massflow.preprocess.helper.isotope_filter_helper import filter_peaks_by_isotopes
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.preprocess")
@@ -135,6 +140,40 @@ class FlatPreprocess:
         )
 
         return FlatBatchResult(mz_data=picked_mz, intensity=picked_intensity, lengths=picked_lengths)
+
+    @staticmethod
+    def isotope_filter_flat(
+        mz_data: np.ndarray,
+        intensity: np.ndarray,
+        lengths: np.ndarray,
+        mz_tolerance: float = 10.0,
+        units: Literal["da", "ppm"] = "ppm",
+        min_charge: int = 1,
+        max_charge: int = 3,
+        min_isotope_count: int = 3,
+        max_isotope_count: int = 10,
+        use_decreasing_model: bool = True,
+        start_intensity_check: int = 2,
+    ) -> FlatBatchResult:
+        """Remove isotope peaks independently from each centroided spectrum."""
+        filtered_mz, filtered_intensity, filtered_lengths = filter_peaks_by_isotopes(
+            mz_data,
+            intensity,
+            lengths,
+            mz_tolerance=mz_tolerance,
+            units=units,
+            min_charge=min_charge,
+            max_charge=max_charge,
+            min_isotope_count=min_isotope_count,
+            max_isotope_count=max_isotope_count,
+            use_decreasing_model=use_decreasing_model,
+            start_intensity_check=start_intensity_check,
+        )
+        return FlatBatchResult(
+            mz_data=filtered_mz,
+            intensity=filtered_intensity,
+            lengths=filtered_lengths,
+        )
 
     @staticmethod
     def est_noise_flat(

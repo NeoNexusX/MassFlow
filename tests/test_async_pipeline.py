@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from massflow.data_manager import (
     MSDataManagerImzML,
+    MSDataManagerZarr,
     IonImageDataManagerBinary,
     IonImageDataManagerH5,
     IonImageDataManagerZarr,
@@ -24,6 +25,7 @@ def _run_pipeline(
     output_format="imzml",
     temp_dir="./temp",
     output_path=None,
+    compute_mean_spectrum=False,
 ):
     """Run the async pipeline once with specified parameters."""
     processed_data_manager = (
@@ -35,6 +37,7 @@ def _run_pipeline(
             temp_dir=str(temp_dir),
             output_format=output_format, # type: ignore
             output_path=None if output_path is None else str(output_path),
+            compute_mean_spectrum=compute_mean_spectrum,
         )
         .noise_reduction()
         .peak_pick()
@@ -115,7 +118,10 @@ class TestAsyncPipeline:
     @pytest.mark.parametrize("batch_size", [256, 512])
     @pytest.mark.parametrize("queue_ab_size", [2])
     @pytest.mark.parametrize("queue_bc_size", [2])
-    @pytest.mark.parametrize("output_format", ["imzml", "ion_image_binary", "ion_image_h5", "ion_image_zarr"])
+    @pytest.mark.parametrize(
+        "output_format",
+        ["imzml", "spectra_zarr", "ion_image_binary", "ion_image_h5", "ion_image_zarr"],
+    )
     @pytest.mark.benchmark(timer=time.perf_counter)
     def test_async_pipeline_benchmark(
         self,
@@ -166,6 +172,37 @@ class TestAsyncPipeline:
                 atol=1e-8,
             )
 
+    def test_spectra_zarr_matches_imzml(self, ms_raw_data, tmp_path, request):
+        """Spectra Zarr output must match the same pipeline's imzML output."""
+        imzml_dm = _close_after_test(
+            request,
+            _run_pipeline(ms_raw_data, temp_dir=tmp_path / "imzml"),
+        )
+        expected_mz, expected_matrix = _collect_imzml_matrix(imzml_dm) # type: ignore
+
+        output_path = tmp_path / "spectra.zarr"
+        zarr_dm = _close_after_test(
+            request,
+            _run_pipeline(
+                ms_raw_data,
+                output_format="spectra_zarr",
+                temp_dir=tmp_path / "spectra_zarr",
+                output_path=output_path,
+            ),
+        )
+
+        assert isinstance(zarr_dm, MSDataManagerZarr)
+        assert zarr_dm.mode == "r"
+        assert output_path.exists()
+        actual_mz, actual_matrix = _collect_imzml_matrix(zarr_dm) # type: ignore
+        np.testing.assert_allclose(actual_mz, expected_mz, rtol=1e-7, atol=1e-10)
+        np.testing.assert_allclose(
+            actual_matrix,
+            expected_matrix,
+            rtol=1e-5,
+            atol=1e-8,
+        )
+
     def test_h5_matches_imzml(self, ms_raw_data, tmp_path, request):
         """H5 output must match the same pipeline's imzML output."""
         imzml_dm = _close_after_test(
@@ -211,6 +248,46 @@ class TestAsyncPipeline:
         assert isinstance(zarr_dm, IonImageDataManagerZarr)
         assert output_path.exists()
         _assert_ion_image_matches(zarr_dm, mz_axis, pixel_matrix)
+
+    def test_zarr_pipeline_computes_mean_spectrum(self, ms_raw_data, tmp_path, request):
+        output_path = tmp_path / "pipeline_mean.zarr"
+        zarr_dm = _close_after_test(
+            request,
+            _run_pipeline(
+                ms_raw_data,
+                output_format="ion_image_zarr",
+                temp_dir=tmp_path / "zarr_mean",
+                output_path=output_path,
+                compute_mean_spectrum=True,
+            ),
+        )
+
+        assert isinstance(zarr_dm, IonImageDataManagerZarr)
+        ion_indices = _sample_indices(zarr_dm.n_ions)
+        expected = np.array(
+            [zarr_dm.get_ion_vector(ion_idx).mean(dtype=np.float64) for ion_idx in ion_indices]
+        )
+        np.testing.assert_allclose(zarr_dm.mean_spectrum[ion_indices], expected, rtol=1e-7, atol=1e-10) # type: ignore
+
+    def test_zarr_conversion_computes_mean_spectrum(self, ms_raw_data, tmp_path, request):
+        output_path = tmp_path / "conversion_mean.zarr"
+        zarr_dm = _close_after_test(
+            request,
+            Preprocessor(
+                data_manager=ms_raw_data,
+                temp_dir=str(tmp_path / "conversion_mean"),
+                output_format="ion_image_zarr",
+                output_path=str(output_path),
+                compute_mean_spectrum=True,
+            ).start(),
+        )
+
+        assert isinstance(zarr_dm, IonImageDataManagerZarr)
+        ion_indices = _sample_indices(zarr_dm.n_ions)
+        expected = np.array(
+            [zarr_dm.get_ion_vector(ion_idx).mean(dtype=np.float64) for ion_idx in ion_indices]
+        )
+        np.testing.assert_allclose(zarr_dm.mean_spectrum[ion_indices], expected, rtol=1e-7, atol=1e-10) # type: ignore
 
     def test_three_output_formats_are_consistent(self, ms_raw_data, tmp_path, request):
         """The three output formats must be consistent with each other."""

@@ -12,7 +12,7 @@ from PIL import Image
 
 from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess.preprocessor import Preprocessor
-from massflow.tools.feature_analysis import plot_umap_kmeans_image
+from massflow.segmentation.umap_kmeans import plot_umap_kmeans_image
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tests.test_feature_analysis")
@@ -56,7 +56,7 @@ def _run_feature_analysis(
         data_manager,
         output_dir=output_dir,
         save_images=True,
-        save_matrix=True,
+        save_matrix="zarr",
         n_clusters=10,
         sample_ratio=sample_ratio,
         transform_batch_size=transform_batch_size,
@@ -66,8 +66,8 @@ def _run_feature_analysis(
 
 def _validate_results_zarr(path1: str, path2: str) -> bool:
     "Validate saved result matrices."
-    root_1 = zarr.open_group(f"{path1}/umap_result.zarr", mode="r")
-    root_2 = zarr.open_group(f"{path2}/umap_result.zarr", mode="r")
+    root_1 = zarr.open_group(f"{path1}/umap_kmeans_result.zarr", mode="r")
+    root_2 = zarr.open_group(f"{path2}/umap_kmeans_result.zarr", mode="r")
 
     return (
         np.array_equal(root_1["umap_image"][:], root_2["umap_image"][:]) # type: ignore
@@ -132,7 +132,7 @@ class TestRunUMAPKMeans:
         finally:
             zarr_dm.close()
 
-        for image_name in ("umap_image.png", "kmeans_image.png"):
+        for image_name in ("umap_image.jpg", "kmeans_image.jpg"):
             if not _image_pixels_equal(f"./validation_imzml/{image_name}", f"./validation_zarr/{image_name}"):
                 pytest.fail(f"{image_name} differs between imzML and Zarr results.")
 

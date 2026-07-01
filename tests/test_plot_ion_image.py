@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -14,6 +15,7 @@ from massflow.data_manager import (
     MSDataManagerImzML,
 )
 from massflow.tools.plot_ion_image import (
+    _valid_region_mask,
     plot_ion_image,
     plot_tic_image,
     read_ion_image,
@@ -191,6 +193,27 @@ class TestPlotIonImage:
     """
     Test suite for ion image plotting functionality.
     """
+    def test_mz_window_rejects_negative_tolerance(self, tmp_path):
+        with IonImageDataManagerBinary(
+            filepath=tmp_path / "negative_tolerance.iib",
+            mode="w",
+            temp_dir=tmp_path,
+        ) as dm:
+            with pytest.raises(ValueError, match="mz_tolerance must be non-negative"):
+                read_ion_image(dm, mz=100.0, mz_tolerance=-0.1)
+
+    def test_zarr_valid_region_mask_uses_canonical_one_based_coordinates(self):
+        dm = object.__new__(IonImageDataManagerZarr)
+        dm._reader = SimpleNamespace(  # type: ignore
+            read_coordinates=lambda: np.array([[3, 2, 1]], dtype=np.uint32)
+        )
+
+        mask = _valid_region_mask(dm, (2, 3))
+
+        expected = np.zeros((2, 3), dtype=bool)
+        expected[1, 2] = True
+        np.testing.assert_array_equal(mask, expected)
+
     @pytest.fixture(scope="class")
     def continuous_dm(self):
         _require_imzml_pair(CONTINUOUS_IMZML)
@@ -275,7 +298,7 @@ class TestPlotIonImage:
         plot_tic_image(
             continuous_dm,
             structure_only=True,
-            output_dir=tmp_path,
+            output_path=plot_path,
             show=False,
             dpi=123,
         )
@@ -310,9 +333,9 @@ class TestPlotIonImage:
             image = read_ion_image(backend_dm, mz=float(mz_axis[1]))
             tic_image = read_tic_image(backend_dm)
             plot_path = tmp_path / f"plot{suffix}.png"
-            plot_ion_image(backend_dm, mz=float(mz_axis[1]), save_path=plot_path, show=False, dpi=123)
+            plot_ion_image(backend_dm, mz=float(mz_axis[1]), output_path=plot_path, show=False, dpi=123)
             tic_cover_dir = tmp_path / f"tic_cover{suffix}"
-            plot_tic_image(backend_dm, structure_only=True, output_dir=tic_cover_dir, show=False, dpi=123)
+            plot_tic_image(backend_dm, structure_only=True, output_path=tic_cover_dir / "tic_image.png", show=False, dpi=123)
             tic_cover_path = tic_cover_dir / "tic_image.png"
 
         np.testing.assert_allclose(image, expected_stack[1], rtol=1e-5, atol=1e-5)

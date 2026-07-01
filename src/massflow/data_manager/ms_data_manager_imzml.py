@@ -8,16 +8,22 @@ continuous data.
 Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
-from typing import Generator,Any
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Generator
+
 import numpy as np
 from pyimzml.ImzMLParser import ImzMLParser
+
 from massflow.data_manager.ms_data_manager import MSDataManager
-from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.module.ms_meta_data_imzml import MetaDataImzMl
+from massflow.module.spectrum_imzml import SpectrumImzML
 from massflow.tools.funs import is_valid_file
-import massflow.tools.read_matrix as matrix_tools
 import massflow.tools.read_flat as flat_tools
+import massflow.tools.read_matrix as matrix_tools
 from massflow.tools.logger import get_logger
+from massflow.tools.stream_imzml_writer import ImzMLWriter
 
 logger = get_logger("massflow.datamanager")
 
@@ -65,7 +71,95 @@ class MSDataManagerImzML(MSDataManager):
         # Initialize ImzML parser and reader
         self._parser = None
         self._reader = None
+        self._writer: ImzMLWriter | None = None
+        self.swap_filepath = self.file_base_path if filepath is None else None
         self.ms.meta  = MetaDataImzMl()
+
+    @property
+    def imzml_filepath(self) -> str:
+        """Return the XML metadata path."""
+        return f"{self.file_base_path}.imzML"
+
+    @property
+    def ibd_filepath(self) -> str:
+        """Return the paired binary-data path."""
+        return f"{self.file_base_path}.ibd"
+
+    def _require_writer(self) -> ImzMLWriter:
+        if self.ms.meta is None:
+            raise ValueError("MS meta data is None. Please load or copy meta data first.")
+        if self._writer is None:
+            self._writer = ImzMLWriter.from_ms_meta(
+                output_filename=str(self.file_base_path),
+                meta=self.ms.meta,
+                mz_dtype=self.mz_dtype,
+                intensity_dtype=self.intensity_dtype,
+            )
+        return self._writer
+
+    def add_spectrum(self, mz, intensity, coordinates) -> None:
+        """Write one spectrum to imzML/ibd."""
+        self._require_writer().add_spectrum(mz, intensity, coordinates)
+
+    def swap_matrix_data_out2disk(
+        self,
+        mz_data: np.ndarray | None,
+        intensity_matrix: np.ndarray,
+        lengths: np.ndarray,
+        coordinates: np.ndarray,
+    ) -> None:
+        """Write a matrix batch to imzML/ibd."""
+        if mz_data is None:
+            raise ValueError("mz_data is required for imzML output.")
+        if not np.issubdtype(coordinates.dtype, np.integer):
+            coordinates = coordinates.astype(np.int32, copy=False)
+        is_shared_mz = mz_data.ndim == 1
+        for row, (intensity_row, length, coord) in enumerate(zip(
+            intensity_matrix,
+            lengths,
+            coordinates,
+        )):
+            length = int(length)
+            mz = mz_data[:length] if is_shared_mz else mz_data[row, :length]
+            self.add_spectrum(
+                mz,
+                intensity_row[:length],
+                tuple(coord.tolist()),
+            )
+
+    def write_flat_batch(
+        self,
+        intensity_flat: np.ndarray,
+        lengths: np.ndarray,
+        coordinates: np.ndarray,
+        mz_axis: np.ndarray | None,
+        user_params_list: list[list] | None = None,
+    ) -> None:
+        """Write a flat batch to imzML/ibd."""
+        if len(lengths) == 0:
+            return
+        if (
+            intensity_flat.ndim != 1
+            or lengths.ndim != 1
+            or (mz_axis is not None and mz_axis.ndim != 1)
+        ):
+            raise ValueError("intensity_flat, lengths, and mz_axis must be 1-D.")
+        if not np.issubdtype(lengths.dtype, np.integer):
+            lengths = lengths.astype(np.int64, copy=False)
+        self._require_writer().swap_flat_out2disk(
+            mz_flat=mz_axis,
+            intensity_flat=intensity_flat,
+            lengths=lengths,
+            coords=coordinates,
+            user_params_list=user_params_list,
+        )
+
+    def close_writer(self) -> None:
+        """Close the imzML writer."""
+        writer = getattr(self, "_writer", None)
+        if writer is not None:
+            writer.close()
+            self._writer = None
 
     @property
     def reader(self):
@@ -148,13 +242,20 @@ class MSDataManagerImzML(MSDataManager):
         """
         Safely close underlying resources associated with the ImzML parser.
         """
-        if self.parser is not None:
+        parser = getattr(self, "_parser", None)
+        if parser is not None:
             # Try closing memory-mapped handle if present
-            m = getattr(self.parser, "m", None)
+            m = getattr(parser, "m", None)
             if m is not None and hasattr(m, "close"):
                 m.close()
 
+        self.close_writer()
         super().close()
+        swap_filepath = getattr(self, "swap_filepath", None)
+        if swap_filepath is not None:
+            swap_base = Path(swap_filepath)
+            for suffix in (".imzML", ".ibd", ".fdata", ".pdata", ".log", ".metadata", ".IBD"):
+                swap_base.with_suffix(suffix).unlink(missing_ok=True)
 
     def copy_meta(self, source_dm: MSDataManager):
         # 检查 source_dm.ms.meta 是否也是 MetaDataImzMl 类型（或其子类）
