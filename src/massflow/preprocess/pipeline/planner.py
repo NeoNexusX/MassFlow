@@ -128,5 +128,11 @@ def make_task_segments(tasks, input_spectrum_type, input_meta: InputMetaData) ->
                 file_path=input_meta.result_path,
             ),
         )
+        # dataset-scope tasks build their own output data manager internally, so
+        # the executor cannot route them through output_meta.file_path the way
+        # batch tasks do. Inject result_path as the task's `output_path` kwarg
+        # so the task writes directly to the user-requested location.
+        if last_segment.scope == "dataset" and input_meta.result_format == OUTPUT_FORMAT_IMZML:
+            task_segments[-1].tasks[0].kwargs["output_path"] = input_meta.result_path
 
     return task_segments, input_meta
