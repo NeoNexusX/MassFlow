@@ -22,6 +22,8 @@ def _input_validation(
     if reference is None or reference.size == 0:
         logger.error("Reference cannot be None or empty.")
         raise ValueError("Reference cannot be None or empty.")
+    if reference.size > 1 and not np.all(reference[:-1] <= reference[1:]):
+        raise ValueError("reference must be sorted in ascending order")
     if tolerance <= 0:
         logger.error("Tolerance must be a positive number.")
         raise ValueError("Tolerance must be a positive number.")
@@ -486,7 +488,7 @@ def peak_aligner(
     _input_validation(reference=reference, tolerance=tolerance)
     out_intdtype = intensity.dtype
     norm_units = _normalize_units(units)
-    tol_method = "x" if norm_units == "relative" else "abs"
+    tol_method = "y" if norm_units == "relative" else "abs"
     code = get_method_code(tol_method)
 
     reference_arr = np.asarray(reference, dtype=np.float64)

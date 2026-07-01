@@ -43,6 +43,16 @@ class IonImageDataManager(ABC):
         """按 ion index 返回一张稠密二维离子图像。"""
 
     @abstractmethod
+    def get_ion_vector(self, ion_idx: int) -> np.ndarray:
+        """按 ion index 返回所有已写入像素上的强度向量。"""
+
+    def get_ion_block(self, start: int, end: int) -> np.ndarray:
+        """按 ion 区间返回 ``(n_ions, n_pixels)`` 的强度块。"""
+        if start == end:
+            return np.empty((0, 0))
+        return np.vstack([self.get_ion_vector(index) for index in range(start, end)])
+
+    @abstractmethod
     def get_pixel_spectrum(self, pixel_idx: int) -> np.ndarray:
         """按写入顺序的 pixel index 返回该像素的完整强度谱。"""
 

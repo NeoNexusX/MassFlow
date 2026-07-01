@@ -1,29 +1,28 @@
-"""Zarr-backend ion image dataset with multi-worker safety."""
+"""PyTorch dataset for ion-major MassFlow MSI Zarr stores."""
 
 from __future__ import annotations
 
 import numpy as np
-import zarr
 
+from massflow.msi_zarr import MSIZarrReader
 from massflow.morch.ion_image_binary_dataset import IonImageIndexDataset
 from massflow.morch.ion_image_dataset import IonImageDataset
 
 
 class IonImageZarrDataset(IonImageDataset):
-    """Random-access dataset backed by Zarr ion image stores.
-
-    Each item reads one dense ``(H, W)`` ion image from the ``ion_images`` array.
-    Multi-worker safe: each worker lazily opens its own Zarr group.
-    """
+    """Random-access ion images reconstructed from compact ion vectors."""
 
     def __init__(self, data_manager) -> None:
         self._path = str(data_manager.filepath)
         self._height = int(data_manager.height)
         self._width = int(data_manager.width)
-        self._n = data_manager.n_ions
-        self._np_dtype = np.dtype(getattr(data_manager, "intensity_dtype", np.float32))
-        self._group = None
-        self._dset = None
+        self._n = int(data_manager.n_ions)
+        self._np_dtype = np.dtype(data_manager.intensity_dtype)
+        coordinates = np.asarray(data_manager.coordinates, dtype=np.int64)
+        self._flat_idx = (
+            (coordinates[:, 1] - 1) * self._width + coordinates[:, 0] - 1
+        )
+        self._reader: MSIZarrReader | None = None
 
     @property
     def height(self) -> int:
@@ -41,61 +40,43 @@ class IonImageZarrDataset(IonImageDataset):
         return self._n
 
     def index_dataset(self) -> IonImageIndexDataset:
-        """Return an index-only dataset for batch-aware DataLoader usage."""
         return IonImageIndexDataset(self._n)
 
     def __getitem__(self, idx: int):  # type: ignore[override]
         import torch  # type: ignore[import]
 
-        if idx < 0:
-            idx += self._n
-        if idx < 0 or idx >= self._n:
-            raise IndexError("ion index out of range")
-
-        image = np.asarray(self._ensure_dset()[idx])
-        return torch.from_numpy(image).unsqueeze(0).clone()
+        idx = self._normalize_index(idx)
+        values = self._ensure_reader().read_ion_vector(idx)
+        image = np.zeros((self._height, self._width), dtype=self._np_dtype)
+        image.ravel()[self._flat_idx] = values
+        return torch.from_numpy(image).unsqueeze(0)
 
     def get_batch(self, indices):
-        """Read a batch of Zarr ion images and return ``(B, 1, H, W)``."""
         import torch  # type: ignore[import]
 
         idx = np.asarray(indices, dtype=np.int64)
         if idx.ndim == 0:
             idx = idx.reshape(1)
         if idx.ndim != 1 or idx.size == 0:
-            raise ValueError("indices must be a 1-D sequence of ion indices")
-
-        idx = idx.copy()
-        idx[idx < 0] += self._n
-        if int(idx.min()) < 0 or int(idx.max()) >= self._n:
-            raise IndexError("ion index out of range")
-
-        dset = self._ensure_dset()
-        batch = np.empty((idx.size, 1, self._height, self._width), dtype=dset.dtype)
-        chunk_size = _axis0_chunk_size(dset)
-        if chunk_size <= 1 or idx.size == 1:
-            for out_i, ion_idx in enumerate(idx):
-                batch[out_i, 0] = np.asarray(dset[int(ion_idx)])
-        else:
-            chunk_ids = idx // chunk_size
-            for chunk_id in np.unique(chunk_ids):
-                out_positions = np.flatnonzero(chunk_ids == chunk_id)
-                start = int(chunk_id) * chunk_size
-                end = min(self._n, start + chunk_size)
-                chunk = np.asarray(dset[start:end])
-                local_indices = idx[out_positions] - start
-                batch[out_positions, 0] = chunk[local_indices]
+            raise ValueError("indices must be a non-empty 1-D sequence.")
+        idx = np.asarray([self._normalize_index(int(value)) for value in idx])
+        reader = self._ensure_reader()
+        rows = np.vstack([reader.read_ion_vector(int(value)) for value in idx])
+        batch = np.zeros(
+            (idx.size, 1, self._height, self._width),
+            dtype=self._np_dtype,
+        )
+        batch[:, 0].reshape(idx.size, -1)[:, self._flat_idx] = rows
         return torch.from_numpy(batch)
 
-    def _ensure_dset(self) -> zarr.Array:
-        if self._dset is None:
-            self._group = zarr.open_group(self._path, mode="r")
-            self._dset = self._group["ion_images"]
-        return self._dset # type: ignore[return-value]
+    def _ensure_reader(self) -> MSIZarrReader:
+        if self._reader is None:
+            self._reader = MSIZarrReader(self._path)
+        return self._reader
 
-
-def _axis0_chunk_size(dset: zarr.Array) -> int:
-    chunks = getattr(dset, "chunks", None)
-    if not chunks:
-        return 1
-    return max(1, int(chunks[0]))
+    def _normalize_index(self, idx: int) -> int:
+        if idx < 0:
+            idx += self._n
+        if idx < 0 or idx >= self._n:
+            raise IndexError("ion index out of range")
+        return idx

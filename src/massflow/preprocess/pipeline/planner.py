@@ -5,6 +5,7 @@ import tempfile
 from massflow.preprocess.pipeline.types import (
     ION_IMAGE_OUTPUT_FORMATS,
     OUTPUT_FORMAT_IMZML,
+    OUTPUT_FORMAT_SPECTRA_ZARR,
     OUTPUT_FORMAT_SUFFIXES,
     InputMetaData,
     OutputMetaData,
@@ -21,8 +22,9 @@ _OPERATION_ORDER: dict[str, int] = {
     "noise_reduction": 20,
     "normalization": 30,
     "peak_pick": 40,
-    "reference_computer": 50,
-    "peak_align": 60,
+    "filter_peaks_by_isotopes": 50,
+    "reference_computer": 60,
+    "peak_align": 70,
     }
 _PROFILE_ONLY_TASKS = frozenset({"baseline_correction", "noise_reduction", "peak_pick"})
 
@@ -101,7 +103,22 @@ def make_task_segments(tasks, input_spectrum_type, input_meta: InputMetaData) ->
         output_meta = OutputMetaData(output_format=OUTPUT_FORMAT_IMZML, spectrum_type=current_spectrum_type, file_path=None)
         task_segments.append(Segment(scope="dataset", tasks=[dataset_task], input_meta=input_meta, output_meta=output_meta))
 
-    if task_segments:
+    if input_meta.result_format == OUTPUT_FORMAT_SPECTRA_ZARR and (
+        not task_segments or task_segments[-1].scope == "dataset"
+    ):
+        task_segments.append(
+            Segment(
+                scope="batch",
+                tasks=[],
+                input_meta=input_meta,
+                output_meta=OutputMetaData(
+                    output_format=OUTPUT_FORMAT_SPECTRA_ZARR,
+                    spectrum_type=current_spectrum_type,
+                    file_path=input_meta.result_path,
+                ),
+            )
+        )
+    elif task_segments:
         last_segment = task_segments[-1]
         task_segments[-1] = replace(
             last_segment,
@@ -111,5 +128,11 @@ def make_task_segments(tasks, input_spectrum_type, input_meta: InputMetaData) ->
                 file_path=input_meta.result_path,
             ),
         )
+        # dataset-scope tasks build their own output data manager internally, so
+        # the executor cannot route them through output_meta.file_path the way
+        # batch tasks do. Inject result_path as the task's `output_path` kwarg
+        # so the task writes directly to the user-requested location.
+        if last_segment.scope == "dataset" and input_meta.result_format == OUTPUT_FORMAT_IMZML:
+            task_segments[-1].tasks[0].kwargs["output_path"] = input_meta.result_path
 
     return task_segments, input_meta

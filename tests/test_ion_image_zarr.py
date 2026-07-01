@@ -1,18 +1,26 @@
 """Zarr 离子图像转写 + PyTorch 读取性能测试。"""
 
+# pylint: disable=redefined-outer-name,broad-exception-caught,unused-argument,too-many-lines
+
 import os
 import shutil
 import subprocess
 import time
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
 import torch
+import zarr
 from torch.utils.data import DataLoader
 
 from massflow.data_manager import IonImageDataManagerZarr, MSDataManagerImzML
+from massflow.msi_zarr import MSIZarrReader
+from massflow.msi_zarr.writer import prepare_coordinate_index
+from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.morch import IonImageZarrDataset
+from massflow.segmentation.region_mask import apply_region_mask
 
 EXAMPLE_IMZML = Path("/Users/dre/Desktop/data/Example_read/example.imzML")
 EXAMPLE_ZARR_DIR = Path("data")
@@ -49,14 +57,15 @@ def _example_zarr_path(chunk_size: int) -> Path:
 
 
 def _zarr_has_chunk_size(path: Path, chunk_size: int) -> bool:
+    del chunk_size
     if not path.exists():
         return False
     try:
-        dm = IonImageDataManagerZarr(str(path), mode="r")
+        reader = MSIZarrReader(path)
         try:
-            return int(dm.dset.chunks[0]) == int(chunk_size)
+            return reader.row_axis == "ion"
         finally:
-            dm.close()
+            reader.close()
     except Exception:
         return False
 
@@ -182,6 +191,8 @@ def _write_tiny_zarr(
     width: int | None = 2,
     height: int | None = 2,
     chunk_size: int = 1,
+    compute_mean_spectrum: bool = False,
+    metadata=None,
 ) -> IonImageDataManagerZarr:
     """Write a tiny two-ion Zarr store for correctness tests."""
     coords = np.asarray(coordinates, dtype=np.int64)
@@ -198,6 +209,11 @@ def _write_tiny_zarr(
         intensity_dtype=np.float32,
         ion_block=16,
         chunk_size=chunk_size,
+        compute_mean_spectrum=compute_mean_spectrum,
+        metadata=metadata,
+        shared_mz_axis=(
+            np.array([100.0, 200.0], dtype=np.float64) if metadata is not None else None
+        ),
     )
     try:
         dm.write_flat_batch(
@@ -211,6 +227,7 @@ def _write_tiny_zarr(
     except BaseException:
         dm.close()
         raise
+
 
 class TestZarrConvert:
     """Zarr 转写纯净计时（数据已在内存中）。"""
@@ -281,13 +298,106 @@ class TestZarrDataLoader:
 class TestZarrCorrectness:
     """Small synthetic checks for Zarr coordinate semantics."""
 
+    def test_msi_zarr_v1_layout_and_metadata(self, tmp_path):
+        path = tmp_path / "layout.zarr"
+        meta = MetaDataZarr(
+            name="layout",
+            max_count_of_pixels_x=2,
+            max_count_of_pixels_y=2,
+            pixel_size_x=50.0,
+            pixel_size_y=50.0,
+        )
+        meta.continuous = True
+        meta.centroid_spectrum = True
+
+        dm = _write_tiny_zarr(
+            path,
+            tmp_path,
+            [(1, 1), (2, 1)],
+            compute_mean_spectrum=True,
+            metadata=meta,
+        )
+        dm.close()
+
+        root = zarr.open_group(str(path), mode="r")
+        assert dict(root.attrs) == {
+            "format": "massflow.msi_zarr",
+            "format_version": "1.0",
+            "write_state": "complete",
+            "coordinate_order": ["x", "y", "z"],
+            "coordinate_base": 1,
+            "spatial_shape": [2, 2],
+        }
+        assert dict(root["data"].attrs) == {
+            "row_axis": "ion",
+            "encoding": "continuous",
+        }
+        assert "axes/coordinates" in root
+        assert "axes/mz" in root
+        assert "data/intensity" in root
+        assert "data/offsets" in root
+        assert "stats/mean_spectrum" in root
+        assert "metadata" in root
+        np.testing.assert_array_equal(
+            cast(zarr.Array, root["axes/coordinates"])[:], [[1, 1, 1], [2, 1, 1]]
+        )
+        np.testing.assert_array_equal(cast(zarr.Array, root["data/offsets"])[:], [0, 2, 4])
+        np.testing.assert_array_equal(cast(zarr.Array, root["data/intensity"])[:], [1, 2, 10, 20])
+        assert root["metadata"].attrs["name"] == "layout"
+        assert root["metadata"].attrs["pixel_size_x"] == 50.0
+
+    def test_one_based_subset_is_not_shifted(self):
+        result = prepare_coordinate_index(
+            np.array([[3, 2, 1]], dtype=np.uint32),
+            width=3,
+            height=2,
+        )
+        np.testing.assert_array_equal(result.coordinates, [[3, 2, 1]])
+
+    def test_reader_rejects_float_offsets(self, tmp_path):
+        path = tmp_path / "float_offsets.zarr"
+        dm = _write_tiny_zarr(path, tmp_path, [(1, 1), (2, 1)])
+        dm.close()
+        root = zarr.open_group(str(path), mode="a")
+        del root["data/offsets"]
+        cast(zarr.Group, root["data"]).create_array( # pylint: disable=no-member
+            "offsets", data=np.array([0.0, 2.0, 4.0])
+        )
+        with pytest.raises(ValueError, match="integer dtype"):
+            MSIZarrReader(path)
+
+    def test_mean_spectrum_uses_valid_pixels_and_roundtrips(self, tmp_path):
+        path = tmp_path / "mean.zarr"
+        dm = _write_tiny_zarr(
+            path,
+            tmp_path,
+            [(1, 1), (2, 1)],
+            compute_mean_spectrum=True,
+        )
+        try:
+            np.testing.assert_allclose(dm.mean_spectrum, np.array([1.5, 15.0])) # type: ignore
+        finally:
+            dm.close()
+
+        with IonImageDataManagerZarr(str(path), mode="r") as reopened:
+            np.testing.assert_allclose(reopened.mean_spectrum, np.array([1.5, 15.0])) # type: ignore
+
+    def test_mean_spectrum_is_absent_by_default(self, tmp_path):
+        dm = _write_tiny_zarr(tmp_path / "no_mean.zarr", tmp_path, [(1, 1), (2, 1)])
+        try:
+            assert dm.mean_spectrum is None
+        finally:
+            dm.close()
+
     def test_one_based_coordinates_roundtrip(self, tmp_path):
         path = tmp_path / "one.zarr"
         dm = _write_tiny_zarr(path, tmp_path, [(1, 1), (2, 1)])
         try:
             assert dm.width == 2
             assert dm.height == 2
-            assert dm._coordinate_base == "one"
+            np.testing.assert_array_equal(
+                dm.coordinates, np.array([[1, 1, 1], [2, 1, 1]])
+            )
             np.testing.assert_array_equal(
                 dm.get_ion_image(0),
                 np.array([[1, 2], [0, 0]], dtype=np.float32),
@@ -303,34 +413,18 @@ class TestZarrCorrectness:
             )
             np.testing.assert_array_equal(reopened.get_ion_vector(0), np.array([1, 2], dtype=np.float32))
 
-    def test_zero_based_coordinates_infer_shape(self, tmp_path):
+    def test_one_based_coordinates_infer_shape(self, tmp_path):
         dm = _write_tiny_zarr(
-            tmp_path / "zero.zarr",
+            tmp_path / "one_inferred.zarr",
             tmp_path,
-            [(0, 0), (1, 0)],
+            [(1, 1), (2, 1)],
             width=None,
             height=None,
         )
         try:
             assert dm.width == 2
             assert dm.height == 1
-            assert dm._coordinate_base == "zero"
             np.testing.assert_array_equal(dm.get_ion_image(0), np.array([[1, 2]], dtype=np.float32))
-            np.testing.assert_array_equal(dm.get_ion_vector(0), np.array([1, 2], dtype=np.float32))
-        finally:
-            dm.close()
-
-    def test_auto_detects_zero_based_y_axis(self, tmp_path):
-        dm = _write_tiny_zarr(
-            tmp_path / "y_zero.zarr",
-            tmp_path,
-            [(1, 0), (2, 0)],
-            width=3,
-            height=1,
-        )
-        try:
-            assert dm._coordinate_base == "zero"
-            np.testing.assert_array_equal(dm.get_ion_image(0), np.array([[0, 1, 2]], dtype=np.float32))
             np.testing.assert_array_equal(dm.get_ion_vector(0), np.array([1, 2], dtype=np.float32))
         finally:
             dm.close()
@@ -340,17 +434,34 @@ class TestZarrCorrectness:
             _write_tiny_zarr(tmp_path / "bad.zarr", tmp_path, [(1, 1), (3, 1)], width=2, height=2)
 
     def test_duplicate_coordinates_keep_last_pixel(self, tmp_path):
-        dm = _write_tiny_zarr(tmp_path / "duplicate.zarr", tmp_path, [(1, 1), (1, 1)])
+        path = tmp_path / "duplicate.zarr"
+        dm = _write_tiny_zarr(
+            path,
+            tmp_path,
+            [(1, 1), (1, 1)],
+            compute_mean_spectrum=True,
+        )
         try:
             assert dm.n_pixels == 1
-            np.testing.assert_array_equal(dm.coordinates, np.array([[1, 1]], dtype=np.uint32))
+            np.testing.assert_array_equal(dm.coordinates, [[1, 1, 1]])
             np.testing.assert_array_equal(
                 dm.get_ion_image(0),
                 np.array([[2, 0], [0, 0]], dtype=np.float32),
             )
-            np.testing.assert_array_equal(dm.get_ion_vector(0), np.array([2], dtype=np.float32))
+            np.testing.assert_array_equal(dm.get_ion_vector(0), [2])
+            mean = dm.mean_spectrum
+            assert mean is not None
+            np.testing.assert_allclose(mean, [2.0, 20.0])
         finally:
             dm.close()
+
+        with IonImageDataManagerZarr(str(path), mode="r") as reopened:
+            assert reopened.n_pixels == 1
+            np.testing.assert_array_equal(reopened.coordinates, [[1, 1, 1]])
+            np.testing.assert_array_equal(reopened.get_ion_vector(0), [2])
+            mean = reopened.mean_spectrum
+            assert mean is not None
+            np.testing.assert_allclose(mean, [2.0, 20.0])
 
     def test_dataset_batch_matches_single_item_stack(self, tmp_path):
         dm = _write_tiny_zarr(
@@ -367,3 +478,33 @@ class TestZarrCorrectness:
             assert torch.equal(batched, legacy)
         finally:
             dm.close()
+
+    def test_region_mask_uses_stored_one_based_coordinates(self, tmp_path):
+        source = _write_tiny_zarr(
+            tmp_path / "mask_source.zarr",
+            tmp_path,
+            [(2, 2), (3, 2)],
+            width=3,
+            height=2,
+        )
+        output: IonImageDataManagerZarr | None = None
+        try:
+            mask = np.zeros((2, 3), dtype=bool)
+            mask[1, 2] = True
+            output = cast(
+                IonImageDataManagerZarr,
+                apply_region_mask(
+                    source,
+                    mask,
+                    tmp_path / "mask_output.zarr",
+                ),
+            )
+            np.testing.assert_array_equal(output.coordinates, [[3, 2, 1]])
+            np.testing.assert_array_equal(
+                output.get_ion_image(0),
+                np.array([[0, 0, 0], [0, 0, 2]], dtype=np.float32),
+            )
+        finally:
+            if output is not None:
+                output.close()
+            source.close()
