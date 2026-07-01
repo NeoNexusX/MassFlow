@@ -12,7 +12,7 @@ from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.test_export_imzml")
 
-FILEPATH = Path("/Users/dre/Desktop/dre/MassFlow/output/example.zarr")
+FILEPATH = Path("data/example.zarr")
 ROUND = 5
 
 

@@ -13,7 +13,7 @@ from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tests.test_peak_filter")
 
-FILE_PATH = '/Users/dre/Desktop/data/160TopL,130TopR,150BottomL,140BottomR-profile/160TopL,130TopR,150BottomL,140BottomR-profile.imzML'
+FILE_PATH = 'data/example.imzML'
 ROUND = 1
 TEMP_OUTPUT_BASES = (
     "temp/stat_filter",

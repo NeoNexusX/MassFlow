@@ -250,10 +250,10 @@ class PreprocessorAPI(_TaskRegistrar):
     ) -> Self:
         """Register dataset task to filter peaks by stats like mean intensity or frequency."""
         if (
-        min_count is None
-        and min_frequency is None
-        and min_intensity is None
-        and intensity_quantile is None
+            min_count is None
+            and min_frequency is None
+            and min_intensity is None
+            and intensity_quantile is None
         ):
             raise ValueError("At least one peak filtering threshold must be provided.")
 
