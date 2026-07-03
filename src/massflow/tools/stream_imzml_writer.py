@@ -18,13 +18,17 @@ import numpy as np
 from wheezy.template import Engine, CoreExtension, DictLoader
 from pyimzml.compression import NoCompression
 
+from massflow.tools.logger import get_logger
+
+logger = get_logger("massflow.tools.stream_imzml_writer")
+
 _Spectrum = namedtuple(
     "_Spectrum",
     "coords mz_len mz_offset mz_enc_len int_len int_offset int_enc_len mz_min mz_max mz_base int_base int_tic userParams",
 )
 
 IMZML_TEMPLATE = """\
-@require(uuid, sha1sum, mz_data_type, int_data_type, run_id, spectra, mode, obo_codes, obo_names, mz_compression, int_compression, polarity, spec_type, scan_direction, scan_pattern, scan_type, line_scan_direction)
+@require(uuid, sha1sum, mz_data_type, int_data_type, run_id, spectra, mode, obo_codes, obo_names, mz_compression, int_compression, polarity, spec_type, scan_direction_accession, scan_direction_name, scan_pattern_accession, scan_pattern_name, scan_type_accession, scan_type_name, line_scan_direction_accession, line_scan_direction_name)
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <mzML xmlns="http://psi.hupo.org/ms/mzml" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://psi.hupo.org/ms/mzml http://psidev.info/files/ms/mzML/xsd/mzML1.1.0_idx.xsd" version="1.1">
   <cvList count="2">
@@ -87,10 +91,18 @@ IMZML_TEMPLATE = """\
 
   <scanSettingsList count="1">
     <scanSettings id="scanSettings1">
-      <cvParam cvRef="IMS" accession="IMS:@obo_codes[scan_direction]" name="@obo_names[scan_direction]" value=""/>
-      <cvParam cvRef="IMS" accession="IMS:@obo_codes[scan_pattern]" name="@obo_names[scan_pattern]" value=""/>
-      <cvParam cvRef="IMS" accession="IMS:@obo_codes[scan_type]" name="@obo_names[scan_type]" value=""/>
-      <cvParam cvRef="IMS" accession="IMS:@obo_codes[line_scan_direction]" name="@obo_names[line_scan_direction]" value=""/>
+      @if scan_direction_accession is not None:
+      <cvParam cvRef="IMS" accession="IMS:@scan_direction_accession" name="@scan_direction_name" value=""/>
+      @end
+      @if scan_pattern_accession is not None:
+      <cvParam cvRef="IMS" accession="IMS:@scan_pattern_accession" name="@scan_pattern_name" value=""/>
+      @end
+      @if scan_type_accession is not None:
+      <cvParam cvRef="IMS" accession="IMS:@scan_type_accession" name="@scan_type_name" value=""/>
+      @end
+      @if line_scan_direction_accession is not None:
+      <cvParam cvRef="IMS" accession="IMS:@line_scan_direction_accession" name="@line_scan_direction_name" value=""/>
+      @end
       <cvParam cvRef="IMS" accession="IMS:1000042" name="max count of pixels x" value="@{(max(s.coords[0] for s in spectra))!!s}"/>
       <cvParam cvRef="IMS" accession="IMS:1000043" name="max count of pixels y" value="@{(max(s.coords[1] for s in spectra))!!s}"/>
     </scanSettings>
@@ -602,8 +614,10 @@ class ImzMLWriter:
             "meandering": "1000410",
             "one_way": "1000411",
             "random_access": "1000412",
+            "flyback": "1000413",
             "horizontal_line": "1000480",
             "vertical_line": "1000481",
+            "no_direction": "1000404",
         }
         obo_names = {
             "line_bottom_up": "linescan bottom up",
@@ -617,8 +631,10 @@ class ImzMLWriter:
             "meandering": "meandering",
             "one_way": "one way",
             "random_access": "random access",
+            "flyback": "flyback",
             "horizontal_line": "horizontal line scan",
             "vertical_line": "vertical line scan",
+            "no_direction": "no direction",
         }
 
         uuid = ("{%s}" % self.uuid).upper()
@@ -638,10 +654,32 @@ class ImzMLWriter:
         mz_compression = self.mz_compression.name
         int_compression = self.intensity_compression.name
         polarity = self.polarity
-        scan_direction = self.scan_direction
-        scan_pattern = self.scan_pattern
-        scan_type = self.scan_type
-        line_scan_direction = self.line_scan_direction
+
+        def _resolve_cv(value: Optional[str], field_name: str) -> Tuple[Optional[str], Optional[str]]:
+            """Look up (accession, name) for a category short key.
+
+            The IMS scan_* category terms are a finite, closed vocabulary and
+            obo_codes/obo_names enumerate it. Still, fall back to omitting the
+            cvParam rather than raising KeyError so an unmapped value (a
+            future OBO term, or a manually-set meta field) degrades to
+            "not written" instead of aborting the whole export.
+            """
+            if value is None:
+                return None, None
+            accession = obo_codes.get(value)
+            if accession is None:
+                logger.warning(
+                    f"Unrecognized {field_name} value {value!r}; omitting cvParam from scanSettings."
+                )
+                return None, None
+            return accession, obo_names.get(value)
+
+        scan_direction_accession, scan_direction_name = _resolve_cv(self.scan_direction, "scan_direction")
+        scan_pattern_accession, scan_pattern_name = _resolve_cv(self.scan_pattern, "scan_pattern")
+        scan_type_accession, scan_type_name = _resolve_cv(self.scan_type, "scan_type")
+        line_scan_direction_accession, line_scan_direction_name = _resolve_cv(
+            self.line_scan_direction, "line_scan_direction"
+        )
 
         self.xml.write(self.imzml_template.render(locals()))
 

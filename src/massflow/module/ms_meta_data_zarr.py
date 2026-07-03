@@ -6,56 +6,20 @@ from typing import Any
 
 import numpy as np
 
-from massflow.module.ms_meta_data import MetaDataBase, MetaField
+from massflow.module.ms_meta_data import MetaDataBase
 from massflow.tools.logger import get_logger
 logger = get_logger("massflow.module.meta_data_zarr")
 
 
 class MetaDataZarr(MetaDataBase):
-    """Metadata model persisted inside MassFlow spectra Zarr stores."""
+    """Metadata model persisted inside MassFlow spectra Zarr stores.
 
-    spectrum_count_num = MetaField()
-    absolute_position_offset_x = MetaField()
-    absolute_position_offset_y = MetaField()
-    instrument_model = MetaField()
-    ms1_spectrum = MetaField()
-    msn_spectrum = MetaField()
+    Field schema lives on `MetaDataBase`; this subclass only supplies the
+    zarr-specific default name and zarr (de)serialization.
+    """
 
-    def __init__(
-        self,
-        name="zarr_data",
-        version=1.0,
-        absolute_position_offset_x=None,
-        absolute_position_offset_y=None,
-        centroid_spectrum=None,
-        profile_spectrum=None,
-        ms1_spectrum=None,
-        msn_spectrum=None,
-        instrument_model=None,
-        spectrum_count_num=None,
-        mask=None,
-        pixel_size_x=None,
-        pixel_size_y=None,
-        max_count_of_pixels_x=None,
-        max_count_of_pixels_y=None,
-    ):
-        super().__init__(
-            name=name,
-            version=version,
-            mask=mask,
-            pixel_size_x=pixel_size_x,
-            pixel_size_y=pixel_size_y,
-            max_count_of_pixels_x=max_count_of_pixels_x,
-            max_count_of_pixels_y=max_count_of_pixels_y,
-        )
-        self.absolute_position_offset_x = absolute_position_offset_x
-        self.absolute_position_offset_y = absolute_position_offset_y
-        self.centroid_spectrum = centroid_spectrum
-        self.profile_spectrum = profile_spectrum
-        self.ms1_spectrum = ms1_spectrum
-        self.msn_spectrum = msn_spectrum
-        self.instrument_model = instrument_model
-        self.spectrum_count_num = spectrum_count_num
+    def __init__(self, name="zarr_data", **kwargs):
+        super().__init__(name=name, **kwargs)
 
     @classmethod
     def from_zarr(cls, root: Any) -> "MetaDataZarr":

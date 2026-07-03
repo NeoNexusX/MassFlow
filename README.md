@@ -109,7 +109,7 @@ uv run pytest tests/ mzorbit/tests/
 
 `mzorbit` is the agent interface on top of MassFlow. It provides:
 
-- CLI commands (`python -m mzorbit <cmd>`) for loading, QC, preprocessing, annotation, and end-to-end workflow
+- CLI commands (`python -m mzorbit <cmd>`) for loading, preprocessing, annotation, and end-to-end workflow
 - An MCP server (`mzorbit-mcp-server`) that exposes these tools to MCP clients such as Claude Code and Cursor
 
 See [mzorbit/README.md](mzorbit/README.md) for the full developer guide, CLI reference, and MCP setup.
