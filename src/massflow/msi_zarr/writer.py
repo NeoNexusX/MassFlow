@@ -181,11 +181,18 @@ class MSIZarrWriter:
         if self._n_input_pixels == 0:
             raise ValueError("No spectra were written.")
         coordinates = np.vstack(self._coordinates)
-        coordinate_index = prepare_coordinate_index(
-            coordinates,
-            width=self.width,
-            height=self.height,
-        )
+        if self.row_axis == "pixel":
+            coordinate_index = prepare_pixel_coordinate_index(
+                coordinates,
+                width=self.width,
+                height=self.height,
+            )
+        else:
+            coordinate_index = prepare_coordinate_index(
+                coordinates,
+                width=self.width,
+                height=self.height,
+            )
         if coordinate_index.source_idx.size != coordinates.shape[0]:
             logger.warning(
                 "Removed duplicate coordinates while keeping the last pixel: "
@@ -605,6 +612,37 @@ def prepare_coordinate_index(
         height=height,
         coordinates=retained,
         source_idx=source_idx,
+    )
+
+
+def prepare_pixel_coordinate_index(
+    coordinates: np.ndarray,
+    *,
+    width: int | None,
+    height: int | None,
+) -> CoordinateIndex:
+    """Validate pixel-major coordinates without dropping rows or rewriting z."""
+    coords = _ensure_xyz_coordinates(coordinates).astype(np.int64, copy=False)
+    xy = coords[:, :2]
+    if width is None:
+        width = int(np.max(xy[:, 0]))
+    if height is None:
+        height = int(np.max(xy[:, 1]))
+    width = int(width)
+    height = int(height)
+    valid = (
+        (xy[:, 0] >= 1)
+        & (xy[:, 0] <= width)
+        & (xy[:, 1] >= 1)
+        & (xy[:, 1] <= height)
+    )
+    if not bool(np.all(valid)):
+        raise ValueError("coordinates contains out-of-bounds values.")
+    return CoordinateIndex(
+        width=width,
+        height=height,
+        coordinates=coords.astype("<u4", copy=False),
+        source_idx=np.arange(coords.shape[0], dtype=np.intp),
     )
 
 

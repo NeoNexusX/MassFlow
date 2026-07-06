@@ -209,7 +209,10 @@ class MSIZarrReader:
         )
         if not bool(np.all(valid)):
             raise ValueError("axes/coordinates contains out-of-bounds values.")
-        if np.unique(coordinates, axis=0).shape[0] != coordinates.shape[0]:
+        if (
+            self.row_axis == "ion"
+            and np.unique(coordinates, axis=0).shape[0] != coordinates.shape[0]
+        ):
             raise ValueError("axes/coordinates contains duplicates.")
         if self.row_axis == "ion":
             lengths = np.diff(offsets)
