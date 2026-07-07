@@ -77,6 +77,7 @@ class FlatOutputSink:
                         filepath=output_meta.file_path,
                         mode="w",
                         temp_dir=input_meta.temp_dir,
+                        compute_tic=input_meta.compute_tic,
                     )
                 )
             else:

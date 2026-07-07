@@ -56,6 +56,7 @@ class InputMetaData:
     result_format: OutputFormat
     ion_block: int = 256
     compute_mean_spectrum: bool = False
+    compute_tic: bool = False
 
 
 @dataclass(slots=True)

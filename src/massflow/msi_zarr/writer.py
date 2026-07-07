@@ -49,6 +49,7 @@ class MSIZarrWriter:
         temp_workers: int = 4,
         ion_block: int = 256,
         compute_mean_spectrum: bool = False,
+        compute_tic: bool = False,
     ) -> None:
         if row_axis not in {"pixel", "ion"}:
             raise ValueError("row_axis must be 'pixel' or 'ion'.")
@@ -62,6 +63,8 @@ class MSIZarrWriter:
             )
         if row_axis == "ion" and encoding != ZARR_MODE_CONTINUOUS:
             raise ValueError("ion-major output requires continuous encoding.")
+        if row_axis == "ion" and compute_tic:
+            raise ValueError("compute_tic is only supported for pixel-major output.")
         self.path = _normalize_zarr_path(path)
         self.row_axis: ZarrRowAxis = row_axis
         self.encoding: ZarrWriteMode = encoding
@@ -74,6 +77,7 @@ class MSIZarrWriter:
         self.add_buffer_size = max(1, int(add_buffer_size))
         self.ion_block = max(1, int(ion_block))
         self.compute_mean_spectrum = bool(compute_mean_spectrum)
+        self.compute_tic = bool(compute_tic)
         self._temp_dir = temp_dir
         self._temp_workers = max(1, int(temp_workers))
         self._root: zarr.Group | None = None
@@ -93,6 +97,7 @@ class MSIZarrWriter:
         self._pending_batches: list[
             tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         ] = []
+        self._tic_batches: list[np.ndarray] = []
 
     # --- Public write lifecycle ----------------------------------------------
 
@@ -235,6 +240,7 @@ class MSIZarrWriter:
         self._offsets = None
         self._point_mz = None
         self._pending_batches.clear()
+        self._tic_batches.clear()
 
     # --- Batch ingestion ------------------------------------------------------
 
@@ -255,6 +261,14 @@ class MSIZarrWriter:
             lengths, dtype=np.int64
         )
         self._offsets.append(batch_offsets.astype("<i8", copy=False), axis=0)
+        if self.compute_tic:
+            starts = np.empty(lengths.size, dtype=np.int64)
+            starts[0] = 0
+            if lengths.size > 1:
+                np.cumsum(lengths[:-1], dtype=np.int64, out=starts[1:])
+            self._tic_batches.append(
+                np.add.reduceat(intensity.astype(np.float64), starts)
+            )
 
     def _write_ion_batch(
         self,
@@ -335,6 +349,25 @@ class MSIZarrWriter:
             "coordinates",
             data=coordinate_index.coordinates.astype("<u4", copy=False),
             overwrite=True,
+        )
+        self._write_tic()
+
+    def _write_tic(self) -> None:
+        if not self.compute_tic:
+            return
+        assert self._root is not None
+        tic = (
+            np.concatenate(self._tic_batches)
+            if self._tic_batches
+            else np.empty(0, dtype=np.float64)
+        )
+        stats = self._root.create_group("stats")
+        array = stats.create_array("tic", data=tic)
+        array.attrs.update(
+            {
+                "source": "/data",
+                "reduced_axis": "mz",
+            }
         )
 
     def _compact_pixel_arrays(self, source_idx: np.ndarray) -> None:

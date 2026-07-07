@@ -107,6 +107,15 @@ class MSIZarrReader:
         array = cast(zarr.Array, stats["mean_spectrum"])
         return np.asarray(array[:])
 
+    def read_tic(self) -> np.ndarray | None:
+        if "stats" not in self.root:
+            return None
+        stats = cast(zarr.Group, self.root["stats"])
+        if "tic" not in stats:
+            return None
+        array = cast(zarr.Array, stats["tic"])
+        return np.asarray(array[:])
+
     # --- Pixel-major batch access --------------------------------------------
 
     def read_flat_batch(
@@ -236,6 +245,14 @@ class MSIZarrReader:
                 ) != int(self.shared_mz_axis.shape[0]):
                     raise ValueError(
                         "stats/mean_spectrum must match axes/mz length."
+                    )
+            if "tic" in stats:
+                tic = cast(zarr.Array, stats["tic"])
+                if tic.ndim != 1 or int(
+                    tic.shape[0]
+                ) != int(self.coordinates.shape[0]):
+                    raise ValueError(
+                        "stats/tic must match axes/coordinates length."
                     )
 
     def close(self) -> None:
