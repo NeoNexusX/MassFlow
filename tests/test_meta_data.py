@@ -107,6 +107,85 @@ class TestPopulateFromParserRealFixtures:
             assert meta.contact_name == "MassFlow"  # constructor default, untouched
 
 
+class TestInstrumentComponents:
+    """source/analyzer/detector: extracted from componentList's cvParam *names*,
+    since (unlike scan_pattern's IMS terms) the PSI-MS source/analyzer/detector
+    vocabulary is too open-ended to enumerate as accession->canonical-key pairs.
+    Built from a minimal hand-written mzML snippet rather than a real fixture,
+    since instrumentConfigurationList only needs source/analyzer/detector's
+    componentList children, not a full spectrum-bearing file.
+    """
+
+    INSTRUMENT_CONFIG_XML = """<mzML xmlns="http://psi.hupo.org/ms/mzml">
+      <fileDescription>
+        <fileContent/>
+      </fileDescription>
+      <instrumentConfigurationList count="1">
+        <instrumentConfiguration id="IC1">
+          <cvParam accession="MS:1001534" cvRef="MS" name="Bruker Daltonics flex series"/>
+          <componentList count="3">
+            <source order="1">
+              <cvParam accession="MS:1000075" cvRef="MS" name="matrix-assisted laser desorption ionization"/>
+            </source>
+            <analyzer order="2">
+              <cvParam accession="MS:1000084" cvRef="MS" name="time-of-flight"/>
+            </analyzer>
+            <detector order="3">
+              <cvParam accession="MS:1000114" cvRef="MS" name="microchannel plate detector"/>
+            </detector>
+          </componentList>
+        </instrumentConfiguration>
+      </instrumentConfigurationList>
+    </mzML>"""
+
+    def _populate_from_snippet(self) -> MetaDataImzMl:
+        import xml.etree.ElementTree as ET
+        from types import SimpleNamespace
+
+        from pyimzml.metadata import Metadata
+
+        root = ET.fromstring(self.INSTRUMENT_CONFIG_XML)
+        fake_parser = SimpleNamespace(metadata=Metadata(root))
+        meta = MetaDataImzMl()
+        meta.populate_from_parser(fake_parser)
+        return meta
+
+    def test_source_analyzer_detector_are_extracted_by_name(self):
+        meta = self._populate_from_snippet()
+        assert meta.source == "matrix-assisted laser desorption ionization"
+        assert meta.analyzer == "time-of-flight"
+        assert meta.detector == "microchannel plate detector"
+
+    def test_instrument_model_is_still_not_auto_extracted(self):
+        # The direct cvParam on <instrumentConfiguration> (the model) is a
+        # separate, still-unhandled case from componentList's children.
+        meta = self._populate_from_snippet()
+        assert meta.instrument_model is None
+
+    def test_instrument_configuration_list_is_a_section_parallel_to_scan_settings(self):
+        meta = self._populate_from_snippet()
+        assert "instrumentConfigurationList" in meta.sections()
+        assert meta.get_section("instrumentConfigurationList") == {
+            "source": "matrix-assisted laser desorption ionization",
+            "analyzer": "time-of-flight",
+            "detector": "microchannel plate detector",
+        }
+
+    def test_no_instrument_configuration_is_a_harmless_noop(self):
+        from types import SimpleNamespace
+
+        empty_metadata = SimpleNamespace(
+            file_description=None,
+            referenceable_param_groups={},
+            scan_settings={},
+            instrument_configurations={},
+        )
+        meta = MetaDataImzMl()
+        meta.populate_from_parser(SimpleNamespace(metadata=empty_metadata))
+        assert meta.source is None
+        assert meta.get_section("instrumentConfigurationList") == {}
+
+
 class TestGetSection:
     """Section-based access: META_INDEX segments plus the virtual OTHER_SECTION."""
 

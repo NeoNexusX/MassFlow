@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -772,3 +773,46 @@ def plot_tic_image(
     logger.info(f"TIC image plotting complete. Output: {path.parent}")
 
     return True
+
+
+def render_ion_gallery(
+    data_manager: SupportedDataManager,
+    mzs: Sequence[float],
+    output_dir: str | Path,
+    *,
+    mz_tolerance: float | None = None,
+    batch_size: int = 256,
+    max_threads: int = 2,
+    dpi: int = 200,
+    figsize: tuple[float, float] = (6, 5),
+    structure_only: bool = True,
+    cmap: str = "viridis",
+    percentiles: tuple[float, float] = (0, 95),
+) -> list[Path]:
+    """Render one ion image per m/z into ``output_dir`` and return their paths.
+
+    Thin batch wrapper over :func:`plot_ion_image`; used to build the multimodal
+    ion-image gallery a model inspects alongside the TIC.
+    """
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    for mz in mzs:
+        image_path = out_dir / f"ion_{float(mz):.4f}.png"
+        plot_ion_image(
+            data_manager,
+            mz=float(mz),
+            batch_size=batch_size,
+            max_threads=max_threads,
+            mz_tolerance=mz_tolerance,
+            output_path=image_path,
+            show=False,
+            dpi=dpi,
+            figsize=figsize,
+            title=f"m/z {float(mz):.4f}",
+            structure_only=structure_only,
+            cmap=cmap,
+            percentiles=percentiles,
+        )
+        paths.append(image_path)
+    return paths

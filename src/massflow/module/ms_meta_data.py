@@ -54,7 +54,18 @@ META_INDEX = {
         "IMS:1000492": ("line_scan_direction", "line_bottom_up"),
         "IMS:1000493": ("line_scan_direction", "line_top_down"),
     },
-    
+    # Not real CV accessions: source/analyzer/detector each carry their value
+    # in the cvParam's *name* (e.g. "matrix-assisted laser desorption
+    # ionization"), not a `value=` attribute, and componentList is nested
+    # under instrumentConfiguration rather than being a flat param group, so
+    # they can't go through the generic accession->value walk below.
+    # `_populate_instrument_components` fills them directly; these keys only
+    # drive get_section() bookkeeping.
+    "instrumentConfigurationList": {
+        "source": "source",
+        "analyzer": "analyzer",
+        "detector": "detector",
+    },
 }
 
 # META_INDEX top-level keys use imzML element names; translate to the
@@ -63,6 +74,7 @@ AREA_TO_PYIMZML = {
     "fileDescription": "file_description",
     "referenceableParamGroupList": "referenceable_param_groups",
     "scanSettingsList": "scan_settings",
+    "instrumentConfigurationList": "instrument_configurations",
 }
 
 # Virtual section grouping every populated field that no META_INDEX
@@ -139,6 +151,9 @@ class MetaDataBase:
     line_scan_direction = MetaField(allow_none=True)
     scan_pattern = MetaField(allow_none=True)
     scan_type = MetaField(allow_none=True)
+    source = MetaField(allow_none=True)
+    analyzer = MetaField(allow_none=True)
+    detector = MetaField(allow_none=True)
 
     def __init__(
         self,
@@ -359,6 +374,8 @@ class MetaDataBase:
                     else:
                         setattr(self, target, value)
 
+        self._populate_instrument_components(md)
+
     @staticmethod
     def _iter_param_groups(area: Any) -> Iterator[ParamGroup]:
         """Yield each ParamGroup contained in one metadata area (single group or dict of groups)."""
@@ -369,3 +386,25 @@ class MetaDataBase:
             return
         if isinstance(area, dict):
             yield from (pg for pg in area.values() if isinstance(pg, ParamGroup))
+
+    @staticmethod
+    def _iter_instrument_components(md: Any) -> Iterator[ParamGroup]:
+        """Yield the source/analyzer/detector ParamGroups of the first instrumentConfiguration."""
+        configs = getattr(md, "instrument_configurations", None) or {}
+        config = next(iter(configs.values()), None)
+        if config is None:
+            return
+        yield from getattr(config, "components", None) or []
+
+    def _populate_instrument_components(self, md: Any) -> None:
+        """Fill source/analyzer/detector from componentList's cvParam *names*.
+
+        Each component's descriptive value lives in its cvParam's name (e.g.
+        "time-of-flight"), not a `value=` attribute, and the PSI-MS vocabulary
+        for source/analyzer/detector types is too open-ended to enumerate like
+        scan_pattern's -- so the first cvParam's name is copied verbatim
+        instead of normalizing to a canonical short key.
+        """
+        for component in self._iter_instrument_components(md):
+            if component.type in ("source", "analyzer", "detector") and component.cv_params:
+                setattr(self, component.type, component.cv_params[0][0])
