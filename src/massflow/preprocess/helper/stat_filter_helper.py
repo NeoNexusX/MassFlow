@@ -97,6 +97,8 @@ def _aggregate_batches(
 
 def compute_peak_filter_profile(
     data_manager: MSDataManagerImzML,
+    *,
+    batch_size: int = 256,
 ) -> PeakFilterProfile:
     """Compute count and summed-intensity statistics in one dataset scan."""
     _validate_continuous_data(data_manager)
@@ -106,6 +108,7 @@ def compute_peak_filter_profile(
     spectrum_count = 0
 
     for mz_axis, intensity_flat, lengths, _ in data_manager.flat_generator(
+        batch_size=batch_size,
         include_mz=True,
     ):
         batch_counts, batch_sum, batch_spectrum_count = (
@@ -120,7 +123,7 @@ def compute_peak_filter_profile(
             summed_intensity = batch_sum
         else:
             counts += batch_counts
-            summed_intensity += batch_sum
+            summed_intensity += batch_sum # type: ignore
         spectrum_count += batch_spectrum_count
 
     if counts is None or summed_intensity is None or spectrum_count == 0:
@@ -159,10 +162,12 @@ def _validate_profile(
 def _resolve_profile(
     data_manager: MSDataManagerImzML,
     profile: PeakFilterProfile | None,
+    *,
+    batch_size: int = 256,
 ) -> PeakFilterProfile:
     """Return a validated reusable profile, computing it when omitted."""
     if profile is None:
-        return compute_peak_filter_profile(data_manager)
+        return compute_peak_filter_profile(data_manager, batch_size=batch_size)
     _validate_continuous_data(data_manager)
     _validate_profile(data_manager, profile)
     return profile
@@ -174,12 +179,16 @@ def filter_data_by_mask(
     *,
     output_path: str | Path | None = None,
     temp_dir: str | Path | None = None,
+    batch_size: int = 256,
 ) -> MSDataManagerImzML:
     """Apply one shared peak mask and write a filtered continuous dataset.
 
     Public so other dataset-scope helpers (e.g. ``adduct_filter_helper``)
     can reuse the same shared-mask write-back path without duplicating logic.
     """
+    if output_path is not None:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
     filtered_data = MSDataManagerImzML(
         filepath=None if output_path is None else str(output_path),
         temp_dir=None if temp_dir is None else str(temp_dir),
@@ -193,6 +202,7 @@ def filter_data_by_mask(
 
     filtered_mz = None
     for mz_axis, intensity_flat, lengths, coordinates in data_manager.flat_generator(
+        batch_size=batch_size,
         include_mz=True,
     ):
         if filtered_mz is None:
@@ -281,6 +291,7 @@ def filter_peaks_by_stats(
     intensity_quantile: float | None = None,
     output_path: str | Path | None = None,
     temp_dir: str | Path | None = None,
+    batch_size: int = 256,
 ) -> MSDataManagerImzML:
     """Filter peaks using count and intensity masks combined with AND."""
     if (
@@ -291,7 +302,7 @@ def filter_peaks_by_stats(
     ):
         raise ValueError("At least one peak filtering threshold must be provided.")
 
-    profile = _resolve_profile(data_manager, profile)
+    profile = _resolve_profile(data_manager, profile, batch_size=batch_size)
     count_mask = _build_count_mask(
         profile,
         min_count=min_count,
@@ -308,6 +319,7 @@ def filter_peaks_by_stats(
         count_mask & intensity_mask,
         output_path=output_path,
         temp_dir=temp_dir,
+        batch_size=batch_size,
     )
 
 

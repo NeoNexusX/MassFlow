@@ -1064,4 +1064,5 @@ def filter_peaks_by_adducts(
         keep_mask,
         output_path=output_path,
         temp_dir=temp_dir,
+        batch_size=batch_size,
     )

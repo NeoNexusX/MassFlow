@@ -288,14 +288,14 @@ def _plot_correlation_distribution(ax: Axes, result: AdductAnnotationResult) -> 
         bins = np.linspace(-1.0, 1.0, 61)
         ax.hist(
             candidate_correlations,
-            bins=bins,
+            bins=bins, # type: ignore
             color=_CANDIDATE_COLOR,
             alpha=0.5,
             label=f"All finite candidates ({candidate_correlations.size:,})",
         )
         ax.hist(
             passed_correlations,
-            bins=bins,
+            bins=bins, # type: ignore
             histtype="step",
             color=_PASS_COLOR,
             linewidth=1.8,
@@ -303,7 +303,7 @@ def _plot_correlation_distribution(ax: Axes, result: AdductAnnotationResult) -> 
         )
         ax.hist(
             summary_correlations,
-            bins=bins,
+            bins=bins, # type: ignore
             histtype="step",
             color=_REMOVAL_EVIDENCE_COLOR,
             linewidth=1.8,
