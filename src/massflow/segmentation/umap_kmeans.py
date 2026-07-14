@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Iterator, Literal
 
 import matplotlib
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import umap
@@ -655,9 +657,7 @@ def build_kmeans_image(
         coordinates, width=width, height=height,
     )
 
-    palette = (np.asarray(matplotlib.colormaps["tab20"].colors)[:, :3] * 255).astype(np.uint8) # type: ignore
-    if n_clusters > len(palette):
-        raise ValueError(f"n_clusters must be <= {len(palette)}.")
+    palette = _tab20_rgb_palette(n_clusters)
     colors = palette[labels]
 
     image = np.zeros((h, w, 3), dtype=np.uint8)
@@ -689,6 +689,15 @@ def build_kmeans_label_image(
 def _tab20_label_colors(n_clusters: int) -> dict[int, str]:
     """Build the human-readable label-to-colour mapping for KMeans results."""
     return {label: TAB20_COLOR_NAMES[label] for label in range(n_clusters)}
+
+
+def _tab20_rgb_palette(n_clusters: int) -> np.ndarray:
+    """Return the tab20 RGB palette used by KMeans labels."""
+    tab20_colors = matplotlib.colormaps["tab20"].colors  # type: ignore
+    palette = (np.asarray(tab20_colors)[:, :3] * 255).astype(np.uint8)
+    if n_clusters > len(palette):
+        raise ValueError(f"n_clusters must be <= {len(palette)}.")
+    return palette
 
 
 # ---------------------------------------------------------------------------
@@ -775,15 +784,48 @@ def _run_umap_stage(
     return scaled_embedding, coordinates, width, height
 
 
-def _save_rgb_image(image: np.ndarray, output_path: str | Path, *, dpi: int) -> None:
+def _save_rgb_image(
+    image: np.ndarray,
+    output_path: str | Path,
+    *,
+    dpi: int,
+    legend_handles: list[mpatches.Patch] | None = None,
+    show: bool = False,
+) -> None:
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    plt.imsave(
-        str(output),
-        image,
-        dpi=dpi,
-        pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True},
+    pil_kwargs: dict[str, Any] | None = None
+    if output.suffix.lower() in {".jpg", ".jpeg"}:
+        pil_kwargs = {"quality": 95, "subsampling": 0, "optimize": True}
+
+    if legend_handles is None:
+        plt.imsave(
+            str(output),
+            image,
+            dpi=dpi,
+            pil_kwargs=pil_kwargs,
+        )
+        return
+
+    fig, ax = plt.subplots()
+    ax.imshow(image)
+    ax.axis("off")
+    ncol = max(1, math.ceil(len(legend_handles) / 10))
+    ax.legend(
+        handles=legend_handles,
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        ncol=ncol,
     )
+    fig.savefig(
+        str(output),
+        bbox_inches="tight",
+        dpi=dpi,
+        pil_kwargs=pil_kwargs,
+    )
+    if show:
+        plt.show()
+    plt.close(fig)
 
 
 def plot_umap_image(
@@ -836,6 +878,7 @@ def plot_umap_kmeans_image(
     umap_metric: str = "cosine",
     n_clusters: int = 10,
     random_state: int | None = None,
+    show: bool = False,
 ) -> UmapKmeansResult:
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
 
@@ -895,8 +938,13 @@ def plot_umap_kmeans_image(
 
     # ---- 5. Save outputs ------------------------------------------------
     if save_images:
-        _save_rgb_image(umap_img, out / "umap_image.jpg", dpi=dpi)
-        _save_rgb_image(kmeans_img, out / "kmeans_image.jpg", dpi=dpi)
+        _save_rgb_image(umap_img, out / "umap_image.png", dpi=dpi)
+        palette = _tab20_rgb_palette(n_clusters)
+        legend_handles = [
+            mpatches.Patch(color=tuple(palette[i] / 255), label=str(i))
+            for i in range(n_clusters)
+        ]
+        _save_rgb_image(kmeans_img, out / "kmeans_image.png", dpi=dpi, legend_handles=legend_handles, show=show)
 
     if save_matrix == "zarr":
         result_group = zarr.open_group(str(out / "umap_kmeans_result.zarr"), mode="w")

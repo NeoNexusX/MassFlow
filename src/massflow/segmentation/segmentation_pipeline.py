@@ -122,11 +122,11 @@ class UmapKmeansResult:
 
     def print_label_colors(self) -> None:
         """Log the KMeans label-to-color mapping."""
-        mapping = ", ".join(
-            f"{label}: {color_name}"
+        mapping = "\n".join(
+            f"{color_name}: {label}"
             for label, color_name in sorted(self.label_colors.items())
         )
-        logger.info(f"KMeans label colors: {mapping}")
+        logger.info(f"KMeans label colors:\n{mapping}")
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +172,7 @@ class SegmentationPipeline:
         umap_metric: str = "cosine",
         n_clusters: int = 10,
         random_state: int | None = None,
+        show: bool = False,
     ) -> UmapKmeansResult:
         """Run UMAP/KMeans, retain its result, and clear any previous mask."""
         from massflow.segmentation.umap_kmeans import plot_umap_kmeans_image
@@ -188,6 +189,7 @@ class SegmentationPipeline:
             umap_metric=umap_metric,
             n_clusters=n_clusters,
             random_state=random_state,
+            show=show,
         )
         self.mask = None
         return self.result

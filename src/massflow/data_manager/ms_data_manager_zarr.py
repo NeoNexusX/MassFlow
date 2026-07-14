@@ -89,6 +89,12 @@ class MSDataManagerZarr(MSDataManager):
                 "MS meta data is None. Please load or copy meta data first."
             )
         if self._writer is None:
+            width = getattr(self.ms.meta, "max_count_of_pixels_x", None)
+            height = getattr(self.ms.meta, "max_count_of_pixels_y", None)
+            if width is not None and int(width) <= 0:
+                width = None
+            if height is not None and int(height) <= 0:
+                height = None
             self._writer = MSIZarrWriter(
                 self.zarr_filepath,
                 row_axis="pixel",
@@ -98,8 +104,8 @@ class MSDataManagerZarr(MSDataManager):
                     else self._storage_mode
                 ),
                 metadata=self.ms.meta, # type: ignore
-                width=getattr(self.ms.meta, "max_count_of_pixels_x", None),
-                height=getattr(self.ms.meta, "max_count_of_pixels_y", None),
+                width=width,
+                height=height,
                 mz_dtype=self.mz_dtype,
                 intensity_dtype=self.intensity_dtype,
                 target_chunk_bytes=self._chunk_size * 1024 * 1024,
