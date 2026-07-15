@@ -1,34 +1,34 @@
-# MassFlow
+# 统计峰过滤
 
-本文介绍 MassFlow 中的统计峰过滤（statistics-based peak filtering）模块，重点包括：
+本文介绍 MassFlow 中的统计峰过滤模块，重点包括：
 
 - 流水线级入口 `Preprocessor.filter_peaks_by_stats`
 - 可复用统计对象 `PeakFilterProfile`
-- count、frequency、mean/sum intensity 过滤条件
-- 统一共享 m/z mask 的流式写回
+- 出现次数、出现频率、平均/总强度过滤条件
+- 统一共享 m/z 掩码的流式写回
 
 ## 概述
 
-统计峰过滤在整个数据集上统计每个共享 m/z 位置的出现次数和聚合强度，然后构建一个全局 `keep_mask`，将相同的筛选结果应用到所有谱图。
+统计峰过滤在整个数据集上统计每个共享 m/z 位置的出现次数和聚合强度，然后构建一个全局保留掩码 `keep_mask`，将相同的筛选结果应用到所有谱图。
 
-- 输入必须是峰对齐后的 **continuous/shared-m/z** 数据。
-- 该操作是 dataset 任务，需要先扫描完整数据集计算统计量，再扫描一次应用 mask 并写出结果。
-- count/frequency 条件与 intensity 条件使用 AND 组合。
-- 输出仍为 continuous 数据，但共享 m/z 轴和每条谱的强度向量都会同步缩短。
+- 输入必须是峰对齐后的**连续型共享 m/z** 数据。
+- 该操作是数据集级任务，需要先扫描完整数据集计算统计量，再扫描一次应用掩码并写出结果。
+- 出现次数/频率条件与强度条件使用逻辑与（AND）组合。
+- 输出仍为连续型数据，但共享 m/z 轴和每条谱的强度向量都会同步缩短。
 
 ### 流程图
 
 ```mermaid
 graph TD
-  A["对齐后的 continuous 数据"] --> B["compute_peak_filter_profile"]
-  B --> C["counts / frequencies"]
-  B --> D["summed / mean intensity"]
-  C --> E["count mask"]
-  D --> F["intensity mask"]
-  E --> G["AND"]
+  A["对齐后的连续型数据"] --> B["compute_peak_filter_profile"]
+  B --> C["出现次数 / 出现频率"]
+  B --> D["总强度 / 平均强度"]
+  C --> E["出现支持度掩码"]
+  D --> F["强度掩码"]
+  E --> G["逻辑与（AND）"]
   F --> G
   G --> H["filter_data_by_mask"]
-  H --> I["过滤后的 continuous 数据"]
+  H --> I["过滤后的连续型数据"]
 ```
 
 ## 核心 API
@@ -48,7 +48,7 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_stats(
 ```
 
 - 描述：根据峰出现支持度和聚合强度过滤共享 m/z 轴。
-- 任务类型：dataset 任务。
+- 任务类型：数据集级任务。
 - 输入：必须为 `continuous=True` 且具有共享 m/z 轴的数据。
 - 批处理：统计扫描和写回扫描均使用 `Preprocessor.batch_size`。
 - 临时文件：使用 `Preprocessor.temp_dir`。
@@ -58,9 +58,9 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_stats(
   - `intensity_method`：使用平均强度 `"mean"` 或总强度 `"sum"`。
   - `min_intensity`：聚合强度绝对下限。
   - `intensity_quantile`：聚合强度分位数阈值，范围 `(0, 1)`。
-  - `output_path`：该 dataset 过滤阶段的 imZML 输出路径；通常也可以在 `Preprocessor(..., output_path=...)` 中统一指定最终路径。
+  - `output_path`：该数据集级过滤阶段的 imZML 输出路径；通常也可以在 `Preprocessor(..., output_path=...)` 中统一指定最终路径。
 
-默认 `intensity_quantile=0.01`，因此即使不传其他阈值，流水线也会删除聚合强度不高于第 1 百分位阈值的 m/z 位置。若只想使用 count/frequency 条件，应显式设置：
+默认 `intensity_quantile=0.01`，因此即使不传其他阈值，流水线也会删除聚合强度不高于第 1 百分位阈值的 m/z 位置。若只想使用出现次数/频率条件，应显式设置：
 
 ```python
 intensity_quantile=None
@@ -127,8 +127,8 @@ preprocess.helper.stat_filter_helper.compute_peak_filter_profile(
 ```
 
 - 对每个共享 m/z 位置统计强度大于零的谱数。
-- 同时累加强度总和，避免 count 和 intensity 分别扫描数据集。
-- 返回的 profile 可以在直接调用 helper 时复用，避免重复计算。
+- 同时累加强度总和，避免为出现次数和强度分别扫描数据集。
+- 返回的统计对象可以在直接调用辅助函数时复用，避免重复计算。
 
 ### filter_peaks_by_stats（辅助函数级）
 
@@ -149,12 +149,12 @@ preprocess.helper.stat_filter_helper.filter_peaks_by_stats(
 ```
 
 - `profile=None` 时自动计算统计结果。
-- 传入 profile 时会验证数组形状、谱数量以及 m/z 轴是否与当前数据管理器完全一致。
+- 传入 `profile` 时会验证数组形状、谱数量以及 m/z 轴是否与当前数据管理器完全一致。
 - 至少需要启用 `min_count`、`min_frequency`、`min_intensity`、`intensity_quantile` 中的一个条件。
 
-## mask 语义
+## 掩码语义
 
-每类条件先构建自己的布尔 mask，最终使用 AND：
+每类条件先构建自己的布尔掩码，最终使用逻辑与：
 
 ```text
 keep = count_mask AND intensity_mask
@@ -189,7 +189,7 @@ profile = plot_peak_filter_histogram(
 )
 ```
 
-该函数返回可复用的 `PeakFilterProfile`，但流水线 API 当前不会接收外部 profile；需要复用时应直接调用 helper。
+该函数返回可复用的 `PeakFilterProfile`，但流水线 API 当前不会接收外部 `profile`；需要复用时应直接调用辅助函数。
 
 ## 参数说明与调参建议
 
@@ -198,24 +198,23 @@ profile = plot_peak_filter_histogram(
 - `mean` 会把缺失位置按零计入总谱数平均，更强调跨像素整体信号。
 - `sum` 会随谱数量变化，跨数据集比较阈值时需要谨慎。
 - `intensity_quantile` 是相对阈值，适合先删除全局最弱的一部分 m/z 位置。
-- 多个条件同时设置时是 AND，而不是 OR；阈值组合可能明显缩短共享 m/z 轴。
+- 多个条件同时设置时是逻辑与（AND），而不是逻辑或（OR）；阈值组合可能明显缩短共享 m/z 轴。
 
 ## 错误处理
 
-- 非 continuous 数据会抛出 `ValueError`；应先运行 `peak_align`。
+- 非连续型数据会抛出 `ValueError`；应先运行 `peak_align`。
 - 所有阈值均为 `None` 时抛出 `ValueError`。
 - `min_count` 必须是正整数。
 - `min_frequency` 必须位于 `[0, 1]`。
 - `intensity_method` 必须为 `"mean"` 或 `"sum"`。
 - `min_intensity` 必须是有限非负数。
 - `intensity_quantile` 必须位于 `(0, 1)`。
-- 空数据或与当前 m/z 轴不匹配的 profile 会被拒绝。
+- 空数据或与当前 m/z 轴不匹配的 `profile` 会被拒绝。
 
 ## 参考
 
-- `preprocess/helper/stat_filter_helper.py`：profile、mask 和公共过滤操作
-- `preprocess/numba/stat_filter_numba.py`：统计聚合与共享 mask 写回内核
+- `preprocess/helper/stat_filter_helper.py`：统计对象、掩码和公共过滤操作
+- `preprocess/numba/stat_filter_numba.py`：统计聚合与共享掩码写回内核
 - `tools/plot_peak_filter.py`：阈值分布预览
 - `preprocess/api.py`：`PreprocessorAPI.filter_peaks_by_stats`
-- `preprocess/pipeline/planner.py`：dataset 任务顺序和最终输出路由
-
+- `preprocess/pipeline/planner.py`：数据集级任务顺序和最终输出路由

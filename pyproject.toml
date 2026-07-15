@@ -21,12 +21,16 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "scipy>=1.16.3",
     "umap-learn>=0.5.12",
+    "wheezy-template>=3.2.5",
     "zarr>=3.2.1",
 ]
 
 [project.optional-dependencies]
 r = [
     "rpy2>=3.6.4",
+]
+torch = [
+    "torch>=2.11.0",
 ]
 
 [dependency-groups]

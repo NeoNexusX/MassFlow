@@ -1,6 +1,6 @@
-# MassFlow
+# 同位素峰过滤
 
-本文介绍 MassFlow 中的同位素峰过滤（isotope filtering）模块，重点包括：
+本文介绍 MassFlow 中的同位素峰过滤模块，重点包括：
 
 - 流水线级入口 `Preprocessor.filter_peaks_by_isotopes`
 - 扁平批处理入口 `FlatPreprocess.isotope_filter_flat`
@@ -10,7 +10,7 @@
 
 同位素峰过滤用于在峰提取之后识别同一同位素簇中的后续同位素峰，并只保留最低 m/z 的起始峰以及未被分配到同位素簇的峰。
 
-- 输入必须是 **processed + centroided** 数据：每条谱具有自己的峰 m/z 数组。
+- 输入必须是**已处理且已质心化**的数据：每条谱具有自己的峰 m/z 数组。
 - 该操作按谱独立执行，不会跨像素合并峰，也不会创建共享 m/z 轴。
 - 输出会压缩 m/z、强度和 `lengths`，被识别为后续同位素峰的数据点会被真正删除。
 - 推荐顺序为 `peak_pick → filter_peaks_by_isotopes → peak_align`。
@@ -21,8 +21,8 @@
 graph LR
   A["Preprocessor.filter_peaks_by_isotopes"] --> B["FlatPreprocess.isotope_filter_flat"]
   B --> C["filter_peaks_by_isotopes"]
-  C --> D["逐谱构建 keep mask"]
-  D --> E["压缩 m/z、intensity 和 lengths"]
+  C --> D["逐谱构建保留掩码"]
+  D --> E["压缩 m/z、强度和谱长度"]
   E --> F["保留单同位素峰和未分配峰"]
 ```
 
@@ -44,9 +44,9 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_isotopes(
 ) -> Self
 ```
 
-- 描述：在每条 centroided 谱中识别同位素簇，删除簇内除最低 m/z 起始峰以外的峰。
-- 任务类型：batch 任务；使用 `Preprocessor.batch_size` 分批读取和写出。
-- 输入：应先经过 `peak_pick`，或本身已经是 processed centroid 数据。
+- 描述：在每条已质心化谱中识别同位素簇，删除簇内除最低 m/z 起始峰以外的峰。
+- 任务类型：批次级任务；使用 `Preprocessor.batch_size` 分批读取和写出。
+- 输入：应先经过 `peak_pick`，或本身已经是已处理且已质心化的数据。
 - 输出：调用 `.start()` 后返回新的数据管理器；谱数量和坐标保持不变，每条谱的峰数可能减少。
 - 参数：
   - `mz_tolerance`：同位素峰匹配容差，默认 `10.0`。
@@ -107,7 +107,7 @@ preprocess.helper.isotope_filter_helper.filter_peaks_by_isotopes(
 ```
 
 - 返回值：`(filtered_mz, filtered_intensity, filtered_lengths)`。
-- 说明：辅助函数的 `max_charge` 默认值为 `1`；流水线 API 的默认值为 `3`，直接调用 helper 时需要注意这一差异。
+- 说明：辅助函数的 `max_charge` 默认值为 `1`；流水线 API 的默认值为 `3`，直接调用辅助函数时需要注意这一差异。
 - 输入 m/z 应按每条谱升序排列，因为内部使用 `np.searchsorted` 搜索容差窗口。
 
 ### FlatPreprocess.isotope_filter_flat（扁平批处理级）
@@ -129,8 +129,8 @@ massflow.preprocess.flat_pre_fun.FlatPreprocess.isotope_filter_flat(
 ) -> FlatBatchResult
 ```
 
-- 描述：流水线中每个 flat batch 的入口。
-- 输出：返回压缩后的 m/z、强度和谱长度；坐标由 pipeline 原样传递。
+- 描述：流水线中每个扁平批次的入口。
+- 输出：返回压缩后的 m/z、强度和谱长度；坐标由流水线原样传递。
 
 ## 算法说明
 
@@ -173,7 +173,7 @@ expected_mz = M + k × 1.003354838 / z
 
 ## 使用注意事项
 
-- 不要在 `peak_align` 之后调用本算法。共享 m/z 轴会被识别为 continuous 数据并触发 `ValueError`。
+- 不要在 `peak_align` 之后调用本算法。共享 m/z 轴会被识别为连续型数据并触发 `ValueError`。
 - 该实现只依据同位素质量间距和可选强度趋势判断，不使用分子式、理论同位素丰度或空间相关性。
 - 较大的 `max_charge` 和 `max_isotope_count` 会增加每个起始峰的搜索工作量。
 - 容差过宽可能把邻近非同位素峰并入簇；容差过窄可能漏掉真实同位素峰。
@@ -181,8 +181,7 @@ expected_mz = M + k × 1.003354838 / z
 ## 参考
 
 - `preprocess/helper/isotope_filter_helper.py`：输入校验与数组压缩入口
-- `preprocess/numba/isotope_filter_numba.py`：逐谱 keep mask 和 Numba 并行实现
+- `preprocess/numba/isotope_filter_numba.py`：逐谱保留掩码和 Numba 并行实现
 - `preprocess/flat_pre_fun.py`：`FlatPreprocess.isotope_filter_flat`
 - `preprocess/api.py`：`PreprocessorAPI.filter_peaks_by_isotopes`
 - `preprocess/pipeline/planner.py`：峰提取、同位素过滤、参考轴构建与峰对齐的执行顺序
-

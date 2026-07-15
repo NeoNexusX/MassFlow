@@ -1,10 +1,10 @@
-# MassFlow
+# 加合物注释与过滤
 
-本文介绍 MassFlow 中的加合物注释与过滤（adduct annotation and filtering）模块，重点包括：
+本文介绍 MassFlow 中的加合物注释与过滤模块，重点包括：
 
 - 流水线级入口 `Preprocessor.filter_peaks_by_adducts`
 - 可审计预览 `compute_adduct_annotations`
-- 空间相关性证据和 CSV 报告
+- 空间相关性证据和 CSV 审计报告
 - `apply_adduct_annotations` 的预览后应用流程
 
 ## 概述
@@ -17,7 +17,7 @@
 2. 对中性质量相近的假设进行聚类。
 3. 使用像素强度向量之间的 Pearson 相关系数确认候选关系。
 4. 处理重叠候选组并确定代表峰。
-5. 生成可审计注释、报告和最终共享 m/z mask。
+5. 生成可审计注释、报告和最终共享 m/z 掩码。
 
 输入必须满足：
 
@@ -30,14 +30,14 @@
 
 ```mermaid
 graph TD
-  A["对齐后的共享 m/z 轴"] --> B["构建 rule × peak 中性质量假设"]
+  A["对齐后的共享 m/z 轴"] --> B["构建规则 × 峰的中性质量假设"]
   B --> C["中性质量聚类"]
   C --> D["生成候选加合物组"]
   D --> E["流式计算空间 Pearson 相关性"]
   E --> F["按阈值拆分相关组件"]
   F --> G["IPS 竞争与重叠组解析"]
   G --> H["选择总强度最高的代表峰"]
-  H --> I["注释 / CSV 报告 / keep mask"]
+  H --> I["注释 / CSV 报告 / 保留掩码"]
 ```
 
 ## 核心 API
@@ -58,9 +58,9 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_adducts(
 ```
 
 - 描述：计算加合物关系并直接应用删除决策。
-- 任务类型：dataset 任务。
-- pipeline 行为：内部固定使用 `remove=True`。
-- 批处理：使用 `Preprocessor.batch_size` 计算总强度、空间相关性和写回结果。
+- 任务类型：数据集级任务。
+- 流水线行为：内部固定使用 `remove=True`。
+- 批处理：使用 `Preprocessor.batch_size` 指定的批次大小计算总强度、空间相关性和写回结果。
 - 临时文件：使用 `Preprocessor.temp_dir`。
 - 参数：
   - `polarity`：正离子或负离子规则表。
@@ -106,7 +106,7 @@ dm.close()
 
 ## 默认规则表
 
-当前默认预设只支持 `nmol=1`、单电荷规则。
+当前默认规则集只支持 `nmol=1`、单电荷规则。
 
 ### 正离子模式
 
@@ -148,13 +148,13 @@ tolerance = 2 × ppm × 1e-6 × neutral_mass + mzabs
 
 ### 空间相关性
 
-算法按 batch 流式累计 Pearson 相关系数所需的充分统计量，不会一次性加载所有像素的完整特征矩阵。只有满足：
+算法按批次流式累计 Pearson 相关系数所需的充分统计量，不会一次性加载所有像素的完整特征矩阵。只有满足：
 
 ```text
 correlation >= min_spatial_correlation
 ```
 
-的峰对才会形成连接边。候选质量组可能因此拆分为多个独立空间组件。
+的峰对才会形成连接边。候选质量组可能因此拆分为多个独立的空间组件。
 
 ### 代表峰和保护规则
 
@@ -230,7 +230,7 @@ preprocess.helper.adduct_filter_helper.filter_peaks_by_adducts(
 ) -> MSDataManagerImzML
 ```
 
-直接调用 helper 时 `remove=False`，默认只计算决策并返回原数据管理器；流水线注册会把该参数固定为 `True`。
+直接调用辅助函数时 `remove=False`，默认只计算决策并返回原数据管理器；流水线注册会把该参数固定为 `True`。
 
 ## CSV 审计报告
 
@@ -248,9 +248,9 @@ preprocess.helper.adduct_filter_helper.filter_peaks_by_adducts(
 
 - `ppm` 和 `mzabs` 共同控制中性质量聚类宽度；增大后候选关系会增加，但错误候选也可能增加。
 - `min_spatial_correlation` 越高，确认越保守；默认 `0.7`。
-- `require_quasi=True` 可防止只由非 quasi 规则组成的组件进入删除阶段。
+- `require_quasi=True` 可防止只由非准分子规则组成的组件进入删除阶段。
 - 建议先输出预览图和 CSV 报告，再决定是否在正式数据上执行删除。
-- 当前算法依赖共享 m/z 轴上的像素强度相关性，不适用于未对齐的 processed 谱。
+- 当前算法依赖共享 m/z 轴上的像素强度相关性，不适用于尚未对齐的已处理谱。
 
 ## 错误处理
 
@@ -265,7 +265,7 @@ preprocess.helper.adduct_filter_helper.filter_peaks_by_adducts(
 
 ## 实现与溯源边界
 
-当前模块记录的算法基础为 CAMERA 1.68.0 的 primary adduct 规则、中性质量假设、候选聚类、quasi/IPS 竞争与最大强度代表峰逻辑。空间相关组件是 MassFlow 针对 MSI 数据的适配层。
+当前模块记录的算法基础为 CAMERA 1.68.0 的主要加合物规则、中性质量假设、候选聚类、准分子/IPS 竞争与最大强度代表峰逻辑。空间相关组件是 MassFlow 针对 MSI 数据的适配层。
 
 本实现没有宣称覆盖 CAMERA 的完整动态规则表、同位素电荷推断或一般化 OID 因果处理。默认规则和阈值是否适合具体仪器与离子化条件，需要由使用者结合预览和报告评估。
 
@@ -274,7 +274,6 @@ preprocess.helper.adduct_filter_helper.filter_peaks_by_adducts(
 - `preprocess/helper/adduct_filter_helper.py`：规则、候选组、相关性、报告与公共 API
 - `preprocess/numba/adduct_filter_numba.py`：空间相关性流式统计内核
 - `tools/plot_adduct_filter.py`：可审计预览图
-- `preprocess/helper/stat_filter_helper.py`：共享 mask 写回
+- `preprocess/helper/stat_filter_helper.py`：共享掩码写回
 - `preprocess/api.py`：`PreprocessorAPI.filter_peaks_by_adducts`
-- `preprocess/pipeline/planner.py`：dataset 任务顺序和输出路由
-
+- `preprocess/pipeline/planner.py`：数据集级任务顺序和输出路由
