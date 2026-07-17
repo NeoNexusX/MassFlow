@@ -708,7 +708,7 @@ def estimate_flat_numba(
     overlap: float = 0.5,
     method_code: int  = 0,
     denoise_method: str = 'gaussian_numba',
-    floor_value: float = 0.001,
+    floor_value: float = 0.0,
 ) -> np.ndarray:
     """
     Flat-mode parallel noise estimation.

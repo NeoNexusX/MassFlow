@@ -62,7 +62,7 @@ def estimator(
         overlap=overlap,
         method_code=method_code,
         denoise_method=denoise_method,
-        floor_value=0.001,
+        floor_value=0.0,
     )
 
     return noise_flat

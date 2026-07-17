@@ -53,6 +53,7 @@ class Preprocessor(PreprocessorAPI):
         output_max_workers: int = 2,
         compute_mean_spectrum: bool = False,
         compute_tic: bool = False,
+        pipeline_stall_timeout: float | None = 180.0,
     ): # pylint: disable=super-init-not-called
         if data_manager is None or batch_size <= 0 or batch_size > 9056 or queue_ab_size <= 0 or queue_bc_size <= 0 :
             logger.error(f"Invalid parameter values. please check:"
@@ -65,6 +66,8 @@ class Preprocessor(PreprocessorAPI):
                 "output_format must be 'imzml', 'spectra_zarr', "
                 "'ion_image_binary', 'ion_image_h5', or 'ion_image_zarr'."
             )
+        if pipeline_stall_timeout is not None and pipeline_stall_timeout <= 0:
+            raise ValueError("pipeline_stall_timeout must be positive or None.")
         self.data_manager = data_manager
         self.batch_size = batch_size
         self.temp_dir = temp_dir
@@ -77,6 +80,7 @@ class Preprocessor(PreprocessorAPI):
         self.ion_block = ion_block
         self.compute_mean_spectrum = compute_mean_spectrum
         self.compute_tic = compute_tic
+        self.pipeline_stall_timeout = pipeline_stall_timeout
 
         self._tasks: list[PreprocessTask] = []
 
@@ -114,6 +118,7 @@ class Preprocessor(PreprocessorAPI):
                 result_format=self.output_format, # type: ignore
                 compute_mean_spectrum=self.compute_mean_spectrum,
                 compute_tic=self.compute_tic,
+                pipeline_stall_timeout=self.pipeline_stall_timeout,
             ),
         )
         if not task_segments and self.output_format in ION_IMAGE_OUTPUT_FORMATS:

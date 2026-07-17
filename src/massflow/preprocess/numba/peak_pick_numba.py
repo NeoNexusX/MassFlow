@@ -301,8 +301,14 @@ def _findpeaks_filtered_indices_safe_jit(
 
                 p = int(peaks[i])
                 nv = noise_x[p]
-                if (not np.isfinite(nv)) or nv <= 0.0:
+                if (not np.isfinite(nv)) or nv < 0.0:
                     keep[i] = False
+                    continue
+
+                # A positive peak over zero estimated noise has infinite SNR.
+                if nv == 0.0:
+                    if x[p] <= 0.0:
+                        keep[i] = False
                     continue
 
                 snr_val = x[p] / nv

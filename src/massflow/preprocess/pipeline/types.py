@@ -57,6 +57,7 @@ class InputMetaData:
     ion_block: int = 256
     compute_mean_spectrum: bool = False
     compute_tic: bool = False
+    pipeline_stall_timeout: float | None = 60.0
 
 
 @dataclass(slots=True)
