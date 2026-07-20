@@ -1,10 +1,7 @@
 name: Publish Pre-release Package
 
 on:
-  push:
-    tags:
-      - 'v*'          # 推送 v0.1.0a1 等 tag 时触发
-  workflow_dispatch:   # 支持手动触发
+  workflow_dispatch:   # 仅供内部需要时手动触发
 
 permissions:
   contents: write
