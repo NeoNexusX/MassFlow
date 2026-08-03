@@ -36,7 +36,7 @@ class IonImageDataManagerZarr(IonImageDataManager):
         ion_block: int = 256,
         temp_workers: int = 4,
         merge_workers: int = 4,
-        chunk_size: int = 4,
+        chunk_size: int = 1,
         metadata=None,
         shared_mz_axis: np.ndarray | None = None,
         compute_mean_spectrum: bool = False,
@@ -218,7 +218,7 @@ class IonImageDataManagerZarr(IonImageDataManager):
         ion_block=256,
         temp_workers=2,
         merge_workers=2,
-        chunk_size=4,
+        chunk_size=1,
         compute_mean_spectrum=False,
     ) -> "IonImageDataManagerZarr":
         meta = data_manager.ms.meta
@@ -265,7 +265,7 @@ class IonImageDataManagerZarr(IonImageDataManager):
         ion_block=256,
         temp_workers=2,
         merge_workers=2,
-        chunk_size=4,
+        chunk_size=1,
         compute_mean_spectrum=False,
     ) -> "IonImageDataManagerZarr":
         output_meta = deepcopy(data_manager.ms.meta)

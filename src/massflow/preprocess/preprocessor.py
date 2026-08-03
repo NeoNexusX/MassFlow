@@ -44,6 +44,7 @@ class Preprocessor(PreprocessorAPI):
         *,
         batch_size: int = 256,
         ion_block: int = 256,
+        zarr_chunk_size: int = 1,
         queue_ab_size: int = 1,
         queue_bc_size: int = 1,
         temp_dir: str = "./temp",
@@ -68,6 +69,8 @@ class Preprocessor(PreprocessorAPI):
             )
         if pipeline_stall_timeout is not None and pipeline_stall_timeout <= 0:
             raise ValueError("pipeline_stall_timeout must be positive or None.")
+        if zarr_chunk_size <= 0:
+            raise ValueError("zarr_chunk_size must be positive.")
         self.data_manager = data_manager
         self.batch_size = batch_size
         self.temp_dir = temp_dir
@@ -78,6 +81,7 @@ class Preprocessor(PreprocessorAPI):
         self.output_path = output_path
         self.output_max_workers = output_max_workers
         self.ion_block = ion_block
+        self.zarr_chunk_size = zarr_chunk_size
         self.compute_mean_spectrum = compute_mean_spectrum
         self.compute_tic = compute_tic
         self.pipeline_stall_timeout = pipeline_stall_timeout
@@ -112,6 +116,7 @@ class Preprocessor(PreprocessorAPI):
                 numba_max_threads=self.numba_max_threads,
                 output_max_workers=self.output_max_workers,
                 ion_block=self.ion_block,
+                zarr_chunk_size=self.zarr_chunk_size,
                 queue_ab_size=self.queue_ab_size,
                 queue_bc_size=self.queue_bc_size,
                 result_path=self.output_path,

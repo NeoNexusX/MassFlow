@@ -37,7 +37,7 @@ class MSDataManagerZarr(MSDataManager):
         intensity_dtype: Any = np.float32,
         mode: str = "r",
         storage_mode: ZarrStorageMode | None = None,
-        chunk_size: int = 4,
+        chunk_size: int = 1,
         compute_tic: bool = False,
     ):
         if mode not in {"r", "w"}:

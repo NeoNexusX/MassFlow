@@ -81,6 +81,7 @@ class FlatOutputSink:
                         filepath=output_meta.file_path,
                         mode="w",
                         temp_dir=input_meta.temp_dir,
+                        chunk_size=input_meta.zarr_chunk_size,
                         compute_tic=input_meta.compute_tic,
                     )
                 )
@@ -109,6 +110,11 @@ class FlatOutputSink:
         else:
             raise ValueError(f"Unsupported ion image output format: {self.output_meta.output_format}")
 
+        zarr_options = (
+            {"chunk_size": self.input_meta.zarr_chunk_size}
+            if self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR
+            else {}
+        )
         return ion_image_cls.from_flat_output_contract(
             self.source_data_manager,
             self.output_meta.file_path,
@@ -119,6 +125,7 @@ class FlatOutputSink:
             merge_workers=self.input_meta.output_max_workers,
             ion_block=self.input_meta.ion_block,
             compute_mean_spectrum=self.input_meta.compute_mean_spectrum,
+            **zarr_options, # type: ignore
         )
 
     def write_chunk(self, chunk: FlatChunk) -> None:

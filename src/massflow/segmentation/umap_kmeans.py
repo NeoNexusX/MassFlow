@@ -828,11 +828,33 @@ def _save_rgb_image(
     plt.close(fig)
 
 
+def _save_umap_result_zarr(
+    output_path: str | Path,
+    scaled_embedding: np.ndarray,
+    coordinates: np.ndarray,
+    umap_image: np.ndarray,
+) -> Path:
+    """Save frontend UMAP inputs and the rendered image as a Zarr group."""
+    scatter_x, scatter_y, *_ = _infer_spatial_params(coordinates)
+    zero_based_coordinates = np.column_stack((scatter_x, scatter_y)).astype(
+        np.uint32,
+        copy=False,
+    )
+
+    zarr_path = Path(output_path).with_suffix(".zarr")
+    result_group = zarr.open_group(str(zarr_path), mode="w", zarr_format=3)
+    result_group.create_array("scaled_embedding", data=scaled_embedding)
+    result_group.create_array("coordinates", data=zero_based_coordinates)
+    result_group.create_array("umap_image", data=umap_image)
+    return zarr_path
+
+
 def plot_umap_image(
     data_manager: Any,
     *,
     output_path: str | Path = "./umap_image.jpg",
     dpi: int = 600,
+    save_matrix: Literal["zarr"] | None = None,
     sample_ratio: float = 0.1,
     transform_batch_size: int | None = 1024,
     n_components: int = 3,
@@ -840,6 +862,8 @@ def plot_umap_image(
     random_state: int | None = None,
 ) -> np.ndarray:
     """Run UMAP analysis, save the spatial UMAP image, and return it."""
+    if save_matrix not in {None, "zarr"}:
+        raise ValueError("save_matrix must be None or 'zarr'.")
     _validate_umap_parameters(
         n_components,
         sample_ratio,
@@ -862,6 +886,14 @@ def plot_umap_image(
     )
     _save_rgb_image(umap_img, output_path, dpi=dpi)
     logger.info(f"UMAP image saved to: {output_path}")
+    if save_matrix == "zarr":
+        zarr_path = _save_umap_result_zarr(
+            output_path,
+            scaled_embedding,
+            coordinates,
+            umap_img,
+        )
+        logger.info(f"UMAP result matrices saved to: {zarr_path}")
     return umap_img
 
 
