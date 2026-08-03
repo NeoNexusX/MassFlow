@@ -1,46 +1,10 @@
-import numpy as np
-
 import main as main_module
 
 
-class _DummySpectrum:
-    def __init__(self, scale: float = 1.0):
-        self.mz_list = np.array([100.0, 101.0, 102.0], dtype=float)
-        self.intensity = np.array([10.0, 20.0, 30.0], dtype=float) * scale
-
-
-def test_plot_before_after_calls_plot_with_expected_options(tmp_path, monkeypatch):
-    calls = {}
-
-    def _fake_plot_spectrum(**kwargs):
-        calls.update(kwargs)
-
-    monkeypatch.setattr(main_module, "plot_spectrum", _fake_plot_spectrum)
-
-    before = _DummySpectrum(scale=1.0)
-    after = _DummySpectrum(scale=1.5)
-    out_file = tmp_path / "plots" / "before_after.png"
-
-    main_module.plot_before_after(before, after, save_path=str(out_file))  # type: ignore[attr-defined]  # pylint: disable=no-member
-
-    assert out_file.parent.exists()
-    assert calls["base"] is before
-    assert calls["target"] is after
-    assert calls["save_path"] == str(out_file)
-    assert calls["overlay"] is True
-    assert calls["metrics_box"] is True
-
-
-class _DummyProcessedResult:
-    def __init__(self, intensity):
-        self.intensity = intensity
-
-
-class _DummyManager:
-    def __init__(self, filepath=None, temp_dir=None):
+class _DummyInputManager:
+    def __init__(self, filepath):
         self.filepath = filepath
-        self.temp_dir = temp_dir
-        self.ms = []
+        self.loaded = False
 
     def __enter__(self):
         return self
@@ -49,56 +13,55 @@ class _DummyManager:
         return False
 
     def load_head_data(self):
-        if not self.ms:
-            self.ms = [_DummySpectrum(1.0), _DummySpectrum(1.2)]
+        self.loaded = True
 
-    def copy_meta(self, _other):
-        return None
 
-    def flat_generator(self, **_kwargs):
-        mz_flat = np.array([100.0, 101.0, 102.0], dtype=float)
-        intensity_flat = np.array([10.0, 20.0, 30.0], dtype=float)
-        lengths = [3]
-        coordinates = [[1, 1, 1]]
-        yield mz_flat, intensity_flat, lengths, coordinates
+class _DummyProcessedManager:
+    n_ions = 12
+    n_pixels = 34
+    height = 5
+    width = 6
 
-    def write_flat_batch(self, intensity_flat, lengths, coordinates, mz_axis):  # pylint: disable=unused-argument
-        self.ms = []
-        start = 0
-        for length in lengths:
-            end = start + length
-            spectrum = _DummySpectrum(1.0)
-            spectrum.mz_list = np.array(mz_axis[start:end], dtype=float)
-            spectrum.intensity = np.array(intensity_flat[start:end], dtype=float)
-            self.ms.append(spectrum)
-            start = end
-
-    def close_writer(self):
-        return None
+    def __init__(self):
+        self.closed = False
 
     def close(self):
-        return None
+        self.closed = True
 
 
-def test_main_triggers_plot_before_after(monkeypatch):
-    plot_calls = []
+def test_main_runs_ion_image_h5_pipeline(tmp_path, monkeypatch, capsys):
+    calls = {}
+    processed_manager = _DummyProcessedManager()
 
-    def _fake_noise_reduction_flat(mz_data, intensity, lengths, method):  # pylint: disable=unused-argument
-        assert method == "gaussian_numba"
-        return _DummyProcessedResult(intensity=intensity * 0.8)
+    class _DummyPreprocessor:
+        def __init__(self, data_manager, output_format, output_path):
+            calls["data_manager"] = data_manager
+            calls["output_format"] = output_format
+            calls["output_path"] = output_path
 
-    def _fake_plot_before_after(before_spectrum, after_spectrum, save_path=None):
-        plot_calls.append((before_spectrum, after_spectrum, save_path))
+        def start(self):
+            calls["started"] = True
+            return processed_manager
 
-    monkeypatch.setattr(main_module, "MSDataManagerImzML", _DummyManager)
-    monkeypatch.setattr(main_module, "MassSpectrumSet", lambda: object())  # pylint: disable=unnecessary-lambda
-    monkeypatch.setattr(main_module.FlatPreprocess, "noise_reduction_flat", staticmethod(_fake_noise_reduction_flat))  # type: ignore[attr-defined]  # pylint: disable=no-member
-    monkeypatch.setattr(main_module, "plot_before_after", _fake_plot_before_after)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "example.h5").write_bytes(b"test")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(main_module, "MSDataManagerImzML", _DummyInputManager)
+    monkeypatch.setattr(main_module, "Preprocessor", _DummyPreprocessor)
 
     main_module.main()
 
-    assert len(plot_calls) == 1
-    before, after, save_path = plot_calls[0]
-    assert isinstance(before, _DummySpectrum)
-    assert isinstance(after, _DummySpectrum)
-    assert save_path is None
+    input_manager = calls["data_manager"]
+    assert input_manager.filepath == "data/example.imzML"
+    assert input_manager.loaded is True
+    assert calls["output_format"] == "ion_image_h5"
+    assert calls["output_path"] == "data/example.h5"
+    assert calls["started"] is True
+    assert processed_manager.closed is True
+
+    output = capsys.readouterr().out
+    assert "Output: data/example.h5" in output
+    assert "n_ions: 12" in output
+    assert "n_pixels: 34" in output
+    assert "image: 5 x 6" in output
