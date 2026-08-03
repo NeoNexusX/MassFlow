@@ -1,7 +1,9 @@
 import time
+import numpy as np
 import pytest
 from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess.flat_pre_fun import FlatPreprocess
+from massflow.preprocess.numba.noise_reduction_numba import smooth_signal_savgol_numba
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.test.test_noise_reduction")
@@ -65,3 +67,25 @@ class TestNoiseReductionAPI:
             iterations=1,
             warmup_rounds=1,
         )
+
+
+def test_savgol_short_spectrum_uses_edge_padding():
+    first_spectrum = np.array([1.0, 2.0, 3.0])
+    lengths = np.array([3, 3], dtype=np.int64)
+
+    result_a = smooth_signal_savgol_numba(
+        np.concatenate((first_spectrum, np.zeros(3))),
+        window=5,
+        polyorder=3,
+        lengths=lengths,
+    )
+    result_b = smooth_signal_savgol_numba(
+        np.concatenate((first_spectrum, np.full(3, 1000.0))),
+        window=5,
+        polyorder=3,
+        lengths=lengths,
+    )
+
+    expected = np.array([41.0 / 35.0, 2.0, 99.0 / 35.0])
+    np.testing.assert_allclose(result_a[:3], expected)
+    np.testing.assert_allclose(result_b[:3], expected)
