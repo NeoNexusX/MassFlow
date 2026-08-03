@@ -37,7 +37,8 @@ class MSDataManagerZarr(MSDataManager):
         intensity_dtype: Any = np.float32,
         mode: str = "r",
         storage_mode: ZarrStorageMode | None = None,
-        chunk_size: int = 4,
+        chunk_size: int = 1,
+        compute_tic: bool = False,
     ):
         if mode not in {"r", "w"}:
             raise ValueError("mode must be 'r' or 'w'")
@@ -58,6 +59,7 @@ class MSDataManagerZarr(MSDataManager):
         self.mode = mode
         self._temp_dir = temp_dir
         self._chunk_size = max(1, int(chunk_size))
+        self._compute_tic = bool(compute_tic)
         self.ms.meta = MetaDataZarr()
         self._storage_mode: ZarrStorageMode | None = storage_mode
         self._finalized = False
@@ -87,6 +89,12 @@ class MSDataManagerZarr(MSDataManager):
                 "MS meta data is None. Please load or copy meta data first."
             )
         if self._writer is None:
+            width = getattr(self.ms.meta, "max_count_of_pixels_x", None)
+            height = getattr(self.ms.meta, "max_count_of_pixels_y", None)
+            if width is not None and int(width) <= 0:
+                width = None
+            if height is not None and int(height) <= 0:
+                height = None
             self._writer = MSIZarrWriter(
                 self.zarr_filepath,
                 row_axis="pixel",
@@ -96,12 +104,13 @@ class MSDataManagerZarr(MSDataManager):
                     else self._storage_mode
                 ),
                 metadata=self.ms.meta, # type: ignore
-                width=getattr(self.ms.meta, "max_count_of_pixels_x", None),
-                height=getattr(self.ms.meta, "max_count_of_pixels_y", None),
+                width=width,
+                height=height,
                 mz_dtype=self.mz_dtype,
                 intensity_dtype=self.intensity_dtype,
                 target_chunk_bytes=self._chunk_size * 1024 * 1024,
                 temp_dir=self._temp_dir,
+                compute_tic=self._compute_tic,
             )
         return self._writer
 
@@ -117,6 +126,11 @@ class MSDataManagerZarr(MSDataManager):
     def extract_metadata(self):
         """Load metadata from the Zarr metadata group."""
         self.ms.meta = self._require_reader().metadata
+
+    @property
+    def tic(self) -> np.ndarray | None:
+        """Return the per-pixel TIC array from stats/tic, if present."""
+        return self._require_reader().read_tic()
 
     def preload_hook(self, *args, **kwargs):
         """Load metadata and shared m/z axis before building spectrum placeholders."""

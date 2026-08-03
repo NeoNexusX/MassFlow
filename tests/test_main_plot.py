@@ -21,7 +21,7 @@ def test_plot_before_after_calls_plot_with_expected_options(tmp_path, monkeypatc
     after = _DummySpectrum(scale=1.5)
     out_file = tmp_path / "plots" / "before_after.png"
 
-    main_module.plot_before_after(before, after, save_path=str(out_file))
+    main_module.plot_before_after(before, after, save_path=str(out_file))  # type: ignore[attr-defined]  # pylint: disable=no-member
 
     assert out_file.parent.exists()
     assert calls["base"] is before
@@ -62,7 +62,7 @@ class _DummyManager:
         coordinates = [[1, 1, 1]]
         yield mz_flat, intensity_flat, lengths, coordinates
 
-    def write_flat_batch(self, intensity_flat, lengths, coordinates, mz_axis):
+    def write_flat_batch(self, intensity_flat, lengths, coordinates, mz_axis):  # pylint: disable=unused-argument
         self.ms = []
         start = 0
         for length in lengths:
@@ -83,7 +83,7 @@ class _DummyManager:
 def test_main_triggers_plot_before_after(monkeypatch):
     plot_calls = []
 
-    def _fake_noise_reduction_flat(mz_data, intensity, lengths, method):
+    def _fake_noise_reduction_flat(mz_data, intensity, lengths, method):  # pylint: disable=unused-argument
         assert method == "gaussian_numba"
         return _DummyProcessedResult(intensity=intensity * 0.8)
 
@@ -91,8 +91,8 @@ def test_main_triggers_plot_before_after(monkeypatch):
         plot_calls.append((before_spectrum, after_spectrum, save_path))
 
     monkeypatch.setattr(main_module, "MSDataManagerImzML", _DummyManager)
-    monkeypatch.setattr(main_module, "MassSpectrumSet", lambda: object())
-    monkeypatch.setattr(main_module.FlatPreprocess, "noise_reduction_flat", staticmethod(_fake_noise_reduction_flat))
+    monkeypatch.setattr(main_module, "MassSpectrumSet", lambda: object())  # pylint: disable=unnecessary-lambda
+    monkeypatch.setattr(main_module.FlatPreprocess, "noise_reduction_flat", staticmethod(_fake_noise_reduction_flat))  # type: ignore[attr-defined]  # pylint: disable=no-member
     monkeypatch.setattr(main_module, "plot_before_after", _fake_plot_before_after)
 
     main_module.main()

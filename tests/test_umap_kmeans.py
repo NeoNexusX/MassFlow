@@ -132,7 +132,7 @@ class TestRunUMAPKMeans:
         finally:
             zarr_dm.close()
 
-        for image_name in ("umap_image.jpg", "kmeans_image.jpg"):
+        for image_name in ("umap_image.jpg", "kmeans_image.png"):
             if not _image_pixels_equal(f"./validation_imzml/{image_name}", f"./validation_zarr/{image_name}"):
                 pytest.fail(f"{image_name} differs between imzML and Zarr results.")
 

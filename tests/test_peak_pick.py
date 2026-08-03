@@ -9,6 +9,7 @@ import pytest
 
 from massflow.data_manager import MSDataManagerImzML
 from massflow.module import MassSpectrumSet
+from massflow.preprocess.helper.peak_pick_helper import peak_picker
 from massflow.preprocess.preprocessor import Preprocessor
 from massflow.tools.logger import get_logger
 
@@ -45,11 +46,13 @@ def run_peak_pick(
     batch_size: int = 256,
 ) -> MSDataManagerImzML:
     """Run peak picking with specified parameters and return the resulting data manager."""
+    output_path = Path("temp") / f"peak_pick_{backend}_{method}.imzML"
     return (
         Preprocessor( # type: ignore
             data_manager=data_manager,
             batch_size=batch_size,
-            output_format="imzml"
+            output_format="imzml",
+            output_path=str(output_path),
         )
         .peak_pick(
             width=width,
@@ -187,6 +190,33 @@ def compare_pick_result(
 
 class TestPeakPick:
     """Test peak picking results consistency between Python and Cardinal backends."""
+
+    def test_peak_pick_is_invariant_to_intensity_scaling(self) -> None:
+        mz = np.arange(21, dtype=np.float64)
+        intensity = np.array(
+            [0, 0, 0, 0, 1, 4, 1, 0, 0, 0, 0, 2, 8, 2, 0, 0, 0, 1, 5, 1, 0],
+            dtype=np.float64,
+        )
+        lengths = np.array([intensity.size], dtype=np.uint32)
+
+        base_mz, base_intensity, base_lengths = peak_picker(
+            mz,
+            intensity,
+            lengths,
+            width=3,
+            snr=2.0,
+        )
+        scaled_mz, scaled_intensity, scaled_lengths = peak_picker(
+            mz,
+            intensity * 1e-6,
+            lengths,
+            width=3,
+            snr=2.0,
+        )
+
+        np.testing.assert_array_equal(scaled_lengths, base_lengths)
+        np.testing.assert_array_equal(scaled_mz, base_mz)
+        np.testing.assert_allclose(scaled_intensity, base_intensity * 1e-6)
 
     @pytest.fixture(scope="class")
     def data_manager(self) -> MSDataManagerImzML:

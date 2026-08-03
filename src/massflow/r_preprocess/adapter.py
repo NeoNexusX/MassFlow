@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from massflow.module import MassSpectrumSet
 from massflow.data_manager import MSDataManagerImzML
 from massflow.r_preprocess.environment import REnvironment
@@ -101,6 +103,7 @@ class CardinalAdapter:
         width: int = 5,
         decreasing: bool = True,
         temp_dir: str = "./temp_baseline_data",
+        output_path: str | None = None,
     ) -> MSDataManagerImzML:
         """
         Call Cardinal::reduceBaseline for baseline correction.
@@ -128,6 +131,7 @@ class CardinalAdapter:
             data_manager=data_manager,
             func="reduceBaseline",
             temp_dir=temp_dir,
+            output_path=output_path,
             realize=True,
             **kwargs,
         )
@@ -143,6 +147,7 @@ class CardinalAdapter:
         deriv: int = 0,
         delta: float = 1.0,
         temp_dir: str = "./temp_noise_data",
+        output_path: str | None = None,
     ) -> MSDataManagerImzML:
         """
         Call Cardinal::smooth for spectral smoothing/noise reduction.
@@ -170,6 +175,7 @@ class CardinalAdapter:
             data_manager=data_manager,
             func="smooth",
             temp_dir=temp_dir,
+            output_path=output_path,
             realize=True,
             **kwargs,
         )
@@ -182,6 +188,7 @@ class CardinalAdapter:
         scale: float | None = None,
         ref: float | None = None,
         temp_dir: str = "./temp_normalization_data",
+        output_path: str | None = None,
     ) -> MSDataManagerImzML:
         """
         Call Cardinal::normalize for intensity normalization.
@@ -204,6 +211,7 @@ class CardinalAdapter:
             data_manager=data_manager,
             func="normalize",
             temp_dir=temp_dir,
+            output_path=output_path,
             realize=True,
             **kwargs,
         )
@@ -243,6 +251,8 @@ class CardinalAdapter:
         # Build output data manager and copy metadata from source dataset.
         # `filepath` (when provided) decides the output location; otherwise a random
         # name under `temp_dir` is used (see MSDataManager._init_file_base_path).
+        if output_path is not None:
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         dm_cardinal = MSDataManagerImzML(MassSpectrumSet(), filepath=output_path, temp_dir=temp_dir)
         dm_cardinal.copy_meta(data_manager)
 

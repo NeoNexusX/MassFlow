@@ -20,7 +20,8 @@ sample.zarr/
 │   └── mz                          # 可选，processed 模式的逐点 m/z
 │
 └── stats/                          # 可选，可删除、可重算的统计量
-    └── mean_spectrum
+│   ├── tic                         # spectra_zarr 文件包含 
+    └── mean_spectrum               # ion_zarr 文件包含
 ```
 
 `data/` 是唯一规范数据位置。`stats/` 及其子数组不是正确读取文件所必需的。
@@ -298,3 +299,26 @@ mean_spectrum[i] = sum(spectrum_p[i]) / n_pixels
 分母是 `len(axes/coordinates)`，不是 `height * width`。如果需要包含空间空洞的平均值，必须用不同的 `denominator` 明确标识。
 
 Processed spectra 没有共享 m/z 网格，除非先执行 binning/alignment，否则不能生成该数组。
+
+### 7.2 `stats/tic`
+
+仅当写入时指定 `compute_tic=True` 且 `row_axis="pixel"`（spectra_zarr）时存在。ion-major 不生成。
+
+```text
+shape = (n_pixels,)
+dtype = float64
+attrs.source = "/data"
+attrs.reduced_axis = "mz"
+```
+
+定义：
+
+```text
+tic[p] = sum(spectrum_p)
+```
+
+第 `p` 个元素对应 `axes/coordinates[p]`，顺序与 `data/offsets` 的行顺序严格一致。TIC 是求和而非平均，不挂 `denominator` 属性。
+
+continuous 与 processed 编码均可生成；TIC 只依赖每条谱的 intensity 切片，不需要共享 m/z 网格。计算在批写入阶段完成（每批对每条谱求和并累积），finalize 时一次性写出，无需对已落盘数据做二次读取。
+
+与 `stats/mean_spectrum` 互斥：后者仅存在于 ion-major 文件，`stats/tic` 仅存在于 pixel-major 文件，同一 store 不会同时包含两者。

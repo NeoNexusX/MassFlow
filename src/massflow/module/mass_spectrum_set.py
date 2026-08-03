@@ -10,7 +10,6 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 from typing import List, Tuple,Literal,overload,Union, Optional
-import matplotlib.pyplot as plt
 from massflow.tools.logger import get_logger
 from massflow.module.ms_meta_data import MetaDataBase
 from massflow.module.spectrum import Spectrum
@@ -337,6 +336,8 @@ class MassSpectrumSet:
         if mask is None:
             logger.error("Meta mask is None. Create mask before plotting.")
             raise ValueError("Meta mask is None. Create mask before plotting.")
+
+        import matplotlib.pyplot as plt
 
         # Plot the mask
         plt.figure(figsize=figsize)

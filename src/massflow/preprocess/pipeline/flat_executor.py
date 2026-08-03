@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from queue import Queue
+from queue import Empty, Full, Queue
 from threading import Event, Lock, Thread
+from time import monotonic
 from typing import Callable, Optional, cast
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,9 @@ from massflow.tools.infer_spectrum_type import set_spectrum_type_metadata
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.preprocess.pipeline.flat_executor")
+
+_QUEUE_WAIT_SECONDS = 0.1
+_THREAD_SHUTDOWN_SECONDS = 1.0
 
 
 @dataclass(slots=True)
@@ -77,6 +81,8 @@ class FlatOutputSink:
                         filepath=output_meta.file_path,
                         mode="w",
                         temp_dir=input_meta.temp_dir,
+                        chunk_size=input_meta.zarr_chunk_size,
+                        compute_tic=input_meta.compute_tic,
                     )
                 )
             else:
@@ -104,6 +110,11 @@ class FlatOutputSink:
         else:
             raise ValueError(f"Unsupported ion image output format: {self.output_meta.output_format}")
 
+        zarr_options = (
+            {"chunk_size": self.input_meta.zarr_chunk_size}
+            if self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR
+            else {}
+        )
         return ion_image_cls.from_flat_output_contract(
             self.source_data_manager,
             self.output_meta.file_path,
@@ -114,6 +125,7 @@ class FlatOutputSink:
             merge_workers=self.input_meta.output_max_workers,
             ion_block=self.input_meta.ion_block,
             compute_mean_spectrum=self.input_meta.compute_mean_spectrum,
+            **zarr_options, # type: ignore
         )
 
     def write_chunk(self, chunk: FlatChunk) -> None:
@@ -162,6 +174,26 @@ def _set_error(
             error_holder.append(exc)
     stop_event.set()
 
+def _mark_progress(last_progress: list[float], progress_lock: Lock) -> None:
+    with progress_lock:
+        last_progress[0] = monotonic()
+
+def _put_interruptibly(
+    queue: Queue[Optional[FlatChunk]],
+    item: Optional[FlatChunk],
+    stop_event: Event,
+    last_progress: list[float],
+    progress_lock: Lock,
+) -> bool:
+    while not stop_event.is_set():
+        try:
+            queue.put(item, timeout=_QUEUE_WAIT_SECONDS)
+        except Full:
+            continue
+        _mark_progress(last_progress, progress_lock)
+        return True
+    return False
+
 def _stage_a_reader(
     input_meta: InputMetaData,
     data_manager: MSDataManager,
@@ -169,6 +201,8 @@ def _stage_a_reader(
     stop_event: Event,
     error_holder: list[BaseException],
     error_lock: Lock,
+    last_progress: list[float],
+    progress_lock: Lock,
 ) -> None:
     """Stage A: producer; reads flat and pushes to queue_ab."""
     try:
@@ -177,18 +211,29 @@ def _stage_a_reader(
         ):
             if stop_event.is_set():
                 break
-            queue_ab.put(
+            if not _put_interruptibly(
+                queue_ab,
                 FlatChunk(
                     mz_data=np.asarray(mz_data),
                     intensity=np.asarray(intensity),
                     lengths=np.asarray(lengths, dtype=np.uint32),
                     coordinates=np.asarray(coords),
-                )
-            )
+                ),
+                stop_event,
+                last_progress,
+                progress_lock,
+            ):
+                break
     except BaseException as exc:  # pylint: disable=broad-exception-caught
         _set_error(error_holder=error_holder,error_lock=error_lock,stop_event=stop_event,exc=exc)
     finally:
-        queue_ab.put(None)
+        _put_interruptibly(
+            queue_ab,
+            None,
+            stop_event,
+            last_progress,
+            progress_lock,
+        )
 
 
 def _stage_b_processor(
@@ -199,18 +244,22 @@ def _stage_b_processor(
     stop_event: Event,
     error_holder: list[BaseException],
     error_lock: Lock,
+    last_progress: list[float],
+    progress_lock: Lock,
 ) -> None:
     """Stage B: middleware; runs ordered preprocessing tasks for each batch."""
     try:
         apply_numba_runtime(override_workers=input_meta.numba_max_threads)
         while True:
-            chunk = queue_ab.get()
-            if chunk is None:
-                queue_bc.put(None)
-                break
-
             if stop_event.is_set():
+                break
+            try:
+                chunk = queue_ab.get(timeout=_QUEUE_WAIT_SECONDS)
+            except Empty:
                 continue
+            _mark_progress(last_progress, progress_lock)
+            if chunk is None:
+                break
 
             current_chunk = chunk
 
@@ -229,11 +278,25 @@ def _stage_b_processor(
                     coordinates=current_chunk.coordinates,
                 )
 
-            queue_bc.put(current_chunk)
+            if not _put_interruptibly(
+                queue_bc,
+                current_chunk,
+                stop_event,
+                last_progress,
+                progress_lock,
+            ):
+                break
 
     except BaseException as exc:  # pylint: disable=broad-exception-caught
         _set_error(error_holder=error_holder,error_lock=error_lock,stop_event=stop_event,exc=exc)
-        queue_bc.put(None)
+    finally:
+        _put_interruptibly(
+            queue_bc,
+            None,
+            stop_event,
+            last_progress,
+            progress_lock,
+        )
 
 def _flush_chunk(
     data_sink: FlatOutputSink,
@@ -257,18 +320,23 @@ def _stage_c_writer(
     total_batches: int,
     error_holder: list[BaseException],
     error_lock: Lock,
+    last_progress: list[float],
+    progress_lock: Lock,
 ) -> None:
     """Stage C: consumer; persist processed chunks."""
     written_batches = 0
 
     try:
         while True:
-            chunk = queue_bc.get()
+            if stop_event.is_set():
+                break
+            try:
+                chunk = queue_bc.get(timeout=_QUEUE_WAIT_SECONDS)
+            except Empty:
+                continue
+            _mark_progress(last_progress, progress_lock)
             if chunk is None:
                 break
-
-            if stop_event.is_set():
-                continue
 
             written_batches = _flush_chunk(
                 data_sink=data_sink,
@@ -276,6 +344,7 @@ def _stage_c_writer(
                 written_batches=written_batches,
                 total_batches=total_batches,
             )
+            _mark_progress(last_progress, progress_lock)
 
     except BaseException as exc:  # pylint: disable=broad-exception-caught
         _set_error(
@@ -305,6 +374,8 @@ def run_flat_task(
     stop_event = Event()
     error_holder: list[BaseException] = []
     error_lock = Lock()
+    last_progress = [monotonic()]
+    progress_lock = Lock()
 
     t_a = Thread(
         target=_stage_a_reader,
@@ -315,6 +386,8 @@ def run_flat_task(
             "stop_event": stop_event,
             "error_holder": error_holder,
             "error_lock": error_lock,
+            "last_progress": last_progress,
+            "progress_lock": progress_lock,
         },
         name="massflow-stage-a-reader",
         daemon=True,
@@ -329,6 +402,8 @@ def run_flat_task(
             "input_meta": input_meta,
             "error_holder": error_holder,
             "error_lock": error_lock,
+            "last_progress": last_progress,
+            "progress_lock": progress_lock,
         },
         name="massflow-stage-b-processor",
         daemon=True,
@@ -342,6 +417,8 @@ def run_flat_task(
             "total_batches": total_batches,
             "error_holder": error_holder,
             "error_lock": error_lock,
+            "last_progress": last_progress,
+            "progress_lock": progress_lock,
         },
         name="massflow-stage-c-writer",
         daemon=True,
@@ -351,12 +428,35 @@ def run_flat_task(
     t_b.start()
     t_c.start()
 
-    t_a.join()
-    t_b.join()
-    t_c.join()
+    threads = (t_a, t_b, t_c)
+    while any(thread.is_alive() for thread in threads) and not error_holder:
+        stall_timeout = input_meta.pipeline_stall_timeout
+        if stall_timeout is not None:
+            with progress_lock:
+                stalled_for = monotonic() - last_progress[0]
+            if stalled_for >= stall_timeout:
+                stalled_threads = ", ".join(
+                    thread.name for thread in threads if thread.is_alive()
+                )
+                _set_error(
+                    error_holder=error_holder,
+                    error_lock=error_lock,
+                    stop_event=stop_event,
+                    exc=TimeoutError(
+                        "Async preprocessing pipeline made no progress for "
+                        f"{stall_timeout:g} seconds; active stages: {stalled_threads}."
+                    ),
+                )
+                break
+        for thread in threads:
+            thread.join(timeout=_QUEUE_WAIT_SECONDS)
 
     if error_holder:
-        data_sink.close()
+        stop_event.set()
+        for thread in threads:
+            thread.join(timeout=_THREAD_SHUTDOWN_SECONDS)
+        if not t_c.is_alive():
+            data_sink.close()
         raise RuntimeError("Async preprocessing pipeline failed.") from error_holder[0]
 
     return data_sink.finalize()
