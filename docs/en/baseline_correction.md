@@ -1,258 +1,168 @@
 # MassFlow
 
-This document introduces the baseline correction module in MassFlow, focusing on `preprocess/ms_preprocess.py` and the unified entry `MSIPreprocessor.baseline_correction`.
+This document introduces the baseline correction module in MassFlow, focusing on:
+- Pipeline-level entry point `Preprocessor.baseline_correction`
+- Core functions in `preprocess/helper/baseline_correction_helper.py`
 
 ## Overview
-- Input and output
-  - Input: `module.ms_module.SpectrumBaseModule`
-  - Output: a tuple `(corrected, baseline)`:
-  - `SpectrumBaseModule`: `(SpectrumBaseModule corrected_spectrum, np.ndarray baseline)` with `mz_list` and coordinates preserved.
+
+- Input and Output
+  - Input is in flat array form (`mz_data`, `intensity`, `lengths`), representing m/z and intensity data for a batch of spectra.
+  - Output is a baseline-corrected flat array; m/z and coordinates remain unchanged, intensity is the corrected result.
 - Methods
-  - LocMin (Local Minima Interpolation): baseline from local extrema anchors with optional smoothing.
-  - SNIP (Statistics-Sensitive Non-linear Iterative Peak-clipping): iterative clipping with adaptive early stop.
-  - ASLS (Asymmetric Least Squares): robust baseline estimation with peak preservation.
-- Baseline scaling
-  - `baseline_scale` scales the estimated baseline by `(0,1]` (default `1.0`) to prevent over-subtraction.
-  - The returned baseline is scaled. Set `baseline_scale=1.0` to keep native algorithm behavior.
+  - LocMin Numba (`locmin_numba`): Estimates baseline via local extremum anchor interpolation, accelerated with Numba.
+  - SNIP Numba (`snip_numba`): Multi-scale iterative clipping baseline estimation, accelerated with Numba, suitable for peak shape preservation.
+- Baseline Scaling
+  - `baseline_scale` scales the estimated baseline by a factor in `(0, 1]` (default `1.0`) to avoid over-subtraction.
+  - The actual subtraction uses the "scaled baseline"; setting `baseline_scale=1.0` preserves the native algorithm behavior.
 
 ### Function Relationship Diagram
 
 ```mermaid
 graph LR
-  A[Baseline Correction] --> B{Method Selection}
-  B --> C[LocMin Method]
-  B --> D[SNIP Method]
-  B --> E[ASLS Method]
-  C --> F[Estimate Baseline]
-  D --> F
+  A["Preprocessor.baseline_correction"] --> B["FlatPreprocess.baseline_reduction_flat"]
+  B --> C["baseline_corrector"]
+  C --> D["baseline_locmin_numba"]
+  C --> E["baseline_snip_numba"]
+  D --> F["Corrected Data"]
   E --> F
-  F --> G[Scale Baseline]
-  G --> H[Subtract & Clip]
-  H --> I[Corrected Data]
 ```
 
 ## Core API
 
-### MSIPreprocessor.baseline_correction_spectrum
-```python
-preprocess.ms_preprocess.MSIPreprocessor.baseline_correction_spectrum(
-  data: SpectrumBaseModule | SpectrumImzML
-  method: str = "asls",
-  smooth: str = "none",
-  span: float = 0.1,
-  s: float | None = 0.0,
-  upper: bool = False,
-  width: int = 5,
-  lam: float = 1e7,
-  p: float = 0.01,
-  niter: int = 15,
-  baseline_scale: float = 1.0,
-  m: int | None = None,
-  decreasing: bool = True
-) -> tuple[SpectrumBaseModule, np.ndarray]
-```
-- Description: Unified entry for baseline correction. Dispatches to LocMin, SNIP, or ASLS and returns the corrected spectrum and the scaled estimated baseline.
-- Supported methods: `"locmin"`, `"snip"`, `"asls"`
-- Returns: `(corrected_spectrum, baseline)`; corrected spectrum preserves `mz_list` and coordinates.
-- Exceptions: `ValueError` (unsupported method), `TypeError` (invalid input type)
- 
+### Preprocessor.baseline_correction (Pipeline Level)
 
-### baseline_corrector
 ```python
-preprocess.baseline_correction_helper.baseline_corrector(
-  intensity: np.ndarray,
-  index: np.ndarray | None = None,
-  method: str = "asls",
-  smooth: str = "none",
-  span: float = 0.1,
-  s: float | None = 0.0,
-  upper: bool = False,
-  width: int = 5,
-  lam: float = 1e7,
-  p: float = 0.01,
-  niter: int = 15,
-  baseline_scale: float = 1.0,
-  m: int | None = None,
-  decreasing: bool = True,
+massflow.preprocess.api.PreprocessorAPI.baseline_correction(
+    *,
+    method: str = "locmin_numba",
+    smooth: str = "none",
+    span: float = 0.1,
+    upper: bool = False,
+    width: int = 5,
+    niter: int = 15,
+    baseline_scale: float = 1.0,
+    m: int | None = None,
+    decreasing: bool = True,
+) -> Self
+```
+
+- Description: Pipeline-level baseline correction entry point. Performs baseline correction on all spectra in batches via `Preprocessor` chainable calls.
+- Input: Bind a data manager via `Preprocessor(dm)`.
+- Output: After calling `.start()`, returns a new `MSDataManagerImzML` whose spectral intensities are baseline-corrected.
+- Supported methods: `"locmin_numba"`, `"snip_numba"`.
+- Parameters:
+  - `method`: Baseline correction method, default `"locmin_numba"`.
+  - `smooth`: LocMin smoothing mode, `"none" | "loess" | "spline"`, default `"none"`.
+  - `span`: Loess smoothing span ratio (0 < span ≤ 1), default 0.1.
+  - `upper`: When `True`, uses local maxima as anchors (upper envelope), default `False`.
+  - `width`: Neighborhood width for local extremum detection, default 5.
+  - `niter`: Number of iterations for LocMin, default 15.
+  - `baseline_scale`: Baseline scaling factor in `(0, 1]`, default 1.0.
+  - `m`: SNIP half-window size; auto-selected if `None`.
+  - `decreasing`: SNIP iteration direction, `True` for large-to-small windows.
+
+Example:
+
+```python
+from massflow.data_manager import MSDataManagerImzML
+from massflow.preprocess import Preprocessor
+from massflow.tools.plot import plot_spectrum
+
+FILE_PATH = "data/example.imzML"
+dm = MSDataManagerImzML(filepath=FILE_PATH)
+dm.load_head_data()
+
+corrected = (
+    Preprocessor(dm)
+    .baseline_correction(method="locmin_numba", width=5, baseline_scale=1)
+    .start()
+)
+
+plot_spectrum(
+    base=dm.ms[0],
+    target=corrected.ms[0],
+    mz_range=(400.0, 450.0),
+    intensity_range=(0.0, 500),
+    metrics_box=True,
+)
+
+corrected.close()
+dm.close()
+```
+
+### baseline_corrector (Helper Function Level)
+
+```python
+preprocess.helper.baseline_correction_helper.baseline_corrector(
+    intensity: np.ndarray,
+    method: str = "locmin_numba",
+    smooth: str = "none",
+    span: float = 0.1,
+    upper: bool = False,
+    width: int = 5,
+    niter: int = 15,
+    baseline_scale: float = 1.0,
+    m: int | None = None,
+    decreasing: bool = True,
+    lengths: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]
 ```
-- Parameters:
-  - `intensity`: 1D intensity array.
-  - `index`: optional 1D coordinate array; validated for alignment but not directly used by current methods.
-  - `method`: `'locmin' | 'snip' | 'asls'`.
-  - `smooth`, `span`, `s`, `upper`, `width`: LocMin options (smoothing and anchor detection).
-  - `lam`, `p`, `niter`: ASLS options.
-  - `baseline_scale`: scale factor in `(0,1]` applied to the estimated baseline (default `1.0`).
-  - `m`, `decreasing`: SNIP options.
-- Returns:
-  - `(corrected, scaled_baseline)`: corrected intensity and the scaled baseline.
-- Exceptions:  
-  - `ValueError`: unsupported `method`.
-  - Input validation errors for non-1D or empty arrays.
 
-### locmin_baseline
-```python
-preprocess.baseline_correction_helper.locmin_baseline(
-  intensity: np.ndarray,
-  smooth: str = "none",
-  span: float = 0.1,
-  s: float | None = 0.0,
-  upper: bool = False,
-  width: int = 5
-) -> np.ndarray
-```
-- Description: Baseline estimation by interpolation from local extrema anchors. Detect local minima (or maxima if `upper=True`) using a windowed rule, force endpoints as anchors, then linearly interpolate. Optionally smooth the baseline via Loess (`smooth='loess', span`) or spline (`smooth='spline', s`).
+- Description: Flat-array baseline correction dispatcher. Calls the corresponding Numba backend based on `method`.
 - Parameters:
-  - `smooth`: `'none' | 'loess' | 'spline'`
-  - `span`: Loess span proportion (0 < span ≤ 1), default 0.1
-  - `s`: Spline smoothing target residual sum of squares; `0.0` means interpolation
-  - `upper`: Use local maxima as anchors when `True` (otherwise minima)
-  - `width`: Neighborhood width for local extrema detection (default 5)
-- Notes:
-  - `s=0.0` yields exact interpolation through all anchor points; `s>0.0` smooths the spline toward a residual sum of squares ≈ `s`.
-  - Endpoints are always included as anchors to ensure full coverage.
-  - Minima and maxima detection are symmetric; maxima produce an upper envelope.
+  - `intensity`: One-dimensional flat intensity array.
+  - `lengths`: Spectrum length array, used to split processing per-spectrum within Numba.
+  - Other parameters are consistent with the pipeline-level API.
+- Returns: `(corrected, scaled_baseline)` — the corrected intensity and the scaled baseline.
+- Supported methods are limited to `"locmin_numba"` and `"snip_numba"`.
 - Exceptions:
-  - `ValueError`: invalid `smooth` value; `span` not in `(0,1]`; `s < 0`; `width < 3`.
-  - `TypeError`: `width` is not an integer, intensity is not a 1D array.
+  - `ValueError`: Unsupported method; invalid `baseline_scale`.
+  - `TypeError`: intensity is not a numpy array.
 
-Example:
-
-```python
-import numpy as np
-from module.ms_module import SpectrumBaseModule
-from preprocess.ms_preprocess import MSIPreprocessor
-from tools.plot import plot_spectrum
-
-sp = SpectrumBaseModule(mz_list=mz_data, intensity=intensity_original, coordinates=[0, 0, 0])
-
-corrected_sp, baseline = MSIPreprocessor.baseline_correction_spectrum(
-    data=sp,
-    method="locmin",
-    upper=False,
-    width=11,
-    smooth="none",
-    baseline_scale=1.0
-)
-
-plot_spectrum(
-    base=sp,
-    target=corrected_sp,
-    mz_range=(400, 450),
-    intensity_range=(0.0, 2.0),
-    metrics_box=True,
-    title_suffix="LocMin",
-    overlay=True
-)
-```
-![Locmin example before/after (image to be added)]()
-
-### snip_baseline
-```python
-preprocess.baseline_correction_helper.snip_baseline(
-  intensity: np.ndarray,
-  m: int | None = None,
-  decreasing: bool = True
-) -> np.ndarray
-```
-- Description: Statistics-sensitive Non-linear Iterative Peak-clipping (SNIP) baseline estimation algorithm. Performs multi-scale iterative processing to effectively estimate and remove baseline while preserving real mass spectral peaks.
-- Parameters:
-  - `m`: Window half-size; if None, auto-selects based on spectrum length: `min(100, max(10, n//10))`
-  - `decreasing`: Iterate from large window to small (`True`) or small to large (`False`)
-- Returns:
-  - `baseline`: Estimated baseline as 1D numpy array
-- Exceptions:
-  - `TypeError`: `m` is not an integer.
-  - `ValueError`: `m <= 0`; `intensity` is not a 1D array.
-
-Example:
+### FlatPreprocess.baseline_reduction_flat (Flat Batch Level)
 
 ```python
-import numpy as np
-from module.ms_module import SpectrumBaseModule
-from preprocess.ms_preprocess import MSIPreprocessor
-
-sp = SpectrumBaseModule(mz_list=mz_data, intensity=intensity_original , coordinates=[0, 0, 0])
-
-corrected_sp, baseline = MSIPreprocessor.baseline_correction_spectrum(
-    data=sp,
-    method="snip",
-    m=50,
-    decreasing=True,
-    baseline_scale=1.0
-)
-
-plot_spectrum(
-    base=sp,
-    target=corrected_sp,
-    mz_range=(400, 450),
-    intensity_range=(0.0, 2.0),
-    metrics_box=True,
-    title_suffix="SNIP",
-    overlay=True
-)
+massflow.preprocess.flat_pre_fun.FlatPreprocess.baseline_reduction_flat(
+    mz_data: np.ndarray,
+    intensity: np.ndarray,
+    lengths: np.ndarray,
+    method: str = "locmin_numba",
+    smooth: str = "none",
+    span: float = 0.1,
+    upper: bool = False,
+    width: int = 5,
+    niter: int = 15,
+    baseline_scale: float = 1.0,
+    m: int | None = None,
+    decreasing: bool = True,
+) -> FlatBatchResult
 ```
-![SNIP example before/after (image to be added)]()
 
-### asls_baseline
-```python
-preprocess.baseline_correction_helper.asls_baseline(
-  intensity: np.ndarray,
-  lam: float = 1e7,
-  p: float = 0.01,
-  niter: int = 15
-) -> np.ndarray
-```
-- Description: Asymmetric Least Squares (ASLS) baseline estimation algorithm. Uses weighted least squares with asymmetric penalties to estimate baseline while preserving peak signals through iterative reweighting.
-- Parameters:
-  - `lam`: Smoothness control parameter (positive float; larger values produce smoother baselines, typical range 1e4–1e8)
-  - `p`: Asymmetry parameter (0–1; smaller values provide better peak preservation, typical range 0.001–0.1)
-  - `niter`: Iteration count (positive integer; typical range 5–30)
-- Returns:
-  - `baseline`: Estimated baseline as 1D numpy array
- - Exceptions:
-  - `ValueError`: `lam <= 0`; `p` not in `(0,1)`; `niter` not a positive integer.
-  - `TypeError`:  `intensity` is not a 1D array
+- Description: The underlying implementation of `Preprocessor.baseline_correction`. Returns a `FlatBatchResult` containing mz_data, corrected intensity, and lengths.
 
-## Parameters and Tuning
+## Parameter and Tuning Recommendations
+
 - General
-  - `baseline_scale` (`(0,1]`): smaller values reduce over-subtraction; `1.0` preserves native behavior.
-- LocMin
-  - `width`: Larger window reduces anchor density; start at 5–9.
-    - Must be an integer and `>= 3`.
-  - `upper`: Use maxima for upper envelope; keep `False` for baseline.
-  - `smooth`: `'none'` for raw interpolation; `'loess'` for local smoothing; `'spline'` for global smoothing.
-  - `span`: Loess span 0.05–0.3; larger values smooth more aggressively.
-  - `s`: Spline smoothing target residual sum of squares; `0.0` or `None` for interpolation.
-- ASLS
-  - `lam` (smoothness): `1e4–1e8`, larger → smoother baseline.
-  - `p` (asymmetry): `0.001–0.1`, smaller → stronger peak preservation.
-  - `niter` (iterations): `5–30`, more iterations stabilize weights.
-- SNIP
-  - `m` (half-window): default `min(100, max(10, n//10))`; overly large windows may over-subtract.
-  - `decreasing`: `True` (coarse→fine) usually more robust; `False` (fine→coarse) emphasizes local-first.
-
-## Tips
-- Ensure `mz` and `intensity` lengths match when reading NPY files.
-- Use `metrics_box=True` to visualize SNR, TIC ratio and related metrics inline.
-- Overlay mode: set `overlay=True` to plot original and corrected spectra on the same axis. Omit or set `overlay=False` for stacked subplots.
+  - `baseline_scale` (`(0,1]`): Smaller values reduce the risk of over-subtraction; `1.0` preserves native algorithm behavior.
+- LocMin Numba
+  - `width`: Larger windows produce sparser anchors; suggested starting range is 5–9. Must be an integer ≥ 3.
+  - `upper`: Set to `True` for upper envelope; generally keep `False` for baseline.
+  - `smooth`: `"none"` for raw interpolation; `"loess"` for local smoothing; `"spline"` for global smoothing.
+  - `span`: Loess span can be 0.05–0.3; larger values produce smoother results.
+- SNIP Numba
+  - `m` (half-window): Auto-selected as `min(100, max(10, n//10))` by default; excessively large windows may cause over-subtraction.
+  - `decreasing`: `True` (coarse-to-fine) is generally more robust; `False` (fine-to-coarse) emphasizes local priority.
 
 ## References
-- `preprocess/ms_preprocess.py` (unified entry, parameter defaults)
-- `preprocess/baseline_correction_helper.py` (LocMin, SNIP, ASLS implementations)
-- `module/ms_module.py` (Data structure for `SpectrumBaseModule`)
-- `tools/plot.py` (Plotting utilities for `SpectrumBaseModule`)
+
+- `preprocess/helper/baseline_correction_helper.py`: Baseline correction dispatcher (baseline_corrector)
+- `preprocess/numba/baseline_correction_numba.py`: Numba-accelerated implementation (baseline_locmin_numba, baseline_snip_numba)
+- `preprocess/flat_pre_fun.py`: Flat preprocessing entry point (FlatPreprocess.baseline_reduction_flat)
+- `preprocess/api.py`: Chainable API (PreprocessorAPI.baseline_correction)
 
 ## Error Handling and Logging
 
-- All input validation errors log via `logger.error` before raising `TypeError` or `ValueError`.
-- Baseline scaling: `baseline_scale` must be a finite number in `(0,1]`; violations log and raise `ValueError`.
-- LocMin:
-  - `smooth` must be one of `'none' | 'loess' | 'spline'`.
-  - `span` must be in `(0,1]`; `s` must be a finite number and `>= 0`.
-  - `width` must be an integer and `>= 3`.
-  - Loess/Spline smoothing depends on external functions (`_smooth1d`, `UnivariateSpline`); if they fail (e.g., missing dependency, invalid parameters), exceptions will propagate.
-- SNIP:
-  - `m` must be an integer (type violation raises `TypeError`); if provided, it must be `>= 1`.
-- ASLS:
-  - `lam` must be a positive finite number; `p` must be in `(0,1)`; `niter` must be a positive integer.
+- Input validation: intensity must be a non-empty 1D numpy array, otherwise `TypeError` / `ValueError` is raised.
+- Baseline scaling: `baseline_scale` must be finite and in `(0,1]`; otherwise `ValueError` is raised.
+- Method validation: Only `"locmin_numba"` and `"snip_numba"` are supported; otherwise `ValueError` is raised.

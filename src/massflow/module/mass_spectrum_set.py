@@ -10,81 +10,66 @@ Author: MassFlow Development Team Bionet/NeoNexus
 License: See LICENSE file in project root
 """
 from typing import List, Tuple,Literal,overload,Union, Optional
-import matplotlib.pyplot as plt
-from massflow.logger import get_logger
-from massflow.module.ms_meta_data import MetaDataBase,ImzMlMetaData
+from massflow.tools.logger import get_logger
+from massflow.module.ms_meta_data import MetaDataBase
 from massflow.module.spectrum import Spectrum
 
 
-logger = get_logger("ms_module")
+logger = get_logger("massflow.module.mass_spectrum_set")
 
 class MassSpectrumSet:
     """
-    Collection class for managing multiple mass spectra with coordinate-based indexing.
-
-    This class serves as a container and manager for multiple `Spectrum` instances,
-    providing efficient storage, retrieval, and manipulation of mass spectrometry data
-    organized by 3D spatial coordinates. It supports both sequential and coordinate-based
-    access patterns.
+    A collection class for managing multiple mass spectra with coordinate-based indexing, 
+    serving as a container for Spectrum instances and supporting efficient storage, retrieval,
+    and manipulation of data organized by 3D spatial coordinates.
 
     The class maintains two internal data structures:
-    - A queue (_queue) for sequential access and iteration
-    - A nested dictionary (_coordinate_index) for fast coordinate-based lookup
+        - A queue (_queue) for sequential access and iteration
+        - A nested dictionary (_coordinate_index) for fast coordinate-based lookup
 
     Attributes:
         _queue (List[Spectrum]): Sequential list of all spectra
         _coordinate_index (dict): Nested dictionary mapping coordinates to spectra.
-                                 Structure: {z: {x: {y: Spectrum}}}
+                                  Structure: {z: {x: {y: Spectrum}}}
+        meta (MetaDataBase): Metadata associated with the mass spectra, including occupancy mask and coordinate info.
+        shared_mz_list (ndarray): Optional shared m/z list for continuous data mode
 
     Indexing Methods:
-        - ms[index]: Access by sequential index
-        - ms[x, y]: Access by coordinates (z is resolved automatically; see Notes)
-        - ms[x, y, z]: Access by full 3D coordinates
-        - ms[x, y, z] = spectrum: Direct assignment
+        - ms[index](spectrum): Access by sequential index
+        - ms[x, y](spectrum): Access by coordinates (z is resolved automatically; see Notes)
+        - ms[x, y, z](spectrum): Access by full 3D coordinates
 
-        Notes:
-                - Coordinates are automatically managed and indexed.
-                - Supports both 2D (x, y) and 3D (x, y, z) coordinate systems.
-                - Efficient lookup performance through coordinate indexing.
-                - No explicit thread-safety guarantees are provided.
-                - For 2D access (`ms[x, y]`), `__getitem__` selects `z=0` when present; otherwise it selects
-                    the first available z-key in `self._coordinate_index` (iteration order).
-                - For 2D assignment (`ms[x, y] = spectrum`), `__setitem__` assigns into the first available
-                    z-key in `self._coordinate_index` and will raise if the index is empty.
+    Notes:
+        - Coordinates are automatically managed and indexed.
+        - Supports both 2D (x, y) and 3D (x, y, z) coordinate systems.
+        - No explicit thread-safety guarantees are provided.
+        - For 2D access (`ms[x, y]`), `__getitem__` selects `z=0` when present; otherwise it selects
+          the first available z-key in `self._coordinate_index` (iteration order).
     """
 
-    def __init__(self):
+    def __init__(self, meta: MetaDataBase | None = None):
         """
         Initialize an empty MS collection.
-
-        Creates empty internal data structures for storing and indexing mass spectra.
-        No parameters are required for initialization.
         """
-        self.meta :MetaDataBase = ImzMlMetaData(filepath=None)
-        self._queue = []
-        self._coordinate_index = {}  # Mapping from coordinates to MSBaseModule
+        self.meta = MetaDataBase() if meta is None else meta
+        self._queue = [] # queue for mapping from index to spectrum
+        self._coordinate_index = {}  # Dict for mapping from coordinates to spectrum
         self._shared_mz_list = None
-
 
     @property
     def shared_mz_list(self):
         """
-        Get or set the shared/common m/z list across spectra.
-
-        In continuous-data mode, multiple spectra can share the same m/z axis. This property stores
-        that shared m/z array/list and is typically populated by a data manager (e.g. ImzML loader).
+        This property enables getting or setting the shared m/z list across spectra in continuous-data mode, 
+        where multiple spectra can share the same m/z axis, and it is typically populated by a ms data manager.
 
         Returns:
-                        Any: The stored shared m/z list/array. Defaults to `None`.
+            Any: The stored shared m/z list/array. Defaults to `None`.
 
-                Notes:
-                        - The setter only updates the stored value when `self.meta` exists and
-                            `self.meta.continuous is True`.
-                        - If metadata is missing, or metadata indicates non-continuous data, the setter keeps the
-                            previous value and logs a warning.
+        Notes:
+            - The setter only updates the stored value when `self.meta` exists and `self.meta.continuous is True`.
         """
         return self._shared_mz_list
-   
+
     @shared_mz_list.setter
     def shared_mz_list(self, value):
         if self.meta:
@@ -106,16 +91,11 @@ class MassSpectrumSet:
 
     def add_spectrum(self, spectrum: Spectrum):
         """
-        Add or update a mass spectrum with coordinate indexing.
-
-        This method ensures the spectrum is accessible via both the sequential queue
-        and the coordinate index. If a spectrum already exists at the given coordinates,
-        it will be updated (replaced) in both the coordinate index and the queue to
-        avoid duplicates.
+        This method ensures the spectrum is accessible via both the sequential queue and coordinate index, 
+        updating or replacing existing spectra at the same coordinates in both to avoid duplicates.
 
         Args:
             spectrum (Spectrum): Mass spectrum to add or update.
-
 
         Notes:
             - Automatically extracts coordinates from the spectrum.
@@ -123,34 +103,6 @@ class MassSpectrumSet:
             - Updates the existing spectrum in place when coordinates already exist.
         """
         self.update_spectrum_with_coord(spectrum = spectrum)
-
-    def get_spectrum(self, x: int, y: int, z: int = 0) -> Spectrum:
-        """
-        Retrieve a mass spectrum by its 3D coordinates.
-
-        Args:
-            x (int): X coordinate
-            y (int): Y coordinate
-            z (int, optional): Z coordinate. Defaults to 0.
-
-        Returns:
-            Spectrum: Mass spectrum at the specified coordinates
-
-        Raises:
-            KeyError: If no spectrum exists at the specified coordinates
-        """
-        # Check if the coordinates exist in the index
-        if (
-            z not in self._coordinate_index
-            or x not in self._coordinate_index[z]
-            or y not in self._coordinate_index[z][x]
-        ):
-            logger.error(
-                f"No spectrum found at coordinates ({x}, {y}, {z})\r\n"
-                f"Plot mask to see the available locations; use ms.coordinate_index to list all coordinates."
-            )
-            raise KeyError(f"No spectrum found at coordinates ({x}, {y}, {z})")
-        return self._coordinate_index[z][x][y]
 
     def update_spectrum_with_coord(self,spectrum: Spectrum,x=-1,y=-1,z=-1):
         """
@@ -175,8 +127,8 @@ class MassSpectrumSet:
 
         if (z in self._coordinate_index and
             x in self._coordinate_index[z] and
-            y in self._coordinate_index[z][x]
-            ):
+            y in self._coordinate_index[z][x]):
+
             existing = self._coordinate_index[z][x][y]
             self._coordinate_index[z][x][y] = spectrum
             try:
@@ -209,10 +161,10 @@ class MassSpectrumSet:
             ValueError: If the provided spectrum does not match the existing entry at `index`.
 
         Notes:
-                        - This method checks equality against the existing queue entry
-                            (`self._queue[index] == spectrum`) before replacing. This is stricter than coordinate
-                            matching and depends on `Spectrum.__eq__` semantics.
-                        - If the index is out of range, it falls back to `update_spectrum_with_coord`.
+            - This method checks equality against the existing queue entry
+                (`self._queue[index] == spectrum`) before replacing. This is stricter than coordinate
+                matching and depends on `Spectrum.__eq__` semantics.
+            - If the index is out of range, it falls back to `update_spectrum_with_coord`.
         """
         if index < 0 or isinstance(index,int) is False :
             logger.error(f"Index {index} out of range.")
@@ -240,8 +192,8 @@ class MassSpectrumSet:
     @overload
     def __getitem__(self, key: slice) -> List[Spectrum]: ...
 
-    def __getitem__(self,
-                    key: Union[int,Tuple[int, int, int], Tuple[int, int], slice]
+    def __getitem__(
+        self, key: Union[int, Tuple[int, int], Tuple[int, int, int], slice]
     ) -> Union[Spectrum, List[Spectrum]]:
         """
         Retrieve mass spectrum using flexible indexing methods.
@@ -385,6 +337,8 @@ class MassSpectrumSet:
             logger.error("Meta mask is None. Create mask before plotting.")
             raise ValueError("Meta mask is None. Create mask before plotting.")
 
+        import matplotlib.pyplot as plt
+
         # Plot the mask
         plt.figure(figsize=figsize)
         plt.imshow(mask, cmap=cmap, origin=origin)
@@ -397,5 +351,3 @@ class MassSpectrumSet:
             plt.savefig(save_path, dpi=dpi)
         else:
             plt.show()
-
-

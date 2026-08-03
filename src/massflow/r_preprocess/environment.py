@@ -3,9 +3,9 @@ import sys
 import subprocess
 import shutil
 from typing import Optional, Any, Dict
-from massflow.logger import get_logger
+from massflow.tools.logger import get_logger
 
-logger = get_logger("R Environment")
+logger = get_logger("massflow.r_preprocess")
 
 _DEFAULT_R_HOME = None
 
@@ -23,21 +23,15 @@ class RConfig:
         """
         if cls.DEFAULT_R_HOME and os.path.exists(cls.DEFAULT_R_HOME):
             return cls.DEFAULT_R_HOME
-        
+
         if shutil.which("R"):
-            try:
-                output = subprocess.check_output(
-                    ["R", "RHOME"], 
-                    universal_newlines=True, 
-                    stderr=subprocess.DEVNULL
-                )
-                return output.strip()
-            except subprocess.CalledProcessError:
-                pass
-        
-        logger.error("R_HOME could not be detected automatically. Please set R_HOME environment variable or provide R_HOME path.")
-        return None
-        
+            output = subprocess.check_output(
+                ["R", "RHOME"],
+                universal_newlines=True,
+                stderr=subprocess.DEVNULL
+            )
+            return output.strip()
+
     @staticmethod
     def setup_env(r_home: Optional[str] = None):
         """
@@ -61,9 +55,9 @@ class RConfig:
 
         if not target_home or not os.path.exists(target_home):
             raise FileNotFoundError(f"R_HOME not found at: {target_home}")
-            
+
         os.environ['R_HOME'] = target_home
-        
+
         if sys.platform == 'win32':
             # Windows: Need to add bin/x64 to PATH
             r_bin = os.path.join(target_home, 'bin', 'x64')
@@ -71,7 +65,7 @@ class RConfig:
                 os.environ['PATH'] = r_bin + os.pathsep + os.environ['PATH']
             # Force ABI mode to be compatible with different versions
             os.environ.setdefault('RPY2_CFFI_MODE', 'ABI')
-            
+
         logger.info(f"R Environment configured successfully. R_HOME={target_home}")
 
 class REnvironment:
@@ -80,12 +74,6 @@ class REnvironment:
     """
     _instance = None
     pkgs: Dict[str, Any] = {}
-    
-    # rpy2 object cache
-    robjects = None
-    FloatVector = None
-    IntVector = None
-    ListVector = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -94,61 +82,39 @@ class REnvironment:
         return cls._instance
 
     def _initialize(self):
-        try:
-            # 1. Configure environment
-            RConfig.setup_env()
-            
-            # 2. Lazy import
-            try:
-                import rpy2.robjects as robjects
-                from rpy2.robjects.packages import importr
-                from rpy2.robjects.vectors import FloatVector, IntVector, ListVector
-            except ImportError as e:
-                logger.error("Required Python package 'rpy2' is not installed.")
-                raise ImportError("Please install rpy2 via 'pip install rpy2' before running.") from e
 
+        essential_pkgs = ['base', 'utils', 'methods', 'S4Vectors','Cardinal']
+        # 1. Configure environment
+        try:
+            RConfig.setup_env()
+            # pylint: disable=import-outside-toplevel
+            import rpy2.robjects as robjects
+            from rpy2.robjects.packages import importr
+            from rpy2.robjects.vectors import FloatVector, IntVector, ListVector
+            # pylint: enable=import-outside-toplevel
+
+            # pylint: disable=attribute-defined-outside-init
             self.robjects = robjects
-            self.FloatVector = FloatVector
-            self.IntVector = IntVector
-            self.ListVector = ListVector
+            self.float_vector = FloatVector
+            self.int_vector = IntVector
+            self.list_vector = ListVector
             self._importr = importr
 
-            # 3. Load base packages
-            try:
-                self.pkgs['base'] = importr('base')
-                self.pkgs['utils'] = importr('utils')
-                self.pkgs['methods'] = importr('methods')
-                self.pkgs['s4'] = importr('S4Vectors')
-            except Exception as e:
-                logger.error("Failed to load essential R packages.")
-                raise RuntimeError("Could not load base R packages.") from e
-            
-            # 4. Try to load Cardinal
-            try:
-                self.pkgs['cardinal'] = importr('Cardinal')
-            except Exception as e:
-                logger.error("Failed to load 'Cardinal' R package. Ensure it is installed in your R environment.")
-                raise RuntimeError("Could not load Cardinal package.") from e
-            
+        # 2. Load base packages
+            for pkg in essential_pkgs:
+                self.pkgs[pkg] = importr(pkg)
             ver = self.pkgs['utils'].packageVersion('Cardinal')
             logger.info(f"R loaded successfully. Cardinal version: {ver}")
-        
-        except (ImportError, RuntimeError):
-            raise
+
+        except ImportError as e:
+            logger.error("Required Python package 'rpy2' is not installed.")
+            raise ImportError("This error should not occur Please open a issue to github") from e
 
         except Exception as e:
-            logger.error(f"Unexpected R Environment initialization failure: {e}")
-            raise RuntimeError(f"Unknown error during R setup: {type(e).__name__}") from e
-        
+            logger.error(f"Failed to load R packages. Ensure follw pkgs are install :{essential_pkgs}it is installed in your R environment.")
+            raise RuntimeError("This error should not occur Please open a issue to github") from e
+
     @property
     def cardinal(self):
         """Get Cardinal package, reload if namespace is invalid."""
-        try:
-            # Try to access a Cardinal function to verify if the package is available
-            _ = self.pkgs['cardinal'].readImzML
-            return self.pkgs['cardinal']
-        except Exception:
-            # Reload Cardinal package
-            logger.warning("Cardinal package namespace invalid, reloading...")
-            self.pkgs['cardinal'] = self._importr('Cardinal')
-            return self.pkgs['cardinal']
+        return self.pkgs.get('Cardinal')

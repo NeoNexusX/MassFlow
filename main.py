@@ -1,23 +1,33 @@
+"""MassFlow pipeline example: imzML → binary ion image."""
 
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.module.mass_spectrum_set import MassSpectrumSet
-from massflow.logger import get_logger
-from massflow.tools.plot import plot_spectrum
-logger = get_logger(__name__)
+from pathlib import Path
+
+from massflow.data_manager import IonImageDataManagerBinary, MSDataManagerImzML
+from massflow.preprocess import Preprocessor
+
 
 def main():
-    logger.info("Hello from massflow!")
-    FILE_PATH = "data/example.imzML"
-    ms = MassSpectrumSet()
-    with MSDataManagerImzML(ms=ms, target_locs=[(1, 1), (50, 50)], filepath=FILE_PATH) as manager:
-        manager.load_full_data_from_file()
-        manager.inspect_data()
-        spectrum = ms[0]
+    input_path = Path("data/example.imzML")
+    output_path = Path("data/example.h5")
 
-        # Use raw file descriptor for swapping to disk
-        spectrum.swaper.swap_out2disk(manager.swap_fd) # type: ignore
-        logger.info(f"Intensity: {spectrum.intensity}")
-        input("Press Enter to continue...")
+    with MSDataManagerImzML(filepath=str(input_path)) as dm:
+        dm.load_head_data()
+
+        processed_dm = (
+            Preprocessor(
+                data_manager=dm,
+                output_format="ion_image_h5",
+                output_path=str(output_path),
+            )
+            .start()
+        )
+
+        print(f"Output: {output_path}")
+        print(f"  n_ions: {processed_dm.n_ions}")
+        print(f"  n_pixels: {processed_dm.n_pixels}")
+        print(f"  image: {processed_dm.height} x {processed_dm.width}")
+        print(f"  size: {output_path.stat().st_size / (1024**3):.2f} GB")
+        processed_dm.close()
 
 
 if __name__ == "__main__":

@@ -1,15 +1,304 @@
-from typing import Sequence, Tuple, Optional
-import numpy as np
-import matplotlib.pyplot as plt
-from massflow.preprocess.spectrum_preprocess import SpectrumPreprocess
-from massflow.module.spectrum import Spectrum
-from massflow.logger import get_logger
+﻿from dataclasses import dataclass
+from typing import Optional, Sequence, Tuple
 
-logger = get_logger("tools.plot")
+import matplotlib.pyplot as plt
+import numpy as np
+
+from massflow.module import Spectrum
+from massflow.tools.logger import get_logger
+from massflow.tools.snr import calculate_snr_details
+
+logger = get_logger("massflow.tools")
+
+
+@dataclass(frozen=True)
+class SeriesStyle:
+    color: str
+    line_width: float
+    mode: str
+    label: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class PlotConfig:
+    save_path: Optional[str]
+    figsize: Tuple[float, float]
+    dpi: int
+    mz_range: Optional[Tuple[float, float]]
+    intensity_range: Optional[Tuple[float, float]]
+    metrics_box: bool
+
+
+class SpectrumPlotter:
+    """Unified plotter for single and paired spectrum visualization."""
+
+    DEFAULT_COLORS = ("#EECF31", "#4AE38C")
+    ZERO_EPS = 1e-12
+
+    def __init__(self, config: PlotConfig):
+        self.config = config
+
+    @staticmethod
+    def _normalize_pair(values, default_pair):
+        if values is None:
+            return [default_pair[0], default_pair[1]]
+        if isinstance(values, str):
+            return [values, values]
+
+        seq = list(values)
+        if len(seq) == 0:
+            return [default_pair[0], default_pair[1]]
+        if len(seq) == 1:
+            return [seq[0], seq[0]]
+        return [seq[0], seq[1]]
+
+    @staticmethod
+    def _normalize_mode(mode: Optional[str]) -> str:
+        value = (mode or "line").strip().lower()
+        return value if value in {"line", "stem"} else "line"
+
+    @staticmethod
+    def _validate_spectrum(name: str, spectrum: Optional[Spectrum]) -> Spectrum:
+        if spectrum is None:
+            raise ValueError(f"'{name}' spectrum cannot be None.")
+        if len(spectrum) == 0:
+            raise ValueError(f"'{name}' spectrum has no data points.")
+        return spectrum
+
+    @staticmethod
+    def _slice_arrays(
+        spectrum: Spectrum,
+        mz_range: Optional[Tuple[float, float]],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        if mz_range is None:
+            mz = np.asarray(spectrum.mz_list)
+            intensity = np.asarray(spectrum.intensity)
+        else:
+            cropped = spectrum.crop_range(mz_range=mz_range, sort_by_mz=True, mode="new")
+            mz = np.asarray(cropped.mz_list)
+            intensity = np.asarray(cropped.intensity)
+
+        if mz.shape[0] != intensity.shape[0]:
+            raise ValueError("m/z array and intensity array length mismatch.")
+        if mz.size == 0:
+            raise ValueError("No data points in selected 'mz_range'.")
+
+        return mz, intensity
+
+    @staticmethod
+    def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
+        if a.size <= 1 or b.size <= 1:
+            return 0.0
+        std_a = float(np.std(a))
+        std_b = float(np.std(b))
+        if std_a <= SpectrumPlotter.ZERO_EPS or std_b <= SpectrumPlotter.ZERO_EPS:
+            return 0.0
+        value = float(np.corrcoef(a, b)[0, 1])
+        return 0.0 if np.isnan(value) else value
+
+    @staticmethod
+    def _safe_snr(spectrum: Spectrum) -> float:
+        try:
+            _, _, value = calculate_snr_details(spectrum)
+            return value if np.isfinite(value) else 0.0
+        except Exception as exc:
+            logger.warning(f"SNR calculation failed: {exc}")
+            return 0.0
+
+    @staticmethod
+    def _draw(ax, mz: np.ndarray, intensity: np.ndarray, style: SeriesStyle) -> None:
+        if style.mode == "line":
+            ax.plot(
+                mz,
+                intensity,
+                color=style.color,
+                linewidth=style.line_width,
+                alpha=0.85,
+                label=style.label,
+            )
+            return
+
+        markerline, stemlines, baseline = ax.stem(mz, intensity, label=style.label)
+        plt.setp(stemlines, color=style.color, linewidth=style.line_width, alpha=1)
+        plt.setp(markerline, color=style.color, markersize=3, alpha=1)
+        plt.setp(baseline, color="gray", linewidth=0.5, alpha=1)
+
+    @staticmethod
+    def _style_axes(ax) -> None:
+        # Keep figure clean by hiding top/right spines.
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    def _axis_limits(
+        self,
+        mz_a: np.ndarray,
+        int_a: np.ndarray,
+        mz_b: Optional[np.ndarray] = None,
+        int_b: Optional[np.ndarray] = None,
+    ) -> Tuple[float, float, float, float]:
+        if self.config.mz_range is not None:
+            x_min = float(self.config.mz_range[0])
+            x_max = float(self.config.mz_range[1])
+        else:
+            x_data = [mz_a]
+            if mz_b is not None:
+                x_data.append(mz_b)
+            x_all = np.concatenate(x_data)
+            x_min, x_max = float(np.min(x_all)), float(np.max(x_all))
+
+        if self.config.intensity_range is not None:
+            y_min = float(self.config.intensity_range[0])
+            y_max = float(self.config.intensity_range[1])
+        else:
+            y_data = [int_a]
+            if int_b is not None:
+                y_data.append(int_b)
+            y_all = np.concatenate(y_data)
+            y_min = 0.0
+            y_max = max(float(np.max(y_all)) * 1.05, 1.0)
+
+        return x_min, x_max, y_min, y_max
+
+    @staticmethod
+    def _apply_axis_limits(axes, limits: Tuple[float, float, float, float]) -> None:
+        x_min, x_max, y_min, y_max = limits
+        if not isinstance(axes, (list, tuple, np.ndarray)):
+            axes = (axes,)
+
+        for ax in axes:
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_min, y_max)
+
+    def _metrics_text(self, base: Spectrum, target: Spectrum) -> str:
+        n = min(len(base), len(target))
+        base_intensity = np.asarray(base.intensity)
+        target_intensity = np.asarray(target.intensity)
+        base_mz = np.asarray(base.mz_list)
+
+        if base_intensity.size == 0 or target_intensity.size == 0 or base_mz.size == 0:
+            return "Metrics unavailable: empty spectrum window."
+
+        o = base_intensity[:n]
+        d = target_intensity[:n]
+
+        corr = self._safe_corr(o, d)
+
+        o_sum = float(np.sum(o))
+        d_sum = float(np.sum(d))
+        tic_ratio = d_sum / o_sum if abs(o_sum) > 1e-12 else 1.0
+
+        snr_orig = self._safe_snr(base)
+        snr_now = self._safe_snr(target)
+        snr_gain = snr_now / snr_orig if snr_orig > 1e-12 else 1.0
+
+        return (
+            f"Range: {base_mz[0]:.4f} - {base_mz[-1]:.4f}\n"
+            f"Correlation: {corr:.4f}\n"
+            f"TIC ratio: {tic_ratio:.3f}\n"
+            f"SNR orig: {snr_orig:.1f}\n"
+            f"SNR den: {snr_now:.1f}\n"
+            f"SNR improvement: {snr_gain:.2f}x"
+        )
+
+    @staticmethod
+    def _save_or_show(fig, save_path: Optional[str], dpi: int) -> None:
+        if save_path:
+            fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+            plt.close(fig)
+        else:
+            plt.show()
+
+    def add_metrics_box(self, ax, base: Spectrum, target: Spectrum) -> None:
+        if len(base) <= 5 or len(target) <= 5:
+            return
+
+        text = self._metrics_text(base, target)
+        logger.info(text)
+        ax.text(
+            0.02,
+            0.98,
+            text,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            fontsize=9,
+            bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.8},
+        )
+
+    def plot_single(self, base: Spectrum, style: SeriesStyle) -> None:
+        mz, intensity = self._slice_arrays(base, self.config.mz_range)
+        fig, ax = plt.subplots(1, 1, figsize=self.config.figsize)
+
+        self._draw(ax, mz, intensity, style)
+
+        limits = self._axis_limits(mz, intensity)
+        self._apply_axis_limits(ax, limits)
+        ax.set_title("Mass Spectrum", fontweight="bold")
+        ax.set_xlabel("m/z")
+        ax.set_ylabel("Intensity")
+        self._style_axes(ax)
+        fig.tight_layout()
+
+        self._save_or_show(fig, self.config.save_path, self.config.dpi)
+
+    def plot_overlay(self, base: Spectrum, target: Spectrum, styles: Sequence[SeriesStyle]) -> None:
+        base_mz, base_int = self._slice_arrays(base, self.config.mz_range)
+        target_mz, target_int = self._slice_arrays(target, self.config.mz_range)
+
+        fig, ax = plt.subplots(1, 1, figsize=self.config.figsize)
+        self._draw(ax, base_mz, base_int, styles[0])
+        self._draw(ax, target_mz, target_int, styles[1])
+
+        limits = self._axis_limits(base_mz, base_int, target_mz, target_int)
+        self._apply_axis_limits(ax, limits)
+        ax.set_title("Original & Preprocessed (Overlay)", fontweight="bold")
+        ax.set_xlabel("m/z")
+        ax.set_ylabel("Intensity")
+        self._style_axes(ax)
+        ax.legend(loc="upper right")
+
+        if self.config.metrics_box:
+            self.add_metrics_box(ax, base, target)
+
+        fig.tight_layout()
+        self._save_or_show(fig, self.config.save_path, self.config.dpi)
+
+    def plot_compare(self, base: Spectrum, target: Spectrum, styles: Sequence[SeriesStyle]) -> None:
+        base_mz, base_int = self._slice_arrays(base, self.config.mz_range)
+        target_mz, target_int = self._slice_arrays(target, self.config.mz_range)
+
+        fig, (ax_top, ax_bottom) = plt.subplots(
+            2,
+            1,
+            figsize=self.config.figsize,
+            sharex=True,
+            sharey=True,
+        )
+
+        self._draw(ax_top, base_mz, base_int, styles[0])
+        self._draw(ax_bottom, target_mz, target_int, styles[1])
+
+        limits = self._axis_limits(base_mz, base_int, target_mz, target_int)
+        self._apply_axis_limits((ax_top, ax_bottom), limits)
+
+        ax_top.set_title("Original Spectrum", fontweight="bold")
+        ax_bottom.set_title("Preprocessed Spectrum", fontweight="bold")
+        ax_bottom.set_xlabel("m/z")
+        ax_top.set_ylabel("Intensity")
+        ax_bottom.set_ylabel("Intensity")
+        self._style_axes(ax_top)
+        self._style_axes(ax_bottom)
+
+        if self.config.metrics_box:
+            self.add_metrics_box(ax_bottom, base, target)
+
+        fig.tight_layout()
+        self._save_or_show(fig, self.config.save_path, self.config.dpi)
+
+
 
 def plot_spectrum(
-    base: Optional["Spectrum"] = None,
-    target: Optional["Spectrum"] = None,
+    base: Optional[Spectrum] = None,
+    target: Optional[Spectrum] = None,
     save_path=None,
     figsize=(20, 5),
     dpi: int = 300,
@@ -19,364 +308,63 @@ def plot_spectrum(
     mz_range: Optional[Tuple[float, float]] = None,
     intensity_range: Optional[Tuple[float, float]] = None,
     metrics_box: bool = True,
-    title_suffix: Optional[str] = None,
     overlay: bool = False,
 ):
-    """
-    Plot one or two spectra with optional overlay and metrics box.
-
-    Parameters:
-        base (SpectrumBaseModule | None): Base/original spectrum to plot.
-        target (SpectrumBaseModule | None): Target/processed spectrum to plot.
-        save_path (str | None): File path to save the figure; display if None.
-        figsize (Tuple[int,int]): Figure size.
-        dpi (int): Saving DPI.
-        colors (List[str]): Colors for base/target.
-        plot_mode (List[str]): Per-spectrum mode: 'line' or 'stem'.
-        mz_range (Tuple[float,float] | None): X-axis range.
-        intensity_range (Tuple[float,float] | None): Y-axis range.
-        metrics_box (bool): Whether to overlay metrics.
-        title_suffix (str | None): Optional suffix added to title.
-        overlay (bool): Plot spectra together if True, otherwise on separate axes.
-
-    Returns:
-        None
-    """
-    # initialize default values
-    line_width = [1, 1] if line_width is None else line_width
-    colors = ['#5c9dba', '#df4c5b'] if colors is None else colors
-    plot_mode = ["line","line"] if plot_mode is None else plot_mode
-
-    logger.info(f"Plotting spectrum with plot_mode={plot_mode},"
-                "line_width={line_width}, mz_range={mz_range}, intensity_range={intensity_range},"
-                "metrics_box={metrics_box}, title_suffix={title_suffix}, overlay={overlay}")
-
-    figsize=figsize if overlay or target is None else (figsize[0], figsize[1] * 2)
-
+    """Public API: plot one or two spectra with optional overlay and metrics."""
     if base is None and target is None:
-        logger.warning("No spectrum data provided for plotting.")
         raise ValueError("At least one of 'base' or 'target' spectrum must be provided.")
-    elif target and base is None:
-        logger.info("Only target spectrum provided; plotting single spectrum.")
+
+    if base is None and target is not None:
         base = target
         target = None
 
+    base = SpectrumPlotter._validate_spectrum("base", base)
+
+    color_pair = SpectrumPlotter._normalize_pair(colors, SpectrumPlotter.DEFAULT_COLORS)
+    line_pair = [float(v) for v in SpectrumPlotter._normalize_pair(line_width, [1.5, 1.5])]
+    mode_pair = [SpectrumPlotter._normalize_mode(m) for m in SpectrumPlotter._normalize_pair(plot_mode, ["line", "line"])]
+
+    resolved_figsize = figsize if (overlay or target is None) else (figsize[0], figsize[1] * 2)
+
+    config = PlotConfig(
+        save_path=save_path,
+        figsize=(float(resolved_figsize[0]), float(resolved_figsize[1])),
+        dpi=int(dpi),
+        mz_range=mz_range,
+        intensity_range=intensity_range,
+        metrics_box=bool(metrics_box),
+    )
+
+    logger.info(
+        f"Plotting spectrum: overlay={overlay}, "
+        f"modes={mode_pair}, linewidth={line_pair}, mz_range={mz_range}, "
+        f"intensity_range={intensity_range}, metrics_box={metrics_box}"
+    )
+
+    plotter = SpectrumPlotter(config)
+
     if target is None:
-        plot_single(
-            base=base,
-            save_path=save_path,
-            figsize=figsize,
-            dpi=dpi,
-            color=colors[0],
-            line_width=line_width[0],
-            plot_mode=plot_mode[0],
-            mz_range=mz_range,
-            intensity_range=intensity_range,
-            title_suffix=title_suffix,
-        )
-    elif overlay:
-        plot_two_together(
-            target=target,
-            base=base,
-            save_path=save_path,
-            figsize=figsize if overlay else (figsize[0], figsize[1] * 2),
-            dpi=dpi,
-            color=colors,
-            plot_mode=plot_mode,
-            line_width=line_width,
-            mz_range=mz_range,
-            intensity_range=intensity_range,
-            metrics_box=metrics_box,
-            title_suffix=title_suffix,
-        )
-    else:
-        plot_two_individual(
-            target=target,
-            base=base,
-            save_path=save_path,
-            figsize=figsize,
-            dpi=dpi,
-            color=colors,
-            plot_mode=plot_mode,
-            line_width=line_width,
-            mz_range=mz_range,
-            intensity_range=intensity_range,
-            metrics_box=metrics_box,
-            title_suffix=title_suffix,
-        )
-
-def add_metrics_box(ax,
-                    base,
-                    target,
-                    box_loc: Tuple[float, float] = (0.02, 0.98),
-                    fontsize: int = 9):
-    """
-    Overlay a metrics box summarizing correlation, TIC ratio, and SNR.
-
-    Parameters:
-        ax (matplotlib.axes.Axes): Target axes.
-        base (SpectrumBaseModule): Original spectrum.
-        target (SpectrumBaseModule): Processed spectrum.
-        box_loc (Tuple[float,float]): Axes-relative location of the box.
-        fontsize (int): Font size.
-
-    Returns:
-        None
-    """
-    if base is None or target is None:
-        return
-    min_len = min(len(base), len(target))
-    if min_len <= 1:
+        style = SeriesStyle(color=str(color_pair[0]), line_width=line_pair[0], mode=mode_pair[0])
+        plotter.plot_single(base, style)
         return
 
-    o = base.intensity[:min_len]
-    d = target.intensity[:min_len]
+    target = SpectrumPlotter._validate_spectrum("target", target)
+    styles = [
+        SeriesStyle(
+            color=str(color_pair[0]),
+            line_width=line_pair[0],
+            mode=mode_pair[0],
+            label="Original",
+        ),
+        SeriesStyle(
+            color=str(color_pair[1]),
+            line_width=line_pair[1],
+            mode=mode_pair[1],
+            label="Preprocessed",
+        ),
+    ]
 
-    corr = float(np.corrcoef(o, d)[0, 1])
-    tic_ratio = float(d.sum() / o.sum()) if o.sum() > 0 else 1.0
-
-    snr_orig = SpectrumPreprocess.calculate_snr_spectrum(base)
-    snr_update = SpectrumPreprocess.calculate_snr_spectrum(target)
-    snr_improvement = snr_update / snr_orig if snr_orig > 0 else 1.0
-
-    metrics_text = (f"Range: {base.mz_list[0]:.4f} - {base.mz_list[-1]:.4f}\n"
-                    f"Correlation: {corr:.4f}\n"
-                    f"TIC ratio: {tic_ratio:.3f}\n"
-                    f"SNR orig: {snr_orig:.1f}\n"
-                    f"SNR den: {snr_update:.1f}\n"
-                    f"SNR improvement: {snr_improvement:.2f}x")
-    # Log the metrics
-    logger.info(metrics_text)
-    ax.text(box_loc[0],
-            box_loc[1],
-            metrics_text,
-            transform=ax.transAxes, verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
-            fontsize=fontsize)
-
-def plot_single(base,
-                save_path=None,
-                figsize=(20, 5),
-                dpi: int = 300,
-                color='#5c9dba',
-                line_width: float = 1,
-                plot_mode: str = "line",
-                mz_range: Optional[Tuple[float, float]] = None,
-                intensity_range: Optional[Tuple[float, float]] = None,
-                title_suffix: Optional[str] = None):
-    """
-    Plot a single spectrum in either line or stem mode.
-
-    Parameters:
-        base (SpectrumBaseModule): Spectrum to plot.
-        save_path (str | None): File path to save; display if None.
-        figsize (Tuple[int,int]): Figure size.
-        dpi (int): Saving DPI.
-        color (str): Plot color.
-        plot_mode (str): 'line' or 'stem'.
-        mz_range (Tuple[float,float] | None): X-axis range.
-        intensity_range (Tuple[float,float] | None): Y-axis range.
-        title_suffix (str | None): Title suffix.
-
-    Returns:
-        None
-    """
-
-    plt.figure(figsize=figsize)
-    mode = (plot_mode or "stem").lower()
-    if mode == "line":
-        plt.plot(base.mz_list, base.intensity, color=color, linewidth=line_width, alpha=0.8)
+    if overlay:
+        plotter.plot_overlay(base, target, styles)
     else:
-        markerline, stemlines, baseline = plt.stem(base.mz_list, base.intensity)
-        plt.setp(stemlines, linewidth=line_width, color=color, alpha=0.8)
-        plt.setp(markerline, markersize=3, color=color, alpha=0.8)
-        plt.setp(baseline, linewidth=0.5, color='gray', alpha=0.6)
-
-    # Axis range control
-    x_min, x_max = (float(min(base.mz_list)), float(max(base.mz_list))) if mz_range is None else (mz_range[0], mz_range[1])
-    y_min, y_max = (0.0, float(max(base.intensity)) * 1.05) if intensity_range is None else (intensity_range[0], intensity_range[1])
-    plt.xlim(x_min, x_max)
-    plt.ylim(y_min, y_max)
-    title = "Mass Spectrum" if not title_suffix else f"Mass Spectrum - {title_suffix}"
-    plt.title(title)
-    plt.xlabel("m/z")
-    plt.ylabel("Intensity")
-    plt.tight_layout()
-
-    if save_path:
-        plt.savefig(save_path, dpi=dpi)
-    else:
-        plt.show()
-    return
-
-def plot_two_together(target: Optional['Spectrum'] = None,
-                      base: Optional['Spectrum'] = None,
-                      save_path=None,
-                      figsize=(20, 5),
-                      dpi: int = 300,
-                      color: Optional[Sequence[str]] = None,
-                      line_width: Optional[Sequence[float]] = None,
-                      plot_mode: Optional[Sequence[str]] = None,
-                      mz_range: Optional[Tuple[float, float]] = None,
-                      intensity_range: Optional[Tuple[float, float]] = None,
-                      metrics_box: bool = True,
-                      title_suffix: Optional[str] = None):
-    """
-    Overlay base and processed spectra on a single axes.
-
-    Parameters:
-        target (SpectrumBaseModule | None): Processed spectrum.
-        base (SpectrumBaseModule | None): Original spectrum.
-        save_path (str | None): File path to save; display if None.
-        figsize (Tuple[int,int]): Figure size.
-        dpi (int): Saving DPI.
-        color (List[str]): Colors for base/target.
-        plot_mode (List[str]): Modes for base/target: 'line' or 'stem'.
-        mz_range (Tuple[float,float] | None): X-axis range.
-        intensity_range (Tuple[float,float] | None): Y-axis range.
-        metrics_box (bool): Whether to overlay metrics.
-        title_suffix (str | None): Title suffix.
-
-    Returns:
-        None
-    """
-
-    _, ax = plt.subplots(1, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 6))
-    color = ['#5d7db3', '#d2c3d5'] if color is None else color
-    line_width = [1, 1] if line_width is None else line_width
-    plot_mode = ["line","line"] if plot_mode is None else plot_mode
-
-    if plot_mode[0] == "line":
-        ax.plot(base.mz_list, base.intensity, color=color[0], linewidth=line_width[0], label='Original')
-
-    else:
-        m1, s1, b1 = ax.stem(base.mz_list, base.intensity, label='Original')
-        plt.setp(s1, linewidth=line_width[0], color=color[0], alpha=0.8)
-        plt.setp(m1, markersize=3, color=color[0], alpha=0.8)
-        plt.setp(b1, linewidth=0.5, color='gray', alpha=0.6)
-
-    if plot_mode[1] == "line":
-        ax.plot(target.mz_list, target.intensity, color=color[1], linewidth=line_width[1], label='Preprocessed' if not title_suffix else f'Preprocessed ({title_suffix})')
-    else:
-        m2, s2, b2 = ax.stem(target.mz_list, target.intensity, label='Preprocessed' if not title_suffix else f'Preprocessed ({title_suffix})')
-        plt.setp(s2, linewidth=line_width[1], color=color[1], alpha=0.8)
-        plt.setp(m2, markersize=3, color=color[1], alpha=0.8)
-        plt.setp(b2, linewidth=0.5, color='gray', alpha=0.6)
-
-    orig_c = base.crop_range(mz_range) 
-    now_c = target.crop_range(mz_range)
-
-    # Axis range settings (combined)
-    x_min = float(mz_range[0]) if mz_range is not None else float(min(orig_c.mz_list.min(), now_c.mz_list.min()))
-    x_max = float(mz_range[1]) if mz_range is not None else float(max(orig_c.mz_list.max(), now_c.mz_list.max()))
-    y_max_comb = float(intensity_range[1]) if intensity_range is not None else float(max(orig_c.intensity.max(), now_c.intensity.max(), 1.0)) * 1.05
-    y_min_comb = 0.0 if intensity_range is None else float(intensity_range[0])
-
-    ax.set_xlim(x_min, x_max)
-    ax.set_ylim(y_min_comb, y_max_comb)
-
-    # Titles, labels, legend, grid
-    ax.set_title('Original & Preprocessed (Overlay)' if not title_suffix else f'Original & Preprocessed (Overlay) - {title_suffix}', fontweight='bold')
-    ax.set_xlabel('m/z')
-    ax.set_ylabel('Intensity')
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-
-    # Overlay metrics box on the same axes
-    if metrics_box and len(orig_c) > 5 and len(now_c) > 5:
-        add_metrics_box(ax, base=orig_c, target=now_c)
-
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
-    else:
-        plt.show()
-
-def plot_two_individual(target: Spectrum,
-                        base: Spectrum,
-                        save_path=None,
-                        figsize=(20, 5),
-                        dpi: int = 300,
-                        color: Optional[Sequence[str]] = None,
-                        line_width: Optional[Sequence[float]] = None,
-                        plot_mode: Optional[Sequence[str]] = None,
-                        mz_range: Optional[Tuple[float, float]] = None,
-                        intensity_range: Optional[Tuple[float, float]] = None,
-                        metrics_box: bool = True,
-                        title_suffix: Optional[str] = None):
-    """
-    Plot base and processed spectra on separate aligned subplots.
-
-    Parameters:
-        target (SpectrumBaseModule): Processed spectrum.
-        base (SpectrumBaseModule): Original spectrum.
-        save_path (str | None): File path to save; display if None.
-        figsize (Tuple[int,int]): Figure size.
-        dpi (int): Saving DPI.
-        color (List[str]): Colors for base/target.
-        plot_mode (List[str]): Modes for base/target: 'line' or 'stem'.
-        mz_range (Tuple[float,float] | None): X-axis range.
-        intensity_range (Tuple[float,float] | None): Y-axis range.
-        metrics_box (bool): Whether to overlay metrics.
-        title_suffix (str | None): Title suffix.
-
-    Returns:
-        None
-    """
-    # get two subplots
-    _, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=figsize if isinstance(figsize, tuple) else (12, 8), sharex=True, sharey=True)
-    color = ['#5d7db3', '#d2c3d5'] if color is None else color
-    line_width = [1, 1] if line_width is None else line_width
-    plot_mode = ["line","line"] if plot_mode is None else plot_mode
-
-    if plot_mode[0] == "line":
-        ax_top.plot(base.mz_list, base.intensity, color=color[0], linewidth=line_width[0])
-
-    else:
-        m1, s1, b1 = ax_top.stem(base.mz_list, base.intensity)
-        plt.setp(s1, linewidth=line_width[0], color=color[0], alpha=0.8)
-        plt.setp(m1, markersize=3, color=color[0], alpha=0.8)
-        plt.setp(b1, linewidth=0.5, color='gray', alpha=0.6)
-
-    if plot_mode[1] == "line":
-        ax_bottom.plot(target.mz_list, target.intensity, color=color[1], linewidth=line_width[1])
-    else:
-        m2, s2, b2 = ax_bottom.stem(target.mz_list, target.intensity)
-        plt.setp(s2, linewidth=line_width[1], color=color[1], alpha=0.8)
-        plt.setp(m2, markersize=3, color=color[1], alpha=0.8)
-        plt.setp(b2, linewidth=0.5, color='gray', alpha=0.6)
-
-    # Axis range settings
-    x_min = float(mz_range[0]) if mz_range is not None else float(min(base.mz_list.min(), target.mz_list.min()))
-    x_max = float(mz_range[1]) if mz_range is not None else float(max(base.mz_list.max(), target.mz_list.max()))
-    y_top = float(intensity_range[1]) if intensity_range is not None else float(max(base.intensity.max(), 1.0)) * 1.05
-    y_bot = float(intensity_range[1]) if intensity_range is not None else float(max(target.intensity.max(), 1.0)) * 1.05
-
-    ax_top.set_xlim(x_min, x_max)
-    ax_bottom.set_xlim(x_min, x_max)
-    ax_top.set_ylim(0.0 if intensity_range is None else float(intensity_range[0]), y_top)
-    ax_bottom.set_ylim(0.0 if intensity_range is None else float(intensity_range[0]), y_bot)
-
-    # Titles and grid
-    ax_top.set_title('Original Spectrum', fontweight='bold')
-    den_title = 'Preprocessed Spectrum' if not title_suffix else f'Preprocessed Spectrum ({title_suffix})'
-    ax_bottom.set_title(den_title, fontweight='bold')
-    ax_bottom.set_xlabel('m/z')
-    ax_top.set_ylabel('Intensity')
-    ax_bottom.set_ylabel('Intensity')
-    ax_top.grid(True, alpha=0.3)
-    ax_bottom.grid(True, alpha=0.3)
-
-
-    base = base.crop_range(mz_range)
-    target = target.crop_range(mz_range)
-
-    # Overlay metrics text
-    if metrics_box and len(base) > 5 and len(target) > 5:
-        add_metrics_box(ax_bottom, base=base, target=target)
-
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
-    else:
-        plt.show()
+        plotter.plot_compare(base, target, styles)

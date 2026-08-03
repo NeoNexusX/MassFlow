@@ -1,26 +1,26 @@
 """
-主要优化点：
-1. 移除 SHA-1 哈希计算 (使用固定占位符)
-2. 移除统计量计算 (min/max/base peak/TIC 使用 0 占位符)
-3. 优化 continuous 模式 (无 m/z 数组比对检查)
-4. 避免不必要的内存拷贝 (零拷贝写入策略)
-5. 移除 rounding 操作 (压缩模式下的舍入)
+Main optimizations:
+1. Remove SHA-1 hash calculation (use fixed placeholder)
+2. Remove statistics calculation (min/max/base peak/TIC use 0 placeholders)
+3. Optimize continuous mode (no m/z array comparison check)
+4. Avoid unnecessary memory copying (zero-copy write strategy)
+5. Remove rounding operation (rounding in compression mode)
 """
 
 from __future__ import print_function
 
 import os
-import numpy as np
 import uuid as uuid_module
 from collections import namedtuple, OrderedDict
 from typing import Optional, List, Tuple, Union, Any
+import numpy as np
 
 from wheezy.template import Engine, CoreExtension, DictLoader
 from pyimzml.compression import NoCompression
 
 _Spectrum = namedtuple(
-    '_Spectrum', 
-    'coords mz_len mz_offset mz_enc_len int_len int_offset int_enc_len mz_min mz_max mz_base int_base int_tic userParams'
+    "_Spectrum",
+    "coords mz_len mz_offset mz_enc_len int_len int_offset int_enc_len mz_min mz_max mz_base int_base int_tic userParams",
 )
 
 IMZML_TEMPLATE = """\
@@ -161,32 +161,33 @@ IMZML_TEMPLATE = """\
 
 PLACEHOLDER_SHA1 = "0" * 40
 
+
 class ImzMLWriter:
     """
-    高性能 imzML 写入器 - pyimzml.ImzMLWriter 的 Drop-in Replacement
-    
-    针对 "Swap to Disk" 场景极致优化，写入速度接近物理磁盘极限。
-    
-    优化策略:
-    1. 完全移除 SHA-1/MD5 哈希计算 (使用固定占位符)
-    2. 可选跳过统计量计算 (min/max/base peak/TIC)
-    3. continuous 模式无 m/z 数组比对 (信任调用者)
-    4. 零拷贝写入策略 (避免 dtype 转换时的数组复制)
-    5. 移除压缩 rounding 操作
+    High-performance imzML writer - Drop-in Replacement for pyimzml.ImzMLWriter
+
+    Extremely optimized for "Swap to Disk" scenarios, write speed approaching physical disk limits.
+
+    Optimization strategies:
+    1. Completely remove SHA-1/MD5 hash calculation (use fixed placeholder)
+    2. Optionally skip statistics calculation (min/max/base peak/TIC)
+    3. No m/z array comparison in continuous mode (trust caller)
+    4. Zero-copy write strategy (avoid array copying during dtype conversion)
+    5. Remove compression rounding operation
     """
-    
+
     def __init__(
-        self, 
+        self,
         output_filename: str,
-        mz_dtype: np.dtype = np.float64, #type: ignore
-        intensity_dtype: np.dtype = np.float32, #type: ignore
-        mode: str = "auto", 
+        mz_dtype: np.dtype = np.float64,  # type: ignore
+        intensity_dtype: np.dtype = np.float32,  # type: ignore
+        mode: str = "auto",
         spec_type: str = "centroid",
-        scan_direction: str = "top_down", 
-        line_scan_direction: str = "line_left_right", 
-        scan_pattern: str = "one_way", 
-        scan_type: str = "horizontal_line", 
-        mz_compression: Any = NoCompression(), 
+        scan_direction: str = "top_down",
+        line_scan_direction: str = "line_left_right",
+        scan_pattern: str = "one_way",
+        scan_type: str = "horizontal_line",
+        mz_compression: Any = NoCompression(),
         intensity_compression: Any = NoCompression(),
         polarity: Optional[str] = None,
         compute_stats: bool = False,
@@ -198,55 +199,56 @@ class ImzMLWriter:
         self.mz_compression = mz_compression
         self.intensity_compression = intensity_compression
         self.compute_stats = compute_stats
-        
-        # 文件路径处理
+
+        # File path processing
         self.run_id = os.path.splitext(output_filename)[0]
         self.filename = self.run_id + ".imzML"
         self.ibd_filename = self.run_id + ".ibd"
-        
-        # 打开文件
-        self.xml = open(self.filename, 'w')
-        self.ibd = open(self.ibd_filename, 'wb')
-        
+        self._finished = False
+
+        # Open files
+        self.xml = open(self.filename, "w")  # pylint: disable=W1514
+        self.ibd = open(self.ibd_filename, "wb")
+
         # UUID
         self.uuid = uuid_module.uuid4()
-        
-        # 扫描参数
+
+        # Scan parameters
         self.scan_direction = scan_direction
         self.scan_pattern = scan_pattern
         self.scan_type = scan_type
         self.line_scan_direction = line_scan_direction
-        
-        # 写入 UUID 到 ibd 文件头
+
+        # Write UUID to ibd file header
         self.ibd.write(self.uuid.bytes)
-        
-        # 初始化模板引擎
+
+        # Initialize template engine
         self.wheezy_engine = Engine(
-            loader=DictLoader({'imzml': IMZML_TEMPLATE}), 
-            extensions=[CoreExtension()]
+            loader=DictLoader({"imzml": IMZML_TEMPLATE}), extensions=[CoreExtension()]
         )
-        self.imzml_template = self.wheezy_engine.get_template('imzml')
-        
-        # 谱图数据列表
+        self.imzml_template = self.wheezy_engine.get_template("imzml")
+
+        # Spectrum data list
         self.spectra: List[_Spectrum] = []
-        
-        # continuous 模式: 存储第一个 m/z 数组的位置信息
+
+        # Continuous mode: Store position information of the first m/z array
         self.first_mz: Optional[Tuple[int, int, int]] = None
-        
-        # auto 模式需要的 LRU 缓存 (保持兼容性)
+
+        # LRU cache needed for auto mode (maintain compatibility)
         self._lru_cache: OrderedDict = OrderedDict()
         self._lru_maxlen = 10
-        
-        # 极性设置
-        self._setPolarity(polarity)
-        
-        # 预计算 dtype 的字节大小
+        self._auto_detected_mode: Optional[str] = None
+
+        # Polarity setting
+        self._set_polarity(polarity)
+
+        # Pre-calculate dtype byte sizes
         self._mz_itemsize = self.mz_dtype.itemsize
         self._int_itemsize = self.intensity_dtype.itemsize
-    
+
     @staticmethod
     def _np_type_to_name(dtype: np.dtype) -> str:
-        """将 numpy dtype 转换为 imzML 规范名称"""
+        """Convert numpy dtype to imzML specification name"""
         dtype = np.dtype(dtype)
         if dtype == np.float32:
             return "32-bit float"
@@ -258,124 +260,144 @@ class ImzMLWriter:
             return "64-bit integer"
         else:
             raise ValueError(f"Unsupported dtype: {dtype}")
-    
-    def _setPolarity(self, polarity: Optional[str]) -> None:
-        """设置极性"""
-        if polarity is None or polarity.lower() in ('positive', 'negative'):
+
+    def _set_polarity(self, polarity: Optional[str]) -> None:
+        """Set polarity"""
+        if polarity is None or polarity.lower() in ("positive", "negative"):
             self.polarity = polarity.lower() if polarity else None
         else:
-            raise ValueError(f"Invalid polarity: {polarity}. Must be 'positive', 'negative', or None")
-    
-    def _write_binary_fast(self, data: np.ndarray, target_dtype: np.dtype) -> Tuple[int, int, int]:
+            raise ValueError(
+                f"Invalid polarity: {polarity}. Must be 'positive', 'negative', or None"
+            )
+
+    def _write_binary_fast(
+        self, data: np.ndarray, target_dtype: np.dtype
+    ) -> Tuple[int, int, int]:
         """
-        快速二进制写入 - 核心优化方法
-        
-        优化策略:
-        1. 使用 np.asarray 替代 np.array，避免不必要的拷贝
-        2. 如果 dtype 匹配且数组是 C-contiguous，直接使用 data.data buffer
-        3. 跳过压缩的 rounding 操作
-        
-        返回: (offset, length, encoded_length)
+        Fast binary write - Core optimization method
+
+        Optimization strategies:
+        1. Use np.asarray instead of np.array to avoid unnecessary copying
+        2. If dtype matches and array is C-contiguous, directly use data.data buffer
+        3. Skip rounding operation in compression
+
+        Returns: (offset, length, encoded_length)
         """
         offset = self.ibd.tell()
-        
-        # 智能类型转换: 只在必要时创建新数组
+
+        # Smart type conversion: Create new array only when necessary
         if data.dtype != target_dtype:
             data = data.astype(target_dtype, copy=False)
-        
-        # 确保是 C-contiguous (大多数 numpy 数组已经是)
-        if not data.flags['C_CONTIGUOUS']:
+
+        # Ensure C-contiguous (most numpy arrays already are)
+        if not data.flags["C_CONTIGUOUS"]:
             data = np.ascontiguousarray(data)
-        
-        # 获取原始字节
-        raw_bytes = data.tobytes()
-        
-        # 压缩 (如果需要)
-        if not isinstance(self.mz_compression, NoCompression):
-            raw_bytes = self.mz_compression.compress(raw_bytes)
-        
-        # 直接写入，不计算哈希
+
+        if isinstance(self.mz_compression, NoCompression):
+            # Fast path: avoid allocating an intermediate bytes object.
+            self.ibd.write(memoryview(data))
+            return offset, len(data), data.nbytes
+
+        # Compressed path
+        raw_bytes = self.mz_compression.compress(data.tobytes())
         self.ibd.write(raw_bytes)
-        
         return offset, len(data), len(raw_bytes)
-    
+
     def _write_mz(self, mzs: np.ndarray) -> Tuple[int, int, int]:
-        """写入 m/z 数组"""
+        """Write m/z array"""
         return self._write_binary_fast(mzs, self.mz_dtype)
-    
+
     def _write_intensities(self, intensities: np.ndarray) -> Tuple[int, int, int]:
-        """写入强度数组"""
+        """Write intensity array"""
         offset = self.ibd.tell()
-        
-        # 智能类型转换
+
+        # Smart type conversion
         if intensities.dtype != self.intensity_dtype:
             intensities = intensities.astype(self.intensity_dtype, copy=False)
-        
-        if not intensities.flags['C_CONTIGUOUS']:
+
+        if not intensities.flags["C_CONTIGUOUS"]:
             intensities = np.ascontiguousarray(intensities)
-        
-        raw_bytes = intensities.tobytes()
-        
-        # 压缩
-        if not isinstance(self.intensity_compression, NoCompression):
-            raw_bytes = self.intensity_compression.compress(raw_bytes)
-        
+
+        if isinstance(self.intensity_compression, NoCompression):
+            # Fast path: avoid allocating an intermediate bytes object.
+            self.ibd.write(memoryview(intensities))
+            return offset, len(intensities), intensities.nbytes
+
+        raw_bytes = self.intensity_compression.compress(intensities.tobytes())
         self.ibd.write(raw_bytes)
-        
         return offset, len(intensities), len(raw_bytes)
-    
-    def addSpectrum(
-        self, 
-        mzs: np.ndarray, 
-        intensities: np.ndarray, 
-        coords: Union[Tuple[int, int], Tuple[int, int, int]], 
-        userParams: List = []
+
+    def _write_uncompressed_block(
+        self, data: np.ndarray, target_dtype: np.dtype
+    ) -> Tuple[int, np.ndarray]:
+        """Write a contiguous ndarray block via memoryview and return start offset + normalized array."""
+        if data.dtype != target_dtype:
+            data = data.astype(target_dtype, copy=False)
+        if not data.flags["C_CONTIGUOUS"]:
+            data = np.ascontiguousarray(data)
+        offset = self.ibd.tell()
+        self.ibd.write(memoryview(data))
+        return offset, data
+
+    def add_spectrum(
+        self,
+        mzs: np.ndarray,
+        intensities: np.ndarray,
+        coords: Union[Tuple[int, int], Tuple[int, int, int]],
+        userParams: Optional[List] = None,  # pylint: disable=C0103
     ) -> None:
         """
-        添加一个质谱谱图
-        
-        参数:
-            mzs: m/z 数组
-            intensities: 强度数组
-            coords: 坐标 (x, y) 或 (x, y, z)
-            userParams: 用户自定义参数列表
+        Add a mass spectrum
+
+        Parameters:
+            mzs: m/z array
+            intensities: Intensity array
+            coords: Coordinates (x, y) or (x, y, z)
+            userParams: User-defined parameter list
         """
-        # 确保是 numpy 数组
+        if userParams is None:
+            userParams = []
+
+        # Ensure numpy arrays
         if not isinstance(mzs, np.ndarray):
             mzs = np.asarray(mzs, dtype=self.mz_dtype)
         if not isinstance(intensities, np.ndarray):
             intensities = np.asarray(intensities, dtype=self.intensity_dtype)
-        
-        # 根据模式处理 m/z 数组
+
+        # Process m/z array based on mode
         if self.mode == "continuous":
             if self.first_mz is None:
-                # 第一个谱图: 写入 m/z 数组
+                # First spectrum: write m/z array
                 self.first_mz = self._write_mz(mzs)
             mz_offset, mz_len, mz_enc_len = self.first_mz
-            
+
         elif self.mode == "processed":
-            # 每个谱图独立的 m/z
+            # Each spectrum has independent m/z
             mz_offset, mz_len, mz_enc_len = self._write_mz(mzs)
-            
+
         elif self.mode == "auto":
-            # auto 模式: 使用简化的缓存策略
-            mz_key = (len(mzs), mzs[0] if len(mzs) > 0 else 0, mzs[-1] if len(mzs) > 0 else 0)
+            # Auto mode: Use simplified cache strategy
+            mz_key = (
+                len(mzs),
+                mzs[0] if len(mzs) > 0 else 0,
+                mzs[-1] if len(mzs) > 0 else 0,
+            )
             if mz_key in self._lru_cache:
                 mz_offset, mz_len, mz_enc_len = self._lru_cache[mz_key]
             else:
                 mz_data = self._write_mz(mzs)
                 self._lru_cache[mz_key] = mz_data
-                # 简单的 LRU: 超过限制时删除最旧的
+                # Simple LRU: Delete oldest when exceeding limit
                 if len(self._lru_cache) > self._lru_maxlen:
                     self._lru_cache.popitem(last=False)
                 mz_offset, mz_len, mz_enc_len = mz_data
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
-        
-        # 写入强度数组
+
+        # Write intensity array
         int_offset, int_len, int_enc_len = self._write_intensities(intensities)
-        
-        # 计算或跳过统计量
+
+        # Calculate or skip statistics
         if self.compute_stats:
             mz_min = float(np.min(mzs))
             mz_max = float(np.max(mzs))
@@ -384,14 +406,14 @@ class ImzMLWriter:
             int_base = float(intensities[ix_max]) if len(intensities) > 0 else 0.0
             int_tic = float(np.sum(intensities))
         else:
-            # 使用占位符值 - 极大提升性能
+            # Use placeholder values - greatly improves performance
             mz_min = 0.0
             mz_max = 0.0
             mz_base = 0.0
             int_base = 0.0
             int_tic = 0.0
-        
-        # 创建谱图记录
+
+        # Create spectrum record
         s = _Spectrum(
             coords=coords,
             mz_len=mz_len,
@@ -405,18 +427,162 @@ class ImzMLWriter:
             mz_base=mz_base,
             int_base=int_base,
             int_tic=int_tic,
-            userParams=userParams
+            userParams=userParams,
         )
         self.spectra.append(s)
-    
+
+    def _update_auto_mode_from_flat(
+        self,
+        mz_flat: np.ndarray,
+        lengths: np.ndarray
+    ) -> None:
+        """Detect mode based on flat array shapes - used for swap_flat_out2disk auto mode"""
+        total_points = int(np.sum(lengths, dtype=np.int64))
+        max_len = int(np.max(lengths))
+        mz_size = int(mz_flat.size)
+
+        if mz_size == total_points:
+            detected_mode = "processed"
+        elif mz_size == max_len and np.all(lengths == max_len):
+            detected_mode = "continuous"
+        else:
+            raise ValueError(
+                "Cannot infer auto mode from flat arrays: "
+                f"mz_size={mz_size}, total_points={total_points}, max_len={max_len}."
+            )
+
+        if self._auto_detected_mode is None:
+            self._auto_detected_mode = detected_mode
+        elif self._auto_detected_mode != detected_mode:
+            raise ValueError(
+                "Inconsistent auto mode across batches: "
+                f"previous={self._auto_detected_mode}, current={detected_mode}."
+            )
+
+    def swap_flat_out2disk(
+        self,
+        mz_flat: Optional[np.ndarray],
+        intensity_flat: np.ndarray,
+        lengths: np.ndarray,
+        coords: np.ndarray,
+        user_params_list: Optional[List[List]] = None,
+    ) -> None:
+        """
+        Write a batch of spectra efficiently to disk via pre-computed flat arrays.
+
+        Args:
+            mz_flat: 1D array of total m/z values for the batch (processed) or shared m/z array (continuous).
+            intensity_flat: 1D array of total intensity values for the batch.
+            lengths: Number of points for each spectrum in the batch.
+            coords: Array of spatial coordinates (x, y, [z]) for each spectrum.
+            user_params_list: Optional list of userParams for each spectrum.
+        """
+        if len(lengths) == 0:
+            return
+
+        if mz_flat is None:
+            raise ValueError("mz_flat cannot be None for swap_flat_out2disk")
+
+        num_spectra = len(lengths)
+        if user_params_list is None:
+            user_params_list = [[] for _ in range(num_spectra)]
+
+        if self.mode == "continuous":
+            is_continuous = True
+        elif self.mode == "processed":
+            is_continuous = False
+        else:
+            if mz_flat is None:
+                raise ValueError("mz_flat cannot be None for auto mode in swap_flat_out2disk")
+
+            self._update_auto_mode_from_flat(mz_flat, lengths)
+
+            is_continuous = self._auto_detected_mode == "continuous"
+
+        mz_bytes_per_elem = self.mz_dtype.itemsize
+        int_bytes_per_elem = self.intensity_dtype.itemsize
+
+        cumulative_lengths = np.empty(num_spectra, dtype=np.int64)
+        cumulative_lengths[0] = 0
+        if num_spectra > 1:
+            np.cumsum(lengths[:-1], dtype=np.int64, out=cumulative_lengths[1:])
+
+        if is_continuous:
+            # Continuous mode
+            if getattr(self, "first_mz", None) is None:
+                if mz_flat is None:
+                    raise ValueError(
+                        "mz_flat cannot be None for first spectrum in continuous mode")
+                # Write shared m/z array exactly once
+                self.first_mz = self._write_binary_fast(mz_flat, self.mz_dtype)
+
+            first_mz = self.first_mz
+            if first_mz is None:
+                raise ValueError("first_mz is unexpectedly None in continuous mode")
+            mz_offset_shared, mz_len_shared, mz_enc_len_shared = first_mz
+            mz_offsets = np.full(num_spectra, mz_offset_shared, dtype=np.int64)
+            mz_lens = np.full(num_spectra, mz_len_shared, dtype=np.int64)
+            mz_enc_lens = np.full(num_spectra, mz_enc_len_shared, dtype=np.int64)
+
+            # intensities logic
+            int_start_offset, intensity_flat = self._write_uncompressed_block(intensity_flat, self.intensity_dtype)
+
+            int_offsets = int_start_offset + cumulative_lengths * int_bytes_per_elem
+            int_lens = lengths
+            int_enc_lens = int_lens * int_bytes_per_elem
+
+        else:
+            # Processed / auto mode
+            if mz_flat is None:
+                raise ValueError(
+                    "mz_flat cannot be None for processed data in swap_flat_out2disk"
+                )
+
+            mz_start_offset, mz_flat = self._write_uncompressed_block(
+                mz_flat, self.mz_dtype
+            )
+
+            mz_offsets = mz_start_offset + cumulative_lengths * mz_bytes_per_elem
+            mz_lens = lengths
+            mz_enc_lens = mz_lens * mz_bytes_per_elem
+
+            # Write all intensity data at once
+            int_start_offset, intensity_flat = self._write_uncompressed_block(
+                intensity_flat, self.intensity_dtype
+            )
+            int_offsets = int_start_offset + cumulative_lengths * int_bytes_per_elem
+            int_lens = lengths
+            int_enc_lens = int_lens * int_bytes_per_elem
+
+        # Skip computing stats to stick to max IO perf strategy
+        for i in range(num_spectra):
+            s = _Spectrum(
+                coords=tuple(coords[i]),
+                mz_len=mz_lens[i],
+                mz_offset=mz_offsets[i],
+                mz_enc_len=mz_enc_lens[i],
+                int_len=int_lens[i],
+                int_offset=int_offsets[i],
+                int_enc_len=int_enc_lens[i],
+                mz_min=0,
+                mz_max=0,
+                mz_base=0,
+                int_base=0,
+                int_tic=0,
+                userParams=user_params_list[i],
+            )
+            self.spectra.append(s)
+
     def _write_xml(self) -> None:
-        """写入 imzML XML 文件"""
+        """Write imzML XML file"""
+        # The following variables are passed to the template engine via locals(), Pylint cannot recognize
+        # pylint: disable=W0641
         spectra = self.spectra
         mz_data_type = self._np_type_to_name(self.mz_dtype)
         int_data_type = self._np_type_to_name(self.intensity_dtype)
-        
+
         obo_codes = {
-            "32-bit integer": "1000519", 
+            "32-bit integer": "1000519",
             "16-bit float": "1000520",
             "32-bit float": "1000521",
             "64-bit integer": "1000522",
@@ -437,7 +603,7 @@ class ImzMLWriter:
             "one_way": "1000411",
             "random_access": "1000412",
             "horizontal_line": "1000480",
-            "vertical_line": "1000481"
+            "vertical_line": "1000481",
         }
         obo_names = {
             "line_bottom_up": "linescan bottom up",
@@ -452,19 +618,22 @@ class ImzMLWriter:
             "one_way": "one way",
             "random_access": "random access",
             "horizontal_line": "horizontal line scan",
-            "vertical_line": "vertical line scan"
+            "vertical_line": "vertical line scan",
         }
-        
+
         uuid = ("{%s}" % self.uuid).upper()
         sha1sum = PLACEHOLDER_SHA1  # 使用固定占位符，跳过计算
         run_id = self.run_id
-        
+
         # 确定模式
-        if self.mode == 'auto':
-            mode = "processed" if len(self._lru_cache) > 1 else "continuous"
+        if self.mode == "auto":
+            if self._auto_detected_mode is not None:
+                mode = self._auto_detected_mode
+            else:
+                mode = "processed" if len(self._lru_cache) > 1 else "continuous"
         else:
             mode = self.mode
-            
+
         spec_type = self.spec_type
         mz_compression = self.mz_compression.name
         int_compression = self.intensity_compression.name
@@ -473,25 +642,67 @@ class ImzMLWriter:
         scan_pattern = self.scan_pattern
         scan_type = self.scan_type
         line_scan_direction = self.line_scan_direction
-        
+
         self.xml.write(self.imzml_template.render(locals()))
-    
+
+    @classmethod
+    def from_ms_meta(
+        cls,
+        output_filename: str,
+        meta,
+        mz_dtype=np.float64,
+        intensity_dtype=np.float32,
+    ):
+        """
+        从 MS metadata 创建 ImzMLWriter 实例
+        """
+        spec_type = "profile" if meta.profile_spectrum is True else "centroid"
+        scan_direction = (
+            meta.scan_direction if meta.scan_direction is not None else "top_down"
+        )
+        line_scan_direction = (
+            meta.line_scan_direction
+            if meta.line_scan_direction is not None
+            else "line_left_right"
+        )
+        scan_pattern = meta.scan_pattern if meta.scan_pattern is not None else "one_way"
+        scan_type = meta.scan_type if meta.scan_type is not None else "horizontal_line"
+
+        if bool(getattr(meta, "continuous", None)):
+            mode = "continuous"
+        elif bool(getattr(meta, "processed", None)):
+            mode = "processed"
+        else:
+            mode = "auto"
+
+        return cls(
+            output_filename=output_filename,
+            mz_dtype=mz_dtype,  # type: ignore
+            intensity_dtype=intensity_dtype,  # type: ignore
+            mode=mode,
+            spec_type=spec_type,
+            scan_direction=scan_direction,
+            line_scan_direction=line_scan_direction,
+            scan_pattern=scan_pattern,
+            scan_type=scan_type,
+        )
+
     def close(self) -> None:
-        """
-        关闭写入器，写入 XML 文件并关闭所有文件句柄。
-        使用 with 语句时会自动调用。
-        """
+        """Close the writer and finalize files"""
         self.finish()
-    
+
     def finish(self) -> None:
-        """close() 的别名"""
+        """complete writing and close files"""
+        if self._finished:
+            return
+        self._finished = True
         self.ibd.close()
         self._write_xml()
         self.xml.close()
-    
-    def __enter__(self) -> 'ImzMLWriter':
+
+    def __enter__(self) -> "ImzMLWriter":
         return self
-    
+
     def __exit__(self, exc_t, exc_v, trace) -> None:
         if exc_t is None:
             self.finish()

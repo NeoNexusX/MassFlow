@@ -29,13 +29,20 @@ MassFlow/
 ├── logs/                    # Runtime logs
 ├── src/
 │   └── massflow/            # Core source code
-│       ├── module/          # Data models and managers
-│       │   ├── ms_module.py # MS/ImzML base types
+│       ├── data_manager/         # Data managers (MSDataManager, MSDataManagerImzML)
+│       ├── module/               # Core data models
+│       │   ├── spectrum.py       # Spectrum base type
+│       │   ├── spectrum_imzml.py # ImzML spectrum with lazy loading
+│       │   ├── mass_spectrum_set.py  # Collection of spectra
+│       │   ├── ms_meta_data.py       # Metadata structures (ImzMlMetaData, etc.)
 │       │   └── ...
-│       ├── preprocess/      # Preprocessing algorithms
-│       │   ├── ms_preprocess.py
+│       ├── preprocess/              # Preprocessing pipeline
+│       │   ├── api.py               # Chainable task registration API (PreprocessorAPI)
+│       │   ├── preprocessor.py      # Pipeline executor (Preprocessor)
+│       │   ├── flat_pre_fun.py      # Flat-array preprocessing (FlatPreprocess)
 │       │   └── ...
-│       └── tools/           # Utility functions
+│       ├── r_preprocess/       # R/Cardinal adapter
+│       └── tools/              # Utility functions
 ├── tests/                   # Test cases
 ├── LICENSE
 ├── main.py
@@ -48,7 +55,7 @@ MassFlow/
 
 ### Quick Dev Start
 
-It is recommended to  run the following code (main.py) directly to verify data loading:
+It is recommended to run the following code (main.py) directly to verify data loading:
 
 ```bash
 # Close conda first:
@@ -67,9 +74,15 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 uv sync 
 uv pip install -e .
 
+# Install optional R backend dependencies (requires local R):
+uv sync --extra r
+
 #run the code
 uv run python main.py
 ```
+
+- Default installation (`uv sync`) does not include R/Cardinal backend dependencies.
+- If you need Cardinal backend (`backend="cardinal"`), install extra dependency group `r` and make sure R is installed and available in PATH (or set `R_HOME`).
 
 - please read Contribution Guide: `docs/en/contribution.md` and `docs/zh/contribution.md`  first 
 - Naming Conventions: `docs/en/naming-conventions.md` and `docs/zh/naming-conventions.md`

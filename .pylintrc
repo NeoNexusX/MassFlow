@@ -2,5 +2,5 @@
 max-line-length=150
 
 [MESSAGES CONTROL]
-# Skip missing docstring for functions/methods
-disable=missing-module-docstring
+# Skip missing docstring checks
+disable=missing-module-docstring,missing-function-docstring

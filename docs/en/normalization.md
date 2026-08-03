@@ -1,302 +1,161 @@
 # MassFlow
 
-This document introduces the normalization module in MassFlow, focusing on the unified entry `MSIPreprocessor.normalization_spectrum` and helper functions defined in `preprocess/normalizer_helper.py`. It provides an overview, API specification, example code, parameter notes, and troubleshooting tips.
+This document introduces the normalization module in MassFlow, focusing on:
+- Pipeline-level entry point `Preprocessor.normalization`
+- Core functions in `preprocess/helper/normalizer_helper.py`
 
 ## Overview
-- Input and output
-  - Input: `module.ms_module.SpectrumBaseModule` (with 1D `intensity` and optional `mz_list`)
-  - Output: A new `SpectrumBaseModule` with the same `mz_list` and coordinates; `intensity` is replaced by normalized (and optionally scaled) values.
+
+- Input and Output
+  - Input is in flat array form (`mz_data`, `intensity`, `lengths`), representing m/z and intensity data for a batch of spectra.
+  - Output is a normalized flat array; m/z and coordinates remain unchanged, intensity is replaced with normalized values.
 - Methods
-  - TIC (Total Ion Current) normalization: scales intensities such that the sum equals 1.
-  - RMS (Root Mean Square) normalization: scales intensities such that the RMS equals 1.
-  - Median normalization: scales intensities such that the median equals 1.
+  - TIC (Total Ion Current) normalization (`tic_numba`): Scales each spectrum's intensity so the sum equals a specified value.
+  - RMS (Root Mean Square) normalization (`rms_numba`): Scales each spectrum's intensity so the RMS equals a specified value.
+  - Reference peak normalization (`ref_numba`): Scales each spectrum's intensity so the signal near a specified m/z is normalized to a target value.
+- All methods execute per-spectrum within Numba JIT kernels, leveraging `prange` parallel loops.
 
 ### Function Relationship Diagram
 
 ```mermaid
 graph LR
-
-  A[MSIPreprocessor.normalization_spectrum] --> B{Primary Method}
-  B --> C[TIC]
-  B --> D[RMS]
-  B --> E[Median]
-  C --> F[Apply Scaling 'none'/'unit' ]
-  D --> F
-  E --> F
-  F --> G[Return Spectrum with normalized intensity]
+  A["Preprocessor.normalization"] --> B["FlatPreprocess.normalization_flat"]
+  B --> C["normalizer"]
+  C --> D["normalizer_numba<br/>(Numba JIT)"]
+  D --> E["Normalized Data"]
 ```
 
 ## Core API
 
-### MSIPreprocessor.normalization_spectrum
+### Preprocessor.normalization (Pipeline Level)
 
 ```python
-preprocess.ms_preprocess.MSIPreprocessor.normalization_spectrum(
-  data: SpectrumBaseModule | SpectrumImzML,
-  scale_method: str = "none",
-  method: str = "tic",
-  scale: float = 1.0
-) -> SpectrumBaseModule | SpectrumImzML
+massflow.preprocess.api.PreprocessorAPI.normalization(
+    *,
+    method: str = "tic_numba",
+    scale: float | None = None,
+    ref: float | None = None,
+    ref_tolerance: float = 0.1,
+) -> Self
 ```
-- Description: Unified entry for spectrum normalization. Dispatches to TIC, RMS, or Median normalization and optionally applies post-scaling. Returns a spectrum object preserving `mz_list` and coordinates, with normalized `intensity`.
-- Methods:
-  - 'tic' (sum equals 1)
-  - 'rms' (RMS equals 1)
-  - 'median' (median equals 1)
+
+- Description: Pipeline-level normalization entry point. Performs normalization on all spectra in batches via `Preprocessor` chainable calls.
+- Input: Bind a data manager via `Preprocessor(dm)`.
+- Output: After calling `.start()`, returns a new `MSDataManagerImzML` whose spectral intensities are normalized.
+- Supported methods: `"tic_numba"`, `"rms_numba"`, `"ref_numba"`.
 - Parameters:
-  - `scale`: Amplitude scaling factor applied after normalization (default 1.0).
-
-
-### normalizer
-```python
-preprocess.normalizer_helper.normalizer(
-  intensity: np.ndarray,
-  scale_method: str = "none",
-  method: str = "tic",
-  scale: float = 1.0
-) -> np.ndarray
-```
-- Description: Unified normalization dispatcher. Validates input and routes to `'tic'`, `'rms'`, or `'median'` normalization, then applies optional amplitude `scale` and `'unit'` min-max scaling.
-- Parameters:
-  - `intensity`: 1D numpy array to normalize.
-  - `scale_method`: `'none' | 'unit'` (applied after primary normalization).
-  - `method`: `'tic' | 'rms' | 'median'` (primary normalization).
-  - `scale`: Amplitude scaling factor applied after normalization (default 1.0).
-    - Must be a finite non-negative number.
-  - Notes:
-    - `scale_method` is case-insensitive and supports only `'none'` and `'unit'`.
-- Returns:
-  - `intensity`: normalized (and optionally scaled) 1D numpy array.
-- Raises:
-  - `ValueError`: unsupported `method`, `scale_method`; `scale` must be finite and non-negative.
-  - `TypeError`: input not a non-empty 1D array.
-
-### tic_normalize
-```python
-preprocess.normalizer_helper.tic_normalize(
-  intensity: np.ndarray,
-  scale_method: str = "none",
-  scale: float = 1.0
-) -> np.ndarray
-```
-- Description: Normalize by total ion current (sum). Divides by sum (TIC) when TIC > 0, then applies amplitude scaling `scale`, followed by optional `'unit'` min-max scaling.
-- Parameters:
-  - `scale_method`: `'none' | 'unit'` (min-max scaling to [0, 1] applied after normalization)
-  - `scale`: Amplitude scaling factor applied after normalization (default 1.0)
-    - Must be a finite non-negative number.
-- Returns:
-  - `intensity`: 1D numpy array; sum equals 1 before amplitude/optional unit scaling
-- Exceptions: 
-  - `ValueError`: TIC ≤ 0; unsupported `scale_method`; 
-  - `TypeError`: input not a non-empty 1D array
-
-Example: (after Savitzky-Golay denoising)
-
-```python
-import sys
-import os
-import numpy as np
-from module.ms_module import MS
-from module.ms_data_manager_imzml import MSDataManagerImzML
-from preprocess.ms_preprocess import MSIPreprocessor
-from tools.plot import plot_spectrum
-
-FILE_PATH = "data\\neg-gz4.imzML"
-ms = MS()
-ms_md = MSDataManagerImzML(ms, filepath=FILE_PATH)
-ms_md.load_full_data_from_file()
-sp = ms[0]
-# Denoise then normalize
-denoised = MSIPreprocessor.noise_reduction_spectrum(
-    data=sp,
-    method="savgol",
-    window=11,
-    polyorder=3
-)
-normalized_tic = MSIPreprocessor.normalization_spectrum(
-    data=denoised,
-    method="tic",
-    scale_method="none"
-)
-
-tic_origin = float(np.sum(denoised.intensity))
-tic_after = float(np.sum(normalized_tic.intensity))
-print(f"TIC normalized sum={tic_after:.6f}")
-
-plot_spectrum(
-    base = denoised,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5),
-    title_suffix='Savgol_denoised'
-)
-
-plot_spectrum(
-    base=normalized_tic,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5 / tic_origin),
-    title_suffix='TIC_normalized_none'
-)
-```
-![Original Spectrum after denoised]()
-![TIC example]()
-
-### rms_normalize
-```python
-preprocess.normalizer_helper.rms_normalize(
-  intensity: np.ndarray,
-  scale_method: str = "none",
-  scale: float = 1.0
-) -> np.ndarray
-```
- - Description: Normalize by root mean square (RMS). Divides by RMS when RMS > 0; if RMS ≤ 0 (or NaN), raises `ValueError`. Applies amplitude `scale`, then optional `'unit'` scaling.
-- Parameters:
-  - `scale_method`: `'none' | 'unit'` 
-  - `scale`: Amplitude scaling factor applied after normalization (default 1.0)
-    - Must be a finite non-negative number.
-- Returns:
-  - `intensity`: 1D numpy array; RMS equals 1 (before amplitude/optional unit scaling)
-- Notes:
-  - Implementation matches R style: `b = sqrt(mean(x^2))`; if `b > 0` then `y = scale * x / b`, otherwise an error is raised.
+  - `method`: Normalization method, default `"tic_numba"`.
+  - `scale`: Post-normalization amplitude scaling factor (optional). If provided, intensities are multiplied by this value.
+  - `ref`: Reference m/z value. When `method="ref_numba"` and `ref=None`, it is estimated automatically.
+  - `ref_tolerance`: Reference peak matching tolerance (used by `ref_numba` method), default 0.1.
 - Exceptions:
-  - `ValueError`: RMS ≤ 0; unsupported `scale_method`.
-  - `TypeError`: input not a non-empty 1D array.
+  - `ValueError`: Unsupported method; invalid scale; ref_numba missing usable m/z data or a reference value.
 
-Example: (after Savitzky-Golay denoising)
+Example:
 
 ```python
-# Denoise then normalize (same as TIC example)
-denoised = MSIPreprocessor.noise_reduction_spectrum(
-    data=sp,
-    method="savgol",
-    window=11,
-    polyorder=3
+from massflow.data_manager import MSDataManagerImzML
+from massflow.preprocess.preprocessor import Preprocessor
+from massflow.tools.plot import plot_spectrum
+
+FILE_PATH = "data/example.imzML"
+dm = MSDataManagerImzML(filepath=FILE_PATH)
+dm.load_head_data()
+
+normalized = (
+    Preprocessor(dm)
+    .noise_reduction(method="gaussian_numba", window=7)
+    .normalization(method="tic_numba")
+    .start()
 )
 
-normalized_rms = MSIPreprocessor.normalization_spectrum(
-    data=denoised,
-    method="rms",
-    scale_method="none"
-)
-
-# RMS before and after (RMS equals 1 after normalization when input RMS > 0)
-rms_origin = float(np.sqrt(np.nanmean(np.square(denoised.intensity))))
-rms_after = float(np.sqrt(np.nanmean(np.square(normalized_rms.intensity))))
-print(f"RMS normalized value={rms_after:.6f}")
-
-# Plot normalized spectrum; scale the y-range using original RMS for visibility
-plot_spectrum(
-    base=normalized_rms,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5 / max(rms_origin, 1e-12)),
-    title_suffix='RMS_normalized_none'
-)
+plot_spectrum(normalized.ms[0])
+normalized.close()
+dm.close()
 ```
-![RMS example]()
 
-### median_normalize
+![image-20260430140609289](https://neonexus-picture.oss-ap-southeast-1.aliyuncs.com/test/image-20260430140609289.png)
+
+### normalizer (Helper Function Level)
+
 ```python
-preprocess.normalizer_helper.median_normalize(
-  intensity: np.ndarray,
-  scale_method: str = "none",
-  scale: float = 1.0
+preprocess.helper.normalizer_helper.normalizer(
+    intensity: np.ndarray,
+    method: str = "tic_numba",
+    scale: float | None = None,
+    mz_flat: np.ndarray | None = None,
+    ref: float | None = None,
+    ref_tolerance: float = 0.1,
+    lengths: np.ndarray | None = None,
 ) -> np.ndarray
 ```
-- Description: Normalize by the median. Divides by the median when median > 0, then applies amplitude scaling `scale`, followed by optional `'unit'` min-max scaling.
+
+- Description: Flat-array normalization dispatcher. Calls the corresponding Numba backend based on `method`.
 - Parameters:
-  - `scale_method`: `'none' | 'unit'` (min-max scaling to [0, 1] applied after normalization)
-  - `scale`: Amplitude scaling factor applied after normalization (default 1.0)
-    - Must be a finite non-negative number.
-- Returns:
-  - `intensity`: 1D numpy array; median equals 1 before amplitude/optional unit scaling
-- Exceptions:
-  - `ValueError`: median ≤ 0; unsupported `scale_method`.
-  - `TypeError`: input not a non-empty 1D array.
+  - `intensity`: One-dimensional flat intensity array.
+  - `lengths`: Spectrum length array, used to split processing per-spectrum within Numba.
+  - `mz_flat`: Lower-level helper parameter required by `ref_numba`. The pipeline API fills it automatically from the current batch's `mz_data`.
+  - Other parameters are consistent with the pipeline API.
+- Returns: Normalized intensity array.
+- Supported methods are limited to `"tic_numba"`, `"rms_numba"`, and `"ref_numba"`.
 
-Example: (after Savitzky-Golay denoising)
+### FlatPreprocess.normalization_flat (Flat Batch Level)
 
 ```python
-denoised = MSIPreprocessor.noise_reduction_spectrum(
-    data=sp,
-    method="savgol",
-    window=11,
-    polyorder=3
-)
-med_origin = float(np.median(denoised.intensity))
-normalized_med = MSIPreprocessor.normalization_spectrum(
-    data=denoised,
-    method="median",
-    scale_method="none"
-)
-med_after = float(np.median(normalized_med.intensity))
-print(f"Median_value_after={med_after:.6f}")
-
-plot_spectrum(
-    base=normalized_med,
-    mz_range=(500.0, 510.0),
-    intensity_range=(0.0, 1.5 / med_origin),
-    title_suffix='Median_normalized_none'
-)
+massflow.preprocess.flat_pre_fun.FlatPreprocess.normalization_flat(
+    mz_data: np.ndarray,
+    intensity: np.ndarray,
+    lengths: np.ndarray,
+    method: str = "tic_numba",
+    scale: float | None = None,
+    ref: float | None = None,
+    ref_tolerance: float = 0.1,
+) -> FlatBatchResult
 ```
-![Median example]()
 
-### apply_scaling
-```python
-preprocess.normalizer_helper.apply_scaling(
-  intensity: np.ndarray,
-  scale_method: str
-) -> np.ndarray
-```
-- Description: Apply scaling transformation after primary normalization.
-  - `'none'`: return original values
-  - `'unit'`: min-max scale to `[0, 1]`
-- Parameters:
-  - `scale_method`: `'none' | 'unit'` (case-insensitive)
-- Returns:
-  - `intensity`: scaled 1D numpy array
-- Exceptions:
-  - `ValueError`: unsupported `scale_method`.
-  - `TypeError`: input not a non-empty 1D array.
+- Description: The underlying implementation of `Preprocessor.normalization`. Returns a `FlatBatchResult` containing mz_data, normalized intensity, and lengths.
 
-### Optional 0–1 scaling (unit scaling)
-```python
-normalized_unit = MSIPreprocessor.normalization_spectrum(
-    data=denoised,
-    method="tic",          # or "median"
-    scale_method="unit"    # min-max scaling to [0, 1]
-)
-plot_spectrum(
-        base = normalized_unit,
-        mz_range=(500.0, 510.0),
-        intensity_range=(0.0, 0.1),
-        title_suffix='TIC_normalized_unit'     
-    )
-```
-![TIC example unit scaling]()
+## Method Details
 
-- Use `'unit'` to scale the normalized intensity to `[0, 1]` for consistent visualization/comparison across spectra.
+### TIC Normalization (tic_numba)
 
-## Parameters and Tuning
-- General
-  - Choose `'tic'` for consistent total intensity across pixels; suitable for visualization, relative quantitation.
-  - Choose `'median'` to reduce the influence of extreme values; robust for noisy spectra.
-  - Use `'unit'` scaling for plotting or UI normalization; avoid if you need numeric properties like sum=1 or median=1 to remain interpretable.
-- TIC
-  - Sensitive to large peaks; consider prior denoising/baseline correction.
-- Median
-  - More robust against heavy-tailed distributions; preserves rank structure.
+Each spectrum's intensity is divided by its total intensity sum, making sum = 1. If `scale` is provided, the result is further multiplied by scale.
 
-## Troubleshooting
-- `ValueError: TIC value is not greater than 0`  
-  Ensure the spectrum has non-zero sum after preprocessing; avoid using entirely empty or clipped spectra.
-- `ValueError: Median value is not greater than 0`  
-  Ensure intensities are not all zero; consider baseline correction or avoiding aggressive clipping.
- - `ValueError: RMS value is not greater than 0`  
-   Check for empty/constant spectra or all-NaN values; ensure preprocessing retains signal.
-- Unsupported method or scale_method  
-  Check spelling: `method='tic'|'median'`, `scale_method='none'|'unit'`.
+Use case: When inter-pixel total intensity comparability is needed; suitable for visualization and relative quantitative analysis.
+
+### RMS Normalization (rms_numba)
+
+Each spectrum's intensity is divided by its root mean square (`sqrt(mean(x^2))`), making RMS = 1. If `scale` is provided, the result is further multiplied by scale.
+
+Use case: Less sensitive to strong peaks; more stable in data with high dynamic range signals.
+
+### Reference Peak Normalization (ref_numba)
+
+For each spectrum, finds the peak nearest to `ref` within the tolerance window, and uses that peak's intensity as the normalization factor. If `scale` is provided, the result is further multiplied by scale.
+
+## Parameter and Tuning Recommendations
+
+- Method Selection
+  - When inter-pixel total intensity comparability is needed, prefer `"tic_numba"`.
+  - When robustness to extreme values is desired, choose `"rms_numba"`.
+  - When an internal standard peak is known, choose `"ref_numba"`.
+- `scale` (Amplitude scaling factor)
+  - Additional scaling after normalization. Common use: set to 1000 or 10000 after TIC normalization for convenient numerical display.
+  - Must be finite and non-negative.
+- `ref` (Reference peak normalization)
+  - `ref`: Target internal standard peak m/z value.
+  - `ref_tolerance`: Internal standard peak search tolerance (absolute difference), default 0.1 Da.
 
 ## References
-- `preprocess/normalizer_helper.py` (TIC/median implementations and scaling)
-- `preprocess/ms_preprocess.py` (Unified entry point and parameter dispatch)
-- `module/ms_module.py` (Data structure for `SpectrumBaseModule`)
-- `tools/plot.py` (Plotting utilities for `SpectrumBaseModule`)
+
+- `preprocess/helper/normalizer_helper.py`: Normalization dispatcher (normalizer)
+- `preprocess/numba/normalization_numba.py`: Numba-accelerated implementation (normalizer_numba)
+- `preprocess/flat_pre_fun.py`: Flat preprocessing entry point (FlatPreprocess.normalization_flat)
+- `preprocess/api.py`: Chainable API (PreprocessorAPI.normalization)
+
+## Error Handling and Logging
+
+- Input validation: intensity must be a non-empty 1D numpy array, otherwise `TypeError` is raised.
+- scale validation: Must be finite and non-negative.
+- ref_tolerance validation: Must be finite and non-negative.
+- method validation: Only `"tic_numba"`, `"rms_numba"`, `"ref_numba"` are supported.

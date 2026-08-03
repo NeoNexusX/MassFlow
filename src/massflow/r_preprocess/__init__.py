@@ -10,7 +10,7 @@ def set_default_r_home(r_home: str):
 
     if not r_home or not os.path.exists(r_home):
         raise FileNotFoundError(f"R_HOME not found at: {r_home}")
-    
+
 def init_r_environment(r_home: Optional[str] = None):
     """
     Initialize R environment by setting up necessary environment variables.

@@ -1,47 +1,175 @@
 import time
+import os
 import subprocess
+from itertools import zip_longest
 import pytest
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.logger import get_logger
+import numpy as np
+from massflow.data_manager import MSDataManagerImzML
+from massflow.tools.logger import get_logger
 
 logger = get_logger("test_read")
 
-ROUND = 5
+ROUND = 1
+
+READ_BENCHMARK_CASES = [
+    # batch_size = 32
+    ("flat", "data/example.imzML", 32, 2),
+    ("flat", "data/example.imzML", 32, 8),
+    ("matrix", "data/example.imzML", 32, 2),
+    ("matrix", "data/example.imzML", 32, 8),
+    # batch_size = 64
+    ("flat", "data/example.imzML", 64, 2),
+    ("flat", "data/example.imzML", 64, 8),
+    ("matrix", "data/example.imzML", 64, 2),
+    ("matrix", "data/example.imzML", 64, 8),
+    # batch_size = 128
+    ("flat", "data/example.imzML", 128, 2),
+    ("flat", "data/example.imzML", 128, 8),
+    ("matrix", "data/example.imzML", 128, 2),
+    ("matrix", "data/example.imzML", 128, 8),
+    # batch_size = 256
+    ("flat", "data/example.imzML", 256, 2),
+    ("flat", "data/example.imzML", 256, 8),
+    ("matrix", "data/example.imzML", 256, 2),
+    ("matrix", "data/example.imzML", 256, 8),
+]
 
 def drop_caches():
-    subprocess.run(['sudo', 'purge'], check=True)
+    if os.name == "nt":
+        return
+    subprocess.run(["sudo", "purge"], check=True)
 
 def data_reading_benchmark(data_file_path="data/example.imzML"):
     with MSDataManagerImzML(filepath=data_file_path) as ms_md:
-        ms_md.load_full_data_from_file()
+        ms_md.load_head_data()
         for spectrum_data in ms_md.ms:
             assert spectrum_data.intensity is not None
 
 
-def data_batch_reading_full_benchmark(
-    data_file_path="data/example.imzML", batch_size=1024, max_workers=2
+def data_reading_full_benchmark(
+    read_mode="flat", data_file_path="data/example.imzML", batch_size=1024, max_workers=2
 ):
     with MSDataManagerImzML(filepath=data_file_path) as ms_md:
-        ms_md.load_full_data_from_file()
-        batch_generator = ms_md.get_batch_generator(
+        ms_md.load_head_data()
+
+        if read_mode == "matrix":
+            matrix_generator = ms_md.matrix_generator(
+                batch_size=batch_size,
+                include_mz=True,
+                max_threads=max_workers,
+            )
+            for _mz_data, intensity_matrix, lengths, _coords in matrix_generator:
+                assert len(intensity_matrix) > 0
+                assert len(lengths) > 0
+            drop_caches()
+            return
+
+        if read_mode == "flat":
+            flat_generator = ms_md.flat_generator(
+                batch_size=batch_size,
+                include_mz=True,
+                max_threads=max_workers
+            )
+            for _mz_data, intensity_flat, lengths, _coords in flat_generator:
+                assert len(intensity_flat) > 0
+                assert len(lengths) > 0
+            drop_caches()
+            return
+
+        raise ValueError(f"Unsupported read_mode: {read_mode}")
+
+
+def data_reading_by_mode_benchmark(
+    read_mode="flat", data_file_path="data/example.imzML", batch_size=1024, max_workers=2
+):
+    data_reading_full_benchmark(read_mode, data_file_path, batch_size, max_workers)
+
+
+def _normalize_coordinate(coord) -> tuple:
+    if hasattr(coord, "get_tuple"):
+        return coord.get_tuple()
+    if hasattr(coord, "tolist"):
+        return tuple(coord.tolist())
+    return tuple(coord)
+
+
+def _iter_matrix_spectra(matrix_batch, is_continuous: bool):
+    mz_data, intensity_matrix, lengths, coords = matrix_batch
+    lengths_array = np.asarray(lengths, dtype=np.int64)
+    for index, length in enumerate(lengths_array):
+        spectrum_length = int(length)
+        coord = _normalize_coordinate(coords[index])
+        mz_array = np.asarray(mz_data[:spectrum_length]) if is_continuous else np.asarray(mz_data[index, :spectrum_length])
+        intensity_array = np.asarray(intensity_matrix[index, :spectrum_length])
+        yield coord, spectrum_length, mz_array, intensity_array
+
+
+def _iter_flat_spectra(flat_batch, is_continuous: bool):
+    mz_data, intensity_flat, lengths, coords = flat_batch
+    lengths_array = np.asarray(lengths, dtype=np.int64)
+    offsets = np.zeros(len(lengths_array), dtype=np.int64)
+    if len(lengths_array) > 1:
+        offsets[1:] = np.cumsum(lengths_array[:-1], dtype=np.int64)
+
+    for index, length in enumerate(lengths_array):
+        start = int(offsets[index])
+        end = start + int(length)
+        coord = _normalize_coordinate(coords[index])
+        mz_array = np.asarray(mz_data[:int(length)]) if is_continuous else np.asarray(mz_data[start:end])
+        intensity_array = np.asarray(intensity_flat[start:end])
+        yield coord, int(length), mz_array, intensity_array
+
+
+def _stream_compare_read_modes(data_file_path: str, batch_size: int, max_workers: int) -> None:
+    with (
+        MSDataManagerImzML(filepath=data_file_path) as matrix_dm,
+        MSDataManagerImzML(filepath=data_file_path) as flat_dm,
+    ):
+        matrix_dm.load_head_data()
+        flat_dm.load_head_data()
+
+        is_continuous = bool(matrix_dm.ms.meta and matrix_dm.ms.meta.continuous)
+
+        matrix_iter = matrix_dm.matrix_generator(
             batch_size=batch_size,
-            max_threads=max_workers
+            include_mz=True,
+            max_threads=max_workers,
         )
-        for batch in batch_generator:
-            assert len(batch[1].mz_list) > 0
-            # ms_md.clear_batch_data_memory(batch)
+        flat_iter = flat_dm.flat_generator(
+            batch_size=batch_size,
+            include_mz=True,
+            max_threads=max_workers,
+        )
 
+        compared_batches = 0
+        for matrix_batch, flat_batch in zip_longest(matrix_iter, flat_iter):
+            assert matrix_batch is not None
+            assert flat_batch is not None
+            compared_batches += 1
+            matrix_pixels = list(_iter_matrix_spectra(matrix_batch, is_continuous))
+            flat_pixels = list(_iter_flat_spectra(flat_batch, is_continuous))
 
-def data_batch_reading_benchmark(data_file_path="data/example.imzML", batch_size=1024, max_workers=2):
-    mass_data = MS()
-    with MSDataManagerImzML(mass_data, filepath=data_file_path) as ms_md:
-        ms_md.load_full_data_from_file()
-        ms_md.inspect_data()
-        batch_generator = ms_md.get_batch_generator(batch_size=batch_size, max_threads=max_workers)
-        for batch in batch_generator:
-            pass
+            assert len(matrix_pixels) == len(flat_pixels)
+
+            for matrix_pixel, flat_pixel in zip(matrix_pixels, flat_pixels):
+                matrix_coord, matrix_length, matrix_mz, matrix_intensity = matrix_pixel
+                flat_coord, flat_length, flat_mz, flat_intensity = flat_pixel
+
+                assert matrix_coord == flat_coord
+
+                valid_length = min(matrix_length, flat_length)
+
+                np.testing.assert_allclose(matrix_mz[:valid_length], flat_mz[:valid_length], rtol=1e-5, atol=1e-8)
+                np.testing.assert_allclose(matrix_intensity[:valid_length], flat_intensity[:valid_length], rtol=1e-5, atol=1e-8)
+
+        assert compared_batches > 0
+
 
 class TestDataReading:
+
+    """
+    Test suite for benchmarking data reading performance of MSDataManagerImzML.
+    """
 
     @pytest.mark.parametrize("data_file_path", ["./data/example.imzML"])
     @pytest.mark.benchmark(timer=time.perf_counter)
@@ -57,68 +185,33 @@ class TestDataReading:
         logger.info("Finished data reading benchmark")
 
     @pytest.mark.parametrize(
-        "data_file_path,batch_size,max_workers",
-        [
-            # # batch_size = 32
-            ("data/example.imzML", 32, 1),
-            ("data/example.imzML", 32, 2),
-            ("data/example.imzML", 32, 8),
-            ("data/example.imzML", 32, 32),
-            # # batch_size = 64
-            ("data/example.imzML", 64, 1),
-            ("data/example.imzML", 64, 2),
-            ("data/example.imzML", 64, 8),
-            ("data/example.imzML", 64, 32),
-            ("data/example.imzML", 64, 64),
-            # # batch_size = 128
-            ("data/example.imzML", 128, 1),
-            ("data/example.imzML", 128, 2),
-            ("data/example.imzML", 128, 8),
-            ("data/example.imzML", 128, 32),
-            ("data/example.imzML", 128, 64),
-            # batch_size = 256
-            ("data/example.imzML", 256, 1),
-            ("data/example.imzML", 256, 2),
-            ("data/example.imzML", 256, 8),
-            ("data/example.imzML", 256, 32),
-            ("data/example.imzML", 256, 64),
-            # #batch_size = 512
-            ("data/example.imzML", 512, 1),
-            ("data/example.imzML", 512, 2),
-            ("data/example.imzML", 512, 8),
-            ("data/example.imzML", 512, 32),
-            ("data/example.imzML", 512, 64),
-            # # # batch_size = 1024
-            ("data/example.imzML", 1024, 1),
-            ("data/example.imzML", 1024, 2),
-            ("data/example.imzML", 1024, 8),
-            ("data/example.imzML", 1024, 32),
-            ("data/example.imzML", 1024, 64),
-            # # batch_size = 2048
-            ("data/example.imzML", 2048, 1),
-            ("data/example.imzML", 2048, 2),
-            ("data/example.imzML", 2048, 8),
-            ("data/example.imzML", 2048, 32),
-            ("data/example.imzML", 2048, 64),
-            # batch_size = 4068
-            ("data/example.imzML", 4096, 1),
-            ("data/example.imzML", 4096, 2),
-            ("data/example.imzML", 4096, 8),
-            ("data/example.imzML", 4096, 32),
-            ("data/example.imzML", 4096, 64),
-        ],
+        "read_mode,data_file_path,batch_size,max_workers",
+        READ_BENCHMARK_CASES,
     )
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_batch_reading_benchmark(
-        self, benchmark, data_file_path, batch_size, max_workers
-    ):
-        logger.info("Starting data batch reading benchmark")
+    def test_multi_reading_benchmark(self, benchmark, read_mode, data_file_path, batch_size, max_workers):
+        logger.info(
+            "Starting %s reading benchmark (batch_size=%s, max_workers=%s)",
+            read_mode,
+            batch_size,
+            max_workers,
+        )
         benchmark.pedantic(
-            data_batch_reading_full_benchmark,
-            args=(data_file_path, batch_size, max_workers),
+            data_reading_by_mode_benchmark,
+            args=(read_mode, data_file_path, batch_size, max_workers),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=1,
         )
-        drop_caches()
-        logger.info("Finished data batch reading benchmark")
+        logger.info(
+            "Finished %s reading benchmark (batch_size=%s, max_workers=%s)",
+            read_mode,
+            batch_size,
+            max_workers,
+        )
+
+    def test_reading_modes_consistent_by_coordinate(self):
+        data_file_path = "data/example.imzML"
+        batch_size = 64
+        max_workers = 2
+        _stream_compare_read_modes(data_file_path, batch_size, max_workers)

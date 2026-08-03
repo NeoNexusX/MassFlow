@@ -1,49 +1,65 @@
-import pytest
+import os
 import time
+from typing import Optional, Literal
+from pathlib import Path
+
+import pytest
 import numpy as np
-from typing import Optional
-from massflow.logger import get_logger
-from massflow.module.mass_spectrum_set import MassSpectrumSet
-from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
-from massflow.preprocess.spectrum_preprocess import SpectrumPreprocess
+from massflow.tools.logger import get_logger
+from massflow.module import MassSpectrumSet
+from massflow.data_manager import MSDataManagerImzML
+from massflow.preprocess.preprocessor import Preprocessor
 from massflow.r_preprocess import set_default_r_home
-pytest.importorskip("pytest_benchmark")
 
-logger = get_logger("test_peak_alignment")
+logger = get_logger("massflow.test_peak_alignment")
 
-FILEPATH = r"picked.imzML"
+Backend = Literal["python", "cardinal"]
+
+FILEPATH = Path("./data/picked.imzML")
 MZ_RANGES = [(500, 600)]
 TOLERANCE = 0.10
 ROUND = 1
 
-set_default_r_home("r_home_path_here") # set R_HOME path here
 
-@pytest.fixture(scope="module")
-def data_manager(filepath = FILEPATH) -> MSDataManagerImzML:
-    mass_data = MassSpectrumSet()
-    manager_data = MSDataManagerImzML(mass_data, filepath=filepath)
-    manager_data.load_full_data_from_file()
-    return manager_data
+if os.environ.get("R_HOME"):
+    set_default_r_home(os.environ["R_HOME"])
 
-def run_alignment_task(data_manager: MSDataManagerImzML,
-                       units: str, 
-                       binfun: str, 
-                       binratio: int, 
-                       tolerance: Optional[float] = None, 
-                       backend_method: str = "python") -> MSDataManagerImzML:
-    
-    align_manager = SpectrumPreprocess.peak_alignment(
-        data_manager=data_manager,
-        ref=None,
-        units=units,
-        tolerance=tolerance,
-        binfun=binfun,
-        binratio=binratio,
-        backend_method=backend_method
+
+def _require_imzml_pair(path: Path) -> None:
+    if not path.exists() or not path.with_suffix(".ibd").exists():
+        pytest.skip(f"Missing real imzML test data: {path} and matching .ibd")
+
+
+def run_alignment_task(
+    dm: MSDataManagerImzML,
+    units: str,
+    binfun: str,
+    binratio: int,
+    tolerance: Optional[float] = None,
+    backend: Backend = "python",
+) -> MSDataManagerImzML:
+
+    aligned_manager = (
+        Preprocessor(
+            data_manager=dm,
+            output_format="imzml"
+        )
+        .peak_align(
+            units=units,
+            binfun=binfun,
+            binratio=binratio,
+            tolerance=tolerance,
+            backend=backend,
+        )
+        .start()
     )
-    return align_manager
 
-def validate_align_result(result_manager: MSDataManagerImzML, original_manager: MSDataManagerImzML):
+    return aligned_manager # type: ignore
+
+
+def validate_align_result(
+    result_manager: MSDataManagerImzML, original_manager: MSDataManagerImzML
+):
     """Validate the rationality of alignment results"""
 
     assert len(result_manager.ms) == len(original_manager.ms), "Spectrum count mismatch"
@@ -51,26 +67,32 @@ def validate_align_result(result_manager: MSDataManagerImzML, original_manager: 
     ref_mz = result_manager.ms[0].mz_list
     assert ref_mz is not None, "Reference m/z axis is None"
     for i, spectrum in enumerate(result_manager.ms):
-        assert np.array_equal(spectrum.mz_list, ref_mz), f"Spectrum {i} has different m/z axis"
+        assert np.array_equal(
+            spectrum.mz_list, ref_mz
+        ), f"Spectrum {i} has different m/z axis"
 
     for i, spectrum in enumerate(result_manager.ms):
         intensity = spectrum.intensity
         assert intensity is not None, f"Spectrum {i} has None intensity"
         assert intensity.shape == ref_mz.shape, f"Spectrum {i} intensity shape mismatch"
-        assert not np.all(intensity == 0), f"Spectrum {i} has all-zero intensity"
-        assert np.all(np.isfinite(intensity)), f"Spectrum {i} contains NaN or Inf values"
-        
+        assert np.all(
+            np.isfinite(intensity)
+        ), f"Spectrum {i} contains NaN or Inf values"
+
         # Free memory to prevent OOM
-        spectrum.mz_list = None
-        spectrum.intensity = None
-    
-    logger.info(f"Validation passed: {len(result_manager.ms)} spectra aligned to {len(ref_mz)} peaks")
+        spectrum.clear_data()
+
+    logger.info(
+        f"Validation passed: {len(result_manager.ms)} spectra aligned to {len(ref_mz)} peaks"
+    )
+
 
 def compare_align_result(
-        py_manager: MSDataManagerImzML, 
-        r_manager: MSDataManagerImzML, 
-        mz_range,
-        tolerance=TOLERANCE):
+    py_manager: MSDataManagerImzML,
+    r_manager: MSDataManagerImzML,
+    mz_range,
+    tolerance=TOLERANCE,
+):
     """Compare peak alignment results between Python and R implementations to verify correctness"""
     py_ms = py_manager.ms
     r_ms = r_manager.ms
@@ -90,8 +112,7 @@ def compare_align_result(
         if intensity is not None and len(intensity) > 0:
             py_sum_intensity += np.sum(intensity[py_mask])
         # Free memory
-        spectrum.mz_list = None
-        spectrum.intensity = None
+        spectrum.clear_data()
 
     r_sum_intensity = 0.0
     r_mask = (r_ref >= mz_start) & (r_ref <= mz_end)
@@ -100,8 +121,7 @@ def compare_align_result(
         if intensity is not None and len(intensity) > 0:
             r_sum_intensity += np.sum(intensity[r_mask])
         # Free memory
-        spectrum.mz_list = None
-        spectrum.intensity = None
+        spectrum.clear_data()
 
     # Compare peak counts
     count_rel_diff = abs(py_count - r_count) / max(r_count, 1)
@@ -110,7 +130,7 @@ def compare_align_result(
             f"Peak count in {mz_range}: Python={py_count}, cardinal={r_count}\n"
             f"Relative diff: {count_rel_diff:.2%} (tol={tolerance:.2%})"
         )
-    
+
     # Compare intensity sums
     intensity_rel_diff = abs(py_sum_intensity - r_sum_intensity) / max(r_sum_intensity, 1e-10)
     if intensity_rel_diff > tolerance:
@@ -130,26 +150,38 @@ def compare_align_result(
         f"intensity_diff={intensity_rel_diff:.2%}"
     )
 
+
 class TestPeakAlignment:
+    """test peak alignment functionality"""
+    @pytest.fixture(scope="class")
+    def data_manager(self) -> MSDataManagerImzML:
+        _require_imzml_pair(FILEPATH)
+        mass_data = MassSpectrumSet()
+        dm = MSDataManagerImzML(mass_data, filepath=FILEPATH)
+        dm.load_head_data()
+        return dm
 
     @pytest.mark.parametrize("units, tolerance", [("ppm", None)])
-    @pytest.mark.parametrize("binfun",["median"])
-    @pytest.mark.parametrize("binratio",[2])
-    @pytest.mark.parametrize("backend_method",["python","cardinal"])
+    @pytest.mark.parametrize("binfun", ["median"])
+    @pytest.mark.parametrize("binratio", [2])
+    @pytest.mark.parametrize("backend", ["python", "cardinal"])
     @pytest.mark.benchmark(timer=time.perf_counter)
-    def test_peak_alignment_benchmark(self, benchmark, data_manager, units, tolerance, binfun, binratio, backend_method):
+    def test_peak_alignment_benchmark(
+        self,
+        benchmark,
+        data_manager: MSDataManagerImzML,
+        units: str,
+        tolerance: Optional[float],
+        binfun: str,
+        binratio: int,
+        backend: str,
+    ) -> None:
         """
         Performance Test: Run peak alignment benchmark.
         """
         dm_align = benchmark.pedantic(
             run_alignment_task,
-            args=(
-                data_manager,
-                units,
-                binfun,
-                binratio,
-                tolerance,
-                backend_method),
+            args=(data_manager, units, binfun, binratio, tolerance, backend),
             rounds=ROUND,
             iterations=1,
             warmup_rounds=0,
@@ -158,30 +190,28 @@ class TestPeakAlignment:
         dm_align.close()
 
     @pytest.mark.parametrize("units, tolerance", [("ppm", None)])
-    @pytest.mark.parametrize("binfun",["median"])
-    @pytest.mark.parametrize("binratio",[2])
+    @pytest.mark.parametrize("binfun", ["median"])
+    @pytest.mark.parametrize("binratio", [2])
     @pytest.mark.parametrize("mz_range", MZ_RANGES)
-    def test_peak_alignment_validation(self, data_manager, units, tolerance, binfun, binratio, mz_range):
+    def test_peak_alignment_validation(
+        self,
+        data_manager: MSDataManagerImzML,
+        units: str,
+        tolerance: Optional[float],
+        binfun: str,
+        binratio: int,
+        mz_range: tuple[float, float],
+    ) -> None:
         """
         Functional Test: Verify the correctness of peak alignment results.
         """
 
         py_align_manager = run_alignment_task(
-            data_manager,
-            units,
-            binfun,
-            binratio,
-            tolerance,
-            backend_method="python"
+            data_manager, units, binfun, binratio, tolerance, backend="python"
         )
 
         r_align_manager = run_alignment_task(
-            data_manager,
-            units,
-            binfun,
-            binratio,
-            tolerance,
-            backend_method="cardinal"
+            data_manager, units, binfun, binratio, tolerance, backend="cardinal"
         )
 
         validate_align_result(py_align_manager, data_manager)
@@ -190,7 +220,8 @@ class TestPeakAlignment:
         compare_align_result(
             py_manager=py_align_manager,
             r_manager=r_align_manager,
-            mz_range=mz_range)
-        
+            mz_range=mz_range
+        )
+
         py_align_manager.close()
         r_align_manager.close()

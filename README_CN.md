@@ -29,13 +29,20 @@ MassFlow/
 ├── logs/                    # 运行时日志
 ├── src/
 │   └── massflow/            # 核心源代码
-│       ├── module/          # 数据模型和管理器
-│       │   ├── ms_module.py # MS/ImzML 基础类型
+│       ├── data_manager/         # 数据管理器 (MSDataManager, MSDataManagerImzML)
+│       ├── module/               # 核心数据模型
+│       │   ├── spectrum.py       # 光谱基础类型 (Spectrum)
+│       │   ├── spectrum_imzml.py # 带惰性加载的 ImzML 光谱 (SpectrumImzML)
+│       │   ├── mass_spectrum_set.py  # 光谱集合容器 (MassSpectrumSet)
+│       │   ├── ms_meta_data.py       # 元数据结构 (ImzMlMetaData 等)
 │       │   └── ...
-│       ├── preprocess/      # 预处理算法
-│       │   ├── ms_preprocess.py
+│       ├── preprocess/              # 预处理入口与辅助函数
+│       │   ├── api.py               # 链式任务注册 API (PreprocessorAPI)
+│       │   ├── preprocessor.py      # 流水线执行器 (Preprocessor)
+│       │   ├── flat_pre_fun.py      # 批处理工具 (FlatPreprocess)
 │       │   └── ...
-│       └── tools/           # 工具函数
+│       ├── r_preprocess/       # R/Cardinal 适配器
+│       └── tools/              # 工具函数
 ├── tests/                   # 测试用例
 ├── LICENSE
 ├── main.py
@@ -65,11 +72,18 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 # 安装依赖：
 uv sync 
-uv pip install -e .
+
+# 安装可选 R 后端依赖（需要本机已安装 R）：
+uv sync --extra r
 
 # 运行代码
 uv run python main.py
 ```
+
+- `uv sync` 默认会安装当前项目本身，并以可编辑模式（等价于 `pip install -e .`）安装；如需关闭可编辑安装可使用 `--no-editable`。
+- 默认安装（`uv sync`）不包含 R/Cardinal 后端依赖。
+- 开发依赖位于 `pyproject.toml` 的 `dependency-groups.dev`，安装命令为 `uv sync --group dev`。
+- 如需使用 Cardinal 后端（`backend="cardinal"`），请安装 `r` 可选依赖，并确保系统可找到 R（已加入 PATH 或设置 `R_HOME`）。
 
 - 请先阅读贡献指南：`docs/en/contribution.md` 和 `docs/zh/contribution.md`
 - 命名规范：`docs/en/naming-conventions.md` 和 `docs/zh/naming-conventions.md`
