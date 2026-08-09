@@ -45,6 +45,23 @@ class MSIZarrReader:
         return cast(ZarrStorageMode, str(self.data.attrs["encoding"]))
 
     @property
+    def has_pixel_spectra(self) -> bool:
+        """Return whether pixel-major spectra are available for batch access."""
+        return self.row_axis == "pixel" or self._spectra_group is not None
+
+    @property
+    def spectra_encoding(self) -> ZarrStorageMode:
+        """Return the encoding used by the pixel-major spectra view."""
+        if self.row_axis == "pixel":
+            return self.encoding
+        if self._spectra_group is None:
+            raise ValueError("This store does not contain pixel-major spectra.")
+        return cast(
+            ZarrStorageMode,
+            str(self._spectra_group.attrs["encoding"]),
+        )
+
+    @property
     def _main_group_name(self) -> str:
         return (
             ZARR_GROUP_ION_IMAGE
@@ -124,25 +141,31 @@ class MSIZarrReader:
         *,
         include_mz: bool = True,
     ) -> tuple[np.ndarray | None, np.ndarray, np.ndarray, np.ndarray]:
-        if self.row_axis != "pixel":
-            raise ValueError("read_flat_batch requires a pixel-major store.")
+        intensity_array, offsets_array, encoding, point_mz = (
+            self._pixel_spectra_arrays()
+        )
         indices = np.asarray(indices, dtype=np.int64)
         if indices.ndim != 1:
             raise ValueError("indices must be one-dimensional.")
         coordinates = self.read_coordinates(indices)
         if indices.size == 0:
-            empty = np.array([], dtype=self.intensity_dtype)
+            empty = np.array([], dtype=intensity_array.dtype)
             return None, empty, np.array([], dtype="<u4"), coordinates
 
-        starts = self._read_offsets(indices)
-        ends = self._read_offsets(indices + 1)
+        starts = self._read_offsets(offsets_array, indices)
+        ends = self._read_offsets(offsets_array, indices + 1)
         lengths = (ends - starts).astype("<u4")
-        intensity = self._read_indexed_values(self.intensity, indices, starts, ends)
-        if self.encoding == ZARR_MODE_CONTINUOUS:
+        intensity = self._read_indexed_values(
+            intensity_array,
+            indices,
+            starts,
+            ends,
+        )
+        if encoding == ZARR_MODE_CONTINUOUS:
             mz = self.read_shared_mz_axis()
         elif include_mz:
-            assert self.point_mz is not None
-            mz = self._read_indexed_values(self.point_mz, indices, starts, ends)
+            assert point_mz is not None
+            mz = self._read_indexed_values(point_mz, indices, starts, ends)
         else:
             mz = None
         return mz, intensity, lengths, coordinates
@@ -171,20 +194,23 @@ class MSIZarrReader:
         return values.reshape(end - start, int(lengths[0]))
 
     def read_spectrum(self, pixel_index: int) -> tuple[np.ndarray, np.ndarray]:
-        if self.row_axis != "pixel":
-            raise NotImplementedError(
-                "Pixel spectrum access is not efficient for ion-major stores."
-            )
-        intensity = self.read_row(pixel_index)
-        if self.encoding == ZARR_MODE_CONTINUOUS:
+        intensity_array, offsets_array, encoding, point_mz = (
+            self._pixel_spectra_arrays()
+        )
+        pixel_index = int(pixel_index)
+        if pixel_index < 0:
+            pixel_index += self.n_pixels
+        if pixel_index < 0 or pixel_index >= self.n_pixels:
+            raise IndexError("pixel index out of range")
+        start = _read_array_int(offsets_array, pixel_index)
+        end = _read_array_int(offsets_array, pixel_index + 1)
+        intensity = np.asarray(intensity_array[start:end])
+        if encoding == ZARR_MODE_CONTINUOUS:
             assert self.shared_mz_axis is not None
             mz = np.asarray(self.shared_mz_axis[:])
         else:
-            assert self.point_mz is not None
-            pixel_index = self._normalize_row_index(pixel_index)
-            start = _read_array_int(self.offsets, pixel_index)
-            end = _read_array_int(self.offsets, pixel_index + 1)
-            mz = np.asarray(self.point_mz[start:end])
+            assert point_mz is not None
+            mz = np.asarray(point_mz[start:end])
         return mz, intensity
 
     def read_ion_vector(self, ion_index: int) -> np.ndarray:
@@ -278,13 +304,31 @@ class MSIZarrReader:
 
     # --- Internal selection helpers ------------------------------------------
 
-    def _read_offsets(self, indices: np.ndarray) -> np.ndarray:
+    def _pixel_spectra_arrays(
+        self,
+    ) -> tuple[zarr.Array, zarr.Array, ZarrStorageMode, zarr.Array | None]:
+        if self.row_axis == "pixel":
+            return self.intensity, self.offsets, self.encoding, self.point_mz
+        if self._spectra_group is None:
+            raise ValueError("This store does not contain pixel-major spectra.")
+        return (
+            cast(zarr.Array, self._spectra_group["intensity"]),
+            cast(zarr.Array, self._spectra_group["offsets"]),
+            self.spectra_encoding,
+            None,
+        )
+
+    def _read_offsets(
+        self,
+        offsets: zarr.Array,
+        indices: np.ndarray,
+    ) -> np.ndarray:
         if indices.size > 1 and bool(np.all(np.diff(indices) == 1)):
             start = int(indices[0])
             end = int(indices[-1]) + 1
-            return np.asarray(self.offsets[start:end], dtype=np.int64)
+            return np.asarray(offsets[start:end], dtype=np.int64)
         return np.asarray(
-            self.offsets.get_orthogonal_selection((indices,)),
+            offsets.get_orthogonal_selection((indices,)),
             dtype=np.int64,
         )
 
