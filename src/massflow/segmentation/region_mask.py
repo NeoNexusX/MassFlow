@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
 import h5py
@@ -20,6 +21,12 @@ from massflow.data_manager.ion_image_data_manager_binary import (
     HEADER_SIZE,
     UINT32_SIZE,
     IonImageBinaryHeader,
+)
+
+from massflow.msi_zarr.schema import (
+    ZARR_FORMAT_NAME,
+    ZARR_FORMAT_VERSION,
+    ZARR_GROUP_ION_IMAGE,
 )
 
 DataManager = (
@@ -285,8 +292,8 @@ def _write_zarr_masked(
     output_group = zarr.open_group(str(output_path), mode="w")
     output_group.attrs.update(
         {
-            "format": "massflow.msi_zarr",
-            "format_version": "1.0",
+            "format": ZARR_FORMAT_NAME,
+            "format_version": ZARR_FORMAT_VERSION,
             "write_state": "writing",
             "coordinate_order": ["x", "y", "z"],
             "coordinate_base": 1,
@@ -301,7 +308,7 @@ def _write_zarr_masked(
     mz_axis = np.asarray(data_manager.mz_axis, dtype=data_manager.mz_dtype)
     mz_array = axes_group.create_array("mz", data=mz_axis)
     mz_array.attrs["unit"] = "m/z"
-    data_group = output_group.create_group("data")
+    data_group = output_group.create_group(ZARR_GROUP_ION_IMAGE)
     data_group.attrs.update({"row_axis": "ion", "encoding": "continuous"})
     output_intensity = data_group.create_array(
         "intensity",
@@ -313,17 +320,30 @@ def _write_zarr_masked(
         "offsets",
         data=(np.arange(data_manager.n_ions + 1, dtype=np.int64) * n_pixels),
     )
+    # ion-only 输出的 mean_spectrum 基于筛选后的有效像素重新计算。
+    mean_spectrum = np.empty(data_manager.n_ions, dtype=np.float64)
     for start in range(0, data_manager.n_ions, batch_size):
         end = min(data_manager.n_ions, start + batch_size)
         block = data_manager.get_ion_block(start, end)[:, selected_indices]
         output_intensity[start * n_pixels : end * n_pixels] = block.reshape(-1)
+        mean_spectrum[start:end] = block.sum(axis=1, dtype=np.float64) / n_pixels
 
-    data_manager.meta.to_zarr(output_group)
-    # Reader 校验 metadata 必须 continuous=True 且 processed != True。
-    metadata_group = output_group["metadata"]
-    metadata_group.attrs["continuous"] = True
-    if "processed" in metadata_group.attrs:
-        del metadata_group.attrs["processed"]
+    stats = output_group.create_group("stats")
+    mean_array = stats.create_array("mean_spectrum", data=mean_spectrum)
+    mean_array.attrs.update(
+        {
+            "source": f"/{ZARR_GROUP_ION_IMAGE}",
+            "reduced_axis": "pixel",
+            "denominator": "sampled_pixels",
+        }
+    )
+
+    meta = deepcopy(data_manager.meta)
+    meta.spectrum_count_num = n_pixels
+    meta.mask = np.asarray(mask, dtype=bool)
+    meta.continuous = True
+    meta.processed = None
+    meta.to_zarr(output_group)
     output_group.attrs["write_state"] = "complete"
     return IonImageDataManagerZarr(output_path, mode="r")
 

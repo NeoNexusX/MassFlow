@@ -6,6 +6,7 @@ on:
 
 jobs:
   publish:
+    if: github.repository == 'NeoNexusX/MassFlow'
     runs-on: ubuntu-latest
     environment:
       name: pypi
