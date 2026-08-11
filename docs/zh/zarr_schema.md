@@ -350,6 +350,7 @@ finalize 时不重读任何一份完整 intensity。
 
 - ion-only 文件将 `/ion_image` 作为主布局；`row_axis` 返回 `"ion"`。
 - spectra-only 文件将 `/spectra` 作为主布局；`row_axis` 返回 `"pixel"`。
-- combined 文件将 `/ion_image` 作为 Python reader 的主布局；`/spectra` 只作为
-  前端直接读取的 schema 契约，reader 不把它绑定到任何 pixel-major 读取 API。
+- combined 文件将 `/ion_image` 作为 Python reader 的主布局；若同时包含
+  `/spectra`，reader 也支持通过 pixel-major API（如 `read_flat_batch` /
+  `read_spectrum`）读取谱。
 - reader 不接受 `format_version="1.0"`，不查找 `/data`，无 fallback/迁移/别名。
