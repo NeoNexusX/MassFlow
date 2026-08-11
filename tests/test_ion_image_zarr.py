@@ -322,27 +322,31 @@ class TestZarrCorrectness:
         root = zarr.open_group(str(path), mode="r")
         assert dict(root.attrs) == {
             "format": "massflow.msi_zarr",
-            "format_version": "1.0",
+            "format_version": "1.1",
             "write_state": "complete",
             "coordinate_order": ["x", "y", "z"],
             "coordinate_base": 1,
             "spatial_shape": [2, 2],
         }
-        assert dict(root["data"].attrs) == {
+        assert dict(root["ion_image"].attrs) == {
             "row_axis": "ion",
             "encoding": "continuous",
         }
         assert "axes/coordinates" in root
         assert "axes/mz" in root
-        assert "data/intensity" in root
-        assert "data/offsets" in root
+        assert "ion_image/intensity" in root
+        assert "ion_image/offsets" in root
         assert "stats/mean_spectrum" in root
         assert "metadata" in root
         np.testing.assert_array_equal(
             cast(zarr.Array, root["axes/coordinates"])[:], [[1, 1, 1], [2, 1, 1]]
         )
-        np.testing.assert_array_equal(cast(zarr.Array, root["data/offsets"])[:], [0, 2, 4])
-        np.testing.assert_array_equal(cast(zarr.Array, root["data/intensity"])[:], [1, 2, 10, 20])
+        np.testing.assert_array_equal(
+            cast(zarr.Array, root["ion_image/offsets"])[:], [0, 2, 4]
+        )
+        np.testing.assert_array_equal(
+            cast(zarr.Array, root["ion_image/intensity"])[:], [1, 2, 10, 20]
+        )
         assert root["metadata"].attrs["name"] == "layout"
         assert root["metadata"].attrs["pixel_size_x"] == 50.0
 
@@ -359,8 +363,8 @@ class TestZarrCorrectness:
         dm = _write_tiny_zarr(path, tmp_path, [(1, 1), (2, 1)])
         dm.close()
         root = zarr.open_group(str(path), mode="a")
-        del root["data/offsets"]
-        cast(zarr.Group, root["data"]).create_array( # pylint: disable=no-member
+        del root["ion_image/offsets"]
+        cast(zarr.Group, root["ion_image"]).create_array( # pylint: disable=no-member
             "offsets", data=np.array([0.0, 2.0, 4.0])
         )
         with pytest.raises(ValueError, match="integer dtype"):

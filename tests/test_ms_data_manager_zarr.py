@@ -186,7 +186,7 @@ def test_continuous_pixel_major_computes_tic(tmp_path):
         np.testing.assert_allclose(tic, expected, rtol=1e-12)
         tic_array = cast(zarr.Array, reader.root["stats"]["tic"]) # type: ignore
         assert tic_array.shape == (len(spectra),)
-        assert tic_array.attrs["source"] == "/data"
+        assert tic_array.attrs["source"] == "/spectra"
         assert tic_array.attrs["reduced_axis"] == "mz"
         assert reader.n_pixels == len(spectra)
         reader.validate_full()

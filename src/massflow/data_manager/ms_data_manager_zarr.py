@@ -269,11 +269,18 @@ class MSDataManagerZarr(MSDataManager):
 
     def _open_arrays_for_read(self) -> None:
         reader = self._require_reader()
-        if reader.row_axis != "pixel":
-            raise ValueError("MSDataManagerZarr requires a pixel-major Zarr store.")
-        if reader.encoding not in {ZARR_MODE_CONTINUOUS, ZARR_MODE_PROCESSED}:
-            raise ValueError(f"Unsupported Zarr storage mode: {reader.encoding}.")
-        self._storage_mode = reader.encoding
+        if not reader.has_pixel_spectra:
+            raise ValueError(
+                "MSDataManagerZarr requires a store with pixel-major spectra."
+            )
+        if reader.spectra_encoding not in {
+            ZARR_MODE_CONTINUOUS,
+            ZARR_MODE_PROCESSED,
+        }:
+            raise ValueError(
+                f"Unsupported Zarr storage mode: {reader.spectra_encoding}."
+            )
+        self._storage_mode = reader.spectra_encoding
         self.intensity_dtype = reader.intensity_dtype
         self.mz_dtype = reader.mz_dtype
 

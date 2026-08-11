@@ -1,6 +1,7 @@
 from massflow.preprocess.pipeline.planner import make_task_segments
 from massflow.preprocess.pipeline.runner import run_segments
 from massflow.preprocess.pipeline.dataset_executor import imzml_to_ion_image_data_manager
+from massflow.preprocess.pipeline.validation import validate_data_manager_mz
 from massflow.preprocess.pipeline.types import (
     ION_IMAGE_OUTPUT_FORMATS,
     IonImageOutputFormat,
@@ -36,4 +37,5 @@ __all__ = [
     "TaskScope",
     "run_segments",
     "imzml_to_ion_image_data_manager",
+    "validate_data_manager_mz",
 ]
