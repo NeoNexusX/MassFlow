@@ -927,7 +927,6 @@ def _save_umap_result_zarr(
     output_path: str | Path,
     scaled_embedding: np.ndarray,
     coordinates: np.ndarray,
-    umap_image: np.ndarray,
 ) -> Path:
     """Save UMAP arrays inside the source MSI Zarr or a standalone Zarr group."""
     scatter_x, scatter_y, *_ = _infer_spatial_params(coordinates)
@@ -955,11 +954,6 @@ def _save_umap_result_zarr(
     result_group.create_array(
         "coordinates",
         data=zero_based_coordinates,
-        overwrite=overwrite,
-    )
-    result_group.create_array(
-        "umap_image",
-        data=umap_image,
         overwrite=overwrite,
     )
     return zarr_path
@@ -1008,7 +1002,6 @@ def plot_umap_image(
             output_path,
             scaled_embedding,
             coordinates,
-            umap_img,
         )
         result_location = (
             zarr_path / "analysis" / "umap"

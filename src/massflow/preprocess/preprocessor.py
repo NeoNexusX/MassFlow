@@ -22,6 +22,7 @@ from massflow.preprocess.pipeline import (
     imzml_to_ion_image_data_manager,
     make_task_segments,
     run_segments,
+    validate_data_manager_mz,
 )
 from massflow.tools.infer_spectrum_type import resolve_spectrum_type
 from massflow.tools.logger import get_logger
@@ -107,6 +108,10 @@ class Preprocessor(PreprocessorAPI):
         return self
 
     def start(self) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
+        validate_data_manager_mz(
+            self.data_manager,
+            batch_size=self.batch_size,
+        )
         task_segments, input_meta = make_task_segments(
             list(self._tasks),
             input_spectrum_type=resolve_spectrum_type(self.data_manager),
