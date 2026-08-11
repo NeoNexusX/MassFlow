@@ -4,6 +4,8 @@ from massflow.msi_zarr.reader import MSIZarrReader
 from massflow.msi_zarr.schema import (
     ZARR_FORMAT_NAME,
     ZARR_FORMAT_VERSION,
+    ZARR_GROUP_ION_IMAGE,
+    ZARR_GROUP_SPECTRA,
     ZARR_MODE_AUTO,
     ZARR_MODE_CONTINUOUS,
     ZARR_MODE_PROCESSED,
@@ -19,6 +21,8 @@ __all__ = [
     "MSIZarrWriter",
     "ZARR_FORMAT_NAME",
     "ZARR_FORMAT_VERSION",
+    "ZARR_GROUP_ION_IMAGE",
+    "ZARR_GROUP_SPECTRA",
     "ZARR_MODE_AUTO",
     "ZARR_MODE_CONTINUOUS",
     "ZARR_MODE_PROCESSED",

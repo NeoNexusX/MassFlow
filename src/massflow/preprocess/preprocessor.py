@@ -22,6 +22,7 @@ from massflow.preprocess.pipeline import (
     imzml_to_ion_image_data_manager,
     make_task_segments,
     run_segments,
+    validate_data_manager_mz,
 )
 from massflow.tools.infer_spectrum_type import resolve_spectrum_type
 from massflow.tools.logger import get_logger
@@ -55,6 +56,7 @@ class Preprocessor(PreprocessorAPI):
         compute_mean_spectrum: bool = False,
         compute_tic: bool = False,
         pipeline_stall_timeout: float | None = 180.0,
+        validate_processed_mz: bool = False,
     ): # pylint: disable=super-init-not-called
         if data_manager is None or batch_size <= 0 or batch_size > 9056 or queue_ab_size <= 0 or queue_bc_size <= 0 :
             logger.error(f"Invalid parameter values. please check:"
@@ -85,6 +87,7 @@ class Preprocessor(PreprocessorAPI):
         self.compute_mean_spectrum = compute_mean_spectrum
         self.compute_tic = compute_tic
         self.pipeline_stall_timeout = pipeline_stall_timeout
+        self.validate_processed_mz = validate_processed_mz
 
         self._tasks: list[PreprocessTask] = []
 
@@ -107,6 +110,11 @@ class Preprocessor(PreprocessorAPI):
         return self
 
     def start(self) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
+        validate_data_manager_mz(
+            self.data_manager,
+            batch_size=self.batch_size,
+            validate_processed=self.validate_processed_mz,
+        )
         task_segments, input_meta = make_task_segments(
             list(self._tasks),
             input_spectrum_type=resolve_spectrum_type(self.data_manager),
