@@ -67,6 +67,7 @@ def validate_data_manager_mz(
     data_manager: MSDataManager,
     *,
     batch_size: int = 256,
+    validate_processed: bool = False,
 ) -> None:
     """Validate all m/z axes entering the preprocessing pipeline."""
     shared_mz = data_manager.ms.shared_mz_list
@@ -77,21 +78,22 @@ def validate_data_manager_mz(
         )
         return
 
-    return
+    if not validate_processed:
+        return
 
-    # spectrum_offset = 0
-    # for batch_index, (mz_data, _intensity, lengths, _coordinates) in enumerate(
-    #     data_manager.flat_generator(batch_size=batch_size, include_mz=True)
-    # ):
-    #     if mz_data is None:
-    #         raise ValueError(
-    #             f"pipeline input batch {batch_index}: m/z data is required."
-    #         )
-    #     lengths = np.asarray(lengths)
-    #     validate_flat_mz(
-    #         np.asarray(mz_data),
-    #         lengths,
-    #         batch_index=batch_index,
-    #         spectrum_offset=spectrum_offset,
-    #     )
-    #     spectrum_offset += lengths.size
+    spectrum_offset = 0
+    for batch_index, (mz_data, _intensity, lengths, _coordinates) in enumerate(
+        data_manager.flat_generator(batch_size=batch_size, include_mz=True)
+    ):
+        if mz_data is None:
+            raise ValueError(
+                f"pipeline input batch {batch_index}: m/z data is required."
+            )
+        lengths = np.asarray(lengths)
+        validate_flat_mz(
+            np.asarray(mz_data),
+            lengths,
+            batch_index=batch_index,
+            spectrum_offset=spectrum_offset,
+        )
+        spectrum_offset += lengths.size
