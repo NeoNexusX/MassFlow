@@ -226,3 +226,4 @@ logs/
 *.benchmark
 *temp*/*
 *.cpp.idea/
+.idea/

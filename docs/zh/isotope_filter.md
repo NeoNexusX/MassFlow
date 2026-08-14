@@ -1,34 +1,21 @@
 # 同位素峰过滤
 
-本文介绍 MassFlow 中的同位素峰过滤模块，重点包括：
+本文介绍 MassFlow 中的同位素峰过滤模块。
 
-- 流水线级入口 `Preprocessor.filter_peaks_by_isotopes`
-- 扁平批处理入口 `FlatPreprocess.isotope_filter_flat`
-- `preprocess/helper/isotope_filter_helper.py` 中的逐谱过滤函数
+[TOC]
 
 ## 概述
 
-同位素峰过滤用于在峰提取之后识别同一同位素簇中的后续同位素峰，并只保留最低 m/z 的起始峰以及未被分配到同位素簇的峰。
+同一种化合物由于天然同位素的存在，常会在质谱中出现一组相邻峰，同位素峰过滤用于在峰提取之后识别同一同位素簇中的后续同位素峰，并只保留最低 *m/z* 的起始峰以及未被分配到同位素簇的峰。
 
-- 输入必须是**已处理且已质心化**的数据：每条谱具有自己的峰 m/z 数组。
-- 该操作按谱独立执行，不会跨像素合并峰，也不会创建共享 m/z 轴。
-- 输出会压缩 m/z、强度和 `lengths`，被识别为后续同位素峰的数据点会被真正删除。
-- 推荐顺序为 `peak_pick → filter_peaks_by_isotopes → peak_align`。
+- 输入必须是已处理且已质心化的数据：每条谱具有自己的峰 *m/z* 数组。
+- 程序会分别检查每个像素中的质谱，不会把不同像素的峰混在一起判断。
+- 被识别为后续同位素峰的数据点会被真正删除。
+- 推荐使用顺序为峰提取→同位素峰过滤→峰对齐 `peak_pick → filter_peaks_by_isotopes → peak_align`。
 
-### 流程图
+## 功能说明
 
-```mermaid
-graph LR
-  A["Preprocessor.filter_peaks_by_isotopes"] --> B["FlatPreprocess.isotope_filter_flat"]
-  B --> C["filter_peaks_by_isotopes"]
-  C --> D["逐谱构建保留掩码"]
-  D --> E["压缩 m/z、强度和谱长度"]
-  E --> F["保留单同位素峰和未分配峰"]
-```
-
-## 核心 API
-
-### Preprocessor.filter_peaks_by_isotopes（流水线级）
+### Preprocessor.filter_peaks_by_isotopes
 
 ```python
 massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_isotopes(
@@ -44,18 +31,16 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_isotopes(
 ) -> Self
 ```
 
-- 描述：在每条已质心化谱中识别同位素簇，删除簇内除最低 m/z 起始峰以外的峰。
-- 任务类型：批次级任务；使用 `Preprocessor.batch_size` 分批读取和写出。
-- 输入：应先经过 `peak_pick`，或本身已经是已处理且已质心化的数据。
-- 输出：调用 `.start()` 后返回新的数据管理器；谱数量和坐标保持不变，每条谱的峰数可能减少。
+- 功能：在每条已质心化谱中识别同位素簇，删除簇内除最低 m/z 起始峰以外的峰。
 - 参数：
-  - `mz_tolerance`：同位素峰匹配容差，默认 `10.0`。
-  - `units`：容差单位，`"ppm"` 或 `"da"`，默认 `"ppm"`。
-  - `min_charge`、`max_charge`：搜索的电荷范围。搜索顺序从 `max_charge` 递减到 `min_charge`。
+  - `mz_tolerance`：同位素峰匹配容差，默认 `10.0`。输入值必须为有限正数
+  - `units`：容差单位，`"ppm"` 或 `"da"`，默认 `"ppm"`。`ppm`容差不能超过 `100 ppm`。`da` 容差不能超过 `0.1 Da`。
+  - `min_charge`、`max_charge`：搜索的电荷范围。搜索顺序从 `max_charge` 递减到 `min_charge`。电荷范围必须满足 `1 <= min_charge <= max_charge`。
   - `min_isotope_count`：一个候选簇被接受所需的最少峰数，包含起始峰。
   - `max_isotope_count`：一个候选簇最多检查的峰数，包含起始峰。
+  - 同位素峰数必须满足 `2 <= min_isotope_count <= max_isotope_count`。
   - `use_decreasing_model`：是否启用后续同位素峰强度递减约束。
-  - `start_intensity_check`：从第几个同位素索引开始检查强度递减，默认 `2`。
+  - `start_intensity_check`：从第几个同位素索引开始检查强度递减，默认 `2`。输入值必须为非负整数值。
 
 示例：
 
@@ -87,50 +72,30 @@ filtered.close()
 dm.close()
 ```
 
-### filter_peaks_by_isotopes（辅助函数级）
+该示例依次完成：
 
-```python
-preprocess.helper.isotope_filter_helper.filter_peaks_by_isotopes(
-    mz_data: np.ndarray,
-    intensity: np.ndarray,
-    lengths: np.ndarray,
-    *,
-    mz_tolerance: float = 10.0,
-    units: Literal["da", "ppm"] = "ppm",
-    min_charge: int = 1,
-    max_charge: int = 1,
-    min_isotope_count: int = 3,
-    max_isotope_count: int = 10,
-    use_decreasing_model: bool = True,
-    start_intensity_check: int = 2,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]
+1. 读取 imZML 数据；
+2. 将轮廓谱提取为逐谱质心峰列表；
+3. 在 1～3 价电荷范围内寻找同位素组；
+4. 保留每组起始峰并删除后续峰；
+5. 保存过滤后的峰列表。
+
+![2b7477af770d5f32a8d007f8edbc4610](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/2b7477af770d5f32a8d007f8edbc4610.jpg_view)
+
+
+
+### 流程图
+
+```mermaid
+  graph TD
+ A["峰提取后的单条谱图"] --> B["选择一个未分配峰"]
+  B --> C["按电荷计算理论同位素位置"]
+  C --> D["检查误差和峰组长度"]
+  D --> E["采用第一个满足条件的电荷组"]
+  E --> F["保留单同位素峰和未分配峰"]
 ```
 
-- 返回值：`(filtered_mz, filtered_intensity, filtered_lengths)`。
-- 说明：辅助函数的 `max_charge` 默认值为 `1`；流水线 API 的默认值为 `3`，直接调用辅助函数时需要注意这一差异。
-- 输入 m/z 应按每条谱升序排列，因为内部使用 `np.searchsorted` 搜索容差窗口。
 
-### FlatPreprocess.isotope_filter_flat（扁平批处理级）
-
-```python
-massflow.preprocess.flat_pre_fun.FlatPreprocess.isotope_filter_flat(
-    mz_data: np.ndarray,
-    intensity: np.ndarray,
-    lengths: np.ndarray,
-    *,
-    mz_tolerance: float = 10.0,
-    units: Literal["da", "ppm"] = "ppm",
-    min_charge: int = 1,
-    max_charge: int = 3,
-    min_isotope_count: int = 3,
-    max_isotope_count: int = 10,
-    use_decreasing_model: bool = True,
-    start_intensity_check: int = 2,
-) -> FlatBatchResult
-```
-
-- 描述：流水线中每个扁平批次的入口。
-- 输出：返回压缩后的 m/z、强度和谱长度；坐标由流水线原样传递。
 
 ## 算法说明
 
@@ -142,10 +107,13 @@ ISOTOPE_MASS_DIFFERENCE = 1.003354838 Da
 
 对于起始峰 `M` 和电荷 `z`，第 `k` 个候选同位素峰位置为：
 
-```text
-expected_mz = M + k × 1.003354838 / z
-```
-
+$$
+(m/z)_{\mathrm{expected}}
+=
+M
++
+\frac{k \times 1.003354838}{z}
+$$
 逐谱处理过程如下：
 
 1. 从最低 m/z 的未分配峰开始。
@@ -157,19 +125,7 @@ expected_mz = M + k × 1.003354838 / z
 
 ### 强度递减模型
 
-当 `use_decreasing_model=True` 时，只有 `isotope_index >= start_intensity_check` 的候选峰才需要满足“不高于前一个同位素峰”。默认 `start_intensity_check=2`，因此：
-
-- `M+1` 可以高于 `M`；
-- 从 `M+2` 开始要求强度不再上升。
-
-## 参数限制
-
-- `mz_tolerance` 必须为有限正数。
-- `ppm` 容差不能超过 `100 ppm`。
-- `da` 容差不能超过 `0.1 Da`。
-- 电荷范围必须满足 `1 <= min_charge <= max_charge`。
-- 同位素峰数必须满足 `2 <= min_isotope_count <= max_isotope_count`。
-- `start_intensity_check` 必须为非负整数值。
+默认 `start_intensity_check=2` 不检查 M+1 是否低于起始峰，而是从 M+2 开始逐项比较：当前候选峰不能高于前一个已找到峰。若真实同位素分布不符合这一简化条件，算法可能不确认该组。若把 `start_intensity_check` 设置为大于或等于 `max_isotope_count`，循环中不会到达强度检查起点，相当于虽然保留 `use_decreasing_model=True`，实际却没有执行递减检查；当前入口不会阻止这种组合。
 
 ## 使用注意事项
 

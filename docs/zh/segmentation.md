@@ -22,7 +22,7 @@ MSI 组织中的不同区域可能具有不同的整体质谱特征。KMeans 会
 
 MassFlow的组织区域划分通常需要经过“运行 → 查看结果 → 判断区域 → 生成预览 → 人工确认”的过程，因此推荐在 Jupyter Notebook 中按照本文顺序逐步运行代码。
 
-如果还不熟悉 Jupyter Notebook，可以先阅读文件[最佳实践]()
+如果还不熟悉 Jupyter Notebook，可以先阅读文件[最佳实践](./Jupyter.md)
 
 ## 功能说明
 
