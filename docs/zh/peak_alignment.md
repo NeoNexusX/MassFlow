@@ -207,8 +207,11 @@ graph TD
 
 ## 参考
 
-- `preprocess/helper/peak_align_helper.py`：参考轴构建、峰对齐核心函数
-- `preprocess/numba/peak_align_numba.py`：Numba 加速的搜索和对齐内核
-- `preprocess/flat_pre_fun.py`：扁平预处理入口（FlatPreprocess.peak_align_flat）
-- `preprocess/api.py`PreprocessorAPI.peak_align：峰对齐功能调用入口
+- [`preprocess/helper/peak_align_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/peak_align_helper.py)：参考轴构建、峰对齐核心函数
+- [`preprocess/numba/peak_align_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/peak_align_numba.py)：Numba 加速的搜索和对齐内核
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.peak_align_flat`：扁平预处理入口
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.peak_align`：峰对齐功能调用入口
 
+
+
+作者：董乐强，董京伟

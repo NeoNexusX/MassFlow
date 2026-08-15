@@ -225,5 +225,5 @@ logs/
 *.pymon
 *.benchmark
 *temp*/*
-*.cpp.idea/
+*.cpp
 .idea/

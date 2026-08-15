@@ -308,9 +308,13 @@ correlation >= min_spatial_correlation
 
 ## 参考
 
-- [preprocess/helper/adduct_filter_helper.py](../../src/massflow/preprocess/helper/adduct_filter_helper.py)：规则、候选组、相关性、报告与公共 API
-- [preprocess/numba/adduct_filter_numba.py](../../src/massflow/preprocess/numba/adduct_filter_numba.py)：空间相关性流式统计内核
-- [tools/plot_adduct_filter.py](../../src/massflow/tools/plot_adduct_filter.py)：可审计预览图
-- [preprocess/helper/stat_filter_helper.py](../../src/massflow/preprocess/helper/stat_filter_helper.py)：共享掩码写回
-- [preprocess/api.py：`PreprocessorAPI.filter_peaks_by_adducts`](../../src/massflow/preprocess/api.py):加合物过滤功能的调用入口
-- [preprocess/pipeline/planner.py](../../src/massflow/preprocess/pipeline/planner.py)：数据集级任务顺序和输出路由
+- [`preprocess/helper/adduct_filter_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/adduct_filter_helper.py)：规则、候选组、相关性、报告与公共 API
+- [`preprocess/numba/adduct_filter_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/adduct_filter_numba.py)：空间相关性流式统计内核
+- [`tools/plot_adduct_filter.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/tools/plot_adduct_filter.py)：可审计预览图
+- [`preprocess/helper/stat_filter_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/stat_filter_helper.py)：共享掩码写回
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.filter_peaks_by_adducts`：加合物过滤功能的调用入口
+- [`preprocess/pipeline/planner.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/pipeline/planner.py)：数据集级任务顺序和输出路由
+
+
+
+作者：董乐强，董京伟

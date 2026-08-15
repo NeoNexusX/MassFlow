@@ -191,3 +191,9 @@ Notebook 中创建的`dm`,`pipeline`,`result`等变量只保存在当前运行�
 掌握以上 Jupyter Notebook 基本操作后，可以继续阅读：
 
 [KMeans 组织区域划分](./segmentation.md)
+
+
+
+
+
+作者：董乐强，董京伟

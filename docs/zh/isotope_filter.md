@@ -136,8 +136,12 @@ $$
 
 ## 参考
 
-- `preprocess/helper/isotope_filter_helper.py`：输入校验与数组压缩入口
-- `preprocess/numba/isotope_filter_numba.py`：逐谱保留掩码和 Numba 并行实现
-- `preprocess/flat_pre_fun.py`：`FlatPreprocess.isotope_filter_flat`
-- `preprocess/api.py`：`PreprocessorAPI.filter_peaks_by_isotopes`
-- `preprocess/pipeline/planner.py`：峰提取、同位素过滤、参考轴构建与峰对齐的执行顺序
+- [`preprocess/helper/isotope_filter_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/isotope_filter_helper.py)：输入校验与数组压缩入口
+- [`preprocess/numba/isotope_filter_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/isotope_filter_numba.py)：逐谱保留掩码和 Numba 并行实现
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.isotope_filter_flat`：扁平数据组预处理入口
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.filter_peaks_by_isotopes`:同位素过滤功能调用入口
+- [`preprocess/pipeline/planner.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/pipeline/planner.py)：峰提取、同位素过滤、参考轴构建与峰对齐的执行顺序
+
+
+
+作者：董乐强，董京伟
