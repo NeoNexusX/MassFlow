@@ -107,5 +107,9 @@ segmentation_output/umap_kmeans/
 
 ## 参考
 
-- segmentation/segmentation_pipeline.py
-- segmentation/umap_kmeans.py
+- [`segmentation/segmentation_pipeline.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/segmentation_pipeline.py)：`SegmentationPipeline` 和 `UmapKmeansResult`
+- [`segmentation/umap_kmeans.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/umap_kmeans.py)：UMAP/KMeans 分析和空间图输出
+
+
+
+作者：董乐强，董京伟

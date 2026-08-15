@@ -131,12 +131,14 @@ graph TD
 
 ## 参考
 
-- `preprocess/helper/normalizer_helper.py`：归一化分发器（normalizer）
+- [`preprocess/helper/normalizer_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/normalizer_helper.py)：归一化分发器（normalizer）
 
-- `preprocess/numba/normalization_numba.py`：Numba 加速实现（normalizer_numba）
+- [`preprocess/numba/normalization_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/normalization_numba.py)：Numba 加速实现（normalizer_numba）
 
-- `preprocess/flat_pre_fun.py`：扁平预处理入口（FlatPreprocess.normalization_flat）
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.normalization_flat`：扁平预处理入口
 
-- `preprocess/api.py`：链式 API（PreprocessorAPI.normalization）
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.normalization`：归一化功能的调用入口
 
   
+
+作者：董乐强，董京伟
