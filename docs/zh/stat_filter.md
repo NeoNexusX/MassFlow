@@ -223,8 +223,12 @@ keep = count_mask AND intensity_mask
 
 ## 参考
 
-- `preprocess/helper/stat_filter_helper.py`：统计对象、掩码和公共过滤操作
-- `preprocess/numba/stat_filter_numba.py`：统计聚合与共享掩码写回内核
-- `tools/plot_peak_filter.py`：阈值分布预览
-- `preprocess/api.py`：`PreprocessorAPI.filter_peaks_by_stats`：统计峰过滤功能的调用入口
-- `preprocess/pipeline/planner.py`：数据集级任务顺序和最终输出路由
+- [`preprocess/helper/stat_filter_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/stat_filter_helper.py)：统计对象、掩码和公共过滤操作
+- [`preprocess/numba/stat_filter_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/stat_filter_numba.py)：统计聚合与共享掩码写回内核
+- [`tools/plot_peak_filter.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/tools/plot_peak_filter.py)：阈值分布预览
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.filter_peaks_by_stats`：统计峰过滤功能的调用入口
+- [`preprocess/pipeline/planner.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/pipeline/planner.py)：数据集级任务顺序和最终输出路由
+
+
+
+作者：董乐强，董京伟

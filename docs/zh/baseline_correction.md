@@ -130,8 +130,12 @@ graph TD
 
 ## 参考
 
-- `preprocess/helper/baseline_correction_helper.py`：基线校正分发器（baseline_corrector）
-- `preprocess/numba/baseline_correction_numba.py`：Numba 加速实现（baseline_locmin_numba, baseline_snip_numba）
-- `preprocess/flat_pre_fun.py`：FlatPreprocess.baseline_reduction_flat：扁平数据组预处理入口
-- `preprocess/api.py`：PreprocessorAPI.baseline_correction：基线校正功能的调用入口
+- [`preprocess/helper/baseline_correction_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/baseline_correction_helper.py)：基线校正分发器（baseline_corrector）
+- [`preprocess/numba/baseline_correction_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/baseline_correction_numba.py)：Numba 加速实现（baseline_locmin_numba、baseline_snip_numba）
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.baseline_reduction_flat`：扁平数据组预处理入口
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.baseline_correction`：基线校正功能的调用入口
+
+
+
+作者：董乐强，董京伟
 

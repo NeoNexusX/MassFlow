@@ -74,3 +74,9 @@ env = init_r_environment(r_home="C:\\Program Files\\R\\R-4.3.1")
 ### 与 `UnicodeDecodeError` 相关的错误
 
 MassFlow 会自动将 R 的区域设置设为英语（`LANGUAGE=en`，`LC_ALL=C`），以避免字符编码问题。通常情况下，无需用户手动干预。
+
+
+
+
+
+作者：董乐强，董京伟

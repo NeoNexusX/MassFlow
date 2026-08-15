@@ -22,7 +22,7 @@ MSI 组织中的不同区域可能具有不同的整体质谱特征。KMeans 会
 
 MassFlow的组织区域划分通常需要经过“运行 → 查看结果 → 判断区域 → 生成预览 → 人工确认”的过程，因此推荐在 Jupyter Notebook 中按照本文顺序逐步运行代码。
 
-如果还不熟悉 Jupyter Notebook，可以先阅读文件[最佳实践](./Jupyter.md)
+如果还不熟悉 Jupyter Notebook，可以先阅读文件[最佳实践](./jupyter.md)
 
 ## 功能说明
 
@@ -114,21 +114,21 @@ result.print_label_colors()
 
 原始tic图：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/img_202608082131214321.jpg_view" alt="img_202608082131214321" style="zoom: 15%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/img_202608082131214321.jpg_view" alt="img_202608082131214321" style="zoom: 14%;" />
 
 KMeans聚类结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/img_2026080912312314.jpg_view" alt="img_2026080912312314" style="zoom:20%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/img_2026080912312314.jpg_view" alt="img_2026080912312314" style="zoom:25%;" />
 
 对应的UMAP图：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste_2026-08-090391211.jpg_view" alt="Snipaste_2026-08-090391211" style="zoom:40%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste_2026-08-090391211.jpg_view" alt="Snipaste_2026-08-090391211" style="zoom:35%;" />
 
 参考数据集2:
 
 原始TIC 图：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260811233830354.jpg_view" alt="tic_b72dd2cd60a1487fa137622536475719" style="zoom: 15%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260811233830354.jpg_view" alt="tic_b72dd2cd60a1487fa137622536475719" style="zoom: 10%;" />
 
 kmeans聚类结果：
 
@@ -136,7 +136,7 @@ kmeans聚类结果：
 
 对应的umap图：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813220635346.jpg_view" alt="umap_image" style="zoom:130%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813220635346.jpg_view" alt="umap_image" style="zoom:200%;" />
 
 ### SegmentationPipeline.remove_clusters
 
@@ -169,7 +169,7 @@ pipeline.remove_clusters(labels_to_remove)
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20remove_2026-08-09_221537.jpg_view" alt="Snipaste remove_2026-08-09_221537" style="zoom:25%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20remove_2026-08-09_221537.jpg_view" alt="Snipaste remove_2026-08-09_221537" style="zoom:20%;" />
 
 原始结果：
 
@@ -179,7 +179,7 @@ Kmeans预览图结果：
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813221651784.jpg_view" alt="kmeans_image" style="zoom:130%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813221651784.jpg_view" alt="kmeans_image" style="zoom:200%;" />
 
 原始结果：
 
@@ -222,7 +222,7 @@ pipeline.remove_background(
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20background_2026-08-09_22-24-41.jpg_view" alt="Snipaste background_2026-08-09_22-24-41" style="zoom: 33%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20background_2026-08-09_22-24-41.jpg_view" alt="Snipaste background_2026-08-09_22-24-41" style="zoom: 30%;" />
 
 原始结果：
 
@@ -232,7 +232,7 @@ Kmeans预览图结果：
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813224414642.jpg_view" alt="kmeans_image" style="zoom:130%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813224414642.jpg_view" alt="kmeans_image" style="zoom:200%;" />
 
 原始结果：
 
@@ -267,7 +267,7 @@ pipeline.keep_clusters(labels_to_keep)
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20keep_2026-08-09_22-30-40.jpg_view" alt="Snipaste keep_2026-08-09_22-30-40" style="zoom: 45%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20keep_2026-08-09_22-30-40.jpg_view" alt="Snipaste keep_2026-08-09_22-30-40" style="zoom: 35%;" />
 
 原始结果：
 
@@ -277,7 +277,7 @@ Kmeans预览图结果：
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813223519771.jpg_view" alt="kmeans_image" style="zoom:130%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813223519771.jpg_view" alt="kmeans_image" style="zoom:200%;" />
 
 原始结果：
 
@@ -373,7 +373,11 @@ n_clusters=10
 
 ## 参考
 
-- segmentation/segmentation_pipeline.py：`SegmentationPipeline` 和 `UmapKmeansResult`
-- segmentation/umap_kmeans.py：UMAP/KMeans 分析和空间图输出
-- segmentation/cluster_segmentation.py：聚类区域删除、外围背景删除和目标区域保留
-- segmentation/region_mask.py：空间掩码应用和数据写出
+- [`segmentation/segmentation_pipeline.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/segmentation_pipeline.py)：`SegmentationPipeline` 和 `UmapKmeansResult`
+- [`segmentation/umap_kmeans.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/umap_kmeans.py)：UMAP/KMeans 分析和空间图输出
+- [`segmentation/cluster_segmentation.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/cluster_segmentation.py)：聚类区域删除、外围背景删除和目标区域保留
+- [`segmentation/region_mask.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/region_mask.py)：空间掩码应用和数据写出
+
+
+
+作者：董乐强，董京伟

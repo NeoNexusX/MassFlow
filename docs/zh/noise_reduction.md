@@ -137,8 +137,11 @@ Savitzky-Golay 平滑（savgol_numba）:![Snipaste sav_2026-08-09_21-19-48](http
 
 ## 参考
 
-- `preprocess/helper/noise_reduction_helper.py`：平滑分发器（smoother）
-- `preprocess/numba/noise_reduction_numba.py`：Numba 加速实现（smooth_signal_ma_numba, smooth_signal_gaussian_numba, smooth_signal_savgol_numba）
-- `preprocess/flat_pre_fun.py`：FlatPreprocess.noise_reduction_flat：扁平预处理入口
-- `preprocess/api.py`：PreprocessorAPI.noise_reduction：噪声抑制与平滑功能的调用入口
+- [`preprocess/helper/noise_reduction_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/noise_reduction_helper.py)：平滑分发器（smoother）
+- [`preprocess/numba/noise_reduction_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/noise_reduction_numba.py)：Numba 加速实现（smooth_signal_ma_numba、smooth_signal_gaussian_numba、smooth_signal_savgol_numba）
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.noise_reduction_flat`：扁平预处理入口
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.noise_reduction`：噪声抑制与平滑功能的调用入口
 
+
+
+作者：董乐强，董京伟

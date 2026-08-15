@@ -125,9 +125,13 @@ graph TD
 
 ## 参考
 
-- `preprocess/helper/peak_pick_helper.py`：峰提取核心实现（peak_picker）
-- `preprocess/helper/est_noise_helper.py`：噪声估计函数（estimator）
-- `preprocess/numba/peak_pick_numba.py`：Numba 加速的局部极大值检测与滤波
-- `preprocess/numba/est_noise_numba.py`：Numba 加速的噪声估计
-- `preprocess/flat_pre_fun.py`FlatPreprocess.peak_pick_flat：扁平预处理入口
-- `preprocess/api.py`PreprocessorAPI.peak_pick:峰提取功能调用入口
+- [`preprocess/helper/peak_pick_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/peak_pick_helper.py)：峰提取核心实现（peak_picker）
+- [`preprocess/helper/est_noise_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/est_noise_helper.py)：噪声估计函数（estimator）
+- [`preprocess/numba/peak_pick_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/peak_pick_numba.py)：Numba 加速的局部极大值检测与滤波
+- [`preprocess/numba/est_noise_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/est_noise_numba.py)：Numba 加速的噪声估计
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.peak_pick_flat`：扁平预处理入口
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.peak_pick`：峰提取功能的调用入口
+
+
+
+作者：董乐强，董京伟

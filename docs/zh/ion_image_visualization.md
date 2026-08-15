@@ -286,8 +286,12 @@ mz_tolerance=0.01
 
 ## 参考
 
-- tools/plot_ion_image.py：离子图、TIC 读取和绘制公共函数
-- data_manager/ms_data_manager_imzml.py：imZML 数据读取
-- data_manager/ion_image_data_manager_binary.py：Binary 离子图数据
-- data_manager/ion_image_data_manager_h5.py：H5 离子图数据
-- data_manager/ion_image_data_manager_zarr.py：ion-image Zarr 数据
+- [`tools/plot_ion_image.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/tools/plot_ion_image.py)：离子图、TIC 读取和绘制公共函数
+- [`data_manager/ms_data_manager_imzml.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/data_manager/ms_data_manager_imzml.py)：imZML 数据读取
+- [`data_manager/ion_image_data_manager_binary.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/data_manager/ion_image_data_manager_binary.py)：Binary 离子图数据
+- [`data_manager/ion_image_data_manager_h5.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/data_manager/ion_image_data_manager_h5.py)：H5 离子图数据
+- [`data_manager/ion_image_data_manager_zarr.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/data_manager/ion_image_data_manager_zarr.py)：ion-image Zarr 数据
+
+
+
+作者：董乐强，董京伟
