@@ -2,9 +2,11 @@
 
 本文介绍 MassFlow 中的 KMeans 组织区域划分、结果检查以及区域删除或保留流程。
 
-[TOC]
 
----
+
+想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
+
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
 
 ## 概述
 
@@ -114,21 +116,21 @@ result.print_label_colors()
 
 原始tic图：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/img_202608082131214321.jpg_view" alt="img_202608082131214321" style="zoom: 14%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/img_202608082131214321.jpg_view" alt="img_202608082131214321" style="zoom: 17%;" />
 
 KMeans聚类结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/img_2026080912312314.jpg_view" alt="img_2026080912312314" style="zoom:25%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/img_2026080912312314.jpg_view" alt="img_2026080912312314" style="zoom:20%;" />
 
 对应的UMAP图：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste_2026-08-090391211.jpg_view" alt="Snipaste_2026-08-090391211" style="zoom:35%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste_2026-08-090391211.jpg_view" alt="Snipaste_2026-08-090391211" style="zoom:40%;" />
 
 参考数据集2:
 
 原始TIC 图：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260811233830354.jpg_view" alt="tic_b72dd2cd60a1487fa137622536475719" style="zoom: 10%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260811233830354.jpg_view" alt="tic_b72dd2cd60a1487fa137622536475719" style="zoom: 18%;" />
 
 kmeans聚类结果：
 
@@ -136,7 +138,7 @@ kmeans聚类结果：
 
 对应的umap图：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813220635346.jpg_view" alt="umap_image" style="zoom:200%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813220635346.jpg_view" alt="umap_image" style="zoom:125%;" />
 
 ### SegmentationPipeline.remove_clusters
 
@@ -169,7 +171,7 @@ pipeline.remove_clusters(labels_to_remove)
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20remove_2026-08-09_221537.jpg_view" alt="Snipaste remove_2026-08-09_221537" style="zoom:20%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20remove_2026-08-09_221537.jpg_view" alt="Snipaste remove_2026-08-09_221537" style="zoom:26%;" />
 
 原始结果：
 
@@ -179,7 +181,7 @@ Kmeans预览图结果：
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813221651784.jpg_view" alt="kmeans_image" style="zoom:200%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813221651784.jpg_view" alt="kmeans_image" style="zoom:125%;" />
 
 原始结果：
 
@@ -222,7 +224,7 @@ pipeline.remove_background(
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20background_2026-08-09_22-24-41.jpg_view" alt="Snipaste background_2026-08-09_22-24-41" style="zoom: 30%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20background_2026-08-09_22-24-41.jpg_view" alt="Snipaste background_2026-08-09_22-24-41" style="zoom: 36%;" />
 
 原始结果：
 
@@ -232,7 +234,7 @@ Kmeans预览图结果：
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813224414642.jpg_view" alt="kmeans_image" style="zoom:200%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813224414642.jpg_view" alt="kmeans_image" style="zoom:125%;" />
 
 原始结果：
 
@@ -267,7 +269,7 @@ pipeline.keep_clusters(labels_to_keep)
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20keep_2026-08-09_22-30-40.jpg_view" alt="Snipaste keep_2026-08-09_22-30-40" style="zoom: 35%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20keep_2026-08-09_22-30-40.jpg_view" alt="Snipaste keep_2026-08-09_22-30-40" style="zoom: 42%;" />
 
 原始结果：
 
@@ -277,7 +279,7 @@ Kmeans预览图结果：
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813223519771.jpg_view" alt="kmeans_image" style="zoom:200%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813223519771.jpg_view" alt="kmeans_image" style="zoom:125%;" />
 
 原始结果：
 
