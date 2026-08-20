@@ -2,7 +2,11 @@
 
 本文介绍 MassFlow 中的归一化模块。
 
-[TOC]
+
+
+想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
+
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
 
 ## 概述
 
@@ -33,18 +37,19 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
 - 功能：按批次对所有质谱执行归一化。
 
 - 参数：
+
   - `method`：归一化方法，默认 `"tic_numba"`。有三种方法可供选择：`"tic_numba"`、`"rms_numba"`、`"ref_numba"`。
-    
+
     - 需要像素间总强度可比时，优先选 `"tic_numba"`。
     - 希望对极端值更稳健时，选 `"rms_numba"`。
     - 已知内标峰时，选 `"ref_numba"`。
-    
+
   - `scale`：归一化后的幅度缩放因子（可选），输入值必须为有限非负数。若提供，强度会被乘以此值。常用场景：TIC 归一化后设为 1000 或 10000 便于数值展示。
-  
+
   - `ref`：目标内标峰 *m/z* 值（`ref_numba` 时若为None，自动取值）。
-  
+
   - `ref_tolerance`：参考峰匹配容差（`ref_numba` 方法使用），默认 0.1Da。输入值必须为有限的非负数
-  
+
     
 
 示例：
@@ -121,6 +126,20 @@ graph TD
 
 
 
+以下为三种归一化方法处理之后产生的离子图：
+
+TIC 归一化（tic_numba）：
+
+![ion_500_2000_2](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815221630080.jpg_view)
+
+RMS 归一化（rms_numba）：
+
+![ion_500_2000_1](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815221602925.jpg_view)
+
+参考峰归一化（ref_numba） 选择`ref`=500作为参考值：
+
+![ion_500_2000_3](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815221707408.jpg_view)
+
 ## 错误处理与日志
 
 - 输入校验：输入数据必须为非空一维 numpy 数组，否则抛出 `TypeError`。
@@ -138,6 +157,8 @@ graph TD
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.normalization_flat`：扁平预处理入口
 
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.normalization`：归一化功能的调用入口
+
+  
 
   
 

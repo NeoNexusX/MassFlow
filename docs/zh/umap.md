@@ -2,9 +2,11 @@
 
 本文介绍 MassFlow 中 UMAP 的作用和结果解释。UMAP 是用于高维质谱特征降维和可视化的方法。
 
-[TOC]
 
----
+
+想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
+
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
 
 ## 概述
 
@@ -80,9 +82,19 @@ dm.close()
 
 运行后会同时得到 UMAP 和 KMeans 结果。查看 UMAP 时重点关注 `umap_image.png`。
 
-UMAP图：
+以下为设置三种不同sample_ratio所得到的UMAP图：
+
+sample_ratio=0.1：
 
 ![Snipaste_2026-08-090391211](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste_2026-08-090391211.jpg_view)
+
+sample_ratio=0.5
+
+![image-20260815174917455](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815174917515.jpg_view)
+
+sample_ratio=1.0
+
+![image-20260815211057250](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815211057364.jpg_view)
 
 ## UMAP 图怎样看
 
