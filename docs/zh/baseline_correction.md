@@ -77,10 +77,11 @@ massflow.preprocess.api.PreprocessorAPI.baseline_correction(
 from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess import Preprocessor
 from massflow.tools.plot import plot_spectrum
+from massflow.tools.imzml_monkey_patch import risky_imzml_loader
 
-FILE_PATH = "data/example.imzML"
-dm = MSDataManagerImzML(filepath=FILE_PATH)
-dm.load_head_data()
+with risky_imzml_loader():
+    dm = MSDataManagerImzML(filepath="data/examplegit.imzML")
+    dm.load_head_data()
 
 corrected = (
     Preprocessor(dm)

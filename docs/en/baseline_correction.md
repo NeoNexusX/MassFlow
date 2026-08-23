@@ -1,36 +1,42 @@
-# MassFlow
+# Baseline Correction
 
-This document introduces the baseline correction module in MassFlow, focusing on:
-- Pipeline-level entry point `Preprocessor.baseline_correction`
-- Core functions in `preprocess/helper/baseline_correction_helper.py`
+This page introduces the baseline correction module in MassFlow.
+
+
+
+If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
+
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
 
 ## Overview
 
-- Input and Output
-  - Input is in flat array form (`mz_data`, `intensity`, `lengths`), representing m/z and intensity data for a batch of spectra.
-  - Output is a baseline-corrected flat array; m/z and coordinates remain unchanged, intensity is the corrected result.
-- Methods
-  - LocMin Numba (`locmin_numba`): Estimates baseline via local extremum anchor interpolation, accelerated with Numba.
-  - SNIP Numba (`snip_numba`): Multi-scale iterative clipping baseline estimation, accelerated with Numba, suitable for peak shape preservation.
-- Baseline Scaling
-  - `baseline_scale` scales the estimated baseline by a factor in `(0, 1]` (default `1.0`) to avoid over-subtraction.
-  - The actual subtraction uses the "scaled baseline"; setting `baseline_scale=1.0` preserves the native algorithm behavior.
+The baseline in a mass spectrum is a background signal that changes slowly with *m/z*. When the baseline is too high, it may affect peak-intensity comparison, normalization, and peak picking.
 
-### Function Relationship Diagram
+Baseline correction first estimates the background curve and then subtracts it from the original intensities, making true peaks easier to distinguish from the background. MassFlow sets corrected intensities below 0 to 0 while keeping the *m/z* values and spatial coordinates unchanged.
 
-```mermaid
-graph LR
-  A["Preprocessor.baseline_correction"] --> B["FlatPreprocess.baseline_reduction_flat"]
-  B --> C["baseline_corrector"]
-  C --> D["baseline_locmin_numba"]
-  C --> E["baseline_snip_numba"]
-  D --> F["Corrected Data"]
-  E --> F
-```
+- Input and output
+  - The input is the mass-spectrometry data to be processed. Users only need to provide the data-file path; MassFlow automatically reads the *m/z* values and signal intensities for each pixel.
+  - The output is baseline-corrected mass-spectrometry data. The *m/z* positions and pixel coordinates remain unchanged, while the intensities are replaced by the corrected values.
 
-## Core API
+- Methods:
 
-### Preprocessor.baseline_correction (Pipeline Level)
+  - LocMin (`locmin_numba`): estimates the background trend from locally low-intensity positions in a spectrum. It is suitable for routine baseline correction.
+
+  - SNIP (`snip_numba`): estimates the background progressively through repeated iterations. It is generally more suitable for data with dense peaks or obvious background variation, while preserving peak shapes well.
+
+## Check Whether Baseline Correction Is Needed First
+
+Baseline correction is not required for every dataset.
+
+Before processing, check the original profile spectrum:
+
+- If the background between peaks is already close to a stable level, with no obvious overall elevation or slow drift, baseline correction is unnecessary.
+- If the background between peaks is clearly above the zero level and changes slowly with *m/z*, then baseline correction should be considered.
+
+
+## Function Description
+
+### Preprocessor.baseline_correction
 
 ```python
 massflow.preprocess.api.PreprocessorAPI.baseline_correction(
@@ -47,20 +53,22 @@ massflow.preprocess.api.PreprocessorAPI.baseline_correction(
 ) -> Self
 ```
 
-- Description: Pipeline-level baseline correction entry point. Performs baseline correction on all spectra in batches via `Preprocessor` chainable calls.
-- Input: Bind a data manager via `Preprocessor(dm)`.
-- Output: After calling `.start()`, returns a new `MSDataManagerImzML` whose spectral intensities are baseline-corrected.
-- Supported methods: `"locmin_numba"`, `"snip_numba"`.
+- Function: performs baseline correction on all spectra in batches.
+
 - Parameters:
-  - `method`: Baseline correction method, default `"locmin_numba"`.
-  - `smooth`: LocMin smoothing mode, `"none" | "loess" | "spline"`, default `"none"`.
-  - `span`: Loess smoothing span ratio (0 < span ≤ 1), default 0.1.
-  - `upper`: When `True`, uses local maxima as anchors (upper envelope), default `False`.
-  - `width`: Neighborhood width for local extremum detection, default 5.
-  - `niter`: Number of iterations for LocMin, default 15.
-  - `baseline_scale`: Baseline scaling factor in `(0, 1]`, default 1.0.
-  - `m`: SNIP half-window size; auto-selected if `None`.
-  - `decreasing`: SNIP iteration direction, `True` for large-to-small windows.
+  - `method`: baseline correction method. The default is `"locmin_numba"`. Available methods are `"locmin_numba"` and `"snip_numba"`.
+  - `baseline_scale`: baseline scaling factor in the range `(0, 1]`, default `1.0`. Smaller values make over-subtraction less likely; `1.0` preserves the original algorithm behavior.
+  - Parameters used with the LocMin Numba method:
+    - `smooth`: LocMin smoothing method. `"none"` uses the original interpolation and `"loess"` uses local smoothing. Default: `"none"`..
+    - `span`: Loess smoothing span ratio (`0 < span <= 1`), default `0.1`. Larger values produce stronger smoothing.
+    - `upper`: when `True`, local maxima are used as anchors to form an upper envelope. Default: `False`. Set it to `True` only when an upper envelope is needed; for ordinary baseline correction, keep it `False`.
+    - `width`: neighborhood width for local-extrema detection, default `5`. Larger windows produce sparser anchors. A starting range of 5–9 is recommended. It must be an integer and `>= 3`.
+    - `niter`: number of LocMin iterations, default `15`.
+  
+  - Parameters used with the SNIP Numba method:
+    - `m`: SNIP window half-width. If `None`, it is selected automatically. The default automatic value is `min(100, max(10, n//10))`; an excessively large window may cause over-subtraction.
+    - `decreasing`: SNIP iteration direction. `True` means from large to small. `True` (coarse to fine) is usually more robust, while `False` (fine to coarse) gives higher priority to local structure.
+  
 
 Example:
 
@@ -68,10 +76,11 @@ Example:
 from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess import Preprocessor
 from massflow.tools.plot import plot_spectrum
+from massflow.tools.imzml_monkey_patch import risky_imzml_loader
 
-FILE_PATH = "data/example.imzML"
-dm = MSDataManagerImzML(filepath=FILE_PATH)
-dm.load_head_data()
+with risky_imzml_loader():
+    dm = MSDataManagerImzML(filepath="data/example.imzML")
+    dm.load_head_data()
 
 corrected = (
     Preprocessor(dm)
@@ -83,7 +92,7 @@ plot_spectrum(
     base=dm.ms[0],
     target=corrected.ms[0],
     mz_range=(400.0, 450.0),
-    intensity_range=(0.0, 500),
+    intensity_range=(0.0, 50),
     metrics_box=True,
 )
 
@@ -91,78 +100,43 @@ corrected.close()
 dm.close()
 ```
 
-### baseline_corrector (Helper Function Level)
+This example performs the following steps:
 
-```python
-preprocess.helper.baseline_correction_helper.baseline_corrector(
-    intensity: np.ndarray,
-    method: str = "locmin_numba",
-    smooth: str = "none",
-    span: float = 0.1,
-    upper: bool = False,
-    width: int = 5,
-    niter: int = 15,
-    baseline_scale: float = 1.0,
-    m: int | None = None,
-    decreasing: bool = True,
-    lengths: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray]
+1. Read the imZML data.
+2. Estimate the baseline of each spectrum using the LocMin method.
+3. Subtract the baseline from the original intensities.
+4. Set corrected intensities below 0 to 0.
+5. Display a comparison of the spectra before and after processing.
+
+Example output:
+
+![baseline_2026080959034](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/baseline_2026080959034.jpg_view)
+
+## Overall Processing Workflow
+
+```mermaid
+graph TD
+  A["Input raw spectrum"] --> B["Choose locmin_numba or snip_numba"]
+  B --> C["Estimate background baseline"]
+  C --> D["Adjust subtraction ratio with baseline_scale"]
+  D --> E["Subtract estimated baseline from original intensity"]
+  E --> F["Set negative intensities to 0"]
+  F --> G["Output corrected data"]
 ```
-
-- Description: Flat-array baseline correction dispatcher. Calls the corresponding Numba backend based on `method`.
-- Parameters:
-  - `intensity`: One-dimensional flat intensity array.
-  - `lengths`: Spectrum length array, used to split processing per-spectrum within Numba.
-  - Other parameters are consistent with the pipeline-level API.
-- Returns: `(corrected, scaled_baseline)` — the corrected intensity and the scaled baseline.
-- Supported methods are limited to `"locmin_numba"` and `"snip_numba"`.
-- Exceptions:
-  - `ValueError`: Unsupported method; invalid `baseline_scale`.
-  - `TypeError`: intensity is not a numpy array.
-
-### FlatPreprocess.baseline_reduction_flat (Flat Batch Level)
-
-```python
-massflow.preprocess.flat_pre_fun.FlatPreprocess.baseline_reduction_flat(
-    mz_data: np.ndarray,
-    intensity: np.ndarray,
-    lengths: np.ndarray,
-    method: str = "locmin_numba",
-    smooth: str = "none",
-    span: float = 0.1,
-    upper: bool = False,
-    width: int = 5,
-    niter: int = 15,
-    baseline_scale: float = 1.0,
-    m: int | None = None,
-    decreasing: bool = True,
-) -> FlatBatchResult
-```
-
-- Description: The underlying implementation of `Preprocessor.baseline_correction`. Returns a `FlatBatchResult` containing mz_data, corrected intensity, and lengths.
-
-## Parameter and Tuning Recommendations
-
-- General
-  - `baseline_scale` (`(0,1]`): Smaller values reduce the risk of over-subtraction; `1.0` preserves native algorithm behavior.
-- LocMin Numba
-  - `width`: Larger windows produce sparser anchors; suggested starting range is 5–9. Must be an integer ≥ 3.
-  - `upper`: Set to `True` for upper envelope; generally keep `False` for baseline.
-  - `smooth`: `"none"` for raw interpolation; `"loess"` for local smoothing; `"spline"` for global smoothing.
-  - `span`: Loess span can be 0.05–0.3; larger values produce smoother results.
-- SNIP Numba
-  - `m` (half-window): Auto-selected as `min(100, max(10, n//10))` by default; excessively large windows may cause over-subtraction.
-  - `decreasing`: `True` (coarse-to-fine) is generally more robust; `False` (fine-to-coarse) emphasizes local priority.
-
-## References
-
-- `preprocess/helper/baseline_correction_helper.py`: Baseline correction dispatcher (baseline_corrector)
-- `preprocess/numba/baseline_correction_numba.py`: Numba-accelerated implementation (baseline_locmin_numba, baseline_snip_numba)
-- `preprocess/flat_pre_fun.py`: Flat preprocessing entry point (FlatPreprocess.baseline_reduction_flat)
-- `preprocess/api.py`: Chainable API (PreprocessorAPI.baseline_correction)
 
 ## Error Handling and Logging
 
-- Input validation: intensity must be a non-empty 1D numpy array, otherwise `TypeError` / `ValueError` is raised.
-- Baseline scaling: `baseline_scale` must be finite and in `(0,1]`; otherwise `ValueError` is raised.
-- Method validation: Only `"locmin_numba"` and `"snip_numba"` are supported; otherwise `ValueError` is raised.
+- The input data must be a non-empty one-dimensional NumPy array; otherwise, a `TypeError` or `ValueError` is raised.
+- `baseline_scale` must be a finite value in `(0, 1]`; otherwise, a `ValueError` is raised.
+- Only `"locmin_numba"` and `"snip_numba"` are supported. Any other method raises a `ValueError`.
+
+## References
+
+- [`preprocess/helper/baseline_correction_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/baseline_correction_helper.py): baseline correction dispatcher (`baseline_corrector`)
+- [`preprocess/numba/baseline_correction_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/baseline_correction_numba.py): Numba-accelerated implementation (`baseline_locmin_numba`, `baseline_snip_numba`)
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py): `FlatPreprocess.baseline_reduction_flat`, preprocessing entry point for flat data arrays
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py): `PreprocessorAPI.baseline_correction`, API entry point for baseline correction
+
+
+
+Authors: Leqiang Dong, Jingwei Dong
