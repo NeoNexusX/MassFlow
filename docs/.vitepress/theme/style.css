@@ -137,3 +137,101 @@
   --docsearch-primary-color: var(--vp-c-brand-1) !important;
 }
 
+/**
+ * Component: Collapsible Sidebar
+ * -------------------------------------------------------------------------- */
+
+/*
+ * The toggle button is only displayed on desktop.
+ */
+.sidebar-toggle {
+  display: none;
+}
+
+@media (min-width: 960px) {
+  .sidebar-toggle {
+    display: flex;
+
+    position: fixed;
+
+    /*
+     * Place the button on the right edge of the sidebar.
+     */
+    left: calc(var(--vp-sidebar-width) - 14px);
+    top: 88px;
+
+    z-index: 50;
+
+    align-items: center;
+    justify-content: center;
+
+    width: 28px;
+    height: 40px;
+
+    padding: 0;
+
+    border: 1px solid var(--vp-c-divider);
+    border-radius: 0 8px 8px 0;
+
+    background: var(--vp-c-bg-alt);
+    color: var(--vp-c-text-2);
+
+    font-size: 22px;
+    line-height: 1;
+
+    cursor: pointer;
+
+    transition:
+      left 0.25s ease,
+      background-color 0.25s ease,
+      color 0.25s ease;
+  }
+
+  .sidebar-toggle:hover {
+    color: var(--vp-c-brand-1);
+    background: var(--vp-c-bg-soft);
+  }
+
+  /**
+   * Hide the entire sidebar.
+   */
+  .sidebar-collapsed .VPSidebar {
+    transform: translateX(-100%);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /**
+   * Animate sidebar opening / closing.
+   */
+  .VPSidebar {
+    transition:
+      transform 0.25s ease,
+      opacity 0.25s ease;
+  }
+
+  /**
+   * Move the toggle button to the left after
+   * the sidebar has been collapsed.
+   */
+  .sidebar-collapsed .sidebar-toggle {
+    left: 0;
+
+    border-radius: 0 8px 8px 0;
+  }
+
+  /**
+   * Remove the space reserved for the sidebar.
+   */
+  .sidebar-collapsed .VPContent.has-sidebar {
+    padding-left: 0;
+  }
+
+  /**
+   * Allow the document area to use the freed space.
+   */
+  .sidebar-collapsed .VPDoc.has-sidebar {
+    padding-left: 0;
+  }
+}
+
