@@ -121,6 +121,7 @@ export default withMermaid(
         { text: '首页', link: '/zh/' },
         { text: '快速开始', link: '/zh/getting-started' },
         {text: '预处理方法',
+          collapsed: false,
           items:[
         { text: '基线校正', link: '/zh/baseline_correction' },
         { text: '噪声降低', link: '/zh/noise_reduction' },
@@ -134,6 +135,7 @@ export default withMermaid(
         },
         {
           text: '空间分析',
+          collapsed: false,
           items: [
             {text: '离子图可视化', link: '/zh/ion_image_visualization'},
             {text: 'UMAP', link: '/zh/umap'},
@@ -143,6 +145,7 @@ export default withMermaid(
         },
         {
           text: '环境配置',
+          collapsed: false,
           items: [
             {text: 'R 环境配置', link: '/zh/r_environment_setup'}
           ]
@@ -159,6 +162,7 @@ export default withMermaid(
         { text: 'Getting Started', link: '/getting-started' },
         {
           text: 'Preprocessing Methods',
+          collapsed: false,
           items: [
             {text: 'Baseline Correction', link: '/baseline_correction'},
             {text: 'Noise Reduction', link: '/noise_reduction'},
@@ -172,6 +176,7 @@ export default withMermaid(
         },
           {
           text: 'Spatial Analysis',
+            collapsed: false,
           items: [
         { text: 'Ion Image Visualization', link: '/ion_image_visualization' },
         { text: 'UMAP', link: '/umap' },
@@ -181,6 +186,7 @@ export default withMermaid(
           },
         {
           text: 'Environment Setup',
+          collapsed: false,
           items: [
             {text: 'R Environment Setup', link: '/r_environment_setup'}
           ]
