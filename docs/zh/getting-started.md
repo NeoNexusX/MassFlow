@@ -44,75 +44,51 @@ data/
 
 `.imzML` 文件保存实验和质谱结构信息，`.ibd` 文件保存实际的质谱数据。两者需要配套使用。
 
-### 2.MassFlow设置 Python 环境
+### 2.安装MassFlow
 
-如果当前处于 Conda 环境中，可以先退出：
+安装 MassFlow 需要 Python 3.12 或更高版本。所以安装前请先检查 Python 版本。
 
-```
-conda deactivate
-```
-
-
-
-然后安装 `uv`。提供了两种方法：
-
-方法1：
-
-- **Windows：**
-
-  ```
-  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-  ```
-
-
-- **Linux/macOS：**
-
-  ```
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
-
-
-方法2:
-
-- 直接打开终端（Powershell）然后输入:
-
-```text
-pip install uv
-```
-
-
-
-安装`uv`结束后可输入：
+打开 PowerShell运行：
 
 ```
-uv --version
+python --version
 ```
 
-验证`uv`是否安装成功，若安装成功会显示当前安装的uv版本。
-
-
-
-安装完成后，在 MassFlow 项目目录运行：
+运行后会显示当前python的版本，例如：
 
 ```
-uv sync
+Python 3.12.13
 ```
 
-`uv sync` 会根据项目中的 `pyproject.toml` 和 `uv.lock` 自动创建虚拟环境，并安装 MassFlow 运行所需的依赖。
+如果显示的版本低于 Python 3.12，请先安装或切换到 Python 3.12 及以上版本。
 
- 安装可选 R 后端依赖：
+如果显示 Python 3.12 或更高版本，即可继续安装。
+
+
+
+确认python版本之后在终端中运行：
 
 ```
-uv sync --extra r
+pip install massflow
 ```
 
+MassFlow 会被安装到当前 python 的环境中。
 
+安装完成后可以运行：
 
-最后运行main.py 来验证环境是否配置成功：
-
-```text
-uv run python main.py
 ```
+python -c "import massflow; print('MassFlow 安装成功')"
+```
+
+检查 MassFlow 是否安装成功
+
+若看到输出:
+
+```
+MassFlow 安装成功
+```
+
+说明 MassFlow 已经可以正常导入。
 
 
 
