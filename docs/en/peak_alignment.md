@@ -1,51 +1,32 @@
-# MassFlow
+# Peak Alignment
 
-This document introduces the peak alignment module in MassFlow, focusing on:
-- Pipeline-level entry point `Preprocessor.peak_align`
-- Reference axis construction function `reference_computer`
-- Flat-array alignment function `peak_aligner`
-- Reference peak pre-filtering (`min_count`, `min_frequency`) functionality
+This page introduces the peak-alignment module in MassFlow.
 
-Core implementations are located in:
-- `src/massflow/preprocess/helper/peak_align_helper.py`
-- `src/massflow/preprocess/numba/peak_align_numba.py`
+
+
+If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
+
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
 
 ## Overview
 
-The peak alignment workflow consists of two main stages:
+The same ion may appear at slightly different m/z positions in different pixels because of mass-measurement error. Peak alignment builds a shared reference m/z axis and matches the peaks in each centroid spectrum to that axis, allowing downstream ion imaging, adduct filtering, and statistical filtering to compare all pixels column by column.
 
-- **Reference Axis Construction Stage**
-  - Automatically estimate the shared m/z domain range and resolution step: `estimate_domain_parallel`
-  - Assign each spectrum's peaks to the domain grid by tolerance: `bin_peaks_parallel`
-  - Merge adjacent reference peaks within the tolerance window: `merge_peaks`
-  - Top-level entry function: `reference_computer`
-  - Optional pre-filtering: Shorten the reference axis during construction via `min_count` and `min_frequency`
+Peak alignment mainly includes two steps:
 
-- **Peak Matching and Alignment Stage**
-  - Project each spectrum's peaks onto the shared reference axis: `peak_aligner`
-  - Based on nearest-neighbor matching and tolerance judgment, assign original peak intensities to reference axis positions
-  - Aligned data is written to disk, returning a new `MSDataManagerImzML`
+- Build the reference m/z axis: MassFlow combines the peaks detected across all pixels, groups peaks whose positions are very close, and determines one common reference *m/z* value for each group.
+- Match each spectrum to the reference axis: the program checks the peaks in each spectrum and matches each one to the nearest reference *m/z* position that satisfies the mass-error requirement, then outputs newly aligned mass-spectrometry data.
 
-- **Unified Entry Point**
-  - `Preprocessor.peak_align`: Receives data, selects backend (Python or Cardinal), and calls the corresponding alignment logic
+After peak alignment:
 
-### Flow Diagram
+- the same ion from different pixels appears at the same *m/z* position;
+- every pixel uses the same peak positions for comparison;
+- ion images can be plotted more conveniently;
+- adduct filtering and statistical filtering can be performed afterward.
 
-```mermaid
-graph TD
-    A["MSDataManagerImzML"] --> B["Preprocessor.peak_align"]
-    B --> C{Backend Selection}
-    C -- Python --> D["reference_computer<br/>(Build Reference Axis)"]
-    C -- Cardinal --> E["CardinalAdapter.peak_align"]
-    D --> F["min_count / min_frequency<br/>Pre-filtering"]
-    F --> G["peak_aligner<br/>(Peak Matching Projection)"]
-    G --> H["Return new MSDataManagerImzML"]
-    E --> H
-```
+## Function Description
 
-## Core API
-
-### Preprocessor.peak_align (Pipeline Level)
+### Preprocessor.peak_align
 
 ```python
 massflow.preprocess.api.PreprocessorAPI.peak_align(
@@ -61,42 +42,48 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
 ) -> Self
 ```
 
-- Description: Pipeline-level peak alignment unified entry point. Aligns all spectra to a shared reference m/z axis via `Preprocessor` chainable calls.
-- Input: Bind a data manager via `Preprocessor(dm)`.
-- Output: After calling `.start()`, returns a new `MSDataManagerImzML` where all spectra share the same m/z axis (continuous data mode).
+- Function: builds or accepts a reference m/z axis and aligns all spectra to that axis.
 - Parameters:
-  - `reference`: External reference m/z axis; auto-computed when `None`.
-  - `tolerance`: Tolerance half-window; auto-estimated from data resolution when `None`.
-  - `units`: Tolerance units, `"ppm"` (relative) or `"Da"` (absolute), default `"ppm"`.
-  - `binfun`: Resolution aggregation strategy, `"median" | "min" | "max"`, default `"median"`.
-  - `binratio`: Tolerance scaling factor, default 2.0.
-  - `min_count`: Minimum supporting spectrum count for reference peaks (Python backend only).
-    - Reference peaks with merged count ≥ min_count are retained.
-    - Used for pre-filtering low-support noise peaks to shorten the reference axis.
-  - `min_frequency`: Minimum occurrence frequency for reference peaks, range [0, 1] (Python backend only).
-    - Frequency = min(count, n_spectra) / n_spectra.
-    - When set together with `min_count`, AND semantics apply.
-  - `backend`: Backend method, `"python"` (default) or `"cardinal"`.
+  - `reference`: external reference m/z axis. If `None`, it is calculated automatically.
+  - `tolerance`: half-width of the matching tolerance window. If `None`, it is estimated automatically from the data resolution.
+  - `units`: tolerance unit, `"ppm"` (relative) or `"Da"` (absolute). The default is `"ppm"`, which adapts better across changing m/z ranges.
+  - `binfun`: resolution aggregation strategy: `"median"`, `"min"`, or `"max"`.
+    - `"median"`: median resolution, robust and recommended by default.
+    - `"min"`: finest resolution, resulting in a larger reference axis.
+    - `"max"`: coarsest resolution, resulting in a smaller reference axis.
+  - `binratio`: tolerance scaling factor, default `2.0`. Tolerance = step size × `binratio`. Increasing `binratio` allows more matches but may introduce incorrect matches.
+  - `min_count`: minimum number of spectra supporting a reference peak (Python backend only).
+    - A merged reference peak is retained when `count >= min_count`.
+    - This can prefilter low-support noise peaks and shorten the reference axis.
+    - A value of 2 is a reasonable starting point. Lower values retain more peaks; higher values shorten the reference axis more aggressively.
+  - `min_frequency`: minimum occurrence frequency of a reference peak, in the range `[0, 1]` (Python backend only).
+    - Frequency = `min(count, n_spectra) / n_spectra`.
+    - When set together with `min_count`, the two conditions are combined using logical AND semantics.
+    - A frequency of `0.01` requires each reference peak to appear in at least 1% of the spectra.
+  - `backend`: backend method, `"python"` (default) or `"cardinal"`.
 
-Example (default reference axis construction):
+Example using the default reference-axis construction:
 
 ```python
 from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess.preprocessor import Preprocessor
+from massflow.tools.plot import plot_spectrum
 
 FILE_PATH = "data/example.imzML"
 dm = MSDataManagerImzML(filepath=FILE_PATH)
 dm.load_head_data()
+aligned = (
+    Preprocessor(
+        dm,
+        output_path="data/peak_aligned.imzML")
+    .peak_pick()
+    .peak_align(units="ppm", binfun="median", binratio=2.0)
+    .start()
+)
 
 picked = (
     Preprocessor(dm)
     .peak_pick()
-    .start()
-)
-
-aligned = (
-    Preprocessor(picked)
-    .peak_align(units="ppm", binfun="median", binratio=2.0)
     .start()
 )
 
@@ -109,17 +96,21 @@ plot_spectrum(
     metrics_box=True,
 )
 
+picked.close()
 aligned.close()
-dm.close()
+dm.close()  # Keep dm open until the second example has finished; close it afterward.
 ```
 
-![image-20260430135501045](https://neonexus-picture.oss-ap-southeast-1.aliyuncs.com/test/image-20260430135501045.png)
+![image-20260430135501045](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/image-20260430135501045.jpg_view)
 
-Example (with pre-filtering to shorten reference axis):
+Example with prefiltering to shorten the reference axis:
 
 ```python
 aligned_filter = (
-    Preprocessor(dm)
+    Preprocessor(
+        dm,
+        output_path="data/peak_aligned_filter.imzML")
+    .peak_pick()
     .peak_align(
         units="ppm",
         binfun="median",
@@ -127,6 +118,11 @@ aligned_filter = (
         min_count=2,
         min_frequency=0.01,
     )
+    .start()
+)
+picked = (
+    Preprocessor(dm)
+    .peak_pick()
     .start()
 )
 
@@ -140,9 +136,9 @@ plot_spectrum(
 )
 ```
 
-![image-20260430135634986](https://neonexus-picture.oss-ap-southeast-1.aliyuncs.com/test/image-20260430135634986.png)
+![image-20260430135634986](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/image-20260430135634986.jpg_view)
 
-### reference_computer (Reference Axis Construction)
+### reference_computer (Optional Reference-Axis Construction)
 
 ```python
 preprocess.helper.peak_align_helper.reference_computer(
@@ -159,118 +155,66 @@ preprocess.helper.peak_align_helper.reference_computer(
 ) -> tuple[NDArray, float]
 ```
 
-- Description: Constructs the shared reference m/z axis and estimates tolerance. Workflow:
-  1. `estimate_domain_parallel`: Iterates through all spectra to estimate m/z range and resolution step.
-  2. `bin_peaks_parallel`: Maps each spectrum's peaks to the domain grid, accumulating counts.
-  3. `merge_peaks`: Merges adjacent peaks; m/z is count-weighted averaged, counts are summed.
-  4. `_filter_reference_by_counts` (optional): Applies `min_count` / `min_frequency` filtering.
-- Returns: `(reference, tolerance)`.
-- Note: If an external `reference` is provided, the reference axis construction stage is skipped, and `min_count` / `min_frequency` parameters are ignored.
+- Function: calculates only the reference m/z axis and the matching tolerance used internally; it does not write aligned data.
+- Workflow:
+  1. Collect the peaks detected in all pixels.
+  2. Group peaks with very similar m/z values into the same group.
+  3. Determine one common reference m/z value for each group.
+  4. Optionally remove reference peaks that appear in only a small number of pixels.
+- The function returns two values:
+  - `reference`: the constructed shared reference m/z axis.
+  - `tolerance`: the tolerance used for subsequent peak matching.
+- If an existing `reference` is provided, the program uses it directly and does not rebuild the reference axis. In this case, `min_count` and `min_frequency` are not used to filter the reference axis.
+- `reference_computer` is particularly useful when:
+  - you want to inspect the reference m/z axis before alignment;
+  - you want to compare how different parameters affect the reference axis.
 
-### peak_aligner (Flat Alignment)
+## Overall Workflow
 
-```python
-preprocess.helper.peak_align_helper.peak_aligner(
-    mz_data: NDArray[np.float64],
-    intensity: NDArray[np.float64],
-    lengths: NDArray[np.int32],
-    reference: NDArray[np.float64],
-    tolerance: float,
-    units: str = "ppm",
-) -> NDArray[np.float64]
+```mermaid
+graph TD
+  A["Centroid peak lists from all pixels"] --> B["Estimate data m/z range and resolution"]
+  B --> C["Construct candidate reference grid"]
+  C --> D["Collect peaks from all spectra"]
+  D --> E["Merge nearby peaks"]
+  E --> F["Filter reference peaks by occurrence count or frequency"]
+  F --> G["Match each spectrum to reference positions"]
+  G --> H["Fill unmatched positions with 0"]
+  H --> I["Output data on a shared m/z axis"]
 ```
 
-- Description: Projects each spectrum in a batch onto the reference m/z axis, returning a 2D aligned intensity matrix of shape `(n_spectra, n_reference)`.
-- Parameters:
-  - `mz_data`, `intensity`, `lengths`: Input spectra in flat array form.
-  - `reference`: Reference m/z axis (must be sorted).
-  - `tolerance`: Tolerance half-window.
-  - `units`: `"ppm"` or `"Da"`.
-- Matching Rules:
-  - For each peak in each spectrum, search for the nearest neighbor within the tolerance window on the reference axis.
-  - If a match is found, assign the peak intensity to the corresponding reference position.
-  - When multiple peaks in the same spectrum match to the same reference position, the peak with the highest intensity is retained.
-- Implementation: Internally calls the Numba JIT-compiled `align_spectra_flat_parallel_jit` kernel.
+## Reference Peak Prefiltering
 
-### FlatPreprocess.peak_align_flat (Flat Batch Level)
+When building the shared reference m/z axis, MassFlow can first remove reference peaks that appear in only a small number of pixels. This reduces the number of peaks in the final reference axis, allowing for more focused peak alignment and statistical analysis.
 
-```python
-massflow.preprocess.flat_pre_fun.FlatPreprocess.peak_align_flat(
-    mz_data: np.ndarray,
-    intensity: np.ndarray,
-    lengths: np.ndarray,
-    reference: Optional[np.ndarray] = None,
-    tolerance: Optional[float] = None,
-    units: str = "ppm",
-) -> FlatBatchResult
-```
+### Filtering Parameters
 
-- Description: The per-batch underlying call within `Preprocessor.peak_align` (Python backend). Requires `reference` and `tolerance` to be pre-computed.
-- Returns: `FlatBatchResult`, where `intensity` is the flattened 2D aligned matrix and all `lengths` entries equal the reference axis length.
+The two main parameters are:
 
-## Reference Peak Pre-Filtering
+- `min_count` specifies the minimum number of spectra that must support a reference peak. A larger value keeps fewer reference peaks and applies stricter filtering; a smaller value keeps more low-frequency peaks. If research includes locally specific ions that appear in only a small number of pixels, do not set `min_count` too high.
+- `min_frequency` specifies the minimum proportion of spectra in which a reference peak must appear. A smaller value retains more low-frequency peaks and increases the reference-axis length; a larger value shortens the axis but may remove real peaks that occur only in local tissue regions.
 
-### Filtering Parameter Semantics
+### When Filtering Occurs
 
-- `min_count`: A reference peak must be supported by at least `min_count` spectra (counts accumulated during bin and merge stages). Value must be a positive integer.
-- `min_frequency`: A reference peak's occurrence frequency must be ≥ `min_frequency`. Range [0, 1]. In frequency calculation, counts are capped at `n_spectra` to prevent overestimation from summation during the merge stage.
+Reference-peak filtering takes place after the reference m/z axis has been built and before formal peak alignment begins.
 
-### Filtering Timing
+The processing order is: build the reference m/z axis → remove reference peaks with low occurrence count or frequency → perform peak alignment using the filtered reference axis.
 
-Filtering occurs inside `reference_computer`, after `merge_peaks` and before formal alignment. The filtered reference is passed directly to `peak_aligner`, so the alignment stage uses a reduced number of matrix columns.
+After filtering, only the retained reference peaks participate in subsequent alignment. The final reference m/z axis is shorter, and the aligned data contain fewer peaks that need to be compared.
 
-### Important Notes
+## Error Handling
 
-- Currently, filtering parameters are only supported by the Python backend. Passing `min_count` or `min_frequency` to the Cardinal backend raises `ValueError`.
-- The counts semantic of the reference axis is "construction-stage support", which may differ from the actual match hit count during the alignment stage (since the alignment stage has independent nearest matching rules).
-- By default, no filtering is enabled to maintain compatibility with previous behavior.
-
-## Backend Comparison
-
-| Feature | Python Backend | Cardinal Backend |
-|---------|---------------|------------------|
-| Implementation | Numba JIT compiled | R Cardinal package |
-| Reference peak pre-filtering | Supported | Not supported |
-| Performance | Multi-core parallel | Single-machine R runtime |
-| Output format | MSDataManagerImzML | MSDataManagerImzML |
-
-## Parameter and Tuning Recommendations
-
-- `units`: Recommend `"ppm"` (relative tolerance) for better adaptability to m/z range variations.
-- `binfun`: Resolution aggregation strategy.
-  - `"median"`: Median, robust (recommended default).
-  - `"min"`: Finest resolution, larger reference axis.
-  - `"max"`: Coarsest resolution, smaller reference axis.
-- `binratio`: Tolerance = step × binratio. Increasing `binratio` allows more matches but may introduce false matches.
-- `tolerance`: When explicitly specified, `binratio` and automatic resolution estimation are ignored.
-- `min_count`: Suggest starting from 2 for tuning. Lower values retain more peaks; higher values shorten the reference axis more significantly.
-- `min_frequency`: Suggested range 0.005–0.05. A frequency of 0.01 means each reference peak must appear in at least 1% of spectra.
-
-## Data Flow Summary
-
-1. **Collect Information**: Iterate through spectra to collect m/z range and resolution information.
-2. **Construct Reference Axis**:
-   - `estimate_domain_parallel` → Generate initial grid.
-   - `bin_peaks_parallel` → Map peaks to grid, accumulate counts.
-   - `merge_peaks` → Merge adjacent peaks.
-   - `_filter_reference_by_counts` → Pre-filter (optional).
-3. **Execute Alignment**:
-   - Call `peak_aligner` in batches to project each spectrum onto the reference axis.
-   - Results are written to disk in real time, freeing memory.
-4. **Return Results**: Return an `MSDataManagerImzML` containing the aligned data.
-
+- `"ppm"` and `"relative"` are normalized to relative units; other unit strings are normalized to absolute units.
+- `min_count` must be a positive integer; otherwise, a `ValueError` is raised.
+- `min_frequency` must be within `[0, 1]`; otherwise, a `ValueError` is raised.
+- Selecting the Cardinal backend while also passing `min_count` or `min_frequency` logs a warning and ignores these Python-only options.
 ## References
 
-- `preprocess/helper/peak_align_helper.py`: Reference axis construction and peak alignment core functions
-- `preprocess/numba/peak_align_numba.py`: Numba-accelerated search and alignment kernels
-- `preprocess/flat_pre_fun.py`: Flat preprocessing entry point (FlatPreprocess.peak_align_flat)
-- `preprocess/api.py`: Chainable API (PreprocessorAPI.peak_align)
-- `preprocess/preprocessor.py`: Pipeline executor (_prepare_peak_align_task)
+- [`preprocess/helper/peak_align_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/peak_align_helper.py): reference-axis construction and core peak-alignment functions
+- [`preprocess/numba/peak_align_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/peak_align_numba.py): Numba-accelerated search and alignment kernels
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py): `FlatPreprocess.peak_align_flat`, preprocessing entry point for flat data arrays
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py): `PreprocessorAPI.peak_align`, API entry point for peak alignment
 
-## Error Handling and Logging
 
-- `units` validation: `"ppm"` / `"relative"` normalizes to relative units; others normalize to absolute units.
-- `min_count` validation: Must be a positive integer, otherwise `ValueError` is raised.
-- `min_frequency` validation: Must be in [0, 1], otherwise `ValueError` is raised.
-- Missing `reference` + `tolerance`: In `peak_align_flat`, if both are not provided, `ValueError` is raised.
-- Cardinal backend + min_count/min_frequency: `ValueError` is raised.
+
+Authors: Leqiang Dong, Jingwei Dong

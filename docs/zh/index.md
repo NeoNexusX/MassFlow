@@ -70,4 +70,9 @@ features:
     details: 介绍组织区域划分前需要掌握的 Jupyter 基本操作，包括按顺序运行代码单元格、复用变量和修改参数后重新运行。
     link: /zh/jupyter
     linkText: 查看指南
+  
+  - title:  R 环境设置（可选）
+    details: 仅在需要使用 R/Cardinal 接口时配置 R 环境。普通 MassFlow 预处理不依赖 R，可直接跳过本页。
+    link: /zh/r_environment_setup
+    linkText: 查看指南
 ---
