@@ -44,75 +44,51 @@ data/
 
 The `.imzML` file stores experimental metadata and mass-spectrometry structure information, while the `.ibd` file stores the actual mass-spectrometry data. They must be used together.
 
-### 2. Set Up the Python Environment for MassFlow
+### 2. Install MassFlow
 
-If you are currently in a Conda environment, you can exit it first:
+MassFlow requires Python 3.12 or later. Before installation, please check your current Python version. 
 
-```
-conda deactivate
-```
-
-
-
-Then install `uv`. Two methods are provided.
-
-Method 1:
-
-- **Windows:**
-
-  ```
-  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-  ```
-
-
-- **Linux/macOS:**
-
-  ```
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
-
-
-Method 2:
-
-- Open a terminal (PowerShell) and enter:
-
-```text
-pip install uv
-```
-
-
-
-After installing `uv`, enter:
+Open PowerShell and run: 
 
 ```
-uv --version
+python --version
 ```
 
-This checks whether `uv` was installed successfully. If the installation is successful, the currently installed `uv` version will be displayed.
-
-
-
-After installation, run the following command in the MassFlow project directory:
+When you run it, it will display the current Python version. For example:
 
 ```
-uv sync
+Python 3.12.13
 ```
 
-`uv sync` automatically creates a virtual environment and installs the dependencies required by MassFlow according to the project's `pyproject.toml` and `uv.lock` files.
+If the displayed version is lower than Python 3.12, please install or switch to Python 3.12 or a later version first.
 
-Install the optional R-backend dependencies:
+If Python 3.12 or a later version is displayed, you can proceed with the installation.
+
+
+
+After verifying your Python version, run the following in the terminal:
 
 ```
-uv sync --extra r
+pip install massflow
 ```
 
+MassFlow will be installed in your current Python environment.
 
+Once the installation is complete, you can run:
 
-Finally, run `main.py` to verify that the environment has been configured successfully:
-
-```text
-uv run python main.py
 ```
+python -c “import massflow; print(‘MassFlow installed successfully’)”
+```
+
+Check whether MassFlow was installed successfully.
+
+If you see the following output:
+
+```
+MassFlow installed successfully
+```
+
+this indicates that MassFlow can be imported correctly.
 
 
 
