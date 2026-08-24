@@ -50,7 +50,6 @@ massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
 - 参数：本页主要关注 KMeans 相关参数：
   - `n_clusters`：类别数量，默认 `10`，当前支持 `1–20`。数值越大，区域划分越细，但同一组织区域也更可能被拆成多个小类；
   - `random_state`：固定随机种子便于重复比较；
-  - `save_images`：保存空间结果图；
   - `transform_batch_size`：后续分批进行 UMAP 转换时，每批处理的像素数量，默认 `1024`。输入必须为正整数，且数值越大可能更快，但占用更多内存，内存不足时可以适当减小。
   - `save_images`：是否保存 UMAP 和 KMeans 图像，默认 `True`。
   - `save_matrix`：是否保存可再次加载的聚类结果，可选 `"npz"`、`"zarr"` 或 `None`。
@@ -130,15 +129,19 @@ KMeans聚类结果：
 
 原始TIC 图：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260811233830354.jpg_view" alt="tic_b72dd2cd60a1487fa137622536475719" style="zoom: 18%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260821215507513.jpg_view" alt="tic_image_5" style="zoom: 20%;" />
 
 kmeans聚类结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813220544543.jpg_view" alt="image_20260813299834" style="zoom: 15%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260821215611912.jpg_view" alt="kmeans_image" style="zoom:20%;" />
+
+
 
 对应的umap图：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813220635346.jpg_view" alt="umap_image" style="zoom:125%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260821215755329.jpg_view" alt="image-20260821215755050" style="zoom:37%;" />
+
+
 
 ### SegmentationPipeline.remove_clusters
 
@@ -181,11 +184,11 @@ Kmeans预览图结果：
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813221651784.jpg_view" alt="kmeans_image" style="zoom:125%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260821220143396.jpg_view" alt="image-20260821220143276" style="zoom:35%;" />
 
 原始结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813220544543.jpg_view" alt="image_20260813299834" style="zoom: 15%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260821215611912.jpg_view" alt="kmeans_image" style="zoom:20%;" />
 
 ### SegmentationPipeline.remove_background
 
@@ -234,11 +237,11 @@ Kmeans预览图结果：
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813224414642.jpg_view" alt="kmeans_image" style="zoom:125%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260821220257399.jpg_view" alt="image-20260821220257315" style="zoom: 47%;" />
 
 原始结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813220544543.jpg_view" alt="image_20260813299834" style="zoom: 15%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260821215611912.jpg_view" alt="kmeans_image" style="zoom:20%;" />
 
 ### SegmentationPipeline.keep_clusters
 
@@ -279,11 +282,11 @@ Kmeans预览图结果：
 
 Kmeans预览图结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813223519771.jpg_view" alt="kmeans_image" style="zoom:125%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260821215942056.jpg_view" alt="image-20260821215941976" style="zoom:50%;" />
 
 原始结果：
 
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260813220544543.jpg_view" alt="image_20260813299834" style="zoom: 15%;" />
+<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260821215611912.jpg_view" alt="kmeans_image" style="zoom:20%;" />
 
 ### SegmentationPipeline.apply_region_mask
 

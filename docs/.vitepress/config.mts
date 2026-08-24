@@ -31,12 +31,26 @@ export default withMermaid(
     /** English as the root locale */
     root: {
       label: 'English',
-      lang: 'en-US'
+      lang: 'en-US',
+
+      themeConfig: {
+          nav: [
+            { text: 'Home', link: '/' },
+            { text: 'Getting Started', link: '/getting-started' }
+          ]
+        }
     },
     /** Simplified Chinese locale under /zh/ */
     zh: {
       label: '简体中文',
-      lang: 'zh-CN'
+      lang: 'zh-CN',
+
+      themeConfig: {
+          nav: [
+            { text: '首页', link: '/zh/' },
+            { text: '快速开始', link: '/zh/getting-started' }
+          ]
+        }
     }
   },
   mermaid: {
@@ -86,14 +100,10 @@ export default withMermaid(
       delete pageData.frontmatter.inject_content;
     }
   },
-  
+
   themeConfig: {
     // Single theme config (compatible with current typings)
-    nav: [
-      { text: 'Home', link: '/' },
-      { text: 'Getting Started', link: '/getting-started' },
-      { text: 'Contribution', link: '/contribution' }
-    ],
+
     /**
      * Sidebar configuration
      *
@@ -103,21 +113,53 @@ export default withMermaid(
      * Returns: Not applicable (static configuration object).
      * Exceptions: None.
      */
-    sidebar: [
-      {
-        text: 'English',
-        items: [
-          { text: 'Home', link: '/' },
-          { text: 'Getting Started', link: '/getting-started' },
-          { text: 'Contribution', link: '/contribution' },
-          { text: 'Collaboration Guide', link: '/collaboration_guide' },
-          { text: 'Naming Conventions', link: '/naming-conventions' },
-          { text: 'Data Structures', link: '/ms-data-structures' },
-          { text: 'Noise Reduction', link: '/noise_reduction' },
-          { text: 'Testing Guide', link: '/testing_guide' }
-        ]
-      },
-    ],
+    sidebar: {
+  '/zh/': [
+    {
+      text: '简体中文',
+      items: [
+        { text: '首页', link: '/zh/' },
+        { text: '快速开始', link: '/zh/getting-started' },
+        { text: '基线校正', link: '/zh/baseline_correction' },
+        { text: '噪声降低', link: '/zh/noise_reduction' },
+        { text: '强度归一化', link: '/zh/normalization' },
+        { text: '峰提取', link: '/zh/peak_pick' },
+        { text: '峰对齐', link: '/zh/peak_alignment' },
+        { text: '同位素峰过滤', link: '/zh/isotope_filter' },
+        { text: '加合物注释与过滤', link: '/zh/adduct_filter' },
+        { text: '统计峰过滤', link: '/zh/stat_filter' },
+        { text: '离子图可视化', link: '/zh/ion_image_visualization' },
+        { text: 'UMAP', link: '/zh/umap' },
+        { text: 'KMeans 聚类与区域选择', link: '/zh/segmentation' },
+        { text: '使用建议', link: '/zh/jupyter' },
+        { text: 'R 环境配置', link: '/zh/r_environment_setup' }
+      ]
+    }
+  ],
+
+  '/': [
+    {
+      text: 'English',
+      items: [
+        { text: 'Home', link: '/' },
+        { text: 'Getting Started', link: '/getting-started' },
+        { text: 'Baseline Correction', link: '/baseline_correction' },
+        { text: 'Noise Reduction', link: '/noise_reduction' },
+        { text: 'Intensity Normalization', link: '/normalization' },
+        { text: 'Peak Picking', link: '/peak_pick' },
+        { text: 'Peak Alignment', link: '/peak_alignment' },
+        { text: 'Isotope Peak Filtering', link: '/isotope_filter' },
+        { text: 'Adduct Annotation and Filtering', link: '/adduct_filter' },
+        { text: 'Statistical Peak Filtering', link: '/stat_filter' },
+        { text: 'Ion Image Visualization', link: '/ion_image_visualization' },
+        { text: 'UMAP', link: '/umap' },
+        { text: 'KMeans Clustering and Region Selection', link: '/segmentation' },
+        { text: 'Best Practices', link: '/jupyter' },
+        { text: 'R Environment Setup', link: '/r_environment_setup' }
+      ]
+    }
+  ]
+},
     socialLinks: [
       { icon: 'github', link: 'https://github.com/NeoNexusX/MassFlow' }
     ],
