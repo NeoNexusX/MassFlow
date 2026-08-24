@@ -120,6 +120,8 @@ export default withMermaid(
       items: [
         { text: '首页', link: '/zh/' },
         { text: '快速开始', link: '/zh/getting-started' },
+        {text: '预处理方法',
+          items:[
         { text: '基线校正', link: '/zh/baseline_correction' },
         { text: '噪声降低', link: '/zh/noise_reduction' },
         { text: '强度归一化', link: '/zh/normalization' },
@@ -127,12 +129,24 @@ export default withMermaid(
         { text: '峰对齐', link: '/zh/peak_alignment' },
         { text: '同位素峰过滤', link: '/zh/isotope_filter' },
         { text: '加合物注释与过滤', link: '/zh/adduct_filter' },
-        { text: '统计峰过滤', link: '/zh/stat_filter' },
-        { text: '离子图可视化', link: '/zh/ion_image_visualization' },
-        { text: 'UMAP', link: '/zh/umap' },
-        { text: 'KMeans 聚类与区域选择', link: '/zh/segmentation' },
-        { text: '使用建议', link: '/zh/jupyter' },
-        { text: 'R 环境配置', link: '/zh/r_environment_setup' }
+        { text: '统计峰过滤', link: '/zh/stat_filter' }
+          ]
+        },
+        {
+          text: '空间分析',
+          items: [
+            {text: '离子图可视化', link: '/zh/ion_image_visualization'},
+            {text: 'UMAP', link: '/zh/umap'},
+            {text: 'KMeans 聚类与区域选择', link: '/zh/segmentation'},
+            {text: '最佳实践', link: '/zh/jupyter'},
+          ]
+        },
+        {
+          text: '环境配置',
+          items: [
+            {text: 'R 环境配置', link: '/zh/r_environment_setup'}
+          ]
+        }
       ]
     }
   ],
@@ -143,19 +157,34 @@ export default withMermaid(
       items: [
         { text: 'Home', link: '/' },
         { text: 'Getting Started', link: '/getting-started' },
-        { text: 'Baseline Correction', link: '/baseline_correction' },
-        { text: 'Noise Reduction', link: '/noise_reduction' },
-        { text: 'Intensity Normalization', link: '/normalization' },
-        { text: 'Peak Picking', link: '/peak_pick' },
-        { text: 'Peak Alignment', link: '/peak_alignment' },
-        { text: 'Isotope Peak Filtering', link: '/isotope_filter' },
-        { text: 'Adduct Annotation and Filtering', link: '/adduct_filter' },
-        { text: 'Statistical Peak Filtering', link: '/stat_filter' },
+        {
+          text: 'Preprocessing Methods',
+          items: [
+            {text: 'Baseline Correction', link: '/baseline_correction'},
+            {text: 'Noise Reduction', link: '/noise_reduction'},
+            {text: 'Intensity Normalization', link: '/normalization'},
+            {text: 'Peak Picking', link: '/peak_pick'},
+            {text: 'Peak Alignment', link: '/peak_alignment'},
+            {text: 'Isotope Peak Filtering', link: '/isotope_filter'},
+            {text: 'Adduct Annotation and Filtering', link: '/adduct_filter'},
+            {text: 'Statistical Peak Filtering', link: '/stat_filter'},
+          ]
+        },
+          {
+          text: 'Spatial Analysis',
+          items: [
         { text: 'Ion Image Visualization', link: '/ion_image_visualization' },
         { text: 'UMAP', link: '/umap' },
         { text: 'KMeans Clustering and Region Selection', link: '/segmentation' },
         { text: 'Best Practices', link: '/jupyter' },
-        { text: 'R Environment Setup', link: '/r_environment_setup' }
+              ]
+          },
+        {
+          text: 'Environment Setup',
+          items: [
+            {text: 'R Environment Setup', link: '/r_environment_setup'}
+          ]
+        }
       ]
     }
   ]
