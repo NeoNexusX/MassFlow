@@ -2,12 +2,6 @@
 
 This page introduces the isotope peak filtering module in MassFlow.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 Because naturally occurring isotopes are present, the same compound often produces a group of neighboring peaks in a mass spectrum. Isotope peak filtering is used after peak picking to identify later isotope peaks within the same isotope cluster, while retaining only the starting peak with the lowest *m/z* value and peaks that are not assigned to an isotope cluster.

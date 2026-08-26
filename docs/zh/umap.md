@@ -2,12 +2,6 @@
 
 本文介绍 MassFlow 中 UMAP 的作用和结果解释。UMAP 是用于高维质谱特征降维和可视化的方法。
 
-
-
-想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## 概述
 
 一张 MSI 数据中，每个像素都包含大量 *m/z* 位置及对应强度。直接比较这些高维质谱特征比较困难。

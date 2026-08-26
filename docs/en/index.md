@@ -3,12 +3,13 @@ layout: home
 
 hero:
   name: "MassFlow"
-  text: "Framework"
-  tagline: "A Data Processing Framework for Mass Spectrometry Imaging"
+  text: "Compute Engine"
+  tagline: "A Data Processing Engine for Mass Spectrometry Imaging"
   actions:
     - theme: brand
       text: Getting Started
       link: /getting-started
+  image: https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/dataset_2_umap%20(1).png
 
 features:
 

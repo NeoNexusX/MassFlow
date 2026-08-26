@@ -2,12 +2,6 @@
 
 This page introduces the peak-alignment module in MassFlow.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 The same ion may appear at slightly different m/z positions in different pixels because of mass-measurement error. Peak alignment builds a shared reference m/z axis and matches the peaks in each centroid spectrum to that axis, allowing downstream ion imaging, adduct filtering, and statistical filtering to compare all pixels column by column.

@@ -2,13 +2,6 @@
 
 本文介绍 MassFlow 中的基线校正模块。
 
-
-
-
-想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## 概述
 
 质谱中的基线是随 *m/z* 缓慢变化的背景信号。基线过高时，可能影响峰强度比较、归一化和峰提取。

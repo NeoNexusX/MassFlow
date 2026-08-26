@@ -2,12 +2,6 @@
 
 This page introduces the role of UMAP in MassFlow and how to interpret its results. UMAP is used for dimensionality reduction and visualization of high-dimensional mass-spectrometry features.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 In an MSI dataset, each pixel contains a large number of *m/z* positions and corresponding intensities. Directly comparing these high-dimensional mass-spectrometry features is difficult.

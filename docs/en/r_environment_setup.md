@@ -6,12 +6,6 @@ You only need to install and configure an R environment when you explicitly sele
 
 This page explains how to configure the R environment, including how to set the R installation path.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## 1. R Environment Detection
 
 When the R environment is initialized, MassFlow searches for the R installation path (`R_HOME`) in the following order of priority:

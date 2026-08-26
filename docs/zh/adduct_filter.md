@@ -2,12 +2,6 @@
 
 本文介绍 MassFlow 中的加合物注释与过滤模块。
 
-
-
-想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## 概述
 
 加合物过滤用于在对齐后的共享 m/z 轴上寻找可能来自同一中性分子的不同离子形式，并结合 MSI 像素强度的空间相关性确认候选关系。确认后的每个加合物组保留总强度最高的代表峰，删除其余非受保护峰。

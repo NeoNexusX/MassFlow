@@ -2,12 +2,6 @@
 
 This page introduces the statistical peak-filtering module in MassFlow.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 After peak alignment, all pixels share the same m/z axis. This axis may contain random peaks that appear in only a very small number of pixels or peaks with very low overall intensity. Statistical peak filtering calculates the occurrence count and aggregated intensity of every shared *m/z* position across the entire dataset, builds a global retention mask `keep_mask`, and applies the same filtering result to all spectra.

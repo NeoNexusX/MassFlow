@@ -2,12 +2,6 @@
 
 本文介绍 MassFlow 中的统计峰过滤模块
 
-
-
-想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## 概述
 
 峰对齐后，所有像素共享同一条 m/z 轴，其中可能包含只在极少数像素出现的随机峰，或总体强度很低的峰。统计峰过滤在整个数据集上统计每个共享 *m/z* 位置的出现次数和聚合强度，然后构建一个全局保留掩码 `keep_mask`，将相同的筛选结果应用到所有谱图。
