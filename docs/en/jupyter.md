@@ -2,12 +2,6 @@
 
 This page introduces the basic Jupyter Notebook operations that are useful before performing KMeans tissue-region segmentation with MassFlow.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 A normal Python script usually runs continuously from the first line to the last.

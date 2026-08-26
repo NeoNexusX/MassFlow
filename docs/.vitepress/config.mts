@@ -1,6 +1,25 @@
 import { defineConfig, type HeadConfig } from 'vitepress'
 import MarkdownItMathJaX3PRO from 'markdown-it-mathjax3-pro'
 import { withMermaid } from 'vitepress-plugin-mermaid'
+
+/**
+ * Copyright year range shown in the footer.
+ *
+ * Resolved from the system clock when the site is built, so the footer no
+ * longer needs to be edited by hand each year. Collapses to a single year
+ * while the current year is still the starting year, avoiding '2025-2025'.
+ *
+ * Parameters: None.
+ * Returns: Either '<start>' or '<start>-<current>'.
+ * Exceptions: None.
+ */
+const COPYRIGHT_START_YEAR = 2025
+const currentYear = new Date().getFullYear()
+const copyrightYears =
+  currentYear > COPYRIGHT_START_YEAR
+    ? `${COPYRIGHT_START_YEAR}-${currentYear}`
+    : `${COPYRIGHT_START_YEAR}`
+
 /**
  * Site Config with i18n locales
  *
@@ -58,7 +77,7 @@ export default withMermaid(
   },
     // optionally set additional config for plugin itself with MermaidPluginConfig
   mermaidPlugin: {
-      class: "mermaid my-class", // set additional css classes for parent container 
+      class: "mermaid", // set additional css classes for parent container
   },
   markdown: {
     /**
@@ -200,7 +219,7 @@ export default withMermaid(
     ],
     footer: {
       message: 'Released under the GNU License.',
-      copyright: 'Copyright © 2025-present <a href="https://bionet.xmu.edu.cn/">Bionet Team</a>'
+      copyright: `Copyright © ${copyrightYears} <a href="https://bionet.xmu.edu.cn/">Bionet Team</a>`
     },
     search: {
       provider: 'local'

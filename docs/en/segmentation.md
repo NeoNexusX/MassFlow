@@ -2,12 +2,6 @@
 
 This page introduces KMeans-based tissue region segmentation in MassFlow, including result inspection and the workflow for removing or retaining regions.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 Different regions in MSI tissue may have different overall mass-spectrometry characteristics. KMeans divides pixels into a specified number of discrete classes based on low-dimensional features and maps the classification results back to the original tissue space, making it easy to see where different classes are distributed in the tissue.

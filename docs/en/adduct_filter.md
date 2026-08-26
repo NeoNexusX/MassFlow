@@ -2,12 +2,6 @@
 
 This page introduces the adduct annotation and filtering module in MassFlow.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 Adduct filtering searches the aligned shared m/z axis for different ion forms that may originate from the same neutral molecule and uses spatial correlation of MSI pixel intensities to confirm candidate relationships. For each confirmed adduct group, the peak with the highest total intensity is retained as the representative peak, while the remaining unprotected peaks are removed.

@@ -2,12 +2,6 @@
 
 本文介绍 MassFlow 中的峰提取模块。
 
-
-
-想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## 概述
 
 轮廓质谱通常包含大量连续的 m/z 采样点，其中很多数据点位于峰与峰之间，并不代表独立的离子峰。 峰提取用于从连续谱线中识别可能的离子峰位置，并结合信号强度和噪声水平去除不明显的候选峰。

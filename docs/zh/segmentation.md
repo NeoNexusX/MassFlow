@@ -2,12 +2,6 @@
 
 本文介绍 MassFlow 中的 KMeans 组织区域划分、结果检查以及区域删除或保留流程。
 
-
-
-想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## 概述
 
 MSI 组织中的不同区域可能具有不同的整体质谱特征。KMeans 会根据低维特征把像素分成指定数量的离散类别，并将分类结果重新映射到原始组织空间中，从而直观显示不同类别在组织中的分布位置。

@@ -2,12 +2,6 @@
 
 This page introduces the functions for loading and plotting ion images and total ion current (TIC) images in MassFlow.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 An ion image is used to inspect the spatial distribution of a particular m/z signal in a tissue section. Each position in the image corresponds to an acquisition pixel, and the color represents the signal intensity near the target m/z value at that pixel.

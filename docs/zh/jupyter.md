@@ -2,12 +2,6 @@
 
 本文介绍在使用 MassFlow 进行 KMeans 组织区域划分前，需要掌握的 Jupyter Notebook 基本操作。
 
-
-
-想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## 概述
 
 普通 Python 脚本通常会从第一行一直运行到最后一行。

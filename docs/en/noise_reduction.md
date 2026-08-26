@@ -2,12 +2,6 @@
 
 This page introduces the noise reduction and smoothing module in MassFlow.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 Mass-spectrometry signals often contain continuous, rapid, small-amplitude fluctuations. These fluctuations usually do not represent true ion peaks, but they may be mistaken for peaks during subsequent peak picking. Noise reduction recalculates intensities using neighboring data points, making the spectrum smoother and reducing false peaks during peak picking.

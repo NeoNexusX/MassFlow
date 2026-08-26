@@ -2,12 +2,6 @@
 
 This page introduces the peak-picking module in MassFlow.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 Profile mass spectra usually contain a large number of continuously sampled m/z points. Many of these points lie between peaks and do not represent independent ion peaks. Peak picking identifies possible ion-peak positions from the continuous spectral trace and removes weak candidate peaks according to signal intensity and noise level.

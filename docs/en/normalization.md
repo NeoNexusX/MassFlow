@@ -2,12 +2,6 @@
 
 This page introduces the normalization module in MassFlow.
 
-
-
-If you  want to try MSI data processing online or search for MSI datasets of interest, visit https://sxo.bionet.pro and register for free.
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## Overview
 
 The overall signal intensity of different pixels may be affected by tissue thickness, sample amount, ionization efficiency, and changes in instrument response. Intensity normalization adjusts each spectrum to a comparable scale, reducing the effect of a spectrum being globally stronger or weaker on ion images and downstream statistical analysis.

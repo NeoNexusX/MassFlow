@@ -3,12 +3,13 @@ layout: home
 
 hero:
   name: "MassFlow"
-  text: "框架"
-  tagline: "面向质谱成像的数据处理框架"
+  text: "计算引擎"
+  tagline: "面向质谱成像的数据处理引擎"
   actions:
     - theme: brand
       text: 快速开始
       link: /zh/getting-started
+  image: https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/dataset_2_umap%20(1).png
 
 features:
 

@@ -2,12 +2,6 @@
 
 本文介绍 MassFlow 中的离子图和总离子流图（TIC）读取与绘制功能。
 
-
-
-想在线体验质谱成像数据处理，或查找感兴趣的质谱成像数据，可访问 https://sxo.bionet.pro 免费注册体验。
-
-<img src="https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815222635996.img_view" alt="image-20260815222635943" style="zoom: 25%;" />
-
 ## 概述
 
 离子图用于观察某个 m/z 信号在组织切片中的空间分布。图中每个位置对应一个采集像素，颜色表示该像素在目标 m/z 附近的信号强度。
