@@ -2,6 +2,12 @@
 
 This page introduces the role of UMAP in MassFlow and how to interpret its results. UMAP is used for dimensionality reduction and visualization of high-dimensional mass-spectrometry features.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
 In an MSI dataset, each pixel contains a large number of *m/z* positions and corresponding intensities. Directly comparing these high-dimensional mass-spectrometry features is difficult.
@@ -115,7 +121,3 @@ segmentation_output/umap_kmeans/
 
 - [`segmentation/segmentation_pipeline.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/segmentation_pipeline.py): `SegmentationPipeline` and `UmapKmeansResult`
 - [`segmentation/umap_kmeans.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/umap_kmeans.py): UMAP/KMeans analysis and spatial-image output
-
-
-
-Authors: Leqiang Dong, Jingwei Dong

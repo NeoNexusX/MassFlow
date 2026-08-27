@@ -2,6 +2,12 @@
 
 本文介绍 MassFlow 中的同位素峰过滤模块。
 
+
+
+作者：董乐强 , 董京伟 
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
+
 ## 概述
 
 同一种化合物由于天然同位素的存在，常会在质谱中出现一组相邻峰，同位素峰过滤用于在峰提取之后识别同一同位素簇中的后续同位素峰，并只保留最低 *m/z* 的起始峰以及未被分配到同位素簇的峰。
@@ -29,7 +35,7 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_isotopes(
 ) -> Self
 ```
 
-- 功能：在每条已质心化谱中识别同位素簇，删除簇内除最低 m/z 起始峰以外的峰。
+- 功能：在每条已质心化谱中识别同位素簇，删除簇内除最低 *m/z* 起始峰以外的峰。
 - 参数：
   - `mz_tolerance`：同位素峰匹配容差，默认 `10.0`。输入值必须为有限正数
   - `units`：容差单位，`"ppm"` 或 `"da"`，默认 `"ppm"`。`ppm`容差不能超过 `100 ppm`。`da` 容差不能超过 `0.1 Da`。
@@ -114,9 +120,9 @@ M
 $$
 逐谱处理过程如下：
 
-1. 从最低 m/z 的未分配峰开始。
+1. 从最低 *m/z* 的未分配峰开始。
 2. 按 `max_charge → min_charge` 的顺序测试电荷状态。
-3. 对每个期望 m/z，在容差窗口内选择误差最小的峰。
+3. 对每个期望 *m/z*，在容差窗口内选择误差最小的峰。
 4. 遇到缺失峰、已分配峰或不满足强度模型时停止扩展。
 5. 若簇大小达到 `min_isotope_count`，保留起始峰并删除其余同位素峰。
 6. 未组成有效同位素簇的峰保持不变。
@@ -127,7 +133,7 @@ $$
 
 ## 使用注意事项
 
-- 不要在 `peak_align` 之后调用本算法。共享 m/z 轴会被识别为连续型数据并触发 `ValueError`。
+- 不要在 `peak_align` 之后调用本算法。共享 *m/z* 轴会被识别为连续型数据并触发 `ValueError`。
 - 该实现只依据同位素质量间距和可选强度趋势判断，不使用分子式、理论同位素丰度或空间相关性。
 - 较大的 `max_charge` 和 `max_isotope_count` 会增加每个起始峰的搜索工作量。
 - 容差过宽可能把邻近非同位素峰并入簇；容差过窄可能漏掉真实同位素峰。
@@ -139,7 +145,3 @@ $$
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.isotope_filter_flat`：扁平数据组预处理入口
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.filter_peaks_by_isotopes`:同位素过滤功能调用入口
 - [`preprocess/pipeline/planner.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/pipeline/planner.py)：峰提取、同位素过滤、参考轴构建与峰对齐的执行顺序
-
-
-
-作者：董乐强，董京伟

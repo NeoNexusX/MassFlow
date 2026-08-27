@@ -2,6 +2,12 @@
 
 本文介绍 MassFlow 中的基线校正模块。
 
+
+
+作者：董乐强 , 董京伟 
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
+
 ## 概述
 
 质谱中的基线是随 *m/z* 缓慢变化的背景信号。基线过高时，可能影响峰强度比较、归一化和峰提取。
@@ -130,8 +136,3 @@ graph TD
 - [`preprocess/numba/baseline_correction_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/baseline_correction_numba.py)：Numba 加速实现（baseline_locmin_numba、baseline_snip_numba）
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.baseline_reduction_flat`：扁平数据组预处理入口
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.baseline_correction`：基线校正功能的调用入口
-
-
-
-作者：董乐强，董京伟
-

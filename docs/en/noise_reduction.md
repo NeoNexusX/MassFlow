@@ -2,6 +2,12 @@
 
 This page introduces the noise reduction and smoothing module in MassFlow.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
 Mass-spectrometry signals often contain continuous, rapid, small-amplitude fluctuations. These fluctuations usually do not represent true ion peaks, but they may be mistaken for peaks during subsequent peak picking. Noise reduction recalculates intensities using neighboring data points, making the spectrum smoother and reducing false peaks during peak picking.
@@ -14,7 +20,7 @@ MassFlow provides the following three smoothing methods:
 
 Input and output
 
-- The input is the mass-spectrometry data to be processed. Users only need to provide the data-file path; MassFlow automatically reads the m/z values and signal intensities for each pixel.
+- The input is the mass-spectrometry data to be processed. Users only need to provide the data-file path; MassFlow automatically reads the *m/z* values and signal intensities for each pixel.
 - The output is smoothed mass-spectrometry data. The *m/z* positions and pixel coordinates remain unchanged, while the intensities are replaced by the denoised values.
 
 
@@ -139,7 +145,3 @@ Savitzky–Golay smoothing (`savgol_numba`): ![Snipaste sav_2026-08-09_21-19-48]
 - [`preprocess/numba/noise_reduction_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/noise_reduction_numba.py): Numba-accelerated implementations (`smooth_signal_ma_numba`, `smooth_signal_gaussian_numba`, `smooth_signal_savgol_numba`)
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py): `FlatPreprocess.noise_reduction_flat`, preprocessing entry point for flat data arrays
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py): `PreprocessorAPI.noise_reduction`, API entry point for noise reduction and smoothing
-
-
-
-Authors: Leqiang Dong, Jingwei Dong

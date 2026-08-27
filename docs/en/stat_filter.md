@@ -2,9 +2,15 @@
 
 This page introduces the statistical peak-filtering module in MassFlow.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
-After peak alignment, all pixels share the same m/z axis. This axis may contain random peaks that appear in only a very small number of pixels or peaks with very low overall intensity. Statistical peak filtering calculates the occurrence count and aggregated intensity of every shared *m/z* position across the entire dataset, builds a global retention mask `keep_mask`, and applies the same filtering result to all spectra.
+After peak alignment, all pixels share the same *m/z* axis. This axis may contain random peaks that appear in only a very small number of pixels or peaks with very low overall intensity. Statistical peak filtering calculates the occurrence count and aggregated intensity of every shared *m/z* position across the entire dataset, builds a global retention mask `keep_mask`, and applies the same filtering result to all spectra.
 
 - The input must be aligned, continuous data with a shared *m/z* axis  `continuous=True`.
 - This is a dataset-level operation. The complete dataset is scanned once to calculate statistics, then scanned again to apply the mask and write the result.
@@ -29,16 +35,16 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_stats(
 ) -> Self
 ```
 
-- Function: filters the shared m/z axis according to peak occurrence support and aggregated intensity.
+- Function: filters the shared *m/z* axis according to peak occurrence support and aggregated intensity.
 
 - Parameters:
-  - `min_count`: minimum number of spectra in which an m/z position has positive intensity. This is suitable when the number of spectra is fixed and thresholds do not need to be compared directly across datasets.
+  - `min_count`: minimum number of spectra in which an *m/z* position has positive intensity. This is suitable when the number of spectra is fixed and thresholds do not need to be compared directly across datasets.
   - `min_frequency`: minimum occurrence frequency in the range `[0, 1]`; frequency is calculated as `counts / spectrum_count`. This is more suitable for datasets with different numbers of spectra. For example, `0.01` means the peak must appear in at least 1% of the spectra.
   - `intensity_method`: choose average intensity `"mean"` or total intensity `"sum"`.
     - `mean` treats missing positions as zero when averaging over the total number of spectra, emphasizing the overall signal across pixels.
     - `sum` changes with the number of spectra, so thresholds should be compared cautiously across datasets.
   - `min_intensity`: absolute lower bound for aggregated intensity.
-  - `intensity_quantile`: removes the lowest portion of peaks according to the intensity distribution of the complete peak set. Range: `(0, 1)`. This is a relative threshold and is useful for removing a globally weak fraction of m/z positions. If you only want to use occurrence count/frequency conditions, set `intensity_quantile=None`.
+  - `intensity_quantile`: removes the lowest portion of peaks according to the intensity distribution of the complete peak set. Range: `(0, 1)`. This is a relative threshold and is useful for removing a globally weak fraction of *m/z* positions. If you only want to use occurrence count/frequency conditions, set `intensity_quantile=None`.
   - `output_path`: imZML output path for this dataset-level filtering stage. The final path can also usually be specified once in `Preprocessor(..., output_path=...)`.
   
   Output:
@@ -131,7 +137,7 @@ preprocess.helper.stat_filter_helper.filter_peaks_by_stats(
 ```
 
 - Function: formally removes peaks using preview statistics that have already been inspected.
-- Requirement: `profile` should come from the current dataset and the currently loaded region. The code checks that the shared m/z axis is exactly the same, but it does not verify that the statistical values were calculated from exactly the same set of pixels.
+- Requirement: `profile` should come from the current dataset and the currently loaded region. The code checks that the shared *m/z* axis is exactly the same, but it does not verify that the statistical values were calculated from exactly the same set of pixels.
 - At least one of `min_count`, `min_frequency`, `min_intensity`, or `intensity_quantile` must be enabled.
 
 ## Preview-Then-Apply Workflow
@@ -217,7 +223,7 @@ Note that the quantile condition uses a strict greater-than comparison. Therefor
 - Non-continuous data raise a `ValueError`; run `peak_align` first.
 - If all thresholds are `None`, a `ValueError` is raised.
 - `intensity_method` must be `"mean"` or `"sum"`.
-- Empty data or a `profile` whose m/z axis does not match the current data are rejected.
+- Empty data or a `profile` whose *m/z* axis does not match the current data are rejected.
 
 ## References
 
@@ -226,7 +232,3 @@ Note that the quantile condition uses a strict greater-than comparison. Therefor
 - [`tools/plot_peak_filter.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/tools/plot_peak_filter.py): threshold-distribution preview
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py): `PreprocessorAPI.filter_peaks_by_stats`, API entry point for statistical peak filtering
 - [`preprocess/pipeline/planner.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/pipeline/planner.py): dataset-level task order and final output routing
-
-
-
-Authors: Leqiang Dong, Jingwei Dong

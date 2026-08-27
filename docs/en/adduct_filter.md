@@ -2,22 +2,28 @@
 
 This page introduces the adduct annotation and filtering module in MassFlow.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
-Adduct filtering searches the aligned shared m/z axis for different ion forms that may originate from the same neutral molecule and uses spatial correlation of MSI pixel intensities to confirm candidate relationships. For each confirmed adduct group, the peak with the highest total intensity is retained as the representative peak, while the remaining unprotected peaks are removed.
+Adduct filtering searches the aligned shared *m/z* axis for different ion forms that may originate from the same neutral molecule and uses spatial correlation of MSI pixel intensities to confirm candidate relationships. For each confirmed adduct group, the peak with the highest total intensity is retained as the representative peak, while the remaining unprotected peaks are removed.
 
-This implementation is not a simple fixed m/z-difference filter:
+This implementation is not a simple fixed *m/z* difference filter:
 
-1. Convert each observed m/z value into a neutral-mass hypothesis according to each adduct rule.
+1. Convert each observed *m/z* value into a neutral-mass hypothesis according to each adduct rule.
 2. Cluster hypotheses with similar neutral masses.
 3. Confirm candidate relationships using the Pearson correlation coefficient between pixel-intensity vectors.
 4. Resolve overlapping candidate groups and determine representative peaks.
-5. Generate auditable annotations, reports, and the final shared-m/z retention mask.
+5. Generate auditable annotations, reports, and the final shared-*m/z* retention mask.
 
 The input must satisfy the following requirements:
 
 - continuous data, i.e. `continuous=True`;
-- a shared m/z axis;
+- a shared *m/z* axis;
 - peak alignment (`peak_align`) has already been performed;
 - isotope filtering is recommended before peak alignment.
 
@@ -230,7 +236,7 @@ Where:
 - `quasi` indicates whether the rule is treated as a quasi-molecular rule;
 - `IPS` is used as a competition score when candidate groups overlap.
 
-For an observed m/z and a `rule`, neutral mass is calculated as:
+For an observed *m/z* and a `rule`, neutral mass is calculated as:
 
 $$
 \mathrm{neutral\_mass}
@@ -288,8 +294,8 @@ are considered sufficiently correlated in space. A candidate neutral-mass group 
 
 Each row in the report represents one piece of evidence supporting a deletion and includes:
 
-- indices, m/z values, and adduct-rule names for the representative peak, removed peak, and supporting peak;
-- neutral mass, neutral-mass span, and m/z difference;
+- indices, *m/z* values, and adduct-rule names for the representative peak, removed peak, and supporting peak;
+- neutral mass, neutral-mass span, and *m/z* difference;
 - spatial correlation coefficient and its threshold;
 - number of candidate relationships, number of relationships passing the threshold, and number of unique removed peaks;
 - polarity, `ppm`, `mzabs`, `require_quasi`, and `batch_size`.
@@ -301,7 +307,7 @@ The same removed peak may have multiple supporting pieces of evidence. `summary_
 
 ## Error Handling
 
-- A `ValueError` is raised when the data are not aligned or do not have a shared m/z axis. If this occurs, run `peak_align` before adduct filtering.
+- A `ValueError` is raised when the data are not aligned or do not have a shared *m/z* axis. If this occurs, run `peak_align` before adduct filtering.
 - `batch_size` must be a positive integer. It specifies the number of spectra read and processed per batch.
 - The report path must either have no suffix or use the `.csv` suffix.
 - Rule names must be unique, and charge signs must match the selected polarity.
@@ -320,7 +326,3 @@ This implementation does not claim to cover CAMERA's complete dynamic rule table
 - [`preprocess/helper/stat_filter_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/stat_filter_helper.py): shared-mask write-back
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py): `PreprocessorAPI.filter_peaks_by_adducts`, API entry point for adduct filtering
 - [`preprocess/pipeline/planner.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/pipeline/planner.py): dataset-level task order and output routing
-
-
-
-Authors: Leqiang Dong, Jingwei Dong

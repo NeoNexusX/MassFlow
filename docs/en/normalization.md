@@ -2,6 +2,12 @@
 
 This page introduces the normalization module in MassFlow.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
 The overall signal intensity of different pixels may be affected by tissue thickness, sample amount, ionization efficiency, and changes in instrument response. Intensity normalization adjusts each spectrum to a comparable scale, reducing the effect of a spectrum being globally stronger or weaker on ion images and downstream statistical analysis.
@@ -12,7 +18,7 @@ The overall signal intensity of different pixels may be affected by tissue thick
 - Methods
   - TIC (Total Ion Current) normalization (`tic_numba`): scales each spectrum so that the sum of all intensities equals a specified value.
   - RMS (Root Mean Square) normalization (`rms_numba`): scales each spectrum so that its RMS equals a specified value.
-  - Reference-peak normalization (`ref_numba`): scales each spectrum so that the signal near a specified m/z value is normalized to a target value.
+  - Reference-peak normalization (`ref_numba`): scales each spectrum so that the signal near a specified *m/z* value is normalized to a target value.
 
 ## Function Description
 
@@ -146,15 +152,6 @@ Reference-peak normalization (`ref_numba`) with `ref=500`:
 ## References
 
 - [`preprocess/helper/normalizer_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/normalizer_helper.py): normalization dispatcher (`normalizer`)
-
 - [`preprocess/numba/normalization_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/normalization_numba.py): Numba-accelerated implementation (`normalizer_numba`)
-
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py): `FlatPreprocess.normalization_flat`, preprocessing entry point for flat data arrays
-
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py): `PreprocessorAPI.normalization`, API entry point for normalization
-
-  
-
-  
-
-Authors: Leqiang Dong, Jingwei Dong

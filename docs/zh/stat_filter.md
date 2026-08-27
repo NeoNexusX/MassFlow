@@ -2,16 +2,20 @@
 
 本文介绍 MassFlow 中的统计峰过滤模块
 
+
+
+作者：董乐强，董京伟
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
+
 ## 概述
 
-峰对齐后，所有像素共享同一条 m/z 轴，其中可能包含只在极少数像素出现的随机峰，或总体强度很低的峰。统计峰过滤在整个数据集上统计每个共享 *m/z* 位置的出现次数和聚合强度，然后构建一个全局保留掩码 `keep_mask`，将相同的筛选结果应用到所有谱图。
+峰对齐后，所有像素共享同一条 *m/z* 轴，其中可能包含只在极少数像素出现的随机峰，或总体强度很低的峰。统计峰过滤在整个数据集上统计每个共享 *m/z* 位置的出现次数和聚合强度，然后构建一个全局保留掩码 `keep_mask`，将相同的筛选结果应用到所有谱图。
 
 - 输入必须是峰对齐后的连续型共享 *m/z* 数据即`continuous=True`。
 - 该操作是数据集级任务，需要先扫描完整数据集计算统计量，再扫描一次应用掩码并写出结果。
 - 出现次数/频率条件与强度条件使用逻辑与（AND）组合。
 - 输出仍为连续型数据，但共享 *m/z* 轴和每条谱的强度向量都会同步缩短。
-
-
 
 ## 功能说明
 
@@ -29,16 +33,16 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_stats(
 ) -> Self
 ```
 
-- 功能：根据峰出现支持度和聚合强度过滤共享 m/z 轴。
+- 功能：根据峰出现支持度和聚合强度过滤共享 *m/z* 轴。
 
 - 参数：
-  - `min_count`：一个 m/z 位置至少在多少条谱中具有正强度。适合谱数量固定、不同数据集之间不需要直接比较阈值的场景。
+  - `min_count`：一个 *m/z* 位置至少在多少条谱中具有正强度。适合谱数量固定、不同数据集之间不需要直接比较阈值的场景。
   - `min_frequency`：出现频率下限，范围 `[0, 1]`；频率为 `counts / spectrum_count`。更适合谱数量不同的数据集；例如 `0.01` 表示至少在 1% 的谱中出现。
   - `intensity_method`：可选为平均强度 `"mean"` 或总强度 `"sum"`。
     - `mean` 会把缺失位置按零计入总谱数平均，更强调跨像素整体信号。
     - `sum` 会随谱数量变化，跨数据集比较阈值时需要谨慎。
   - `min_intensity`：聚合强度绝对下限。
-  - `intensity_quantile`：按整批峰的强度分布删除最低部分。范围 `(0, 1)`。 是相对阈值，适合先删除全局最弱的一部分 m/z 位置。若只想使用出现次数/频率条件，应设置为:`intensity_quantile=None`
+  - `intensity_quantile`：按整批峰的强度分布删除最低部分。范围 `(0, 1)`。 是相对阈值，适合先删除全局最弱的一部分 *m/z* 位置。若只想使用出现次数/频率条件，应设置为:`intensity_quantile=None`
   - `output_path`：该数据集过滤阶段的 imZML 输出路径；通常也可以在 `Preprocessor(..., output_path=...)` 中统一指定最终路径。
   
   输出：
@@ -131,7 +135,7 @@ preprocess.helper.stat_filter_helper.filter_peaks_by_stats(
 ```
 
 - 功能：使用已经检查过的预览统计结果正式删除峰。
-- 要求：`profile` 应来自当前这份数据及当前读取区域。代码会检查共享 m/z 轴是否完全相同，但不会验证统计值是否确实来自同一批像素。
+- 要求：`profile` 应来自当前这份数据及当前读取区域。代码会检查共享 *m/z* 轴是否完全相同，但不会验证统计值是否确实来自同一批像素。
 - 至少需要启用 `min_count`、`min_frequency`、`min_intensity`、`intensity_quantile` 中的一个条件。
 
 ## 先预览后应用流程
@@ -217,7 +221,7 @@ keep = count_mask AND intensity_mask
 - 非连续型数据会抛出 `ValueError`；应先运行 `peak_align`。
 - 所有阈值均为 `None` 时抛出 `ValueError`。
 - `intensity_method` 必须为 `"mean"` 或 `"sum"`。
-- 空数据或与当前 m/z 轴不匹配的 `profile` 会被拒绝。
+- 空数据或与当前 *m/z* 轴不匹配的 `profile` 会被拒绝。
 
 ## 参考
 
@@ -226,7 +230,3 @@ keep = count_mask AND intensity_mask
 - [`tools/plot_peak_filter.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/tools/plot_peak_filter.py)：阈值分布预览
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.filter_peaks_by_stats`：统计峰过滤功能的调用入口
 - [`preprocess/pipeline/planner.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/pipeline/planner.py)：数据集级任务顺序和最终输出路由
-
-
-
-作者：董乐强，董京伟

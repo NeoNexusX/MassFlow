@@ -2,9 +2,15 @@
 
 本文介绍 MassFlow 中的离子图和总离子流图（TIC）读取与绘制功能。
 
+
+
+作者：董乐强 , 董京伟 
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
+
 ## 概述
 
-离子图用于观察某个 m/z 信号在组织切片中的空间分布。图中每个位置对应一个采集像素，颜色表示该像素在目标 m/z 附近的信号强度。
+离子图用于观察某个 *m/z* 信号在组织切片中的空间分布。图中每个位置对应一个采集像素，颜色表示该像素在目标 m/z 附近的信号强度。
 
 总离子流图（TIC 图）把每个像素谱图中的全部强度相加，可用于快速查看：
 
@@ -20,7 +26,7 @@
 - MassFlow H5 离子图数据：`IonImageDataManagerH5`；
 - MassFlow ion-image Zarr 数据：`IonImageDataManagerZarr`。
 
-其中，imZML 可以让所有像素共用同一组 m/z，也可以让每个像素保存自己的峰列表；后者在文件信息中通常称为 `processed` 数据。对于这类数据，程序会在每条谱图中分别寻找目标 m/z。
+其中，imZML 可以让所有像素共用同一组 *m/z*，也可以让每个像素保存自己的峰列表；后者在文件信息中通常称为 `processed` 数据。对于这类数据，程序会在每条谱图中分别寻找目标 *m/z*。
 
 
 
@@ -43,7 +49,7 @@ massflow.tools.plot_ion_image.read_ion_image(
 - 特点：只读取数据，不显示图片，也不自动保存图片。
 - 参数：
   - `data_manager`：已经打开的数据。
-  - `mz`：目标 m/z，必须填写。
+  - `mz`：目标 *m/z*，必须填写。
   - `batch_size`：imZML 每批读取的谱图数量，默认 `256`。值增大可能提高读取速度，同时增加内存占用。
   - `max_threads`：imZML 读取时允许使用的线程数，默认 `2`。
   - `mz_tolerance`：目标 m/z 两侧的绝对范围。保持 `None` 时只读取最接近目标值的一个位置；填写数值时，会把范围内的全部强度相加。该参数必须为非负数。
@@ -73,7 +79,7 @@ massflow.tools.plot_ion_image.plot_ion_image(
 ) -> None
 ```
 
-- 功能：读取目标 m/z，并绘制离子图。
+- 功能：读取目标 *m/z*，并绘制离子图。
 - 参数：
   - `mz`、`batch_size`、`max_threads`、`mz_tolerance`：与 `read_ion_image` 相同。
   - `output_path`：图片保存路径。填写后会创建上级文件夹并保存图片。
@@ -235,7 +241,7 @@ graph TD
   I --> J["显示或保存图片"]
 ```
 
-## m/z 选择方法
+## *m/z* 选择方法
 
 ### 不设置 mz_tolerance
 
@@ -243,11 +249,11 @@ graph TD
 mz_tolerance=None
 ```
 
-程序会选择最接近目标值的 m/z：
+程序会选择最接近目标值的 *m/z*：
 
-- 对共享 m/z 轴数据，整份数据使用同一个最近位置；
+- 对共享 *m/z* 轴数据，整份数据使用同一个最近位置；
 - 对 processed imZML，每条谱图分别寻找自己的最近位置；
-- 即使最近位置距离目标值较远，程序也不会自动拒绝，因此使用者应先确认实际 m/z 轴和仪器误差。
+- 即使最近位置距离目标值较远，程序也不会自动拒绝，因此使用者应先确认实际 *m/z* 轴和仪器误差。
 
 ### 设置 mz_tolerance
 
@@ -262,22 +268,22 @@ mz_tolerance=0.01
 499.99 <= m/z <= 500.01
 ```
 
-该范围包含边界。若范围内有多个 m/z 位置，它们的强度会相加；若没有任何位置，结果为 `0`。
+该范围包含边界。若范围内有多个 *m/z* 位置，它们的强度会相加；若没有任何位置，结果为 `0`。
 
-`mz_tolerance` 使用绝对 m/z 单位，当前函数没有 ppm 选项。若实验方法使用 ppm，需要先自行换算为目标 m/z 附近的绝对范围。
+`mz_tolerance` 使用绝对 *m/z* 单位，当前函数没有 ppm 选项。若实验方法使用 ppm，需要先自行换算为目标 *m/z* 附近的绝对范围。
 
 ### 容差如何选择
 
 - 容差过小：可能漏掉轻微漂移的目标峰；
 - 容差过大：可能把相邻化合物、同位素峰或其他干扰峰一起累加；
 - processed 数据：不同像素的峰位置可能不同，更需要结合仪器质量精度选择范围；
-- 已完成峰对齐的数据：通常可使用较小范围，或直接选择最近 m/z 位置。
+- 已完成峰对齐的数据：通常可使用较小范围，或直接选择最近 *m/z* 位置。
 
 ## 错误处理
 
 - 报错 `"'mz' is required"`：调用离子图函数时没有填写 `mz`。
 - 没有读取到任何像素：检查文件内容、`target_locs` 和数据是否成功打开。
-- 图片几乎全黑：尝试降低 `percentiles` 上限，并检查目标 m/z 是否存在。
+- 图片几乎全黑：尝试降低 `percentiles` 上限，并检查目标 *m/z* 是否存在。
 - 图片大面积饱和：提高 `percentiles` 上限，或检查是否存在极端高强度像素。
 
 ## 参考
@@ -287,7 +293,3 @@ mz_tolerance=0.01
 - [`data_manager/ion_image_data_manager_binary.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/data_manager/ion_image_data_manager_binary.py)：Binary 离子图数据
 - [`data_manager/ion_image_data_manager_h5.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/data_manager/ion_image_data_manager_h5.py)：H5 离子图数据
 - [`data_manager/ion_image_data_manager_zarr.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/data_manager/ion_image_data_manager_zarr.py)：ion-image Zarr 数据
-
-
-
-作者：董乐强，董京伟

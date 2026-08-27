@@ -2,6 +2,12 @@
 
 MassFlow is a modular computing framework for mass spectrometry imaging (MSI) and mass spectrometry (MS) data. It provides efficient data loading, preprocessing, and data-management functions.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
 MSI datasets usually contain large numbers of pixels and mass-spectrometry measurements. Direct analysis can be affected by background signals, noise, peak-position shifts, and low-quality peaks.
@@ -215,7 +221,3 @@ After your first successful run, continue with the pages that are relevant to yo
 - [KMeans Tissue Region Segmentation](./segmentation.md): inspect segmentation results and generate region masks.
 
 Each function page further explains parameter meanings, usage, and how to handle common errors.
-
-
-
-Authors: Leqiang Dong, Jingwei Dong

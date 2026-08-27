@@ -2,9 +2,15 @@
 
 This page introduces the functions for loading and plotting ion images and total ion current (TIC) images in MassFlow.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
-An ion image is used to inspect the spatial distribution of a particular m/z signal in a tissue section. Each position in the image corresponds to an acquisition pixel, and the color represents the signal intensity near the target m/z value at that pixel.
+An ion image is used to inspect the spatial distribution of a particular *m/z* signal in a tissue section. Each position in the image corresponds to an acquisition pixel, and the color represents the signal intensity near the target *m/z* value at that pixel.
 
 A total ion current image (TIC image) sums all intensities in each pixel spectrum. It can be used to quickly inspect:
 
@@ -20,7 +26,7 @@ This module can directly read:
 - MassFlow H5 ion-image data: `IonImageDataManagerH5`;
 - MassFlow ion-image Zarr data: `IonImageDataManagerZarr`.
 
-For imZML data, all pixels may share the same m/z array, or each pixel may store its own peak list. The latter is commonly referred to as `processed` data in file metadata. For this type of data, the program searches for the target m/z separately in each spectrum.
+For imZML data, all pixels may share the same *m/z* array, or each pixel may store its own peak list. The latter is commonly referred to as `processed` data in file metadata. For this type of data, the program searches for the target *m/z* separately in each spectrum.
 
 
 
@@ -39,14 +45,14 @@ massflow.tools.plot_ion_image.read_ion_image(
 ) -> numpy.ndarray
 ```
 
-- Function: loads the ion image for a target m/z and returns a two-dimensional intensity matrix.
+- Function: loads the ion image for a target *m/z* and returns a two-dimensional intensity matrix.
 - Feature: it only reads the data; it does not display or automatically save an image.
 - Parameters:
   - `data_manager`: the opened dataset.
-  - `mz`: target m/z; this parameter is required.
+  - `mz`: target *m/z*; this parameter is required.
   - `batch_size`: number of spectra read per imZML batch, default `256`. Increasing it may improve reading speed but also increases memory usage.
   - `max_threads`: maximum number of threads used for imZML reading, default `2`.
-  - `mz_tolerance`: absolute range on each side of the target m/z. When set as `None`, only the single position closest to the target value is read. When a value is provided, all intensities within the range are summed. This parameter must be non-negative.
+  - `mz_tolerance`: absolute range on each side of the target *m/z*. When set as `None`, only the single position closest to the target value is read. When a value is provided, all intensities within the range are summed. This parameter must be non-negative.
 - Output:
   - a two-dimensional matrix with shape “image height × image width”;
   - unacquired positions are usually `0`.
@@ -73,7 +79,7 @@ massflow.tools.plot_ion_image.plot_ion_image(
 ) -> None
 ```
 
-- Function: reads the target m/z and plots an ion image.
+- Function: reads the target *m/z* and plots an ion image.
 - Parameters:
   - `mz`, `batch_size`, `max_threads`, `mz_tolerance`: same as in `read_ion_image`.
   - `output_path`: image output path. When specified, the parent directory is created automatically and the image is saved.
@@ -235,7 +241,7 @@ graph TD
   I --> J["Display or save the image"]
 ```
 
-## How m/z Is Selected
+## How *m/z* Is Selected
 
 ### Without `mz_tolerance`
 
@@ -243,11 +249,11 @@ graph TD
 mz_tolerance=None
 ```
 
-The program selects the m/z position closest to the target value:
+The program selects the *m/z* position closest to the target value:
 
-- for data with a shared m/z axis, the same nearest position is used for the entire dataset;
+- for data with a shared *m/z* axis, the same nearest position is used for the entire dataset;
 - for processed imZML data, each spectrum searches independently for its own nearest position;
-- even if the nearest position is far from the target value, the program does not reject it automatically. Users should check the actual m/z axis and the instrument mass error first.
+- even if the nearest position is far from the target value, the program does not reject it automatically. Users should check the actual *m/z* axis and the instrument mass error first.
 
 ### With `mz_tolerance`
 
@@ -262,22 +268,22 @@ The program sums intensities in the following range:
 499.99 <= m/z <= 500.01
 ```
 
-The boundaries are included. If multiple m/z positions fall inside the range, their intensities are summed. If no positions fall inside the range, the result is `0`.
+The boundaries are included. If multiple *m/z* positions fall inside the range, their intensities are summed. If no positions fall inside the range, the result is `0`.
 
-`mz_tolerance` uses absolute m/z units. The current function does not provide a ppm option. If your experimental method uses ppm, convert it to an absolute range around the target m/z first.
+`mz_tolerance` uses absolute *m/z* units. The current function does not provide a ppm option. If your experimental method uses ppm, convert it to an absolute range around the target *m/z* first.
 
 ### How to Choose the Tolerance
 
 - A tolerance that is too small may miss a target peak with slight drift.
 - A tolerance that is too large may also sum neighboring compounds, isotope peaks, or other interfering peaks.
 - For processed data, peak positions may differ between pixels, so the range should be selected according to the instrument's mass accuracy.
-- For peak-aligned data, a smaller range can usually be used, or the nearest m/z position can be selected directly.
+- For peak-aligned data, a smaller range can usually be used, or the nearest *m/z* position can be selected directly.
 
 ## Error Handling
 
 - Error `"'mz' is required"`: no `mz` value was provided when calling an ion-image function.
 - No pixels are read: check the file contents, `target_locs`, and whether the data were opened successfully.
-- The image is almost entirely black: try lowering the upper `percentiles` value and check whether the target m/z exists.
+- The image is almost entirely black: try lowering the upper `percentiles` value and check whether the target *m/z* exists.
 - Large regions are saturated: increase the upper `percentiles` value or check for extremely high-intensity pixels.
 
 ## References
@@ -287,7 +293,3 @@ The boundaries are included. If multiple m/z positions fall inside the range, th
 - [`data_manager/ion_image_data_manager_binary.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/data_manager/ion_image_data_manager_binary.py): Binary ion-image data
 - [`data_manager/ion_image_data_manager_h5.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/data_manager/ion_image_data_manager_h5.py): H5 ion-image data
 - [`data_manager/ion_image_data_manager_zarr.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/data_manager/ion_image_data_manager_zarr.py): ion-image Zarr data
-
-
-
-Authors: Leqiang Dong, Jingwei Dong
