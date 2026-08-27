@@ -2,6 +2,12 @@
 
 This page introduces the isotope peak filtering module in MassFlow.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
 Because naturally occurring isotopes are present, the same compound often produces a group of neighboring peaks in a mass spectrum. Isotope peak filtering is used after peak picking to identify later isotope peaks within the same isotope cluster, while retaining only the starting peak with the lowest *m/z* value and peaks that are not assigned to an isotope cluster.
@@ -29,7 +35,7 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_isotopes(
 ) -> Self
 ```
 
-- Function: identifies isotope clusters in each centroided spectrum and removes every peak in a cluster except the starting peak with the lowest m/z value.
+- Function: identifies isotope clusters in each centroided spectrum and removes every peak in a cluster except the starting peak with the lowest *m/z* value.
 - Parameters:
   - `mz_tolerance`: isotope-peak matching tolerance, default `10.0`. The input value must be finite and positive.
   - `units`: tolerance unit, `"ppm"` or `"da"`, default `"ppm"`. The `ppm` tolerance cannot exceed `100 ppm`, and the `da` tolerance cannot exceed `0.1 Da`.
@@ -115,9 +121,9 @@ $$
 
 Each spectrum is processed as follows:
 
-1. Start from the lowest-m/z unassigned peak.
+1. Start from the lowest *m/z* unassigned peak.
 2. Test charge states in the order `max_charge → min_charge`.
-3. For each expected m/z value, select the peak with the smallest error inside the tolerance window.
+3. For each expected *m/z* value, select the peak with the smallest error inside the tolerance window.
 4. Stop extending the cluster if a peak is missing, has already been assigned, or does not satisfy the intensity model.
 5. If the cluster size reaches `min_isotope_count`, retain the starting peak and remove the remaining isotope peaks.
 6. Peaks that do not form a valid isotope cluster remain unchanged.
@@ -128,7 +134,7 @@ With the default `start_intensity_check=2`, the algorithm does not require M+1 t
 
 ## Usage Notes
 
-- Do not use this algorithm after `peak_align`. A shared m/z axis is recognized as continuous-form data and triggers a `ValueError`.
+- Do not use this algorithm after `peak_align`. A shared *m/z* axis is recognized as continuous-form data and triggers a `ValueError`.
 - The current implementation uses only isotope mass spacing and an optional intensity trend. It does not use molecular formulas, theoretical isotope abundances, or spatial correlation.
 - Larger `max_charge` and `max_isotope_count` values increase the search work required for each starting peak.
 - A tolerance that is too wide may group nearby non-isotope peaks into a cluster; a tolerance that is too narrow may miss true isotope peaks.
@@ -140,7 +146,3 @@ With the default `start_intensity_check=2`, the algorithm does not require M+1 t
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py): `FlatPreprocess.isotope_filter_flat`, preprocessing entry point for flat data arrays
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py): `PreprocessorAPI.filter_peaks_by_isotopes`, API entry point for isotope filtering
 - [`preprocess/pipeline/planner.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/pipeline/planner.py): execution order for peak picking, isotope filtering, reference-axis construction, and peak alignment
-
-
-
-Authors: Leqiang Dong, Jingwei Dong

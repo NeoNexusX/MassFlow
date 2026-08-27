@@ -6,6 +6,12 @@ You only need to install and configure an R environment when you explicitly sele
 
 This page explains how to configure the R environment, including how to set the R installation path.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## 1. R Environment Detection
 
 When the R environment is initialized, MassFlow searches for the R installation path (`R_HOME`) in the following order of priority:
@@ -72,9 +78,3 @@ If you encounter this error, MassFlow was unable to locate R automatically. Chec
 ### Errors Related to `UnicodeDecodeError`
 
 MassFlow automatically sets the R locale to English (`LANGUAGE=en`, `LC_ALL=C`) to avoid character-encoding problems. In most cases, no manual user intervention is required.
-
-
-
-
-
-Authors: Leqiang Dong, Jingwei Dong

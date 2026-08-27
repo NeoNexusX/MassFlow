@@ -139,7 +139,8 @@ export default withMermaid(
       items: [
         { text: '首页', link: '/zh/' },
         { text: '快速开始', link: '/zh/getting-started' },
-        {text: '预处理方法',
+        { text: '最佳实践', link: '/zh/jupyter'},
+        { text: '预处理方法',
           collapsed: false,
           items:[
         { text: '基线校正', link: '/zh/baseline_correction' },
@@ -156,10 +157,9 @@ export default withMermaid(
           text: '空间分析',
           collapsed: false,
           items: [
-            {text: '离子图可视化', link: '/zh/ion_image_visualization'},
-            {text: 'UMAP', link: '/zh/umap'},
-            {text: 'KMeans 聚类与区域选择', link: '/zh/segmentation'},
-            {text: '最佳实践', link: '/zh/jupyter'},
+            { text: '离子图可视化', link: '/zh/ion_image_visualization'},
+            { text: 'UMAP', link: '/zh/umap'},
+            { text: 'KMeans 聚类与区域选择', link: '/zh/segmentation'},
           ]
         },
         {
@@ -179,6 +179,7 @@ export default withMermaid(
       items: [
         { text: 'Home', link: '/' },
         { text: 'Getting Started', link: '/getting-started' },
+        { text: 'Best Practices', link: '/jupyter' },
         {
           text: 'Preprocessing Methods',
           collapsed: false,
@@ -200,7 +201,7 @@ export default withMermaid(
         { text: 'Ion Image Visualization', link: '/ion_image_visualization' },
         { text: 'UMAP', link: '/umap' },
         { text: 'KMeans Clustering and Region Selection', link: '/segmentation' },
-        { text: 'Best Practices', link: '/jupyter' },
+
               ]
           },
         {

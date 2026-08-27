@@ -2,6 +2,12 @@
 
 本文介绍 MassFlow 中的归一化模块。
 
+
+
+作者：董乐强，董京伟
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
+
 ## 概述
 
 不同像素的整体信号强度可能受到组织厚度、取样量、离子化效率和仪器响应变化影响。强度归一化用于把每条谱图调整到可比较的尺度，减少“整条谱图整体偏强或偏弱”对离子图和后续统计分析的影响。
@@ -152,8 +158,3 @@ RMS 归一化（rms_numba）：
 
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.normalization`：归一化功能的调用入口
 
-  
-
-  
-
-作者：董乐强，董京伟

@@ -2,6 +2,12 @@
 
 This page introduces the baseline correction module in MassFlow.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
 The baseline in a mass spectrum is a background signal that changes slowly with *m/z*. When the baseline is too high, it may affect peak-intensity comparison, normalization, and peak picking.
@@ -130,7 +136,3 @@ graph TD
 - [`preprocess/numba/baseline_correction_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/baseline_correction_numba.py): Numba-accelerated implementation (`baseline_locmin_numba`, `baseline_snip_numba`)
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py): `FlatPreprocess.baseline_reduction_flat`, preprocessing entry point for flat data arrays
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py): `PreprocessorAPI.baseline_correction`, API entry point for baseline correction
-
-
-
-Authors: Leqiang Dong, Jingwei Dong

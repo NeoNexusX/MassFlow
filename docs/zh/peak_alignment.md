@@ -2,13 +2,19 @@
 
 本文介绍 MassFlow 中的峰对齐模块。
 
+
+
+作者：董乐强，董京伟
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
+
 ## 概述
 
-同一种离子在不同像素中可能因为质量测量误差出现在略有差异的 m/z 位置。峰对齐用于建立一条共享参考 m/z 轴，并把每条质心谱中的峰匹配到这条轴上，使后续离子图、加合物过滤和统计过滤能够按同一列比较所有像素。
+同一种离子在不同像素中可能因为质量测量误差出现在略有差异的 *m/z* 位置。峰对齐用于建立一条共享参考 *m/z* 轴，并把每条质心谱中的峰匹配到这条轴上，使后续离子图、加合物过滤和统计过滤能够按同一列比较所有像素。
 
 峰对齐主要包括两个步骤：
 
-- 建立参考 m/z 轴：MassFlow 会综合所有像素中检测到的峰，将位置非常接近的峰归为同一组，并为每组确定一个统一的参考 *m/z*。
+- 建立参考 *m/z* 轴：MassFlow 会综合所有像素中检测到的峰，将位置非常接近的峰归为同一组，并为每组确定一个统一的参考 *m/z*。
 - 将每条谱匹配到参考轴：程序会检查每条谱中的峰，将其匹配到最接近且满足质量误差要求的参考 *m/z* 位置，最后输出峰对齐后的新质谱数据。
 
 完成峰对齐后：
@@ -36,11 +42,11 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
 ) -> Self
 ```
 
-- 功能：建立或接收参考 m/z 轴，并把全部谱图对齐到该轴。
+- 功能：建立或接收参考 *m/z* 轴，并把全部谱图对齐到该轴。
 - 参数：
-  - `reference`：外部参考 m/z 轴；`None` 时自动计算。
+  - `reference`：外部参考 *m/z* 轴；`None` 时自动计算。
   - `tolerance`：容差半窗口；`None` 时根据数据分辨率自动估算。
-  - `units`：容差单位，`"ppm"`（相对）或 `"Da"`（绝对）。默认使用 `"ppm"`（相对容差），对 m/z 范围变化有更好的适应性。
+  - `units`：容差单位，`"ppm"`（相对）或 `"Da"`（绝对）。默认使用 `"ppm"`（相对容差），对 *m/z* 范围变化有更好的适应性。
   - `binfun`：分辨率聚合策略，`"median" | "min" | "max"`。
     - `"median"`：中位数，稳健（默认推荐），
     - `"min"`：最细分辨率，参考轴更大。
@@ -149,18 +155,18 @@ preprocess.helper.peak_align_helper.reference_computer(
 ) -> tuple[NDArray, float]
 ```
 
-- 功能：只计算参考 m/z 轴和内部使用的匹配容差，不写出对齐数据。
+- 功能：只计算参考 *m/z* 轴和内部使用的匹配容差，不写出对齐数据。
 - 工作流程：
   1. 汇总所有像素中检测到的峰；
-  2. 将 m/z 非常接近的峰归为同一组；
-  3. 为每组确定一个统一的参考 m/z；
+  2. 将 *m/z* 非常接近的峰归为同一组；
+  3. 为每组确定一个统一的参考 *m/z*；
   4. 根据需要去除只在很少像素中出现的参考峰。
 - 函数返回两个结果：
-  - `reference`：建立好的共享参考 m/z 轴。
+  - `reference`：建立好的共享参考 *m/z* 轴。
   - `tolerance`：后续峰匹配时使用的容差。
 - 如果已经提供了现成的 `reference`，程序会直接使用该参考轴，不再重新建立参考轴。此时，`min_count` 和 `min_frequency` 不再参与参考轴筛选。
 - `reference_computer` 更适合以下情况：
-  - 希望先查看程序建立的参考 m/z 轴。
+  - 希望先查看程序建立的参考 *m/z* 轴。
   - 需要比较不同参数对参考轴的影响。
 
 ## 总体工作流程图
@@ -179,7 +185,7 @@ graph TD
 
 ## 参考峰预过滤
 
-在建立共享参考 m/z 轴时，MassFlow 可以先去掉只在很少像素中出现的参考峰。 这样可以减少最终参考轴中的峰数量，使后续峰对齐和统计分析更加集中。
+在建立共享参考 *m/z* 轴时，MassFlow 可以先去掉只在很少像素中出现的参考峰。 这样可以减少最终参考轴中的峰数量，使后续峰对齐和统计分析更加集中。
 
 ### 过滤参数
 
@@ -190,11 +196,11 @@ graph TD
 
 ### 过滤时机
 
-参考峰过滤发生在建立参考 m/z 轴之后、正式进行峰对齐之前。
+参考峰过滤发生在建立参考 *m/z* 轴之后、正式进行峰对齐之前。
 
-处理顺序为：建立参考 m/z 轴→去除出现次数或出现频率过低的参考峰→使用筛选后的参考轴进行峰对齐。
+处理顺序为：建立参考 *m/z* 轴→去除出现次数或出现频率过低的参考峰→使用筛选后的参考轴进行峰对齐。
 
-过滤后，只有保留下来的参考峰会参与后续对齐，因此最终参考 m/z 轴会变短，对齐后的数据中需要比较的峰也会相应减少。
+过滤后，只有保留下来的参考峰会参与后续对齐，因此最终参考 *m/z* 轴会变短，对齐后的数据中需要比较的峰也会相应减少。
 
 ## 错误处理
 
@@ -209,7 +215,3 @@ graph TD
 - [`preprocess/numba/peak_align_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/peak_align_numba.py)：Numba 加速的搜索和对齐内核
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.peak_align_flat`：扁平预处理入口
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.peak_align`：峰对齐功能调用入口
-
-
-
-作者：董乐强，董京伟

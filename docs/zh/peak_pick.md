@@ -2,16 +2,22 @@
 
 本文介绍 MassFlow 中的峰提取模块。
 
+
+
+作者：董乐强，董京伟
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
+
 ## 概述
 
-轮廓质谱通常包含大量连续的 m/z 采样点，其中很多数据点位于峰与峰之间，并不代表独立的离子峰。 峰提取用于从连续谱线中识别可能的离子峰位置，并结合信号强度和噪声水平去除不明显的候选峰。
+轮廓质谱通常包含大量连续的 *m/z* 采样点，其中很多数据点位于峰与峰之间，并不代表独立的离子峰。 峰提取用于从连续谱线中识别可能的离子峰位置，并结合信号强度和噪声水平去除不明显的候选峰。
 
 处理后，每条谱图会由连续谱线转换为较稀疏的峰列表，只保留识别出的峰位置及其对应强度。 MassFlow 在峰提取过程中会检查局部峰顶、信噪比和峰的突出程度，并可根据峰形确定峰的范围。
 
 峰提取不会改变像素的空间位置，但会明显减少每条谱图中的 *m/z* 数据点数量，为后续同位素过滤、峰对齐和统计分析提供更简洁的数据。
 
 - 输入与输出
-  - 输入为待处理的质谱数据。使用者只需要提供数据文件路径，MassFlow 会自动读取每个像素的 m/z 和信号强度。
+  - 输入为待处理的质谱数据。使用者只需要提供数据文件路径，MassFlow 会自动读取每个像素的 *m/z* 和信号强度。
   - 输出为峰提取后的质谱数据，只保留识别出的峰位置及其对应强度，非峰数据点被移除。
 - 峰检测策略
   - 局部极大值检测： 通过固定窗口 `width` 检查谱图中的局部高点，寻找可能的峰位置。
@@ -129,7 +135,3 @@ graph TD
 - [`preprocess/numba/est_noise_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/est_noise_numba.py)：Numba 加速的噪声估计
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.peak_pick_flat`：扁平预处理入口
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.peak_pick`：峰提取功能的调用入口
-
-
-
-作者：董乐强，董京伟

@@ -2,6 +2,12 @@
 
 本文介绍 MassFlow 中 UMAP 的作用和结果解释。UMAP 是用于高维质谱特征降维和可视化的方法。
 
+
+
+作者：董乐强，董京伟
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
+
 ## 概述
 
 一张 MSI 数据中，每个像素都包含大量 *m/z* 位置及对应强度。直接比较这些高维质谱特征比较困难。
@@ -115,7 +121,3 @@ segmentation_output/umap_kmeans/
 
 - [`segmentation/segmentation_pipeline.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/segmentation_pipeline.py)：`SegmentationPipeline` 和 `UmapKmeansResult`
 - [`segmentation/umap_kmeans.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/umap_kmeans.py)：UMAP/KMeans 分析和空间图输出
-
-
-
-作者：董乐强，董京伟

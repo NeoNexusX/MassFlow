@@ -2,22 +2,28 @@
 
 本文介绍 MassFlow 中的加合物注释与过滤模块。
 
+
+
+作者：董乐强 , 董京伟 
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
+
 ## 概述
 
-加合物过滤用于在对齐后的共享 m/z 轴上寻找可能来自同一中性分子的不同离子形式，并结合 MSI 像素强度的空间相关性确认候选关系。确认后的每个加合物组保留总强度最高的代表峰，删除其余非受保护峰。
+加合物过滤用于在对齐后的共享 *m/z* 轴上寻找可能来自同一中性分子的不同离子形式，并结合 MSI 像素强度的空间相关性确认候选关系。确认后的每个加合物组保留总强度最高的代表峰，删除其余非受保护峰。
 
-该实现不是简单的固定 m/z 差值过滤：
+该实现不是简单的固定 *m/z* 差值过滤：
 
-1. 根据每个加合物规则把观测 m/z 转换为中性质量假设。
+1. 根据每个加合物规则把观测 *m/z* 转换为中性质量假设。
 2. 对中性质量相近的假设进行聚类。
 3. 使用像素强度向量之间的 Pearson 相关系数确认候选关系。
 4. 处理重叠候选组并确定代表峰。
-5. 生成可审计注释、报告和最终共享 m/z 掩码。
+5. 生成可审计注释、报告和最终共享 *m/z* 掩码。
 
 输入必须满足：
 
 - 连续型数据，即`continuous=True`；
-- 具有共享 m/z 轴；
+- 具有共享 *m/z* 轴；
 - 已执行峰对齐 `peak_align`；
 - 建议在峰对齐前先执行同位素过滤。
 
@@ -223,7 +229,7 @@ graph TD
 - quasi 表示该规则是否被视为准分子规则
 - IPS 用于候选组发生重叠时的竞争评分
 
-对于观测 m/z 和规则 `rule`，中性质量按下式计算：
+对于观测 *m/z* 和规则 `rule`，中性质量按下式计算：
 
 $$
 \mathrm{neutral\_mass}
@@ -278,8 +284,8 @@ correlation >= min_spatial_correlation
 
 报告中的每一行代表一条删除证据，包含：
 
-- 代表峰、被删除峰和支持峰的索引、m/z 与加合物规则名称；
-- 中性质量、中性质量跨度和 m/z 差；
+- 代表峰、被删除峰和支持峰的索引、*m/z* 与加合物规则名称；
+- 中性质量、中性质量跨度和 *m/z* 差；
 - 空间相关系数及其阈值；
 - 候选关系数、通过阈值的关系数和唯一删除峰数；
 - 极性、`ppm`、`mzabs`、`require_quasi` 和 `batch_size`。
@@ -291,7 +297,7 @@ correlation >= min_spatial_correlation
 
 ## 错误处理
 
-- 未对齐或缺少共享 m/z 轴时抛出 `ValueError`。当出现`ValueError`需要在加合物过滤之前执行`peak_align`
+- 未对齐或缺少共享 *m/z* 轴时抛出 `ValueError`。当出现`ValueError`需要在加合物过滤之前执行`peak_align`
 - `batch_size` 必须为正整数。该参数表示每次读取和处理的谱图数量。
 - 报告路径只能无后缀或使用 `.csv` 后缀。
 - 规则名称必须唯一，电荷符号必须与极性一致。
@@ -310,7 +316,3 @@ correlation >= min_spatial_correlation
 - [`preprocess/helper/stat_filter_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/stat_filter_helper.py)：共享掩码写回
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.filter_peaks_by_adducts`：加合物过滤功能的调用入口
 - [`preprocess/pipeline/planner.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/pipeline/planner.py)：数据集级任务顺序和输出路由
-
-
-
-作者：董乐强，董京伟

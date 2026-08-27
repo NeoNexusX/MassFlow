@@ -2,13 +2,19 @@
 
 This page introduces the peak-alignment module in MassFlow.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
-The same ion may appear at slightly different m/z positions in different pixels because of mass-measurement error. Peak alignment builds a shared reference m/z axis and matches the peaks in each centroid spectrum to that axis, allowing downstream ion imaging, adduct filtering, and statistical filtering to compare all pixels column by column.
+The same ion may appear at slightly different *m/z* positions in different pixels because of mass-measurement error. Peak alignment builds a shared reference *m/z* axis and matches the peaks in each centroid spectrum to that axis, allowing downstream ion imaging, adduct filtering, and statistical filtering to compare all pixels column by column.
 
 Peak alignment mainly includes two steps:
 
-- Build the reference m/z axis: MassFlow combines the peaks detected across all pixels, groups peaks whose positions are very close, and determines one common reference *m/z* value for each group.
+- Build the reference *m/z* axis: MassFlow combines the peaks detected across all pixels, groups peaks whose positions are very close, and determines one common reference *m/z* value for each group.
 - Match each spectrum to the reference axis: the program checks the peaks in each spectrum and matches each one to the nearest reference *m/z* position that satisfies the mass-error requirement, then outputs newly aligned mass-spectrometry data.
 
 After peak alignment:
@@ -36,11 +42,11 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
 ) -> Self
 ```
 
-- Function: builds or accepts a reference m/z axis and aligns all spectra to that axis.
+- Function: builds or accepts a reference *m/z* axis and aligns all spectra to that axis.
 - Parameters:
-  - `reference`: external reference m/z axis. If `None`, it is calculated automatically.
+  - `reference`: external reference *m/z* axis. If `None`, it is calculated automatically.
   - `tolerance`: half-width of the matching tolerance window. If `None`, it is estimated automatically from the data resolution.
-  - `units`: tolerance unit, `"ppm"` (relative) or `"Da"` (absolute). The default is `"ppm"`, which adapts better across changing m/z ranges.
+  - `units`: tolerance unit, `"ppm"` (relative) or `"Da"` (absolute). The default is `"ppm"`, which adapts better across changing *m/z* ranges.
   - `binfun`: resolution aggregation strategy: `"median"`, `"min"`, or `"max"`.
     - `"median"`: median resolution, robust and recommended by default.
     - `"min"`: finest resolution, resulting in a larger reference axis.
@@ -149,18 +155,18 @@ preprocess.helper.peak_align_helper.reference_computer(
 ) -> tuple[NDArray, float]
 ```
 
-- Function: calculates only the reference m/z axis and the matching tolerance used internally; it does not write aligned data.
+- Function: calculates only the reference *m/z* axis and the matching tolerance used internally; it does not write aligned data.
 - Workflow:
   1. Collect the peaks detected in all pixels.
-  2. Group peaks with very similar m/z values into the same group.
-  3. Determine one common reference m/z value for each group.
+  2. Group peaks with very similar *m/z* values into the same group.
+  3. Determine one common reference *m/z* value for each group.
   4. Optionally remove reference peaks that appear in only a small number of pixels.
 - The function returns two values:
-  - `reference`: the constructed shared reference m/z axis.
+  - `reference`: the constructed shared reference *m/z* axis.
   - `tolerance`: the tolerance used for subsequent peak matching.
 - If an existing `reference` is provided, the program uses it directly and does not rebuild the reference axis. In this case, `min_count` and `min_frequency` are not used to filter the reference axis.
 - `reference_computer` is particularly useful when:
-  - you want to inspect the reference m/z axis before alignment;
+  - you want to inspect the reference *m/z* axis before alignment;
   - you want to compare how different parameters affect the reference axis.
 
 ## Overall Workflow
@@ -179,7 +185,7 @@ graph TD
 
 ## Reference Peak Prefiltering
 
-When building the shared reference m/z axis, MassFlow can first remove reference peaks that appear in only a small number of pixels. This reduces the number of peaks in the final reference axis, allowing for more focused peak alignment and statistical analysis.
+When building the shared reference *m/z* axis, MassFlow can first remove reference peaks that appear in only a small number of pixels. This reduces the number of peaks in the final reference axis, allowing for more focused peak alignment and statistical analysis.
 
 ### Filtering Parameters
 
@@ -190,11 +196,11 @@ The two main parameters are:
 
 ### When Filtering Occurs
 
-Reference-peak filtering takes place after the reference m/z axis has been built and before formal peak alignment begins.
+Reference-peak filtering takes place after the reference *m/z* axis has been built and before formal peak alignment begins.
 
-The processing order is: build the reference m/z axis → remove reference peaks with low occurrence count or frequency → perform peak alignment using the filtered reference axis.
+The processing order is: build the reference *m/z* axis → remove reference peaks with low occurrence count or frequency → perform peak alignment using the filtered reference axis.
 
-After filtering, only the retained reference peaks participate in subsequent alignment. The final reference m/z axis is shorter, and the aligned data contain fewer peaks that need to be compared.
+After filtering, only the retained reference peaks participate in subsequent alignment. The final reference *m/z* axis is shorter, and the aligned data contain fewer peaks that need to be compared.
 
 ## Error Handling
 
@@ -208,7 +214,3 @@ After filtering, only the retained reference peaks participate in subsequent ali
 - [`preprocess/numba/peak_align_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/peak_align_numba.py): Numba-accelerated search and alignment kernels
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py): `FlatPreprocess.peak_align_flat`, preprocessing entry point for flat data arrays
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py): `PreprocessorAPI.peak_align`, API entry point for peak alignment
-
-
-
-Authors: Leqiang Dong, Jingwei Dong
