@@ -6,6 +6,12 @@ MassFlow 的默认预处理功能由自身 Python 实现完成。同时MassFlow�
 
 本文档介绍了如何配置 R 环境，包括设置 R 的安装路径。
 
+
+
+作者：董乐强，董京伟
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
+
 ## 1. R 环境检测机制
 
 在初始化 R 环境时，MassFlow 会按照以下优先级顺序查找 R 的安装路径（`R_HOME`）:
@@ -72,9 +78,3 @@ env = init_r_environment(r_home="C:\\Program Files\\R\\R-4.3.1")
 ### 与 `UnicodeDecodeError` 相关的错误
 
 MassFlow 会自动将 R 的区域设置设为英语（`LANGUAGE=en`，`LC_ALL=C`），以避免字符编码问题。通常情况下，无需用户手动干预。
-
-
-
-
-
-作者：董乐强，董京伟

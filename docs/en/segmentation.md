@@ -2,6 +2,12 @@
 
 This page introduces KMeans-based tissue region segmentation in MassFlow, including result inspection and the workflow for removing or retaining regions.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
 Different regions in MSI tissue may have different overall mass-spectrometry characteristics. KMeans divides pixels into a specified number of discrete classes based on low-dimensional features and maps the classification results back to the original tissue space, making it easy to see where different classes are distributed in the tissue.
@@ -372,7 +378,3 @@ When processing a new dataset for the first time, `remove_clusters()` is recomme
 - [`segmentation/umap_kmeans.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/umap_kmeans.py): UMAP/KMeans analysis and spatial-image output
 - [`segmentation/cluster_segmentation.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/cluster_segmentation.py): cluster-region removal, outer-background removal, and target-region retention
 - [`segmentation/region_mask.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/segmentation/region_mask.py): spatial-mask application and data writing
-
-
-
-Authors: Leqiang Dong, Jingwei Dong

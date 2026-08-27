@@ -2,6 +2,12 @@
 
 本文介绍 MassFlow 中的噪声抑制与平滑模块。
 
+
+
+作者：董乐强，董京伟
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com)。
+
 ## 概述
 
 质谱信号中常会出现连续、快速的小幅波动。这些波动通常不代表真实离子峰，却可能在后续峰提取时被误认为峰。噪声抑制通过邻近数据点重新计算强度，使谱线更平滑，并减少峰提取时产生的假峰。
@@ -14,7 +20,7 @@ MassFlow 提供以下三种平滑方法：
 
 输入与输出
 
-- 输入为待处理的质谱数据。使用者只需要提供数据文件路径，MassFlow 会自动读取每个像素的 m/z 和信号强度。
+- 输入为待处理的质谱数据。使用者只需要提供数据文件路径，MassFlow 会自动读取每个像素的 *m/z* 和信号强度。
 - 输出为平滑处理后的质谱数据，处理前后的 *m/z* 位置和像素坐标保持不变，强度为去噪后的结果。
 
 
@@ -139,7 +145,3 @@ Savitzky-Golay 平滑（savgol_numba）:![Snipaste sav_2026-08-09_21-19-48](http
 - [`preprocess/numba/noise_reduction_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/noise_reduction_numba.py)：Numba 加速实现（smooth_signal_ma_numba、smooth_signal_gaussian_numba、smooth_signal_savgol_numba）
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.noise_reduction_flat`：扁平预处理入口
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.noise_reduction`：噪声抑制与平滑功能的调用入口
-
-
-
-作者：董乐强，董京伟

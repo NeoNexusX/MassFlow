@@ -2,16 +2,22 @@
 
 This page introduces the peak-picking module in MassFlow.
 
+
+
+Authors: Leqiang Dong, Jingwei Dong
+
+**Feedback:** If you find any problems while using MassFlow or reading the documentation, you can submit feedback through [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues), or contact us by email at 707244007@qq.com.
+
 ## Overview
 
-Profile mass spectra usually contain a large number of continuously sampled m/z points. Many of these points lie between peaks and do not represent independent ion peaks. Peak picking identifies possible ion-peak positions from the continuous spectral trace and removes weak candidate peaks according to signal intensity and noise level.
+Profile mass spectra usually contain a large number of continuously sampled *m/z* points. Many of these points lie between peaks and do not represent independent ion peaks. Peak picking identifies possible ion-peak positions from the continuous spectral trace and removes weak candidate peaks according to signal intensity and noise level.
 
 After processing, each spectrum is converted from a continuous profile into a sparser peak list containing only the detected peak positions and their corresponding intensities. During peak picking, MassFlow checks local peak maxima, signal-to-noise ratio, and peak prominence, and can also determine peak boundaries from peak shape.
 
 Peak picking does not change the spatial positions of pixels, but it substantially reduces the number of *m/z* data points in each spectrum, providing more compact data for subsequent isotope filtering, peak alignment, and statistical analysis.
 
 - Input and output
-  - The input is the mass-spectrometry data to be processed. Users only need to provide the data-file path; MassFlow automatically reads the m/z values and signal intensities for each pixel.
+  - The input is the mass-spectrometry data to be processed. Users only need to provide the data-file path; MassFlow automatically reads the *m/z* values and signal intensities for each pixel.
   - The output is peak-picked mass-spectrometry data containing only the detected peak positions and their corresponding intensities. Non-peak data points are removed.
 - Peak-detection strategy
   - Local-maximum detection: uses a fixed `width` window to inspect local high points in a spectrum and identify possible peak positions.
@@ -129,7 +135,3 @@ graph TD
 - [`preprocess/numba/est_noise_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/est_noise_numba.py): Numba-accelerated noise estimation
 - [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py): `FlatPreprocess.peak_pick_flat`, preprocessing entry point for flat data arrays
 - [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py): `PreprocessorAPI.peak_pick`, API entry point for peak picking
-
-
-
-Authors: Leqiang Dong, Jingwei Dong
