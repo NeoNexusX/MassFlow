@@ -83,6 +83,7 @@ class FlatOutputSink:
                         temp_dir=input_meta.temp_dir,
                         chunk_size=input_meta.zarr_chunk_size,
                         compute_tic=input_meta.compute_tic,
+                        compute_rms=input_meta.compute_rms,
                     )
                 )
             else:
@@ -111,7 +112,10 @@ class FlatOutputSink:
             raise ValueError(f"Unsupported ion image output format: {self.output_meta.output_format}")
 
         zarr_options = (
-            {"chunk_size": self.input_meta.zarr_chunk_size}
+            {
+                "chunk_size": self.input_meta.zarr_chunk_size,
+                "compute_rms": self.input_meta.compute_rms,
+            }
             if self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR
             else {}
         )

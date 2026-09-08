@@ -58,6 +58,7 @@ class InputMetaData:
     zarr_chunk_size: int = 1
     compute_mean_spectrum: bool = False
     compute_tic: bool = False
+    compute_rms: bool = False
     pipeline_stall_timeout: float | None = 60.0
 
 

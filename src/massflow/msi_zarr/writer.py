@@ -52,6 +52,7 @@ class MSIZarrWriter:
         ion_block: int = 256,
         compute_mean_spectrum: bool = False,
         compute_tic: bool = False,
+        compute_rms: bool = False,
         include_spectra: bool = False,
     ) -> None:
         if row_axis not in {"pixel", "ion"}:
@@ -78,6 +79,8 @@ class MSIZarrWriter:
             compute_mean_spectrum = True
         elif row_axis == "ion" and compute_tic:
             raise ValueError("compute_tic is only supported for pixel-major output.")
+        elif row_axis == "ion" and compute_rms:
+            raise ValueError("compute_rms is only supported for pixel-major output.")
         self.path = _normalize_zarr_path(path)
         self.row_axis: ZarrRowAxis = row_axis
         self.encoding: ZarrWriteMode = encoding
@@ -92,6 +95,7 @@ class MSIZarrWriter:
         self.ion_block = max(1, int(ion_block))
         self.compute_mean_spectrum = bool(compute_mean_spectrum)
         self.compute_tic = bool(compute_tic)
+        self.compute_rms = bool(compute_rms)
         self._temp_dir = temp_dir
         self._temp_workers = max(1, int(temp_workers))
         self._root: zarr.Group | None = None
@@ -115,6 +119,7 @@ class MSIZarrWriter:
             tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         ] = []
         self._tic_batches: list[np.ndarray] = []
+        self._rms_batches: list[np.ndarray] = []
 
     # --- Public write lifecycle ----------------------------------------------
 
@@ -260,6 +265,7 @@ class MSIZarrWriter:
         self._spectra_offsets = None
         self._pending_batches.clear()
         self._tic_batches.clear()
+        self._rms_batches.clear()
 
     # --- Batch ingestion ------------------------------------------------------
 
@@ -280,14 +286,7 @@ class MSIZarrWriter:
             lengths, dtype=np.int64
         )
         self._offsets.append(batch_offsets.astype("<i8", copy=False), axis=0)
-        if self.compute_tic:
-            starts = np.empty(lengths.size, dtype=np.int64)
-            starts[0] = 0
-            if lengths.size > 1:
-                np.cumsum(lengths[:-1], dtype=np.int64, out=starts[1:])
-            self._tic_batches.append(
-                np.add.reduceat(intensity.astype(np.float64), starts)
-            )
+        self._accumulate_spectrum_stats(intensity, lengths)
 
     def _write_ion_batch(
         self,
@@ -350,7 +349,7 @@ class MSIZarrWriter:
         intensity: np.ndarray,
         lengths: np.ndarray,
     ) -> None:
-        """Append one pixel-major batch to /spectra and accumulate its TIC."""
+        """Append one pixel-major batch and accumulate enabled spectrum stats."""
         self._ensure_spectra_arrays(lengths)
         assert self._spectra_intensity is not None
         assert self._spectra_offsets is not None
@@ -363,16 +362,10 @@ class MSIZarrWriter:
         self._spectra_offsets.append(
             batch_offsets.astype("<i8", copy=False), axis=0
         )
-        starts = np.empty(lengths.size, dtype=np.int64)
-        starts[0] = 0
-        if lengths.size > 1:
-            np.cumsum(lengths[:-1], dtype=np.int64, out=starts[1:])
-        self._tic_batches.append(
-            np.add.reduceat(intensity.astype(np.float64), starts)
-        )
+        self._accumulate_spectrum_stats(intensity, lengths)
 
     def _finalize_spectra(self, source_idx: np.ndarray) -> None:
-        """Compact streamed /spectra and TIC, then write stats/tic."""
+        """Compact streamed /spectra and write enabled spectrum stats."""
         if source_idx.size != self._n_input_pixels:
             self._compact_spectra_arrays(source_idx)
             tic = (
@@ -380,9 +373,16 @@ class MSIZarrWriter:
                 if self._tic_batches
                 else np.empty(0, dtype=np.float64)
             )
+            rms = (
+                np.concatenate(self._rms_batches)[source_idx]
+                if self._rms_batches
+                else np.empty(0, dtype=np.float64)
+            )
         else:
             tic = None
+            rms = None
         self._write_tic(tic)
+        self._write_rms(rms)
 
     def _compact_spectra_arrays(self, source_idx: np.ndarray) -> None:
         assert self._spectra_intensity is not None
@@ -466,6 +466,26 @@ class MSIZarrWriter:
             overwrite=True,
         )
         self._write_tic()
+        self._write_rms()
+
+    def _accumulate_spectrum_stats(
+        self,
+        intensity: np.ndarray,
+        lengths: np.ndarray,
+    ) -> None:
+        if not self.compute_tic and not self.compute_rms:
+            return
+        starts = np.empty(lengths.size, dtype=np.int64)
+        starts[0] = 0
+        if lengths.size > 1:
+            np.cumsum(lengths[:-1], dtype=np.int64, out=starts[1:])
+        work = intensity.astype(np.float64)
+        if self.compute_tic:
+            self._tic_batches.append(np.add.reduceat(work, starts))
+        if self.compute_rms:
+            np.square(work, out=work)
+            sum_squares = np.add.reduceat(work, starts)
+            self._rms_batches.append(np.sqrt(sum_squares / lengths))
 
     def _write_tic(self, tic: np.ndarray | None = None) -> None:
         if not self.compute_tic:
@@ -483,6 +503,26 @@ class MSIZarrWriter:
             {
                 "source": f"/{ZARR_GROUP_SPECTRA}",
                 "reduced_axis": "mz",
+            }
+        )
+
+    def _write_rms(self, rms: np.ndarray | None = None) -> None:
+        if not self.compute_rms:
+            return
+        assert self._root is not None
+        if rms is None:
+            rms = (
+                np.concatenate(self._rms_batches)
+                if self._rms_batches
+                else np.empty(0, dtype=np.float64)
+            )
+        stats = self._root.require_group("stats")
+        array = stats.create_array("rms", data=rms, overwrite=True)
+        array.attrs.update(
+            {
+                "source": f"/{ZARR_GROUP_SPECTRA}",
+                "reduced_axis": "mz",
+                "denominator": "spectrum_points",
             }
         )
 

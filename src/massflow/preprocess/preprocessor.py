@@ -55,6 +55,7 @@ class Preprocessor(PreprocessorAPI):
         output_max_workers: int = 2,
         compute_mean_spectrum: bool = False,
         compute_tic: bool = False,
+        compute_rms: bool = False,
         pipeline_stall_timeout: float | None = 180.0,
         validate_processed_mz: bool = False,
     ): # pylint: disable=super-init-not-called
@@ -86,6 +87,7 @@ class Preprocessor(PreprocessorAPI):
         self.zarr_chunk_size = zarr_chunk_size
         self.compute_mean_spectrum = compute_mean_spectrum
         self.compute_tic = compute_tic
+        self.compute_rms = compute_rms
         self.pipeline_stall_timeout = pipeline_stall_timeout
         self.validate_processed_mz = validate_processed_mz
 
@@ -131,6 +133,7 @@ class Preprocessor(PreprocessorAPI):
                 result_format=self.output_format, # type: ignore
                 compute_mean_spectrum=self.compute_mean_spectrum,
                 compute_tic=self.compute_tic,
+                compute_rms=self.compute_rms,
                 pipeline_stall_timeout=self.pipeline_stall_timeout,
             ),
         )

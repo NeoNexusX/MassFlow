@@ -171,6 +171,7 @@ def test_continuous_pixel_major_computes_tic(tmp_path):
         width=2,
         height=1,
         compute_tic=True,
+        compute_rms=True,
     )
     for intensity, coord in spectra:
         writer.add_spectrum(intensity, coord, mz)
@@ -178,6 +179,13 @@ def test_continuous_pixel_major_computes_tic(tmp_path):
     writer.close()
 
     expected = np.array([s.sum(dtype=np.float64) for s, _ in spectra], dtype=np.float64)
+    expected_rms = np.array(
+        [
+            np.sqrt(np.mean(np.square(s.astype(np.float64))))
+            for s, _ in spectra
+        ],
+        dtype=np.float64,
+    )
     reader = MSIZarrReader(path)
     try:
         tic = reader.read_tic()
@@ -188,6 +196,15 @@ def test_continuous_pixel_major_computes_tic(tmp_path):
         assert tic_array.shape == (len(spectra),)
         assert tic_array.attrs["source"] == "/spectra"
         assert tic_array.attrs["reduced_axis"] == "mz"
+        rms = reader.read_rms()
+        assert rms is not None
+        assert rms.dtype == np.float64
+        np.testing.assert_allclose(rms, expected_rms, rtol=1e-12)
+        rms_array = cast(zarr.Array, reader.root["stats"]["rms"]) # type: ignore
+        assert rms_array.shape == (len(spectra),)
+        assert rms_array.attrs["source"] == "/spectra"
+        assert rms_array.attrs["reduced_axis"] == "mz"
+        assert rms_array.attrs["denominator"] == "spectrum_points"
         assert reader.n_pixels == len(spectra)
         reader.validate_full()
     finally:
@@ -204,6 +221,7 @@ def test_processed_pixel_major_computes_tic(tmp_path):
         width=3,
         height=1,
         compute_tic=True,
+        compute_rms=True,
     )
     writer.write_flat_batch(
         intensity_flat=np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
@@ -215,11 +233,18 @@ def test_processed_pixel_major_computes_tic(tmp_path):
     writer.close()
 
     expected = np.array([1.0, 2.0 + 3.0 + 4.0], dtype=np.float64)
+    expected_rms = np.array(
+        [1.0, np.sqrt((2.0**2 + 3.0**2 + 4.0**2) / 3.0)],
+        dtype=np.float64,
+    )
     reader = MSIZarrReader(path)
     try:
         tic = reader.read_tic()
         assert tic is not None
         np.testing.assert_allclose(tic, expected, rtol=1e-12)
+        rms = reader.read_rms()
+        assert rms is not None
+        np.testing.assert_allclose(rms, expected_rms, rtol=1e-12)
         reader.validate_full()
     finally:
         reader.close()
@@ -241,6 +266,7 @@ def test_tic_multibatch_matches_row_order(tmp_path):
         width=n_spectra,
         height=1,
         compute_tic=True,
+        compute_rms=True,
         add_buffer_size=3,
     )
     for i in range(n_spectra):
@@ -249,12 +275,19 @@ def test_tic_multibatch_matches_row_order(tmp_path):
     writer.close()
 
     expected = intensities.sum(axis=1, dtype=np.float64)
+    expected_rms = np.sqrt(
+        np.mean(np.square(intensities.astype(np.float64)), axis=1)
+    )
     reader = MSIZarrReader(path)
     try:
         tic = reader.read_tic()
         assert tic is not None
         assert tic.shape == (n_spectra,)
         np.testing.assert_allclose(tic, expected, rtol=1e-6)
+        rms = reader.read_rms()
+        assert rms is not None
+        assert rms.shape == (n_spectra,)
+        np.testing.assert_allclose(rms, expected_rms, rtol=1e-6)
         reader.validate_full()
     finally:
         reader.close()
@@ -281,6 +314,7 @@ def test_tic_absent_when_disabled(tmp_path):
     reader = MSIZarrReader(path)
     try:
         assert reader.read_tic() is None
+        assert reader.read_rms() is None
         assert "stats" not in reader.root
         reader.validate_full()
     finally:
@@ -297,4 +331,17 @@ def test_compute_tic_rejected_for_ion_major(tmp_path):
             width=2,
             height=1,
             compute_tic=True,
+        )
+
+
+def test_compute_rms_rejected_for_ion_major(tmp_path):
+    with pytest.raises(ValueError, match="compute_rms is only supported for pixel-major"):
+        MSIZarrWriter(
+            tmp_path / "ion_rms.zarr",
+            row_axis="ion",
+            encoding=ZARR_MODE_CONTINUOUS,
+            metadata=None,
+            width=2,
+            height=1,
+            compute_rms=True,
         )
