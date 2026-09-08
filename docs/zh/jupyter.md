@@ -537,6 +537,7 @@ masked_dm = seg.apply_region_mask(
 - [加合物注释与过滤](./adduct_filter.md)：识别并检查可能的加合物关系；
 - [统计峰过滤](./stat_filter.md)：根据峰的出现频率和强度进一步筛选；
 - [离子图读取与绘制](./ion_image_visualization.md)：查看处理后的空间分布；
+- [谱图可视化](./spectrum_visualization.md)：查看谱图
 - [UMAP 降维与可视化](./umap.md)：查看像素间整体质谱差异；
 - [KMeans 组织区域划分](./segmentation.md)：查看分区效果并生成区域掩码。
 

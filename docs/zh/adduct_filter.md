@@ -122,7 +122,7 @@ result = plot_adduct_filter(
 - 参数：
   - `polarity`：正离子或负离子规则表。该参数必须与实验采集时使用的离子模式一致。
   - `min_spatial_correlation`：候选峰像素强度向量的最小 Pearson 相关系数。
-  - `batch_size`每次读取和处理的谱图数量。
+  - `batch_size`：每次读取和处理的谱图数量。
 - 输出：
   - 加合物过滤预览图
   - CSV 报告

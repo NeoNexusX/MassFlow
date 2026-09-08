@@ -52,7 +52,7 @@ massflow.preprocess.api.PreprocessorAPI.noise_reduction(
     - Recommended range: 5–15. Adjust it according to peak width and noise level. Larger windows produce stronger smoothing but may blur narrow peaks.
   - `sd`: standard deviation of the Gaussian kernel, used only for Gaussian smoothing. Default: `window / 4.0`. Larger values produce stronger smoothing.
   - `polyorder`: Savitzky–Golay polynomial order. It must be smaller than `window`; default `3`. Lower orders (for example, 1) produce smoother results, while higher orders (for example, 3) preserve peaks better.
-  - `deriv`: derivative order, used only for Savitzky–Golay smoothing. Default `0`. Keep it at `0` for ordinary smoothing; values greater than `0` return derivatives rather than the original intensity signal.
+  - `deriv`: derivative order, used only for Savitzky–Golay smoothing. Default `0`. Keep it at `0` for ordinary smoothing; values greater than `0` return derivatives rather than the original intensity signal.The input must be a non-negative integer.
   - `delta`: sampling interval, used only for Savitzky–Golay smoothing when derivatives are calculated. Default `1.0`.
 
 Example:

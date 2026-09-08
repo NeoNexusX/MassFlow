@@ -50,9 +50,12 @@ massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
   - `sample_ratio`: proportion of pixels used to build the UMAP model, default `0.1`. Larger values use more pixels for model fitting but also increase time and memory requirements.
 
   - `umap_metric`: method for calculating distances between pixel-level mass-spectrometry features, default `"cosine"`. Keep the default for your first use.
-
+    - `“cosine”`: Focuses more on the relative directions of two spectral features rather than their overall amplitude. This is typically the preferred choice for MSI data that has already undergone intensity normalization and where the goal is to highlight spectral pattern differences;
+  
+    - `“euclidean”`: Calculates distance based on the absolute numerical differences between features. This can be used for comparison when the differences in feature amplitude themselves are intended to contribute to region differentiation;
+  
   - `n_components`: the current spatial color image uses exactly three features, corresponding to the RGB channels.
-
+  
   - `random_state`: fixing the random seed makes repeated results easier to compare, although the UMAP implementation may run with less parallelism when a fixed seed is used.
 
 This page explains only the UMAP part. For tissue-region segmentation, please see [KMeans Tissue Region Segmentation](./segmentation.md).

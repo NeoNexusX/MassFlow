@@ -43,7 +43,7 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_stats(
   - `intensity_method`: choose average intensity `"mean"` or total intensity `"sum"`.
     - `mean` treats missing positions as zero when averaging over the total number of spectra, emphasizing the overall signal across pixels.
     - `sum` changes with the number of spectra, so thresholds should be compared cautiously across datasets.
-  - `min_intensity`: absolute lower bound for aggregated intensity.
+  - `min_intensity`: absolute lower limit for aggregation intensity; the default is `None`. When set, only *m/z* positions with an aggregation intensity equal to or greater than this threshold are retained.
   - `intensity_quantile`: removes the lowest portion of peaks according to the intensity distribution of the complete peak set. Range: `(0, 1)`. This is a relative threshold and is useful for removing a globally weak fraction of *m/z* positions. If you only want to use occurrence count/frequency conditions, set `intensity_quantile=None`.
   - `output_path`: imZML output path for this dataset-level filtering stage. The final path can also usually be specified once in `Preprocessor(..., output_path=...)`.
   
@@ -95,6 +95,39 @@ Comparison before and after filtering:
 ### plot_peak_filter_histogram
 
 ```python
+massflow.tools.plot_peak_filter.plot_peak_filter_histogram(
+    count_display: CountDisplay = "frequency",
+    intensity_method: IntensityMethod = "mean",
+    min_count: int | None = None,
+    min_frequency: float | None = None,
+    quantile: float | None = None,
+ 	show: bool = True,
+    output_path: str | Path | None = None,
+)
+```
+
+- Function: calculates statistical results and plots the distributions of peak occurrence frequency and intensity together with threshold lines. It can be used to check the occurrence count/frequency and aggregated-intensity distributions.
+
+- \- Parameters:
+
+  - `count_display`: Controls how peak occurrences are displayed. `“frequency”` indicates the frequency of a peak’s occurrence across all mass spectra; if `count` is used, the actual number of spectra in which each peak appears is displayed.
+
+  - `intensity_method`: The aggregation method used to calculate the overall intensity of each peak. In the example, `“mean”` indicates that the average intensity of the peak across all mass spectra is used. 
+
+  - `min_frequency`: The reference threshold for peak occurrence frequency. `0.01` means the peak must appear in at least approximately 1% of the mass spectra. This parameter is used in the preview to draw a frequency threshold line; it does not remove peaks on its own.
+
+  - `min_count`: A reference threshold for the number of times a peak must appear. For example, an input value of `10` means that a peak must appear in at least 10 mass spectra to be retained; if it appears in 9 or fewer mass spectra, it will be filtered out.
+
+  - `quantile`: The quantile threshold for aggregated intensity. `0.05` indicates that the 5th percentile of the aggregated intensities of all peaks is used as the reference threshold.
+
+- Return value: `profile` contains peak statistics calculated from the current data, including the information required for subsequent statistical peak filtering. It can be passed to the formal filtering function to avoid recalculating the statistics.
+
+- Feature: it does not delete peaks. The returned `profile` can be reused for formal filtering.
+
+
+example:
+
+```python
 from massflow.tools.plot_peak_filter import plot_peak_filter_histogram
 
 # Peak alignment must be completed before using this function
@@ -109,12 +142,6 @@ profile = plot_peak_filter_histogram(
     show=False,
 )
 ```
-
-- Function: calculates statistical results and plots the distributions of peak occurrence frequency and intensity together with threshold lines. It can be used to check the occurrence count/frequency and aggregated-intensity distributions.
-
-- Feature: it does not delete peaks. The returned `profile` can be reused for formal filtering.
-
-  
 
 ![peak_filter_preview](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/peak_filter_preview.jpg_view)
 
