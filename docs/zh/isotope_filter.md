@@ -37,13 +37,14 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_isotopes(
 
 - 功能：在每条已质心化谱中识别同位素簇，删除簇内除最低 *m/z* 起始峰以外的峰。
 - 参数：
-  - `mz_tolerance`：同位素峰匹配容差，默认 `10.0`。输入值必须为有限正数
+  - `mz_tolerance`：同位素峰匹配容差，默认 `10.0`。输入值必须为有限正数。
   - `units`：容差单位，`"ppm"` 或 `"da"`，默认 `"ppm"`。`ppm`容差不能超过 `100 ppm`。`da` 容差不能超过 `0.1 Da`。
+  - 默认 `mz_tolerance=10.0` 是与默认 `units="ppm"` 配套的。如果将单位改为 `"da"`，必须同时将 `mz_tolerance` 改为适合 Da 单位的值。
   - `min_charge`、`max_charge`：搜索的电荷范围。搜索顺序从 `max_charge` 递减到 `min_charge`。电荷范围必须满足 `1 <= min_charge <= max_charge`。
   - `min_isotope_count`：一个候选簇被接受所需的最少峰数，包含起始峰。
   - `max_isotope_count`：一个候选簇最多检查的峰数，包含起始峰。
   - 同位素峰数必须满足 `2 <= min_isotope_count <= max_isotope_count`。
-  - `use_decreasing_model`：是否启用后续同位素峰强度递减约束。
+  - `use_decreasing_model`：是否启用后续同位素峰强度递减约束。当 `use_decreasing_model=False` 时，不执行同位素强度递减检查，此时 `start_intensity_check` 不再影响结果。
   - `start_intensity_check`：从第几个同位素索引开始检查强度递减，默认 `2`。输入值必须为非负整数值。
 
 示例：

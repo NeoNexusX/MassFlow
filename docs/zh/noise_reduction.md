@@ -6,7 +6,7 @@
 
 作者：董乐强，董京伟
 
-**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com)。
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
 
 ## 概述
 
@@ -52,7 +52,7 @@ massflow.preprocess.api.PreprocessorAPI.noise_reduction(
     - 建议范围：5–15，可根据峰宽和噪声强度调节。窗口越大越平滑，但也可能模糊窄峰。
   - `sd`：高斯核标准差，只用于高斯平滑。默认 `window / 4.0`，增大则平滑更强。
   - `polyorder`：Savitzky-Golay 多项式阶数，输入值必须小于 `window`值，默认 3。较低阶数（如 1）更平滑，较高阶数（如 3）保峰更好。
-  - `deriv`：导数阶数，只用于Savitzky–Golay平滑，默认 0。普通平滑必须保持 0；大于 0 时输出的是导数，不再是原始强度。
+  - `deriv`：导数阶数，只用于Savitzky–Golay平滑，默认 `0`。普通平滑必须保持 0；大于 0 时输出的是导数，不再是原始强度。输入必须为非负整数
   - `delta`：采样间隔，只用于Savitzky–Golay平滑，计算导数时的数据点间隔，默认 1.0。
 
 示例：

@@ -40,13 +40,13 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
 
   - `method`: normalization method, default `"tic_numba"`. Three methods are available: `"tic_numba"`, `"rms_numba"`, and `"ref_numba"`.
 
-    - Choose `"tic_numba"` first choice when total intensity needs to be comparable between pixels.
-    - Choose `"rms_numba"` when an RMS-based scale is appropriate; because intensities are squared, strong peaks have greater influence.
-    - Choose `"ref_numba"` when a known internal-standard peak is available.
+    - `“tic_numba”` normalizes based on the total ion current of each mass spectrum. This is suitable for situations where you want to reduce differences in the overall total signal intensity across different pixels.
+    - `“rms_numba”`: Normalizes based on the root-mean-square (RMS) intensity of each mass spectrum. Since intensities are squared when calculating the RMS, high-intensity signals have a relatively greater impact on the normalization factor.
+    - `“ref_numba”`: Normalizes based on a specified reference peak. Use this when known internal standard peaks or other clear and stable reference signals are present in the experiment.
 
   - `scale`: optional scaling factor applied after normalization. The value must be finite and non-negative. If supplied, normalized intensities are multiplied by this value. A common use is to set TIC-normalized data to 1,000 or 10,000 for easier numerical display.
 
-  - `ref`: target internal-standard *m/z* value. When `method="ref_numba"` and `ref` is `None`, a value is selected automatically.
+  - `ref`: target internal-standard *m/z* value, used by `method="ref_numba"` and If no value is entered, the program will automatically use the midpoint of the currently input m/z data as a temporary reference value.
 
   - `ref_tolerance`: matching tolerance for the reference peak, used by `ref_numba`. Default: `0.1 Da`. The value must be finite and non-negative.
 
@@ -117,7 +117,7 @@ Use case: suitable for reducing differences in total signal amount between pixel
 All peaks are scaled according to the root mean square intensity of the spectrum,
 $RMS=\sqrt{\frac{1}{n}\sum_{i=1}^{n}x_i^2}$. After normalization, the RMS of the spectrum is 1. If `scale` is set, the normalized result is multiplied by `scale`, and the RMS is then approximately equal to `scale`.
 
-Use case: less sensitive to strong peaks and more stable for data with a high dynamic range.
+Since intensity is squared during the calculation, high-intensity signals contribute relatively more to the RMS value. Therefore, RMS normalization and TIC normalization may produce different scaling results for mass spectra with different intensity distributions.
 
 ### Reference-Peak Normalization (`ref_numba`)
 
@@ -146,6 +146,8 @@ Reference-peak normalization (`ref_numba`) with `ref=500`:
 - Input validation: the input data must be a non-empty one-dimensional NumPy array; otherwise, a `TypeError` is raised.
 
 - `method` validation: only `"tic_numba"`, `"rms_numba"`, and `"ref_numba"` are supported.
+
+- When using `“ref_numba”`, you should check whether `ref` falls within the *m/z* range of the current data and ensure that the reference peak has a valid signal in the mass spectrum to be compared.
 
   
 

@@ -47,7 +47,7 @@ massflow.preprocess.api.PreprocessorAPI.peak_pick(
 - Parameters:
   - `width`: half-width of the local-maximum detection window, default `5`. It determines the neighborhood used for local-maximum detection. Larger values merge nearby small peaks, while smaller values retain more peaks. Recommended range: 3–11. Adjust it according to instrument resolution and the expected peak density.
   - `method`: noise-estimation method, `"sd" | "mad" | "quantile" | "diff"`; default `"quantile"`.
-    - `quantile` estimates the noise baseline from intensity quantiles. It is a general-purpose method, is not overly influenced by outlier peaks, and is usually the most robust choice.
+    - `quantile` estimates the noise baseline from intensity quantiles. It is a general-purpose method, is not overly influenced by outlier peaks and is a relatively robust choice.
     - `sd` estimates noise from the local standard deviation and is suitable when the noise distribution is relatively uniform across the data.
     - `mad` uses the median absolute deviation for robust noise estimation and is suitable when the data contain many outliers.
     - `diff` estimates noise from differences between adjacent points and is suitable when the baseline changes slowly and noise fluctuations are relatively small.
@@ -55,7 +55,9 @@ massflow.preprocess.api.PreprocessorAPI.peak_pick(
     - For data containing very large peaks, `"mad"` is more robust than `"sd"`.
   - `snr`: signal-to-noise threshold, default `2.0`. `snr × noise` defines the minimum peak intensity, and candidate peaks below this threshold are discarded. Recommended range: 1.5–5.0. Lower `snr` values retain more weak peaks, including more noise, while higher values are more conservative.
   - `return_type`: returned peak-intensity type: `"height"` for peak height or `"area"` for peak area. Default: `"height"`.
-  - `prominence`: measures how much a peak stands out relative to its surrounding local baseline. Peaks below this value are discarded (optional). When set to a value, peaks with lower prominence are removed.
+    - `“height”`: Uses the signal intensity at the peak’s highest point as the peak’s intensity. This method is simple to calculate and is suitable for standard peak extraction, peak alignment, and subsequent peak filtering; it is also the recommended choice for first-time users.
+    - `“area”`: Represents peak intensity as the integrated area within the peak’s boundaries. This method is suitable for analyses where you explicitly wish to utilize the complete peak shape information; in such cases, you should pay close attention to how `relheight` affects the integration boundaries.
+  - `prominence`: measures how much a peak stands out relative to its surrounding local baseline. Peaks below this value are discarded (optional). When set to a value, peaks with lower prominence are removed.The higher the value set, the stricter the filter.
   - `relheight`: relative height used to determine peak width (optional). It is meaningful only when `return_type="area"` and is used when calculating peak area.
   - `nbins`: number of chunks, default `1` (no chunking). The value must be `>= 1`. For extremely long spectra, such as FT-ICR data, chunked processing can reduce peak memory usage.
   - `overlap`: overlap ratio between chunks (`0 <= overlap < 1`), default `0.5`. Overlap prevents peaks near chunk boundaries from being lost because of chunking.
@@ -96,12 +98,26 @@ dm.close()
 This example performs the following steps:
 
 1. Read the imZML data.
-
 2. Apply Gaussian smoothing.
-
 3. Perform peak picking.
 
-   ![Snipaste_2026-08-11_20-45-03](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste_2026-08-11_20-45-03.jpg_view)
+The following are the results obtained using the same dataset but with different methods:
+
+`method=sd`
+
+![image-20260906171641959](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260906171642067.jpg_view)
+
+`method=mad`
+
+![image-20260906172246817](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260906172246913.jpg_view)
+
+`method=quantile`
+
+![Snipaste_2026-08-11_20-45-03](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste_2026-08-11_20-45-03.jpg_view)
+
+`method=diff`
+
+![image-20260906171459963](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260906171500063.jpg_view)
 
 
 

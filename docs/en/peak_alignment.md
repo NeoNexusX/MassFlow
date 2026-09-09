@@ -44,7 +44,7 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
 
 - Function: builds or accepts a reference *m/z* axis and aligns all spectra to that axis.
 - Parameters:
-  - `reference`: external reference *m/z* axis. If `None`, it is calculated automatically.
+  - `reference`: external reference *m/z* axis. If `None`, it is calculated automatically.Once a ready-made `reference` is provided, the program will not recreate the reference axes, and `min_count` and `min_frequency` will no longer be used in the selection of reference axes.
   - `tolerance`: half-width of the matching tolerance window. If `None`, it is estimated automatically from the data resolution.
   - `units`: tolerance unit, `"ppm"` (relative) or `"Da"` (absolute). The default is `"ppm"`, which adapts better across changing *m/z* ranges.
   - `binfun`: resolution aggregation strategy: `"median"`, `"min"`, or `"max"`.
