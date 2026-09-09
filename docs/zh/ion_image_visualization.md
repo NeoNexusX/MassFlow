@@ -85,10 +85,10 @@ massflow.tools.plot_ion_image.plot_ion_image(
   - `output_path`：图片保存路径。填写后会创建上级文件夹并保存图片。
   - `show`：是否弹出或显示图片。脚本批量运行时建议设为 `False`。当设置 `show=True` 时会在代码运行结束后自动显示图片 。
   - `dpi`：图片分辨率，默认 `300`。
-  - `figsize`：带坐标轴图片的画布大小。
+  - `figsize`：图片尺寸，默认 `(20, 5)`。
   - `title`：图片标题。
   - `structure_only`：设为 `True` 时，只保留实际采集区域，并使用透明背景；不会显示坐标轴、色条和标题。需要读出颜色对应的强度范围时，应使用 `structure_only=False`
-  - `cmap`：颜色方案，默认 `"viridis"`。
+  - `cmap`：设置离子图的颜色方案，默认 `"viridis"`。可使用绘图库支持的颜色方案，例如 `"plasma"`、`"inferno"`、`"magma"` 和 `"cividis"` 等。如需设置可查阅Matplotlib cmap参数相关讲解。	
   - `percentiles`：显示颜色范围，默认数值`percentiles=(0, 95)`。降低上限可让弱信号更明显，但也可能使高强度区域饱和。
   - `scale_factor`：整体图片缩放倍数，必须大于 `0`。
 - 输出：生成的离子图

@@ -157,10 +157,18 @@ export default withMermaid(
           text: '空间分析',
           collapsed: false,
           items: [
-            { text: '离子图可视化', link: '/zh/ion_image_visualization'},
             { text: 'UMAP', link: '/zh/umap'},
             { text: 'KMeans 聚类与区域选择', link: '/zh/segmentation'},
           ]
+        },
+          {
+          text: '可视化',
+          collapsed: false,
+          items: [
+              { text: '谱图可视化', link: '/zh/spectrum_visualization'},
+            { text: '离子图可视化', link: '/zh/ion_image_visualization'},
+
+            ]
         },
         {
           text: '环境配置',
@@ -198,9 +206,17 @@ export default withMermaid(
           text: 'Spatial Analysis',
             collapsed: false,
           items: [
-        { text: 'Ion Image Visualization', link: '/ion_image_visualization' },
         { text: 'UMAP', link: '/umap' },
         { text: 'KMeans Clustering and Region Selection', link: '/segmentation' },
+
+              ]
+          },
+          {
+          text: 'visualization',
+            collapsed: false,
+          items: [
+              { text: 'Spectrum Visualization', link: '/spectrum_visualization' },
+        { text: 'Ion Image Visualization', link: '/ion_image_visualization' },
 
               ]
           },

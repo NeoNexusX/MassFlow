@@ -57,6 +57,9 @@ massflow.preprocess.api.PreprocessorAPI.baseline_correction(
 
 - Parameters:
   - `method`: baseline correction method. The default is `"locmin_numba"`. Available methods are `"locmin_numba"` and `"snip_numba"`.
+    - `“locmin_numba”`: Establishes baseline anchors based on local minima; this parameter is relatively intuitive and is suitable for use as a standard baseline correction method to start with;
+    - `“snip_numba”`: Estimates the background iteratively; this can serve as an alternative option when peaks are densely packed or the background pattern is complex.
+  
   - `baseline_scale`: baseline scaling factor in the range `(0, 1]`, default `1.0`. Smaller values make over-subtraction less likely; `1.0` preserves the original algorithm behavior.
   - Parameters used with the LocMin Numba method:
     - `smooth`: LocMin smoothing method. `"none"` uses the original interpolation and `"loess"` uses local smoothing. Default: `"none"`..
@@ -110,7 +113,13 @@ This example performs the following steps:
 
 Example output:
 
+`"locmin_numba"` method：
+
 ![baseline_2026080959034](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/baseline_2026080959034.jpg_view)
+
+`"snip_numba"` method：
+
+![image-20260904003327523](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260904003334704.jpg_view)
 
 ## Overall Processing Workflow
 

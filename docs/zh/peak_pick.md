@@ -47,7 +47,7 @@ massflow.preprocess.api.PreprocessorAPI.peak_pick(
 - 参数：
   - `width`：局部极大值检测窗口半宽，默认 5。决定局部极大值检测的邻域范围。较大的 width 合并邻近小峰，较小的 width 保留更多峰。建议范围：3–11。根据仪器分辨率和期望峰密度调节。
   - `method`：噪声估计方法，`"sd" | "mad" | "quantile" | "diff"`，默认 `"quantile"`。
-    - `quantile`基于强度的分位数估计噪声基线,为通用方法但是对离群峰不敏感，是最稳健的选择。
+    - `quantile`基于强度的分位数估计噪声基线,为通用方法但是对离群峰不敏感，是相对稳健的选择。
     - `sd`基于局部标准差的噪声估计,适用于噪声分布在数据中比较均匀的情况
     - `mad`基于中位数绝对偏差的稳健估计，适用于含有较多离群值的情况
     - `diff`基于相邻点差分的噪声估计，适用于基线缓慢变化、噪声波动较小的情况
@@ -55,8 +55,10 @@ massflow.preprocess.api.PreprocessorAPI.peak_pick(
     - 对于含大峰的数据，`"mad"` 的稳健性优于 `"sd"`。
   - `snr`：信噪比阈值，默认 2.0。 `snr × noise` 为最小峰值，峰值低于此阈值的候选峰被丢弃。建议范围：1.5–5.0。较低的 snr 保留更多弱峰（含噪），较高的 snr 更保守。
   - `return_type`：峰强度返回类型，`"height"`（峰顶高度）或 `"area"`（峰面积），默认 `"height"`。
-  - `prominence`：衡量一个峰相对于周围局部基线的突出程度，小于此值的峰被丢弃（可选）。当设为非 None 值时，信号低于此突出度的峰将被丢弃。
-  - `relheight`：用于确定峰宽度的相对高度（可选）。仅在 `return_type="area"` 时有意义，用于计算峰面积。
+    - `"height"`：使用峰顶位置的信号强度作为该峰的强度。计算简单，适合常规峰提取、峰对齐和后续峰过滤，也是第一次使用时的推荐选择；
+    - `"area"`：使用峰边界范围内的积分面积表示峰强度。适合分析中明确希望利用完整峰形信息的情况，此时应重点检查 `relheight` 对积分边界的影响。
+  - `prominence`：衡量一个峰相对于周围局部基线的突出程度，小于此值的峰被丢弃（可选）。当设为非 None 值时，信号低于此突出度的峰将被丢弃。设置后数值越大，筛选越严格。
+  - `relheight`：用于确定峰宽度的相对高度（可选）。仅在 `return_type="area"` 时有意义，用于计算峰面积。它控制用于确定峰边界的相对高度，因此会进一步影响积分面积。
   - `nbins`：分块数，默认 1（不分块）。输入值必须`>= 1`。极长谱图（如 FT-ICR 数据），分块处理可降低内存峰值。
   - `overlap`：分块重叠比例（0 ≤ overlap < 1），默认 0.5。overlap 确保块边界附近的峰不会因分块而丢失。
   - `backend`：后端方法，`"python"`（默认）或 `"cardinal"`。
@@ -96,12 +98,28 @@ dm.close()
 该示例依次完成：
 
 1. 读取 imZML 数据；
-
 2. 进行高斯平滑；
+3. 进行峰提取
 
-3. 进行峰提取；
 
-   ![Snipaste_2026-08-11_20-45-03](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste_2026-08-11_20-45-03.jpg_view)
+
+以下为使用同一数据集，但是设置不同method所得到的结果：
+
+`method=sd` 
+
+![image-20260906171641959](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260906171642067.jpg_view)
+
+`method=mad` 
+
+![image-20260906172246817](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260906172246913.jpg_view)
+
+`method=quantile` 
+
+![Snipaste_2026-08-11_20-45-03](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste_2026-08-11_20-45-03.jpg_view)
+
+`method=diff` 
+
+![image-20260906171459963](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260906171500063.jpg_view)
 
 
 

@@ -533,6 +533,7 @@ If you want to learn more about the purpose of each processing step, see the fol
 - [Peak Alignment](./peak_alignment.md): establishes a shared reference *m/z* axis;
 - [Adduct Annotation and Filtering](./adduct_filter.md): identifies and checks possible adduct relationships;
 - [Statistical Peak Filtering](./stat_filter.md): further screens peaks according to occurrence frequency and intensity;
+- [Spectrum Visualization](./spectrum_visualization.md): View the spectrum 
 - [Ion Image Reading and Visualization](./ion_image_visualization.md): views the spatial distribution after processing;
 - [UMAP Dimensionality Reduction and Visualization](./umap.md): views overall mass-spectrometry differences between pixels;
 - [KMeans Tissue-Region Segmentation](./segmentation.md): views segmentation results and generates a region mask.

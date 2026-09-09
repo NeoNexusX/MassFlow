@@ -54,17 +54,17 @@ massflow.preprocess.api.PreprocessorAPI.baseline_correction(
 ```
 
 - 功能：按批次对所有质谱执行基线校正。
-
 - 参数：
   - `method`：基线校正方法，默认 `"locmin_numba"`。可选方法为`"locmin_numba"`和`"snip_numba"`
+    - `"locmin_numba"`：根据局部低点建立基线锚点，参数较直观，适合先作为常规基线校正方法尝试；
+    - `"snip_numba"`：通过迭代逐步估计背景，在峰较密集或背景形态较复杂时可以作为另一种选择。
   - `baseline_scale`：基线缩放因子，取值 `(0, 1]`，默认 1.0。值越小越不容易过度扣除；`1.0` 保持原生算法行为。
   - 选择LocMin Numba方法需要调整的参数：
     - `smooth`：LocMin 平滑方式，`"none"` 为原始插值；`"loess"` 为局部平滑；`"spline"` 为全局平滑。默认 `"none"`。
-    - `span`：Loess 平滑跨度比例（0 < span ≤ 1），默认 0.1。值越大越平滑。
+    - `span`：Loess 平滑跨度比例（0 < span ≤ 1），默认 0.1。值越大越平滑。该参数只有在 `smooth="loess"` 时生效。
     - `upper`：`True` 时使用局部最大值作为锚点（上包络），默认 `False`。为上包络时设为 `True`；基线一般保持 `False`。
     - `width`：局部极值检测的邻域宽度，默认 5。窗口越大，锚点越稀疏；建议从 5–9 开始。必须为整数且 `>= 3`。
     - `niter`：用于 LocMin 的迭代次数，默认 15。
-  
   - 选择SNIP Numba方法需要调整的参数
     - `m`：SNIP 窗口半宽；若为 `None` 则自动选择。默认自动选择 `min(100, max(10, n//10))`；窗口过大可能导致过度扣除。
     - `decreasing`：SNIP 迭代方向，`True` 为从大到小。`decreasing`：`True`（粗到细）通常更稳健；`False`（细到粗）更强调局部优先。
@@ -110,7 +110,13 @@ dm.close()
 
 输出结果展示：
 
+`"locmin_numba"`方法：
+
 ![baseline_2026080959034](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/baseline_2026080959034.jpg_view)
+
+`"snip_numba"`方法：
+
+![image-20260904003327523](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260904003334704.jpg_view)
 
 ## 总体处理流程图
 

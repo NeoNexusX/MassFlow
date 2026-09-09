@@ -41,7 +41,7 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_stats(
   - `intensity_method`：可选为平均强度 `"mean"` 或总强度 `"sum"`。
     - `mean` 会把缺失位置按零计入总谱数平均，更强调跨像素整体信号。
     - `sum` 会随谱数量变化，跨数据集比较阈值时需要谨慎。
-  - `min_intensity`：聚合强度绝对下限。
+  - `min_intensity`：聚合强度绝对下限，默认 `None`。设置后，仅保留聚合强度达到该阈值的 *m/z* 位置。
   - `intensity_quantile`：按整批峰的强度分布删除最低部分。范围 `(0, 1)`。 是相对阈值，适合先删除全局最弱的一部分 *m/z* 位置。若只想使用出现次数/频率条件，应设置为:`intensity_quantile=None`
   - `output_path`：该数据集过滤阶段的 imZML 输出路径；通常也可以在 `Preprocessor(..., output_path=...)` 中统一指定最终路径。
   
@@ -93,6 +93,34 @@ dm.close()
 ### plot_peak_filter_histogram
 
 ```python
+massflow.tools.plot_peak_filter.plot_peak_filter_histogram(
+    count_display: CountDisplay = "frequency",
+    intensity_method: IntensityMethod = "mean",
+    min_count: int | None = None,
+    min_frequency: float | None = None,
+    quantile: float | None = None,
+ 	show: bool = True,
+    output_path: str | Path | None = None,
+)
+```
+
+- 功能：计算统计结果，并绘制峰出现频率与强度分布及阈值线。可用于查看出现次数/频率和聚合强度分布
+
+- 参数：
+  -  `count_display`：控制峰出现情况的显示方式。`"frequency"` 表示显示峰在所有质谱中的出现频率；如果使用出现次数显示`count`，则展示每个峰实际出现的谱图数量。
+  - `intensity_method`：计算每个峰整体强度时使用的聚合方式。示例中的 `"mean"` 表示使用该峰在所有质谱中的平均强度。
+  - `min_frequency`：峰出现频率的参考阈值。`0.01` 表示峰至少需要出现在约 1% 的质谱中。该参数在预览图中用于绘制频率阈值线，本身不会删除峰。 
+  - `min_count`：峰出现次数的参考阈值。例如输入数值`10`表示某个峰至少要在 10 条质谱中出现，才会被保留；如果只在 9 条或更少的质谱中出现，就会被过滤掉。
+  
+  -  `quantile`：聚合强度的分位数阈值。`0.05` 表示以所有峰聚合强度的第 5 百分位作为参考阈值。
+  
+- 返回值：`profile`根据当前数据计算得到的峰统计结果，其中包含后续统计峰过滤所需要的信息。可以将其传给正式过滤函数，避免重复计算统计结果。
+
+- 特点：不会删除峰，返回的 `profile` 可复用于正式过滤。
+
+示例：
+
+```python
 from massflow.tools.plot_peak_filter import plot_peak_filter_histogram
 
 #使用前需要先完成峰对齐
@@ -108,11 +136,7 @@ profile = plot_peak_filter_histogram(
 )
 ```
 
-- 功能：计算统计结果，并绘制峰出现频率与强度分布及阈值线。可用于查看出现次数/频率和聚合强度分布
-
-- 特点：不会删除峰，返回的 `profile` 可复用于正式过滤。
-
-  
+- 
 
 ![peak_filter_preview](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/peak_filter_preview.jpg_view)
 

@@ -44,7 +44,7 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
 
 - 功能：建立或接收参考 *m/z* 轴，并把全部谱图对齐到该轴。
 - 参数：
-  - `reference`：外部参考 *m/z* 轴；`None` 时自动计算。
+  - `reference`：外部参考 *m/z* 轴；`None` 时自动计算。提供现成 `reference` 后，程序不会重新建立参考轴，`min_count` 和 `min_frequency` 也不再参与参考轴筛选。
   - `tolerance`：容差半窗口；`None` 时根据数据分辨率自动估算。
   - `units`：容差单位，`"ppm"`（相对）或 `"Da"`（绝对）。默认使用 `"ppm"`（相对容差），对 *m/z* 范围变化有更好的适应性。
   - `binfun`：分辨率聚合策略，`"median" | "min" | "max"`。

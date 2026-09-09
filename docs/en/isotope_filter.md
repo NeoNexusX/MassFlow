@@ -39,6 +39,7 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_isotopes(
 - Parameters:
   - `mz_tolerance`: isotope-peak matching tolerance, default `10.0`. The input value must be finite and positive.
   - `units`: tolerance unit, `"ppm"` or `"da"`, default `"ppm"`. The `ppm` tolerance cannot exceed `100 ppm`, and the `da` tolerance cannot exceed `0.1 Da`.
+  - The default `mz_tolerance=10.0` is intended to work with the default `units=“ppm”`. If you change the units to `“da”`, you must also adjust `mz_tolerance` to a value appropriate for Da units.
   - `min_charge`, `max_charge`: charge range to search. Charges are tested from `max_charge` down to `min_charge`. The range must satisfy `1 <= min_charge <= max_charge`.
   - `min_isotope_count`: minimum number of peaks required for a candidate cluster to be accepted, including the starting peak.
   - `max_isotope_count`: maximum number of peaks checked for a candidate cluster, including the starting peak.

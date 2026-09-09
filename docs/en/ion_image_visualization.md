@@ -88,7 +88,7 @@ massflow.tools.plot_ion_image.plot_ion_image(
   - `figsize`: canvas size for an image that includes axes.
   - `title`: image title.
   - `structure_only`: when `True`, only the actually acquired region is retained and the background is transparent. Axes, color bar, and title are not displayed. To read the intensity range represented by the colors, use `structure_only=False`.
-  - `cmap`: color map, default `"viridis"`.
+  - `cmap`: Sets the color scheme for the ion map; the default is `“viridis”`. You can use color schemes supported by the plotting library, such as `“plasma”`, `“inferno”`, `‘magma’`, and `“cividis”`. For more information on how to set this, refer to the documentation on Matplotlib's `cmap` parameter.
   - `percentiles`: displayed color range, default `percentiles=(0, 95)`. Lowering the upper percentile can make weak signals more visible, but may also saturate high-intensity regions.
   - `scale_factor`: overall image scaling factor; it must be greater than `0`.
 - Output: the generated ion image.
