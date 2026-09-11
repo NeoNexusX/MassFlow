@@ -62,7 +62,10 @@ def imzml_to_ion_image_data_manager(
         raise ValueError(f"Unsupported output format: {output_format}")
 
     zarr_options = (
-        {"chunk_size": input_meta.zarr_chunk_size}
+        {
+            "chunk_size": input_meta.zarr_chunk_size,
+            "compute_rms": input_meta.compute_rms,
+        }
         if output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR
         else {}
     )

@@ -27,6 +27,7 @@ def _run_pipeline(
     output_path=None,
     compute_mean_spectrum=False,
     compute_tic=False,
+    compute_rms=False,
 ):
     """Run the async pipeline once with specified parameters."""
     processed_data_manager = (
@@ -40,6 +41,7 @@ def _run_pipeline(
             output_path=None if output_path is None else str(output_path),
             compute_mean_spectrum=compute_mean_spectrum,
             compute_tic=compute_tic,
+            compute_rms=compute_rms,
         )
         .noise_reduction()
         .peak_pick()
@@ -115,6 +117,21 @@ def _collect_spectra_tic(data_manager):
             tics.append(intensity_flat[cursor:cursor + length].sum(dtype=np.float64))
             cursor += int(length)
     return np.array(tics, dtype=np.float64)
+
+def _collect_spectra_rms(data_manager):
+    """Recompute the per-pixel RMS from every stored spectrum."""
+    values = []
+    for _mz, intensity_flat, lengths, _coords in data_manager.flat_generator(
+        batch_size=128, include_mz=False, max_threads=2
+    ):
+        intensity_flat = np.asarray(intensity_flat, dtype=np.float64)
+        lengths = np.asarray(lengths)
+        cursor = 0
+        for length in lengths:
+            spectrum = intensity_flat[cursor:cursor + length]
+            values.append(np.sqrt(np.mean(np.square(spectrum), dtype=np.float64)))
+            cursor += int(length)
+    return np.array(values, dtype=np.float64)
 
 class TestAsyncPipeline:
     """Test class for the massflow pipeline."""
@@ -275,6 +292,7 @@ class TestAsyncPipeline:
                 temp_dir=tmp_path / "zarr_mean",
                 output_path=output_path,
                 compute_mean_spectrum=True,
+                compute_rms=True,
             ),
         )
 
@@ -284,6 +302,11 @@ class TestAsyncPipeline:
             [zarr_dm.get_ion_vector(ion_idx).mean(dtype=np.float64) for ion_idx in ion_indices]
         )
         np.testing.assert_allclose(zarr_dm.mean_spectrum[ion_indices], expected, rtol=1e-7, atol=1e-10) # type: ignore
+        pixel_matrix = np.vstack(
+            [zarr_dm.get_ion_vector(ion_idx) for ion_idx in range(zarr_dm.n_ions)]
+        ).T.astype(np.float64, copy=False)
+        expected_rms = np.sqrt(np.mean(np.square(pixel_matrix), axis=1))
+        np.testing.assert_allclose(zarr_dm.rms, expected_rms, rtol=1e-7, atol=1e-10) # type: ignore
 
     def test_zarr_conversion_computes_mean_spectrum(self, ms_raw_data, tmp_path, request):
         output_path = tmp_path / "conversion_mean.zarr"
@@ -315,6 +338,7 @@ class TestAsyncPipeline:
                 temp_dir=tmp_path / "zarr_tic",
                 output_path=output_path,
                 compute_tic=True,
+                compute_rms=True,
             ),
         )
 
@@ -324,6 +348,11 @@ class TestAsyncPipeline:
         expected = _collect_spectra_tic(zarr_dm)
         assert tic.shape == expected.shape
         np.testing.assert_allclose(tic, expected, rtol=1e-6, atol=1e-8)
+        rms = zarr_dm.rms
+        assert rms is not None
+        expected_rms = _collect_spectra_rms(zarr_dm)
+        assert rms.shape == expected_rms.shape
+        np.testing.assert_allclose(rms, expected_rms, rtol=1e-6, atol=1e-8)
 
     def test_three_output_formats_are_consistent(self, ms_raw_data, tmp_path, request):
         """The three output formats must be consistent with each other."""

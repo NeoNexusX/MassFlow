@@ -133,6 +133,15 @@ class MSIZarrReader:
         array = cast(zarr.Array, stats["tic"])
         return np.asarray(array[:])
 
+    def read_rms(self) -> np.ndarray | None:
+        if "stats" not in self.root:
+            return None
+        stats = cast(zarr.Group, self.root["stats"])
+        if "rms" not in stats:
+            return None
+        array = cast(zarr.Array, stats["rms"])
+        return np.asarray(array[:])
+
     # --- Pixel-major batch access --------------------------------------------
 
     def read_flat_batch(
@@ -293,6 +302,14 @@ class MSIZarrReader:
                 ) != int(self.coordinates.shape[0]):
                     raise ValueError(
                         "stats/tic must match axes/coordinates length."
+                    )
+            if "rms" in stats:
+                rms = cast(zarr.Array, stats["rms"])
+                if rms.ndim != 1 or int(
+                    rms.shape[0]
+                ) != int(self.coordinates.shape[0]):
+                    raise ValueError(
+                        "stats/rms must match axes/coordinates length."
                     )
 
     def close(self) -> None:
@@ -604,10 +621,17 @@ class MSIZarrReader:
             if stats is not None and "tic" in stats
             else None
         )
+        rms = (
+            cast(zarr.Array, stats["rms"])
+            if stats is not None and "rms" in stats
+            else None
+        )
         if mean_spectrum is not None and ZARR_GROUP_ION_IMAGE not in self.root:
             raise ValueError("stats/mean_spectrum requires an ion_image/ group.")
         if tic is not None and ZARR_GROUP_SPECTRA not in self.root:
             raise ValueError("stats/tic requires a spectra/ group.")
+        if rms is not None and ZARR_GROUP_SPECTRA not in self.root:
+            raise ValueError("stats/rms requires a spectra/ group.")
         if require_both and (mean_spectrum is None or tic is None):
             raise ValueError(
                 "combined stores require stats/mean_spectrum and stats/tic."
@@ -642,6 +666,21 @@ class MSIZarrReader:
                 raise ValueError("stats/tic attrs.source must be '/spectra'.")
             if tic.attrs.get("reduced_axis") != "mz":
                 raise ValueError("stats/tic attrs.reduced_axis must be 'mz'.")
+        if rms is not None:
+            if rms.ndim != 1 or int(rms.shape[0]) != int(
+                self.coordinates.shape[0]
+            ):
+                raise ValueError("stats/rms must match axes/coordinates length.")
+            if np.dtype(rms.dtype) != np.dtype(np.float64):
+                raise ValueError("stats/rms must be float64.")
+            if rms.attrs.get("source") != f"/{ZARR_GROUP_SPECTRA}":
+                raise ValueError("stats/rms attrs.source must be '/spectra'.")
+            if rms.attrs.get("reduced_axis") != "mz":
+                raise ValueError("stats/rms attrs.reduced_axis must be 'mz'.")
+            if rms.attrs.get("denominator") != "spectrum_points":
+                raise ValueError(
+                    "stats/rms attrs.denominator must be 'spectrum_points'."
+                )
 
 
 # ---------------------------------------------------------------------------

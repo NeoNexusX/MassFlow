@@ -35,7 +35,8 @@ sample.zarr/
 │   ├── offsets                     # [0, n_mz, 2*n_mz, ...] 或 cumulative lengths
 │   └── mz                          # 仅 processed 模式，逐点 m/z
 └── stats/
-    └── tic                         # 可选，source="/spectra"
+    ├── tic                         # 可选，source="/spectra"
+    └── rms                         # 可选，source="/spectra"
 ```
 
 ```text
@@ -55,6 +56,7 @@ sample.zarr/
 │   └── offsets                     # [0, n_ions, 2*n_ions, ...]
 └── stats/
     ├── tic                         # (n_pixels,)，source="/spectra"
+    ├── rms                         # 可选，(n_pixels,)，source="/spectra"
     └── mean_spectrum               # (n_ions,)，source="/ion_image"
 ```
 
@@ -294,11 +296,12 @@ v1.0 文件。
 
 ## 7. `stats/` 规范
 
-v1.1 中 `tic` 与 `mean_spectrum` 不再彼此互斥：
+v1.1 中 `tic`、`rms` 与 `mean_spectrum` 可以同时存在：
 
-- **combined 文件二者必选**，即使调用方没有显式打开统计量开关；
-- **单布局文件二者按各自开关可选**：ion-only 的 `mean_spectrum` 可选、
-  spectra-only 的 `tic` 可选。
+- **combined 文件的 `tic` 与 `mean_spectrum` 必选**，即使调用方没有显式打开
+  统计量开关；`rms` 按开关可选；
+- **单布局文件按各自开关可选**：ion-only 的 `mean_spectrum` 可选，
+  spectra-only 的 `tic` 与 `rms` 可选。
 
 ### 7.1 `stats/mean_spectrum`
 
@@ -343,6 +346,27 @@ finalize 时不重读任何一份完整 intensity。
 
 坐标去重时（重复坐标保留最后一条谱），`tic` 保留最后一条谱的 TIC；`mean_spectrum`
 同样基于 compact 后的有效像素计算。
+
+### 7.3 `stats/rms`
+
+```text
+shape = (n_pixels,)
+dtype = float64
+attrs.source = "/spectra"
+attrs.reduced_axis = "mz"
+attrs.denominator = "spectrum_points"
+```
+
+定义：
+
+```text
+rms[p] = sqrt(sum(spectra 的第 p 行的 intensity ** 2) / spectrum_length[p])
+```
+
+第 `p` 个元素对应 `axes/coordinates[p]`，顺序与 `stats/tic` 完全一致。
+continuous 模式下 `spectrum_length[p]` 等于共享 m/z 轴长度；processed 模式下取
+`spectra/offsets[p + 1] - spectra/offsets[p]`。RMS 在批写入阶段与 TIC 一起计算，
+finalize 时不重读完整 intensity。
 
 ---
 

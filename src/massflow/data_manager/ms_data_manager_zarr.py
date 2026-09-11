@@ -39,6 +39,7 @@ class MSDataManagerZarr(MSDataManager):
         storage_mode: ZarrStorageMode | None = None,
         chunk_size: int = 1,
         compute_tic: bool = False,
+        compute_rms: bool = False,
     ):
         if mode not in {"r", "w"}:
             raise ValueError("mode must be 'r' or 'w'")
@@ -60,6 +61,7 @@ class MSDataManagerZarr(MSDataManager):
         self._temp_dir = temp_dir
         self._chunk_size = max(1, int(chunk_size))
         self._compute_tic = bool(compute_tic)
+        self._compute_rms = bool(compute_rms)
         self.ms.meta = MetaDataZarr()
         self._storage_mode: ZarrStorageMode | None = storage_mode
         self._finalized = False
@@ -111,6 +113,7 @@ class MSDataManagerZarr(MSDataManager):
                 target_chunk_bytes=self._chunk_size * 1024 * 1024,
                 temp_dir=self._temp_dir,
                 compute_tic=self._compute_tic,
+                compute_rms=self._compute_rms,
             )
         return self._writer
 
@@ -131,6 +134,11 @@ class MSDataManagerZarr(MSDataManager):
     def tic(self) -> np.ndarray | None:
         """Return the per-pixel TIC array from stats/tic, if present."""
         return self._require_reader().read_tic()
+
+    @property
+    def rms(self) -> np.ndarray | None:
+        """Return the per-pixel RMS array from stats/rms, if present."""
+        return self._require_reader().read_rms()
 
     def preload_hook(self, *args, **kwargs):
         """Load metadata and shared m/z axis before building spectrum placeholders."""
