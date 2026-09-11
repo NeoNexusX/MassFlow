@@ -62,12 +62,29 @@ def test_apply_numba_runtime_prefers_explicit_override() -> None:
     assert get_num_threads() == 2
 
 
-def test_set_global_numba_runtime_validates_range() -> None:
+def test_set_global_numba_runtime_validates_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with pytest.raises(ValueError):
         set_global_numba_runtime(0)
 
-    with pytest.raises(ValueError):
-        set_global_numba_runtime(10**9)
+    limit = min(
+        get_logical_cpu_count(),
+        numba_runtime.config.NUMBA_NUM_THREADS,  # type: ignore[attr-defined]
+    )
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        numba_runtime.logger,
+        "warning",
+        lambda msg, *args: warnings.append(msg % args),
+    )
+
+    configured = set_global_numba_runtime(10**9)
+
+    assert configured["max_workers"] == limit
+    assert get_global_numba_runtime()["max_workers"] == limit
+    assert get_num_threads() == limit
+    assert warnings and "exceeds the available limit" in warnings[0]
 
 
 def test_set_global_numba_runtime_validates_type() -> None:
