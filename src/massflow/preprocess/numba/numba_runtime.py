@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import ctypes
 import os
 import platform
+import struct
 import subprocess
 from pathlib import Path, PurePosixPath
+from threading import Lock
 from typing import Iterator, Optional
 
 from numba import config, get_num_threads, set_num_threads
 
+from massflow.tools.logger import get_logger
 
+
+logger = get_logger(__name__)
 _NUMBA_RUNTIME_STATE: dict[str, Optional[int]] = {"max_workers": None}
+_AUTO_NUMBA_WORKERS: Optional[int] = None
+_NUMBA_RUNTIME_LOCK = Lock()
 _PROC_SELF_CGROUP = Path("/proc/self/cgroup")
 _PROC_SELF_MOUNTINFO = Path("/proc/self/mountinfo")
 _CGROUP_V2_FALLBACK_ROOT = Path("/sys/fs/cgroup")
@@ -19,7 +27,11 @@ _CGROUP_V1_FALLBACK_ROOTS = (
 )
 
 
-# Core detection logic part
+# ---------------------------------------------------------------------------
+# Available CPU capacity
+# ---------------------------------------------------------------------------
+
+
 def get_logical_cpu_count() -> int:
     """Return the logical CPU capacity available to the current process."""
     limits: list[int] = []
@@ -28,7 +40,8 @@ def get_logical_cpu_count() -> int:
         limits.append(system_count)
 
     try:
-        affinity_count = len(os.sched_getaffinity(0))
+        # Some platform stubs omit this optional API; unsupported calls are caught.
+        affinity_count = len(os.sched_getaffinity(0))  # type: ignore[attr-defined]
     except (AttributeError, OSError):
         pass
     else:
@@ -49,28 +62,14 @@ def _to_positive_int(raw: str) -> Optional[int]:
         return None
 
 
-def _read_sysctl_int(key: str) -> Optional[int]:
-    try:
-        output = subprocess.check_output(
-            ["sysctl", "-n", key], text=True, stderr=subprocess.DEVNULL
-        )
-        return _to_positive_int(output)
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return None
-
-
-def _read_int_file(file_path: Path) -> Optional[int]:
-    try:
-        return _to_positive_int(file_path.read_text(encoding="utf-8", errors="ignore"))
-    except OSError:
-        return None
-
-
 def _read_text_file(file_path: Path) -> Optional[str]:
     try:
         return file_path.read_text(encoding="utf-8", errors="ignore").strip()
     except OSError:
         return None
+
+
+# --- Linux cgroup quotas ----------------------------------------------------
 
 
 def _cpu_count_from_quota(quota_raw: str, period_raw: str) -> Optional[int]:
@@ -201,19 +200,15 @@ def _detect_linux_cgroup_cpu_count() -> Optional[int]:
             locations.append((filesystem, current, mount_point))
 
     if locations:
-        limits = [
-            count
-            for filesystem, current, mount_point in locations
-            for cgroup_dir in _iter_cgroup_ancestors(current, mount_point)
-            if (
-                count := (
-                    _read_v2_cpu_count(cgroup_dir)
-                    if filesystem == "cgroup2"
-                    else _read_v1_cpu_count(cgroup_dir)
-                )
+        limits: list[int] = []
+        for filesystem, current, mount_point in locations:
+            read_count = (
+                _read_v2_cpu_count if filesystem == "cgroup2" else _read_v1_cpu_count
             )
-            is not None
-        ]
+            for cgroup_dir in _iter_cgroup_ancestors(current, mount_point):
+                count = read_count(cgroup_dir)
+                if count is not None:
+                    limits.append(count)
         return min(limits) if limits else None
 
     fallback_limits = [
@@ -228,6 +223,23 @@ def _detect_linux_cgroup_cpu_count() -> Optional[int]:
     return min(fallback_limits) if fallback_limits else None
 
 
+# ---------------------------------------------------------------------------
+# Performance-core topology
+# ---------------------------------------------------------------------------
+
+# --- Apple ------------------------------------------------------------------
+
+
+def _read_sysctl_int(key: str) -> Optional[int]:
+    try:
+        output = subprocess.check_output(
+            ["sysctl", "-n", key], text=True, stderr=subprocess.DEVNULL
+        )
+        return _to_positive_int(output)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+
+
 def _detect_apple_performance_workers() -> Optional[int]:
     for key in ("hw.perflevel0.logicalcpu", "hw.perflevel0.physicalcpu"):
         if (count := _read_sysctl_int(key)) is not None:
@@ -235,75 +247,81 @@ def _detect_apple_performance_workers() -> Optional[int]:
     return None
 
 
+# --- Linux Intel ------------------------------------------------------------
+
+
 def _detect_linux_intel_performance_workers() -> Optional[int]:
+    cpu_list = _read_text_file(Path("/sys/devices/cpu_core/cpus"))
+    if not cpu_list:
+        return None
+
+    performance_cpus: set[int] = set()
     try:
-        if "GenuineIntel" not in Path("/proc/cpuinfo").read_text(
-            encoding="utf-8", errors="ignore"
-        ):
-            return None
-
-    except OSError:
+        for entry in cpu_list.split(","):
+            first, separator, last = entry.partition("-")
+            start = int(first)
+            end = int(last) if separator else start
+            if start < 0 or end < start:
+                return None
+            performance_cpus.update(range(start, end + 1))
+    except ValueError:
         return None
 
-    core_types = [
-        val
-        for p in Path("/sys/devices/system/cpu").glob("cpu[0-9]*/topology/core_type")
-        if (val := _read_int_file(p)) is not None
-    ]
+    try:
+        performance_cpus.intersection_update(os.sched_getaffinity(0))  # type: ignore[attr-defined]
+    except (AttributeError, OSError):
+        pass
 
-    if not core_types:
-        return None
-
-    perf_workers = core_types.count(max(core_types))
-    return perf_workers if perf_workers > 0 else None
+    return len(performance_cpus) or None
 
 
-def _run_windows_shell_text(script: str) -> Optional[str]:
-    commands = (
-        [
-            "powershell",
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            script,
-        ],
-        ["pwsh", "-NoProfile", "-NonInteractive", "-Command", script],
-    )
-
-    for cmd in commands:
-        try:
-            output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            continue
-
-        text = output.strip()
-        if text:
-            return text
-
-    return None
+# --- Windows ---------------------------------------------------------------
 
 
 def _detect_windows_intel_performance_workers() -> Optional[int]:
-    proc_id = os.environ.get("PROCESSOR_IDENTIFIER", "")
-    if "intel" not in proc_id.lower():
-        manufacturer = _run_windows_shell_text(
-            "(Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | "
-            "Select-Object -First 1 -ExpandProperty Manufacturer)"
-        )
-        if manufacturer is None or "intel" not in manufacturer.lower():
-            return None
+    # RelationProcessorCore records contain exactly one GROUP_AFFINITY.
+    # Layout: Relationship, Size, Flags, EfficiencyClass, Reserved[20],
+    # GroupCount, GroupMask.Mask (pointer-sized), GroupMask.Group, Reserved[3].
+    record = struct.Struct("@IIBB20xHPH6x")
+    # This backend runs only on Windows; POSIX stubs omit its ctypes APIs.
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    query = kernel32.GetLogicalProcessorInformationEx
+    query.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+    query.restype = ctypes.c_int
+    relation_processor_core = 0
+    error_insufficient_buffer = 122
 
-    detected = _run_windows_shell_text(
-        "$sum = (Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | "
-        "Measure-Object -Property NumberOfPerformanceCores -Sum).Sum; "
-        "if ($null -ne $sum -and [int]$sum -gt 0) { [int]$sum }"
-    )
-    if detected is None:
+    size = ctypes.c_uint32(0)
+    query(relation_processor_core, None, ctypes.byref(size))
+    if ctypes.get_last_error() != error_insufficient_buffer:  # type: ignore[attr-defined]
         return None
 
-    return _to_positive_int(detected)
+    buffer = ctypes.create_string_buffer(size.value)
+    if not query(relation_processor_core, buffer, ctypes.byref(size)):
+        return None
+
+    workers_by_class: dict[int, int] = {}
+    offset = 0
+    while offset < size.value:
+        if size.value - offset < record.size:
+            return None
+        relationship, length, _, efficiency, group_count, mask, _ = record.unpack_from(
+            buffer, offset
+        )
+        if (
+            relationship != relation_processor_core
+            or group_count != 1
+            or length < record.size
+            or offset + length > size.value
+        ):
+            return None
+        workers_by_class[efficiency] = (
+            workers_by_class.get(efficiency, 0) + mask.bit_count()
+        )
+        offset += length
+
+    # Higher EfficiencyClass values identify higher-performance cores.
+    return workers_by_class[max(workers_by_class)] if workers_by_class else None
 
 
 def detect_performance_core_workers() -> int:
@@ -320,20 +338,37 @@ def detect_performance_core_workers() -> int:
         detected = _detect_windows_intel_performance_workers()
 
     preferred_workers = detected if detected is not None else available_workers
+    # Numba injects NUMBA_NUM_THREADS into its config module at runtime.
     return max(
         1,
-        min(preferred_workers, available_workers, config.NUMBA_NUM_THREADS),
+        min(preferred_workers, available_workers, config.NUMBA_NUM_THREADS),  # type: ignore[attr-defined]  # pylint: disable=no-member
     )
 
 
-# Thread control part
+# ---------------------------------------------------------------------------
+# Runtime configuration and thread control
+# ---------------------------------------------------------------------------
 
 
-def _set_threads_if_needed(target: int) -> None:
+def _resolve_workers(target: int) -> int:
     if not isinstance(target, int):
         raise TypeError("max_workers must be an integer or None")
     if target < 1:
         raise ValueError("max_workers must be >= 1")
+
+    limit = min(get_logical_cpu_count(), config.NUMBA_NUM_THREADS)  # type: ignore[attr-defined]  # pylint: disable=no-member
+    if target > limit:
+        logger.warning(
+            "Requested max_workers=%d exceeds the available limit=%d; using %d workers.",
+            target,
+            limit,
+            limit,
+        )
+        return limit
+    return target
+
+
+def _set_threads_if_needed(target: int) -> None:
     if get_num_threads() != target:
         set_num_threads(target)
 
@@ -341,32 +376,54 @@ def _set_threads_if_needed(target: int) -> None:
 def set_global_numba_runtime(
     max_workers: Optional[int] = None,
 ) -> dict[str, Optional[int]]:
+    """Set shared worker options and apply an explicit value to this thread.
+
+    Other Python threads must call apply_numba_runtime() to use these options.
+    Passing None clears the override and cached automatic count; this thread's
+    mask is unchanged until its next apply_numba_runtime() call. Positive values
+    above the available CPU or Numba pool limit are capped with a warning;
+    the effective value is stored in the shared options.
     """
-    Set process-global Numba runtime options.
-    Current scope manages only worker count. Passing None clears the override.
-    """
+    global _AUTO_NUMBA_WORKERS  # pylint: disable=global-statement
+
     if max_workers is not None:
+        max_workers = _resolve_workers(max_workers)
         _set_threads_if_needed(max_workers)
 
-    _NUMBA_RUNTIME_STATE["max_workers"] = max_workers
-    return get_global_numba_runtime()
+    with _NUMBA_RUNTIME_LOCK:
+        _NUMBA_RUNTIME_STATE["max_workers"] = max_workers
+        if max_workers is None:
+            _AUTO_NUMBA_WORKERS = None
+        return dict(_NUMBA_RUNTIME_STATE)
 
 
 def get_global_numba_runtime() -> dict[str, Optional[int]]:
-    """Get process-global Numba runtime options."""
-    return dict(_NUMBA_RUNTIME_STATE)
+    """Get shared worker options, not the calling thread's active thread count."""
+    with _NUMBA_RUNTIME_LOCK:
+        return dict(_NUMBA_RUNTIME_STATE)
 
 
 def apply_numba_runtime(override_workers: Optional[int] = None) -> int:
-    """Apply per-call worker override, otherwise use global runtime setting.
-    If the global setting is not initialized, it will optimize it once.
+    """Apply a worker count to the calling thread and return the effective count.
+
+    Precedence is per-call override, shared override, then cached automatic
+    detection. Positive counts are capped by available CPUs and Numba's pool
+    limit, with a warning when capped. Automatic detection is cached until
+    set_global_numba_runtime(None).
+    The resulting thread mask remains active after this call.
     """
+    global _AUTO_NUMBA_WORKERS  # pylint: disable=global-statement
+
     if override_workers is not None:
         target = override_workers
     else:
-        target = _NUMBA_RUNTIME_STATE["max_workers"]
-        if target is None:
-            target = detect_performance_core_workers()
+        with _NUMBA_RUNTIME_LOCK:
+            target = _NUMBA_RUNTIME_STATE["max_workers"]
+            if target is None:
+                if _AUTO_NUMBA_WORKERS is None:
+                    _AUTO_NUMBA_WORKERS = detect_performance_core_workers()
+                target = _AUTO_NUMBA_WORKERS
 
+    target = _resolve_workers(target)
     _set_threads_if_needed(target)
     return target

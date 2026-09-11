@@ -31,6 +31,7 @@ from massflow.preprocess.pipeline.types import (
 from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
 from massflow.tools.infer_spectrum_type import set_spectrum_type_metadata
 from massflow.tools.logger import get_logger
+from massflow.tools.read_matrix import filter_target_indices
 
 logger = get_logger("massflow.preprocess.pipeline.flat_executor")
 
@@ -364,7 +365,16 @@ def run_flat_task(
     input_meta: InputMetaData,
     output_meta: OutputMetaData,
 ) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
-    total_batches = (len(data_manager.ms) + input_meta.batch_size - 1) // input_meta.batch_size
+    # Count source records, including duplicate coordinates, as flat_generator does.
+    if isinstance(data_manager, MSDataManagerImzML):
+        total_spectra = filter_target_indices(
+            data_manager.parser.coordinates, data_manager.target_locs
+        ).size
+    elif isinstance(data_manager, MSDataManagerZarr):
+        total_spectra = data_manager._target_indices().size # pylint: disable=protected-access
+    else:
+        total_spectra = len(data_manager.ms)
+    total_batches = (total_spectra + input_meta.batch_size - 1) // input_meta.batch_size
 
     data_sink = FlatOutputSink.create(
         source_data_manager=data_manager,
