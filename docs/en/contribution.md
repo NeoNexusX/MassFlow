@@ -67,7 +67,7 @@ Welcome to contribute to MassFlow! This document provides a unified workflow and
 - Naming style and module boundaries are consistent; interfaces and data contracts comply with conventions
 - No obvious performance or memory issues; avoid unnecessary copies/allocations
 - Assertions and error handling are in place; edge cases are covered
-- Documentation updates (README/Chinese docs/examples) are in place
+- Documentation updates (README/docs/examples) are in place
 - Passed local and CI checks; new/updated tests cover critical logic
 - Clear change description
 
