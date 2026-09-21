@@ -105,7 +105,6 @@ def _apply_imzml_mask(
     """Write selected imzML spectra to a new imzML manager."""
     output = MSDataManagerImzML(
         filepath=str(output_path),
-        max_threads=data_manager.max_threads,
         temp_dir=None if temp_dir is None else str(temp_dir),
         mz_dtype=data_manager.mz_dtype,
         intensity_dtype=data_manager.intensity_dtype,

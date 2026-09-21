@@ -70,7 +70,6 @@ def _expected_tic_image(dm: MSDataManagerImzML) -> np.ndarray:
     for _mz_axis, intensity_flat, lengths, coordinates in dm.flat_generator(
         batch_size=4,
         include_mz=False,
-        max_threads=2,
     ):
         coord_parts.append(np.asarray(coordinates))
         value_parts.append(_sum_by_lengths(np.asarray(intensity_flat), np.asarray(lengths, dtype=np.int64)))
@@ -84,7 +83,6 @@ def _expected_shared_ion_image(dm: MSDataManagerImzML, ion_idx: int) -> np.ndarr
     for mz_axis, intensity_flat, lengths, coordinates in dm.flat_generator(
         batch_size=4,
         include_mz=True,
-        max_threads=2,
     ):
         mz_axis = np.asarray(mz_axis)
         lengths = np.asarray(lengths, dtype=np.int64)
@@ -111,7 +109,6 @@ def _expected_processed_ion_image(
     for mz_flat, intensity_flat, lengths, coordinates in dm.flat_generator(
         batch_size=2,
         include_mz=True,
-        max_threads=2,
     ):
         mz_flat = np.asarray(mz_flat)
         intensity_flat = np.asarray(intensity_flat)
@@ -162,7 +159,6 @@ def _write_backend_from_real_subset(
         for mz_axis, intensity_flat, lengths, coordinates in dm.flat_generator(
             batch_size=4,
             include_mz=True,
-            max_threads=2,
         ):
             mz_axis = np.asarray(mz_axis)
             lengths = np.asarray(lengths, dtype=np.int64)
@@ -237,7 +233,7 @@ class TestPlotIonImage:
         dm.close()
 
     def test_read_tic_image_from_real_imzml_matches_flat_generator(self, continuous_dm):
-        image = read_tic_image(continuous_dm, batch_size=4, max_threads=2)
+        image = read_tic_image(continuous_dm, batch_size=4)
         expected = _expected_tic_image(continuous_dm)
 
         np.testing.assert_allclose(image, expected, rtol=1e-6, atol=1e-6)
@@ -249,7 +245,7 @@ class TestPlotIonImage:
         mz_axis = np.asarray(continuous_dm.ms.shared_mz_list)
         requested_mz = float(mz_axis[ion_idx] + (mz_axis[ion_idx + 1] - mz_axis[ion_idx]) * 0.1)
 
-        image = read_ion_image(continuous_dm, mz=requested_mz, batch_size=4, max_threads=2)
+        image = read_ion_image(continuous_dm, mz=requested_mz, batch_size=4)
         expected = _expected_shared_ion_image(continuous_dm, ion_idx)
 
         np.testing.assert_allclose(image, expected, rtol=1e-6, atol=1e-6)
@@ -260,7 +256,7 @@ class TestPlotIonImage:
 
     def test_processed_real_imzml_nearest_without_mz_tolerance_matches_flat_generator(self, processed_dm):
         mz_flat, _intensity_flat, _lengths, _coordinates = next(
-            processed_dm.flat_generator(batch_size=2, include_mz=True, max_threads=2)
+            processed_dm.flat_generator(batch_size=2, include_mz=True)
         )
         requested_mz = float(np.asarray(mz_flat)[0])
 
@@ -268,7 +264,6 @@ class TestPlotIonImage:
             processed_dm,
             mz=requested_mz,
             batch_size=2,
-            max_threads=2,
         )
         expected = _expected_processed_ion_image(processed_dm, requested_mz)
 
@@ -276,7 +271,7 @@ class TestPlotIonImage:
 
     def test_processed_real_imzml_mz_window_matches_flat_generator(self, processed_dm):
         mz_flat, _intensity_flat, _lengths, _coordinates = next(
-            processed_dm.flat_generator(batch_size=2, include_mz=True, max_threads=2)
+            processed_dm.flat_generator(batch_size=2, include_mz=True)
         )
         requested_mz = float(np.asarray(mz_flat)[0])
         mz_tolerance = 0.01
@@ -286,7 +281,6 @@ class TestPlotIonImage:
             mz=requested_mz,
             mz_tolerance=mz_tolerance,
             batch_size=2,
-            max_threads=2,
         )
         expected = _expected_processed_ion_image(processed_dm, requested_mz, mz_tolerance)
 

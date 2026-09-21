@@ -84,7 +84,6 @@ def _cache_example_flat_batches(*, batch_size: int = 256):
         for mz_axis, intensity_flat, lengths, coordinates in dm.flat_generator(
             batch_size=batch_size,
             include_mz=True,
-            max_threads=2,
         ):
             batches.append(
                 (
@@ -355,7 +354,7 @@ class TestZarrCorrectness:
         assert root["metadata"].attrs["pixel_size_x"] == 50.0
         rms = cast(zarr.Array, root["stats/rms"])
         np.testing.assert_allclose(
-            rms[:],
+            np.asarray(rms[:], dtype=np.float64),
             np.array([np.sqrt(50.5), np.sqrt(202.0)], dtype=np.float64),
         )
         assert rms.attrs["source"] == "/spectra"
@@ -414,6 +413,7 @@ class TestZarrCorrectness:
             compute_rms=True,
         )
         try:
+            assert dm.rms is not None
             np.testing.assert_allclose(
                 dm.rms,
                 np.array([np.sqrt(50.5), np.sqrt(202.0)], dtype=np.float64),
@@ -422,6 +422,7 @@ class TestZarrCorrectness:
             dm.close()
 
         with IonImageDataManagerZarr(str(path), mode="r") as reopened:
+            assert reopened.rms is not None
             np.testing.assert_allclose(
                 reopened.rms,
                 np.array([np.sqrt(50.5), np.sqrt(202.0)], dtype=np.float64),

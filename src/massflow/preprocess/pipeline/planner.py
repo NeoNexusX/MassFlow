@@ -51,8 +51,6 @@ def _resolve_input_meta(input_meta: InputMetaData) -> InputMetaData:
         input_meta,
         temp_dir=temp_dir,
         result_path=_normalize_output_path(input_meta, temp_dir),
-        numba_max_threads=input_meta.numba_max_threads or None,
-        output_max_workers=max(1, input_meta.output_max_workers),
     )
 
 def _arrange_tasks(tasks, spectrum_type) -> list[PreprocessTask]:

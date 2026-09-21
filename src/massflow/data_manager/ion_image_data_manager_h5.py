@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import os
 import uuid
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
+from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
 from typing import cast
@@ -17,6 +18,8 @@ import h5py
 import hdf5plugin
 import numpy as np
 
+from massflow.concurrency import get_effective_budget
+from massflow.concurrency.runtime import io_executor
 from massflow.data_manager.ion_image_data_manager import IonImageDataManager
 from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
 from massflow.tools.ion_major_temp_store import BatchInfo, IonMajorTempStore
@@ -222,7 +225,8 @@ class IonImageDataManagerH5(IonImageDataManager):
             )
             block = max(16, self.ion_block)
             starts = list(range(0, n, block))
-            with ThreadPoolExecutor(max_workers=1) as executor:
+            prefetch = get_effective_budget() != 1
+            with io_executor(max_workers=1) if prefetch else nullcontext() as executor:
                 future: Future[np.ndarray] | None = None
                 for index, start in enumerate(starts):
                     end = min(n, start + block)
@@ -241,7 +245,7 @@ class IonImageDataManagerH5(IonImageDataManager):
                     else:
                         current = future.result()
                     future = None
-                    if index + 1 < len(starts):
+                    if executor is not None and index + 1 < len(starts):
                         next_start = starts[index + 1]
                         next_end = min(n, next_start + block)
                         future = executor.submit(

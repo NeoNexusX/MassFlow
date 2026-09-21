@@ -5,12 +5,16 @@
 from __future__ import annotations
 
 import os
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
+from contextlib import nullcontext
 from pathlib import Path
 from typing import cast
 
 import numpy as np
 import zarr
+
+from massflow.concurrency import get_effective_budget
+from massflow.concurrency.runtime import io_executor
 
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.msi_zarr.schema import (
@@ -387,22 +391,26 @@ class MSIZarrWriter:
     def _compact_spectra_arrays(self, source_idx: np.ndarray) -> None:
         assert self._spectra_intensity is not None
         assert self._spectra_offsets is not None
+        # Single bulk read from zarr, gather in numpy, single write back.
+        # Avoids per-row zarr sync overhead (and potential deadlocks with
+        # zarr v3's asyncio-based sync in constrained runtimes).
         old_offsets = np.asarray(self._spectra_offsets[:], dtype=np.int64)
-        destination = 0
+        starts = old_offsets[source_idx]
+        lengths = old_offsets[source_idx + 1] - starts
+        total = int(lengths.sum())
+        gather_idx = np.repeat(starts, lengths) + np.concatenate(
+            [np.arange(n) for n in lengths]
+        )
+        all_intensity = np.asarray(self._spectra_intensity[:])
+        compacted = all_intensity[gather_idx]
         new_offsets = np.empty(source_idx.size + 1, dtype="<i8")
+        np.cumsum(lengths, out=new_offsets[1:])
         new_offsets[0] = 0
-        for output_row, source_row in enumerate(source_idx):
-            start = int(old_offsets[source_row])
-            end = int(old_offsets[source_row + 1])
-            intensity = np.asarray(self._spectra_intensity[start:end])
-            next_destination = destination + intensity.size
-            self._spectra_intensity[destination:next_destination] = intensity
-            destination = next_destination
-            new_offsets[output_row + 1] = destination
-        self._spectra_intensity.resize((destination,))
+        self._spectra_intensity.resize((total,))
+        self._spectra_intensity[:] = compacted
         self._spectra_offsets.resize(new_offsets.shape)
         self._spectra_offsets[:] = new_offsets
-        self._spectra_total_points = destination
+        self._spectra_total_points = total
 
     # --- Pixel-major finalization --------------------------------------------
 
@@ -529,26 +537,27 @@ class MSIZarrWriter:
     def _compact_pixel_arrays(self, source_idx: np.ndarray) -> None:
         assert self._intensity is not None and self._offsets is not None
         old_offsets = np.asarray(self._offsets[:], dtype=np.int64)
-        destination = 0
+        starts = old_offsets[source_idx]
+        lengths = old_offsets[source_idx + 1] - starts
+        total = int(lengths.sum())
+        gather_idx = np.repeat(starts, lengths) + np.concatenate(
+            [np.arange(n) for n in lengths]
+        )
         new_offsets = np.empty(source_idx.size + 1, dtype="<i8")
+        np.cumsum(lengths, out=new_offsets[1:])
         new_offsets[0] = 0
-        for output_row, source_row in enumerate(source_idx):
-            start = int(old_offsets[source_row])
-            end = int(old_offsets[source_row + 1])
-            intensity = np.asarray(self._intensity[start:end])
-            next_destination = destination + intensity.size
-            self._intensity[destination:next_destination] = intensity
-            if self._point_mz is not None:
-                mz = np.asarray(self._point_mz[start:end])
-                self._point_mz[destination:next_destination] = mz
-            destination = next_destination
-            new_offsets[output_row + 1] = destination
-        self._intensity.resize((destination,))
+        # Bulk read → gather → write for intensity
+        all_intensity = np.asarray(self._intensity[:])
+        self._intensity.resize((total,))
+        self._intensity[:] = all_intensity[gather_idx]
+        # Same for mz if present
         if self._point_mz is not None:
-            self._point_mz.resize((destination,))
+            all_mz = np.asarray(self._point_mz[:])
+            self._point_mz.resize((total,))
+            self._point_mz[:] = all_mz[gather_idx]
         self._offsets.resize(new_offsets.shape)
         self._offsets[:] = new_offsets
-        self._total_points = destination
+        self._total_points = total
 
     # --- Ion-major writing ----------------------------------------------------
 
@@ -616,7 +625,8 @@ class MSIZarrWriter:
             return band
 
         starts = list(range(0, n_ions, merge_rows))
-        with ThreadPoolExecutor(max_workers=1) as executor:
+        prefetch = get_effective_budget() != 1
+        with io_executor(max_workers=1) if prefetch else nullcontext() as executor:
             future: Future[np.ndarray] | None = None
             for index, ion_start in enumerate(starts):
                 ion_end = min(n_ions, ion_start + merge_rows)
@@ -626,7 +636,7 @@ class MSIZarrWriter:
                     else future.result()
                 )
                 future = None
-                if index + 1 < len(starts):
+                if executor is not None and index + 1 < len(starts):
                     next_start = starts[index + 1]
                     next_end = min(n_ions, next_start + merge_rows)
                     future = executor.submit(assemble_band, next_start, next_end)

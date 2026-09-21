@@ -33,7 +33,7 @@ MassFlow的组织区域划分通常需要经过“运行 → 查看结果 → �
 ```python
 massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
     *,
-    sample_ratio: float = 0.1,
+    sample_ratio: float = 1.0,
     transform_batch_size: int | None = 1024,
     dpi: int = 600,
     save_images: bool = True,
@@ -88,7 +88,7 @@ pipeline = SegmentationPipeline(
 
 ```
 result = pipeline.run_umap_kmeans(
-    sample_ratio=0.1,
+    sample_ratio=1.0,
     n_clusters=10,
     random_state=0,
     save_images=True,

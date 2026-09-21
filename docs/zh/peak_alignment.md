@@ -149,7 +149,6 @@ preprocess.helper.peak_align_helper.reference_computer(
     tolerance: Optional[float] = None,
     units: str = "ppm",
     batch_size: int = 256,
-    max_threads: int = 2,
     min_count: Optional[int] = None,
     min_frequency: Optional[float] = None,
 ) -> tuple[NDArray, float]

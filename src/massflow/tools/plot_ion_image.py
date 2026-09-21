@@ -282,7 +282,6 @@ def _read_imzml_tic_image(
     manager: Any,
     *,
     batch_size: int,
-    max_threads: int,
 ) -> np.ndarray:
     """Read a TIC image from imzML by summing each spectrum and scattering by coordinate."""
     zero_based, width, height = _imzml_image_geometry(manager)
@@ -291,7 +290,6 @@ def _read_imzml_tic_image(
     for _mz_data, intensity_flat, lengths, coordinates in manager.flat_generator(
         batch_size=batch_size,
         include_mz=False,
-        max_threads=max_threads,
     ):
         intensity_flat = np.asarray(intensity_flat)
         lengths = np.asarray(lengths, dtype=np.int64)
@@ -317,7 +315,6 @@ def _read_imzml_ion_image(
     *,
     mz: float | None,
     batch_size: int,
-    max_threads: int,
     mz_tolerance: float | None,
 ) -> np.ndarray:
     """Read an imzML ion image using nearest-peak or m/z-window selection."""
@@ -333,7 +330,6 @@ def _read_imzml_ion_image(
     for mz_data, intensity_flat, lengths, coordinates in manager.flat_generator(
         batch_size=batch_size,
         include_mz=True,
-        max_threads=max_threads,
     ):
         mz_arr = None if mz_data is None else np.asarray(mz_data)
         intensity_flat = np.asarray(intensity_flat)
@@ -532,7 +528,6 @@ def read_ion_image(
     *,
     mz: float | None = None,
     batch_size: int = 256,
-    max_threads: int = 2,
     mz_tolerance: float | None = None,
 ) -> np.ndarray:
     """Read a single ion image from a supported data manager."""
@@ -546,7 +541,6 @@ def read_ion_image(
             data_manager,
             mz=mz,
             batch_size=int(batch_size),
-            max_threads=int(max_threads),
             mz_tolerance=mz_tolerance,
         )
     if isinstance(data_manager, IonImageManager):
@@ -563,7 +557,6 @@ def read_tic_image(
     data_manager: SupportedDataManager,
     *,
     batch_size: int = 256,
-    max_threads: int = 2,
 ) -> np.ndarray:
     """Read a total-ion-current image from a supported data manager."""
     if isinstance(data_manager, MSDataManagerImzML):
@@ -572,7 +565,6 @@ def read_tic_image(
         return _read_imzml_tic_image(
             data_manager,
             batch_size=int(batch_size),
-            max_threads=int(max_threads),
         )
     if isinstance(data_manager, IonImageManager):
         logger.info("Reading TIC image from ion-image data manager.")
@@ -680,7 +672,6 @@ def plot_ion_image(
     *,
     mz: float | None = None,
     batch_size: int = 256,
-    max_threads: int = 2,
     mz_tolerance: float | None = None,
     output_path: str | Path | None = None,
     show: bool = True,
@@ -699,7 +690,6 @@ def plot_ion_image(
         data_manager,
         mz=mz,
         batch_size=batch_size,
-        max_threads=max_threads,
         mz_tolerance=mz_tolerance,
     )
     valid_mask = (
@@ -724,7 +714,6 @@ def plot_tic_image(
     data_manager: SupportedDataManager,
     *,
     batch_size: int = 256,
-    max_threads: int = 2,
     output_path: str | Path = "./tic_image_output/tic_image.png",
     save_image: bool = True,
     save_matrix: bool = False,
@@ -742,7 +731,6 @@ def plot_tic_image(
     image_matrix = read_tic_image(
         data_manager,
         batch_size=batch_size,
-        max_threads=max_threads,
     )
     if save_image:
         _validate_plot_options(percentiles, scale_factor)

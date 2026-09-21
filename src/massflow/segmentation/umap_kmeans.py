@@ -16,6 +16,12 @@ import zarr
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import MinMaxScaler
 
+from massflow.concurrency import (
+    get_allocation,
+    phase,
+    resolve_compute_workers,
+)
+
 from massflow.data_manager import (
     IonImageDataManagerBinary,
     IonImageDataManagerH5,
@@ -67,23 +73,29 @@ def _create_umap_reducer(
     random_state: int | None,
 ) -> umap.UMAP:
     """Create the UMAP reducer used by feature analysis."""
+    # -1 keeps UMAP's own default (use the calling thread's numba mask); a
+    # positive allocation is applied by UMAP itself during fit.
+    umap_jobs = get_allocation("compute", default=-1)
+    if umap_jobs > 0:
+        umap_jobs = resolve_compute_workers(umap_jobs)
     return umap.UMAP(
         metric=metric,
         output_metric="euclidean",
         n_components=n_components,
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=umap_jobs,
         force_approximation_algorithm=True,
     )
 
 
+@phase("umap")
 def compute_streaming_umap_embeddings(
     data_manager: Any,
     *,
     n_components: int = 3,
     metric: str = "cosine",
     random_state: int | None = None,
-    sample_ratio: float = 0.2,
+    sample_ratio: float = 1.0,
     transform_batch_size: int = 512,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute UMAP embeddings with sample-fit and batch-transform."""
@@ -253,11 +265,12 @@ def kmeans_clustering(
     """Perform KMeans clustering on embeddings."""
     logger.info(f"Performing KMeans clustering with {n_clusters} clusters.")
 
-    clusters = KMeans(
-        n_clusters=n_clusters,
-        random_state=random_state,
-        n_init="auto",
-    ).fit_predict(embeddings)
+    with phase("kmeans"):
+        clusters = KMeans(
+            n_clusters=n_clusters,
+            random_state=random_state,
+            n_init="auto",
+        ).fit_predict(embeddings)
 
     return clusters
 
@@ -965,7 +978,7 @@ def plot_umap_image(
     output_path: str | Path = "./umap_image.jpg",
     dpi: int = 600,
     save_matrix: Literal["zarr"] | None = None,
-    sample_ratio: float = 0.1,
+    sample_ratio: float = 1.0,
     transform_batch_size: int | None = 1024,
     n_components: int = 3,
     umap_metric: str = "cosine",
@@ -1016,7 +1029,7 @@ def plot_umap_kmeans_image(
     data_manager: Any,
     *,
     output_dir: str | Path = "./umap_kmeans_output",
-    sample_ratio: float = 0.1,
+    sample_ratio: float = 1.0,
     transform_batch_size: int | None = 1024,
     dpi: int = 600,
     save_images: bool = True,

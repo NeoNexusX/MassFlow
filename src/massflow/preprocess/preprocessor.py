@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from massflow.data_manager import (
     MSDataManagerImzML,
@@ -49,10 +49,8 @@ class Preprocessor(PreprocessorAPI):
         queue_ab_size: int = 1,
         queue_bc_size: int = 1,
         temp_dir: str = "./temp",
-        numba_max_threads: Optional[int] = None,
         output_format: OutputFormat = OUTPUT_FORMAT_IMZML,
         output_path: str | None = None,
-        output_max_workers: int = 2,
         compute_mean_spectrum: bool = False,
         compute_tic: bool = False,
         compute_rms: bool = False,
@@ -79,10 +77,8 @@ class Preprocessor(PreprocessorAPI):
         self.temp_dir = temp_dir
         self.queue_ab_size = queue_ab_size
         self.queue_bc_size = queue_bc_size
-        self.numba_max_threads = numba_max_threads
         self.output_format = output_format
         self.output_path = output_path
-        self.output_max_workers = output_max_workers
         self.ion_block = ion_block
         self.zarr_chunk_size = zarr_chunk_size
         self.compute_mean_spectrum = compute_mean_spectrum
@@ -123,8 +119,6 @@ class Preprocessor(PreprocessorAPI):
             input_meta=InputMetaData(
                 batch_size=self.batch_size,
                 temp_dir=self.temp_dir,
-                numba_max_threads=self.numba_max_threads,
-                output_max_workers=self.output_max_workers,
                 ion_block=self.ion_block,
                 zarr_chunk_size=self.zarr_chunk_size,
                 queue_ab_size=self.queue_ab_size,

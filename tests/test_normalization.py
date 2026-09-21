@@ -46,7 +46,6 @@ class TestNormalizationAPI:
         for mz_data, intensity_flat, lengths, _ in dm.flat_generator(
             batch_size=4096,
             include_mz=True,
-            max_threads=16,
         ):
             ref = float(mz_data[mz_data.size // 2]) if mz_data is not None and mz_data.size > 0 else None
             caches.append((mz_data, intensity_flat, lengths, ref))

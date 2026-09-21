@@ -245,7 +245,6 @@ class massflow.module.ms_data_manager.MSDataManager(
     target_locs=None,
     filepath=None,
     temp_dir=None,
-    max_threads: int = 8,
     mz_dtype=np.float64,
     intensity_dtype=np.float32,
 )
@@ -259,7 +258,6 @@ class massflow.module.ms_data_manager.MSDataManager(
   - `target_locs` (*Optional[List[Tuple[int, int] | Tuple[int, int, int]]]*) —— 空间区域的包围盒，由两个坐标 `[ (x1, y1), (x2, y2) ]`（或 3D 等价形式）表示，用于限制加载的光谱范围；为 `None` 时加载所有位置。
   - `filepath` (*Optional[str]*) —— 输入数据文件路径。
   - `temp_dir` (*Optional[str]*) —— 当 `filepath` 未提供时，用于临时 `.imzML` 交换文件的目录。
-  - `max_threads` (*int*) —— 并行加载工具的最大线程数。
   - `mz_dtype` —— m/z 数值使用的 NumPy dtype。
   - `intensity_dtype` —— 强度数值使用的 NumPy dtype。
 - 方法（关键）
@@ -305,7 +303,6 @@ class massflow.module.ms_data_manager_imzml.MSDataManagerImzML(
     ms=None,
     target_locs=None,
     filepath=None,
-    max_threads: int = 8,
     temp_dir=None,
     mz_dtype=np.float64,
     intensity_dtype=np.float32,
@@ -318,7 +315,6 @@ class massflow.module.ms_data_manager_imzml.MSDataManagerImzML(
   - `ms` (*MassSpectrumSet | None*) —— 目标 `MassSpectrumSet` 实例。
   - `target_locs` (*Optional[List[Tuple[int, int] | Tuple[int, int, int]]]*) —— 用于空间过滤的包围区域，可为 `None`。
   - `filepath` (*Optional[str]*) —— `.imzML` 文件路径。
-  - `max_threads` (*int*) —— 批量加载的最大线程数。
   - `temp_dir` (*Optional[str]*) —— 当 `filepath` 未提供时，临时交换文件目录。
   - `mz_dtype` —— m/z 数值类型。
   - `intensity_dtype` —— 强度数值类型。

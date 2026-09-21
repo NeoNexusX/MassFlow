@@ -163,7 +163,7 @@ class SegmentationPipeline:
     def run_umap_kmeans(
         self,
         *,
-        sample_ratio: float = 0.1,
+        sample_ratio: float = 1.0,
         transform_batch_size: int | None = 1024,
         dpi: int = 600,
         save_images: bool = True,

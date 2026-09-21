@@ -1,21 +1,19 @@
-from typing import Optional
-from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
+from typing import Any, Callable, Iterable
+
+from massflow.concurrency import apply_compute_mask, phase
 from massflow.tools import get_logger
-from massflow.preprocess.numba.numba_runtime import get_global_numba_runtime, get_num_threads
 
 logger = get_logger("massflow.tools.dm_process")
 
 
 def flat_speed_process(
-    flats,
-    func,
-    batch_kwargs: dict,
-    numba_max_threads: Optional[int] = None,
-) :
-
-    apply_numba_runtime(override_workers=numba_max_threads)
-    logger.info(f"numba treads set to {get_global_numba_runtime()['max_workers']}\r\n"
-                f"numba system info: {get_num_threads()} threads")
-
-    for batch_idx, batch in enumerate(flats, start=1):
-        _ = func(flat=batch, **batch_kwargs)
+    flats: Iterable[Any],
+    func: Callable[..., Any],
+    batch_kwargs: dict[str, Any],
+) -> None:
+    """Process flat batches within the global compute budget."""
+    with phase("compute"):
+        applied = apply_compute_mask()
+        logger.info("numba threads set to %s", applied)
+        for batch in flats:
+            func(flat=batch, **batch_kwargs)

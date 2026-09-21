@@ -1,3 +1,10 @@
+"""CPU capacity detection for the concurrency controller.
+
+Detects the logical CPU capacity available to the process ( honouring
+affinity and container cgroup quotas ) and the preferred performance-core
+worker count on hybrid architectures.
+"""
+
 from __future__ import annotations
 
 import ctypes
@@ -6,18 +13,10 @@ import platform
 import struct
 import subprocess
 from pathlib import Path, PurePosixPath
-from threading import Lock
 from typing import Iterator, Optional
 
-from numba import config, get_num_threads, set_num_threads
+from numba import config
 
-from massflow.tools.logger import get_logger
-
-
-logger = get_logger(__name__)
-_NUMBA_RUNTIME_STATE: dict[str, Optional[int]] = {"max_workers": None}
-_AUTO_NUMBA_WORKERS: Optional[int] = None
-_NUMBA_RUNTIME_LOCK = Lock()
 _PROC_SELF_CGROUP = Path("/proc/self/cgroup")
 _PROC_SELF_MOUNTINFO = Path("/proc/self/mountinfo")
 _CGROUP_V2_FALLBACK_ROOT = Path("/sys/fs/cgroup")
@@ -202,9 +201,7 @@ def _detect_linux_cgroup_cpu_count() -> Optional[int]:
     if locations:
         limits: list[int] = []
         for filesystem, current, mount_point in locations:
-            read_count = (
-                _read_v2_cpu_count if filesystem == "cgroup2" else _read_v1_cpu_count
-            )
+            read_count = _read_v2_cpu_count if filesystem == "cgroup2" else _read_v1_cpu_count
             for cgroup_dir in _iter_cgroup_ancestors(current, mount_point):
                 count = read_count(cgroup_dir)
                 if count is not None:
@@ -315,9 +312,7 @@ def _detect_windows_intel_performance_workers() -> Optional[int]:
             or offset + length > size.value
         ):
             return None
-        workers_by_class[efficiency] = (
-            workers_by_class.get(efficiency, 0) + mask.bit_count()
-        )
+        workers_by_class[efficiency] = workers_by_class.get(efficiency, 0) + mask.bit_count()
         offset += length
 
     # Higher EfficiencyClass values identify higher-performance cores.
@@ -343,87 +338,3 @@ def detect_performance_core_workers() -> int:
         1,
         min(preferred_workers, available_workers, config.NUMBA_NUM_THREADS),  # type: ignore[attr-defined]  # pylint: disable=no-member
     )
-
-
-# ---------------------------------------------------------------------------
-# Runtime configuration and thread control
-# ---------------------------------------------------------------------------
-
-
-def _resolve_workers(target: int) -> int:
-    if not isinstance(target, int):
-        raise TypeError("max_workers must be an integer or None")
-    if target < 1:
-        raise ValueError("max_workers must be >= 1")
-
-    limit = min(get_logical_cpu_count(), config.NUMBA_NUM_THREADS)  # type: ignore[attr-defined]  # pylint: disable=no-member
-    if target > limit:
-        logger.warning(
-            "Requested max_workers=%d exceeds the available limit=%d; using %d workers.",
-            target,
-            limit,
-            limit,
-        )
-        return limit
-    return target
-
-
-def _set_threads_if_needed(target: int) -> None:
-    if get_num_threads() != target:
-        set_num_threads(target)
-
-
-def set_global_numba_runtime(
-    max_workers: Optional[int] = None,
-) -> dict[str, Optional[int]]:
-    """Set shared worker options and apply an explicit value to this thread.
-
-    Other Python threads must call apply_numba_runtime() to use these options.
-    Passing None clears the override and cached automatic count; this thread's
-    mask is unchanged until its next apply_numba_runtime() call. Positive values
-    above the available CPU or Numba pool limit are capped with a warning;
-    the effective value is stored in the shared options.
-    """
-    global _AUTO_NUMBA_WORKERS  # pylint: disable=global-statement
-
-    if max_workers is not None:
-        max_workers = _resolve_workers(max_workers)
-        _set_threads_if_needed(max_workers)
-
-    with _NUMBA_RUNTIME_LOCK:
-        _NUMBA_RUNTIME_STATE["max_workers"] = max_workers
-        if max_workers is None:
-            _AUTO_NUMBA_WORKERS = None
-        return dict(_NUMBA_RUNTIME_STATE)
-
-
-def get_global_numba_runtime() -> dict[str, Optional[int]]:
-    """Get shared worker options, not the calling thread's active thread count."""
-    with _NUMBA_RUNTIME_LOCK:
-        return dict(_NUMBA_RUNTIME_STATE)
-
-
-def apply_numba_runtime(override_workers: Optional[int] = None) -> int:
-    """Apply a worker count to the calling thread and return the effective count.
-
-    Precedence is per-call override, shared override, then cached automatic
-    detection. Positive counts are capped by available CPUs and Numba's pool
-    limit, with a warning when capped. Automatic detection is cached until
-    set_global_numba_runtime(None).
-    The resulting thread mask remains active after this call.
-    """
-    global _AUTO_NUMBA_WORKERS  # pylint: disable=global-statement
-
-    if override_workers is not None:
-        target = override_workers
-    else:
-        with _NUMBA_RUNTIME_LOCK:
-            target = _NUMBA_RUNTIME_STATE["max_workers"]
-            if target is None:
-                if _AUTO_NUMBA_WORKERS is None:
-                    _AUTO_NUMBA_WORKERS = detect_performance_core_workers()
-                target = _AUTO_NUMBA_WORKERS
-
-    target = _resolve_workers(target)
-    _set_threads_if_needed(target)
-    return target

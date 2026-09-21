@@ -16,6 +16,8 @@ from typing import Any, Generator
 
 import numpy as np
 
+from massflow.concurrency import resolve_workers
+from massflow.concurrency.runtime import get_io_executor
 from massflow.module import MassSpectrumSet
 from massflow.tools.logger import get_logger
 
@@ -34,7 +36,6 @@ class MSDataManager(ABC):
         target_locs=None,
         filepath=None,
         temp_dir=None,
-        max_threads: int = 4,
         mz_dtype=np.float64,
         intensity_dtype=np.float32,
     ):
@@ -43,8 +44,8 @@ class MSDataManager(ABC):
         self.ms = MassSpectrumSet() if ms is None else ms
 
         # Multi-threading control part
-        self._max_threads = max_threads
-        self._threads_executor = None
+        self._threads_executor: ThreadPoolExecutor | None = None
+        self._executor_workers: int | None = None
 
         # data type part
         self.mz_dtype = mz_dtype
@@ -88,30 +89,31 @@ class MSDataManager(ABC):
 ############# Data define part #############
 
     @property
-    def max_threads(self) -> int:
-        return self._max_threads
-
-    @max_threads.setter
-    def max_threads(self, value: int):
-        if value != self._max_threads:
-            self._max_threads = value
-            if self._threads_executor is not None:
-                logger.info(f"Recreating ThreadPoolExecutor with max_workers={self._max_threads}")
-                self._threads_executor.shutdown(wait=True)
-                self._threads_executor = ThreadPoolExecutor(max_workers=self._max_threads)
+    def read_workers(self) -> int:
+        """Return the controller allocation for data reads."""
+        return resolve_workers("io_read", None, default=8)
 
     @property
     def threads_executor(self) -> ThreadPoolExecutor:
-        """lazy load for thread pool executor"""
+        """Borrow the phase IO pool or reuse this manager's standalone read pool."""
+        shared = get_io_executor()
+        if shared is not None:
+            return shared
+        workers = self.read_workers
+        if self._threads_executor is not None and self._executor_workers != workers:
+            self._threads_executor.shutdown(wait=True)
+            self._threads_executor = None
         if self._threads_executor is None:
-            logger.info(f"Creating ThreadPoolExecutor with max_workers={self.max_threads}")
-            self._threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
+            logger.info("Creating ThreadPoolExecutor with max_workers=%s", workers)
+            self._threads_executor = ThreadPoolExecutor(max_workers=workers)
+            self._executor_workers = workers
         return self._threads_executor
 
     @threads_executor.setter
     def threads_executor(self, executor: ThreadPoolExecutor):
         """set thread pool executor"""
         self._threads_executor = executor
+        self._executor_workers = self.read_workers
 
 ############# Method define part #############
     @abstractmethod
@@ -135,11 +137,11 @@ class MSDataManager(ABC):
         """Load data from the configured input file path."""
 
     @abstractmethod
-    def matrix_generator(self, batch_size: int = 256, include_mz: bool = True, max_threads: int = 0) -> Generator[tuple, Any, None]:
+    def matrix_generator(self, batch_size: int = 256, include_mz: bool = True) -> Generator[tuple, Any, None]:
         """Generate batches of spectra data in matrix format."""
 
     @abstractmethod
-    def flat_generator(self, batch_size: int = 256, include_mz: bool = True, max_threads: int = 0) -> Generator[tuple, Any, None]:
+    def flat_generator(self, batch_size: int = 256, include_mz: bool = True) -> Generator[tuple, Any, None]:
         """Generate batches of spectra data in flat format."""
 
     @abstractmethod

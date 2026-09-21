@@ -51,7 +51,6 @@ def _cache_example_flat_batches(
         for mz_axis, intensity_flat, lengths, coordinates in dm.flat_generator(
             batch_size=batch_size,
             include_mz=True,
-            max_threads=2,
         ):
             batches.append(
                 (
@@ -234,4 +233,3 @@ class TestIonImageBinary:
                     print(f"Merged binary size: {output_path.stat().st_size} bytes")
             finally:
                 processed_dm.close()
-

@@ -48,8 +48,6 @@ class InputMetaData:
 
     batch_size: int
     temp_dir: str | None
-    numba_max_threads: int | None
-    output_max_workers: int
     queue_ab_size: int
     queue_bc_size: int
     result_path: str | None

@@ -30,7 +30,7 @@ UMAP 图展示的是不同像素的整体质谱特征是否相似，以及这种
 ```python
 massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
     *,
-    sample_ratio: float = 0.1,
+    sample_ratio: float = 1.0,
     transform_batch_size: int | None = 1024,
     dpi: int = 600,
     save_images: bool = True,
@@ -46,7 +46,7 @@ massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
 - 功能：根据每个像素的质谱特征运行 UMAP 和 KMeans，并生成空间聚类结果。
 - 参数
 
-  - `sample_ratio`：用于建立 UMAP 模型的像素比例，默认 `0.1`。数值越大，参与建模的像素越多，但时间和内存开销也会增加；
+  - `sample_ratio`：用于建立 UMAP 模型的像素比例，默认 `1.0`。数值越大，参与建模的像素越多，但时间和内存开销也会增加；
   - `umap_metric`：像素间质谱特征距离的计算方式，默认 `"cosine"`。第一次使用建议保持默认；
     - `"cosine"`：更关注两个像素质谱特征的相对组成方向，而不是整体幅度大小。对于已经做过强度归一化、希望突出谱型差异的 MSI 数据，通常可以优先使用；
     - `"euclidean"`：根据各特征之间的绝对数值差计算距离。当特征幅度差异本身也希望参与区域区分时可以比较使用；
@@ -69,7 +69,7 @@ pipeline = SegmentationPipeline(
 )
 
 result = pipeline.run_umap_kmeans(
-    sample_ratio=0.1,
+    sample_ratio=1.0,
     n_clusters=10,
     save_images=True,
     show=False,

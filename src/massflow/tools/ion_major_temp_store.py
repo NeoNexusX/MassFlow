@@ -14,6 +14,9 @@ from typing import Any
 
 import numpy as np
 
+from massflow.concurrency import resolve_workers
+from massflow.concurrency.runtime import get_io_executor
+
 _BINARY_OPEN_FLAG = getattr(os, "O_BINARY", 0)
 _OS_PREAD = getattr(os, "pread", None)
 _POSITIONED_IO_LOCK = threading.Lock()
@@ -53,8 +56,8 @@ class IonMajorTempStore:
         self._root = base / f"massflow_ion_major_{uuid.uuid4().hex}"
         self._root.mkdir(parents=True, exist_ok=False)
         self.dtype = np.dtype(dtype)
-        self.workers = max(1, int(workers))
-        self._executor = ThreadPoolExecutor(max_workers=self.workers)
+        self.workers = resolve_workers("io_write", workers, default=4)
+        self._executor: ThreadPoolExecutor | None = None
         self._pending: set[Future[tuple[int, BatchInfo]]] = set()
         self._batches: list[tuple[int, BatchInfo]] = []
         self._batch_index = 0
@@ -90,7 +93,12 @@ class IonMajorTempStore:
         batch_path = self._root / f"batch_{batch_index:08d}.bin"
         info = BatchInfo(batch_path, n_pixels, self._pixel_count)
         self._pixel_count += n_pixels
-        future = self._executor.submit(
+        executor = get_io_executor()
+        if executor is None:
+            if self._executor is None:
+                self._executor = ThreadPoolExecutor(max_workers=self.workers)
+            executor = self._executor
+        future = executor.submit(
             self._write_batch,
             batch_index,
             info,
@@ -98,7 +106,8 @@ class IonMajorTempStore:
             n_ions,
         )
         self._pending.add(future)
-        if len(self._pending) >= self.workers:
+        workers = resolve_workers("io_write", self.workers, default=4)
+        while len(self._pending) >= workers:
             self._collect(return_when=FIRST_COMPLETED)
 
     def finish(self) -> list[BatchInfo]:
@@ -144,7 +153,9 @@ class IonMajorTempStore:
         if self._closed:
             return
         self._closed = True
-        self._executor.shutdown(wait=True)
+        wait(self._pending)
+        if self._executor is not None:
+            self._executor.shutdown(wait=True)
         for fd in self._read_fds.values():
             os.close(fd)
         self._read_fds.clear()

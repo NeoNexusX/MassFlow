@@ -158,7 +158,7 @@ def read_fragmented_block(
     intensity_out: np.ndarray,
     mz_out: Optional[np.ndarray],
     executor: ThreadPoolExecutor,
-    max_threads: int,
+    workers: int,
 ) -> None:
     """
     Multi-threaded reading of non-contiguous intensity (and optional mz) data, in-place filling of output matrices.
@@ -172,15 +172,15 @@ def read_fragmented_block(
         mz_out: Pre-allocated mz matrix (for Processed + include_mz);
                 None to skip mz reading.
         executor: Thread pool.
-        max_threads: Number of threads (for splitting mini-batches), must be >= 2.
+        workers: Number of workers used to split mini-batches.
     """
-    if max_threads < 2:
-        raise ValueError("Single-thread mode is not supported for fragmented matrix reads. Set max_threads >= 2.")
+    if workers < 1:
+        raise ValueError("workers must be >= 1.")
     if executor is None:
         raise ValueError("A ThreadPoolExecutor is required for fragmented matrix reads.")
 
     batch_size = len(batch_indices)
-    chunk = max(1, (batch_size + max_threads - 1) // max_threads)
+    chunk = max(1, (batch_size + workers - 1) // workers)
 
     def _read_chunk(info: tuple[Sequence[int], int]) -> None:
         indices, row_offset = info

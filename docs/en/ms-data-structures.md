@@ -246,7 +246,6 @@ class massflow.module.ms_data_manager.MSDataManager(
     target_locs=None,
     filepath=None,
     temp_dir=None,
-    max_threads: int = 8,
     mz_dtype=np.float64,
     intensity_dtype=np.float32,
 )
@@ -260,7 +259,6 @@ Abstract base class that defines common configuration and the contract for loadi
   - `target_locs` (*Optional[List[Tuple[int, int] | Tuple[int, int, int]]]*) — A bounding region defined by two coordinates `[(x1, y1), (x2, y2)]` or 3D equivalents; used to limit loaded spectra. Can be `None` to load all locations.
   - `filepath` (*Optional[str]*) — Path to the input data file.
   - `temp_dir` (*Optional[str]*) — Directory for temporary swap `.imzML` files when `filepath` is not provided.
-  - `max_threads` (*int*) — Maximum number of worker threads for parallel loading utilities.
   - `mz_dtype` — NumPy dtype for m/z values.
   - `intensity_dtype` — NumPy dtype for intensity values.
 - Methods
@@ -305,7 +303,6 @@ class massflow.module.ms_data_manager_imzml.MSDataManagerImzML(
     ms=None,
     target_locs=None,
     filepath=None,
-    max_threads: int = 8,
     temp_dir=None,
     mz_dtype=np.float64,
     intensity_dtype=np.float32,
@@ -318,7 +315,6 @@ Concrete data manager for `.imzML` files. This class extends `MSDataManager` to 
   - `ms` (*MassSpectrumSet | None*) — The target `MassSpectrumSet` instance to populate with spectra.
   - `target_locs` (*Optional[List[Tuple[int, int] | Tuple[int, int, int]]]*) — Bounding region for spatial filtering. Can be `None`.
   - `filepath` (*Optional[str]*) — Path to the `.imzML` file to load.
-  - `max_threads` (*int*) — Maximum worker threads for batch loading utilities.
   - `temp_dir` (*Optional[str]*) — Directory for temporary swap files when `filepath` is not provided.
   - `mz_dtype` — NumPy dtype for m/z values.
   - `intensity_dtype` — NumPy dtype for intensity values.

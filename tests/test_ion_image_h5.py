@@ -56,7 +56,7 @@ def _cache_example_flat_batches(*, batch_size: int = 256):
 
         batches = []
         for mz_axis, intensity_flat, lengths, coordinates in dm.flat_generator(
-            batch_size=batch_size, include_mz=True, max_threads=2,
+            batch_size=batch_size, include_mz=True,
         ):
             batches.append((
                 np.asarray(mz_axis).copy(),

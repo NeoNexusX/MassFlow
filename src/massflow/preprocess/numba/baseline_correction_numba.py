@@ -265,7 +265,6 @@ def baseline_snip_numba(
         intensity: 1D intensity array.
         m: Maximum window radius; if None, choose based on spectrum length.
         decreasing: Whether to iterate window sizes from large to small.
-        numba_max_threads: Maximum number of threads for Numba parallel execution.
 
     Returns:
         Baseline array (float32).

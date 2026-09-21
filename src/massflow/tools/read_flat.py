@@ -48,7 +48,7 @@ def read_fragmented_block_flat(
     mz_out: Optional[np.ndarray],
     offsets: Sequence[int] | np.ndarray,
     executor: ThreadPoolExecutor,
-    max_threads: int,
+    workers: int,
 ) -> None:
     """
     Multi-threaded reading of non-contiguous intensity (and optional mz) data, in-place filling of 1D output flat arrays.
@@ -60,15 +60,15 @@ def read_fragmented_block_flat(
         mz_out: Pre-allocated 1D mz flat array (for Processed + include_mz); None to skip mz reading.
         offsets: The starting index in the flat array for each spectrum.
         executor: Thread pool.
-        max_threads: Number of threads (for splitting mini-batches), must be >= 2.
+        workers: Number of workers used to split mini-batches.
     """
-    if max_threads < 2:
-        raise ValueError("Single-thread mode is not supported for fragmented flat reads. Set max_threads >= 2.")
+    if workers < 1:
+        raise ValueError("workers must be >= 1.")
     if executor is None:
         raise ValueError("A ThreadPoolExecutor is required for fragmented flat reads.")
 
     batch_size = len(batch_indices)
-    chunk = max(1, (batch_size + max_threads - 1) // max_threads)
+    chunk = max(1, (batch_size + workers - 1) // workers)
 
     def _read_chunk(info: tuple[Sequence[int] | np.ndarray, Sequence[int] | np.ndarray]) -> None:
         indices, chunk_offsets = info

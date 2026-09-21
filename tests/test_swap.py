@@ -27,13 +27,12 @@ def data_swap_out_direct(raw_dm):
     return swap_dm
 
 
-def cache_matrix_batches(raw_dm, batch_size=512, max_threads=8):
+def cache_matrix_batches(raw_dm, batch_size=512):
     """Read matrix batches once and keep them in memory for swap-out benchmarks."""
     cached = []
     matrix_generator = raw_dm.matrix_generator(
         batch_size=batch_size,
         include_mz=True,
-        max_threads=max_threads,
     )
 
     for mz_data, intensity_matrix, lengths, coordinates in matrix_generator:
@@ -50,13 +49,12 @@ def cache_matrix_batches(raw_dm, batch_size=512, max_threads=8):
     return cached
 
 
-def cache_flat_batches(raw_dm, batch_size=512, max_threads=8):
+def cache_flat_batches(raw_dm, batch_size=512):
     """Read flat batches once and keep them in memory for swap-out benchmarks."""
     cached = []
     flat_generator = raw_dm.flat_generator(
         batch_size=batch_size,
         include_mz=True,
-        max_threads=max_threads,
     )
 
     for mz_data, intensity_flat, lengths, coordinates in flat_generator:

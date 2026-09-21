@@ -30,7 +30,7 @@ The current workflow calculates UMAP and KMeans together through `SegmentationPi
 ```python
 massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
     *,
-    sample_ratio: float = 0.1,
+    sample_ratio: float = 1.0,
     transform_batch_size: int | None = 1024,
     dpi: int = 600,
     save_images: bool = True,
@@ -47,7 +47,7 @@ massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
 
 - Parameters:
 
-  - `sample_ratio`: proportion of pixels used to build the UMAP model, default `0.1`. Larger values use more pixels for model fitting but also increase time and memory requirements.
+  - `sample_ratio`: proportion of pixels used to build the UMAP model, default `1.0`. Larger values use more pixels for model fitting but also increase time and memory requirements.
 
   - `umap_metric`: method for calculating distances between pixel-level mass-spectrometry features, default `"cosine"`. Keep the default for your first use.
     - `“cosine”`: Focuses more on the relative directions of two spectral features rather than their overall amplitude. This is typically the preferred choice for MSI data that has already undergone intensity normalization and where the goal is to highlight spectral pattern differences;
@@ -74,7 +74,7 @@ pipeline = SegmentationPipeline(
 )
 
 result = pipeline.run_umap_kmeans(
-    sample_ratio=0.1,
+    sample_ratio=1.0,
     n_clusters=10,
     save_images=True,
     show=False,

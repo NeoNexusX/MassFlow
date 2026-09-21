@@ -4,6 +4,7 @@ from typing import cast, Callable
 import numpy as np
 from numpy.typing import NDArray
 
+from massflow.concurrency import phase, resolve_workers
 from massflow.data_manager import (
     MSDataManager,
     MSDataManagerImzML,
@@ -34,7 +35,6 @@ def _write_through_generator(
     for mz_axis, intensity_flat, lengths, coordinates in data_manager.flat_generator(
         batch_size=input_meta.batch_size,
         include_mz=True,
-        max_threads=input_meta.output_max_workers,
     ):
         output_dm.write_flat_batch(
             intensity_flat=intensity_flat,
@@ -45,6 +45,7 @@ def _write_through_generator(
     output_dm.finalize()
     return output_dm
 
+@phase("io_transfer")
 def imzml_to_ion_image_data_manager(
     imzml_manager: MSDataManagerImzML,
     input_meta: InputMetaData,
@@ -69,12 +70,13 @@ def imzml_to_ion_image_data_manager(
         if output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR
         else {}
     )
+    write_workers = resolve_workers("io_write", None, default=2)
     output_dm = ion_image_cls.from_data_manager(
         data_manager=imzml_manager,
         filepath=file_path,
         temp_dir=input_meta.temp_dir,
-        temp_workers=input_meta.output_max_workers,
-        merge_workers=input_meta.output_max_workers,
+        temp_workers=write_workers,
+        merge_workers=write_workers,
         compute_mean_spectrum=input_meta.compute_mean_spectrum,
         **zarr_options, # type: ignore
     )
@@ -120,7 +122,8 @@ def run_dataset_task(
 ) -> MSDataManagerImzML | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr | tuple[NDArray[np.float64], float]:
     """Execute whole-dataset task."""
 
-    if task.name == "reference_computer":
-        return _task_to_array(data_manager, task)
+    with phase("dataset_task"):
+        if task.name == "reference_computer":
+            return _task_to_array(data_manager, task)
 
-    return _task_to_data_manager(data_manager, task, input_meta, output_meta)
+        return _task_to_data_manager(data_manager, task, input_meta, output_meta)
