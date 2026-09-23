@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import h5py
 import hdf5plugin
@@ -15,6 +16,7 @@ from massflow.data_manager import (
     IonImageDataManagerH5,
     IonImageDataManagerZarr,
     MSDataManagerImzML,
+    MSDataManagerZarr,
 )
 
 from massflow.data_manager.ion_image_data_manager_binary import (
@@ -27,10 +29,13 @@ from massflow.msi_zarr.schema import (
     ZARR_FORMAT_NAME,
     ZARR_FORMAT_VERSION,
     ZARR_GROUP_ION_IMAGE,
+    ZARR_MODE_CONTINUOUS,
 )
+from massflow.tools.export_imzml import export_imzml
 
 DataManager = (
     MSDataManagerImzML
+    | MSDataManagerZarr
     | IonImageDataManagerBinary
     | IonImageDataManagerH5
     | IonImageDataManagerZarr
@@ -38,6 +43,7 @@ DataManager = (
 IonImageDataManager = (
     IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr
 )
+SpectraDataManager = MSDataManagerImzML | MSDataManagerZarr
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +55,25 @@ def _spatial_dimensions(data_manager: DataManager) -> tuple[int, int]:
     """Return the source image width and height."""
     if isinstance(data_manager, MSDataManagerImzML):
         meta = data_manager.ms.meta
-        return int(meta.max_count_of_pixels_x), int(meta.max_count_of_pixels_y)  # type: ignore
+        width = int(meta.max_count_of_pixels_x)  # type: ignore
+        height = int(meta.max_count_of_pixels_y)  # type: ignore
+        if width > 0 and height > 0:
+            return width, height
+
+        coordinates = np.asarray(data_manager.parser.coordinates)
+        if coordinates.size == 0:
+            raise ValueError("cannot infer image dimensions without coordinates.")
+        xy = coordinates[:, :2].astype(np.int64, copy=False)
+        zero_based = bool(np.any(xy == 0))
+        if width <= 0:
+            width = int(xy[:, 0].max()) + int(zero_based)
+        if height <= 0:
+            height = int(xy[:, 1].max()) + int(zero_based)
+        return width, height
+    if isinstance(data_manager, MSDataManagerZarr):
+        reader = data_manager._require_reader()  # pylint: disable=protected-access
+        height, width = reader.spatial_shape
+        return width, height
     return int(data_manager.width), int(data_manager.height)
 
 
@@ -89,63 +113,87 @@ def _filter_flat_batch(
     return np.asarray(values)[flat_selected]
 
 
-# ---------------------------------------------------------------------------
-# imzML backend
-# ---------------------------------------------------------------------------
-
-
-def _apply_imzml_mask(
-    data_manager: MSDataManagerImzML,
+def _write_masked_spectra(
+    source: SpectraDataManager,
+    output: SpectraDataManager,
     mask: np.ndarray,
-    output_path: str | Path,
     *,
     batch_size: int,
-    temp_dir: str | Path | None,
-) -> MSDataManagerImzML:
-    """Write selected imzML spectra to a new imzML manager."""
-    output = MSDataManagerImzML(
-        filepath=str(output_path),
-        temp_dir=None if temp_dir is None else str(temp_dir),
-        mz_dtype=data_manager.mz_dtype,
-        intensity_dtype=data_manager.intensity_dtype,
-    )
-    output.copy_meta(data_manager)
-    output.ms.meta.continuous = data_manager.ms.meta.continuous
-    output.ms.meta.processed = data_manager.ms.meta.processed
-    continuous = bool(data_manager.ms.meta.continuous)
+    continuous: bool,
+    coordinate_base: str | None,
+) -> int:
+    """Stream mask-selected spectrum batches from source to output."""
     selected_pixels = 0
-
-    for mz_data, intensity_flat, lengths, coordinates in data_manager.flat_generator(
+    for mz_data, intensity_flat, lengths, coordinates in source.flat_generator(
         batch_size=batch_size,
         include_mz=True,
     ):
-        selected = _select_coordinates(mask, coordinates)
+        selected = _select_coordinates(mask, coordinates, coordinate_base)
         if not bool(np.any(selected)):
             continue
 
         selected_lengths = np.asarray(lengths)[selected]
-        selected_intensity = _filter_flat_batch(intensity_flat, lengths, selected)
         selected_mz = (
             mz_data
             if continuous or mz_data is None
             else _filter_flat_batch(mz_data, lengths, selected)
         )
-        selected_coordinates = np.asarray(coordinates)[selected]
         output.write_flat_batch(
-            intensity_flat=selected_intensity,
+            intensity_flat=_filter_flat_batch(intensity_flat, lengths, selected),
             lengths=selected_lengths,
-            coordinates=selected_coordinates,
+            coordinates=np.asarray(coordinates)[selected],
             mz_axis=selected_mz,
         )
         selected_pixels += int(selected_lengths.size)
+
+    return selected_pixels
+
+
+# ---------------------------------------------------------------------------
+# Pixel-major spectra Zarr backend
+# ---------------------------------------------------------------------------
+
+
+def _apply_spectra_zarr_mask(
+    data_manager: MSDataManagerZarr,
+    mask: np.ndarray,
+    output_path: str | Path,
+    *,
+    batch_size: int,
+    temp_dir: str | Path | None,
+) -> MSDataManagerZarr:
+    """Write selected spectra to a new pixel-major Zarr manager."""
+    reader = data_manager._require_reader()  # pylint: disable=protected-access
+    storage_mode = data_manager.storage_mode
+    output = MSDataManagerZarr(
+        filepath=output_path,
+        temp_dir=temp_dir,
+        mz_dtype=reader.mz_dtype,
+        intensity_dtype=reader.intensity_dtype,
+        mode="w",
+        storage_mode=storage_mode,
+    )
+    output.ms.meta = deepcopy(reader.metadata)
+    output.ms.meta.mask = np.asarray(mask, dtype=bool)
+    continuous = storage_mode == ZARR_MODE_CONTINUOUS
+    selected_pixels = _write_masked_spectra(
+        data_manager,
+        output,
+        mask,
+        batch_size=batch_size,
+        continuous=continuous,
+        coordinate_base="one",
+    )
 
     if selected_pixels == 0:
         output.close()
         raise ValueError("mask does not retain any source pixels.")
 
-    output.close_writer()
-    output.load_head_data()
-    return output
+    output.finalize()
+    output.close()
+    result = MSDataManagerZarr(filepath=output_path, mode="r")
+    result.load_head_data()
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +429,130 @@ def _apply_ion_image_mask(
 
 
 # ---------------------------------------------------------------------------
+# Cross-format imzML output
+# ---------------------------------------------------------------------------
+
+
+def _apply_ion_image_mask_to_imzml(
+    data_manager: IonImageDataManager,
+    mask: np.ndarray,
+    output_path: str | Path,
+    *,
+    batch_size: int,
+    temp_dir: str | Path | None,
+) -> MSDataManagerImzML:
+    """Stage a masked ion-image dataset and export it to imzML."""
+    temp_root = None if temp_dir is None else Path(temp_dir)
+    if temp_root is not None:
+        temp_root.mkdir(parents=True, exist_ok=True)
+
+    with TemporaryDirectory(
+        prefix="massflow_region_mask_",
+        dir=temp_root,
+    ) as staging_dir:
+        staging_path = Path(staging_dir) / "masked"
+        masked = _apply_ion_image_mask(
+            data_manager,
+            mask,
+            staging_path,
+            batch_size=batch_size,
+        )
+        try:
+            mz_dtype = masked.mz_dtype
+            intensity_dtype = masked.intensity_dtype
+            imzml_path, _ = export_imzml(
+                masked,
+                output_path,
+                temp_dir=temp_dir,
+                batch_size=batch_size,
+            )
+        finally:
+            masked.close()
+
+    output = MSDataManagerImzML(
+        filepath=str(imzml_path),
+        temp_dir=None if temp_dir is None else str(temp_dir),
+        mz_dtype=np.dtype(mz_dtype).type,
+        intensity_dtype=np.dtype(intensity_dtype).type,
+    )
+    output.load_head_data()
+    return output
+
+
+def _apply_mask_to_imzml(
+    data_manager: DataManager,
+    mask: np.ndarray,
+    output_path: str | Path,
+    *,
+    batch_size: int,
+    temp_dir: str | Path | None,
+) -> MSDataManagerImzML:
+    """Write mask-selected spectra to imzML in one pass when possible."""
+    if isinstance(
+        data_manager,
+        (
+            IonImageDataManagerBinary,
+            IonImageDataManagerH5,
+            IonImageDataManagerZarr,
+        ),
+    ):
+        return _apply_ion_image_mask_to_imzml(
+            data_manager,
+            mask,
+            output_path,
+            batch_size=batch_size,
+            temp_dir=temp_dir,
+        )
+
+    if isinstance(data_manager, MSDataManagerZarr):
+        reader = data_manager._require_reader()  # pylint: disable=protected-access
+        source_metadata = reader.metadata
+        storage_mode = data_manager.storage_mode
+        continuous = storage_mode == ZARR_MODE_CONTINUOUS
+        continuous_metadata = True if continuous else None
+        processed_metadata = None if continuous else True
+        coordinate_base = "one"
+        mz_dtype = reader.mz_dtype
+        intensity_dtype = reader.intensity_dtype
+    else:
+        source_metadata = data_manager.ms.meta
+        continuous = bool(source_metadata.continuous)
+        continuous_metadata = source_metadata.continuous
+        processed_metadata = source_metadata.processed
+        coordinate_base = None
+        mz_dtype = data_manager.mz_dtype
+        intensity_dtype = data_manager.intensity_dtype
+
+    output = MSDataManagerImzML(
+        filepath=str(output_path),
+        temp_dir=None if temp_dir is None else str(temp_dir),
+        mz_dtype=np.dtype(mz_dtype).type,
+        intensity_dtype=np.dtype(intensity_dtype).type,
+    )
+    output.ms.meta.copy(source_metadata)
+    output.ms.meta.continuous = continuous_metadata
+    output.ms.meta.processed = processed_metadata
+    output.ms.meta.centroid_spectrum = source_metadata.centroid_spectrum
+    output.ms.meta.profile_spectrum = source_metadata.profile_spectrum
+    selected_pixels = _write_masked_spectra(
+        data_manager,
+        output,
+        mask,
+        batch_size=batch_size,
+        continuous=continuous,
+        coordinate_base=coordinate_base,
+    )
+
+    if selected_pixels == 0:
+        output.close()
+        raise ValueError("mask does not retain any source pixels.")
+
+    output.close_writer()
+    output.load_head_data()
+    return output
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -393,10 +565,12 @@ def apply_region_mask(
     batch_size: int = 256,
     temp_dir: str | Path | None = None,
 ) -> DataManager:
-    """Return a same-type manager containing only mask-valid pixels.
+    """Return a manager containing only mask-valid pixels.
 
-    ``batch_size`` controls spectrum batches for imzML and ion-image blocks for
-    Binary/H5/Zarr. ``temp_dir`` is only used by the imzML writer.
+    By default, the output uses the source manager's format. An ``.imzML``
+    output path exports any supported source format to imzML. ``batch_size``
+    controls spectrum batches and ion-image blocks; ``temp_dir`` is used when
+    an ion-image backend needs temporary storage for imzML export.
     """
     if batch_size <= 0:
         raise ValueError("batch_size must be positive.")
@@ -405,8 +579,19 @@ def apply_region_mask(
     width, height = _spatial_dimensions(data_manager)
     normalized_mask = _normalize_mask(mask, width=width, height=height)
 
-    if isinstance(data_manager, MSDataManagerImzML):
-        return _apply_imzml_mask(
+    if Path(output_path).suffix.lower() == ".imzml" or isinstance(
+        data_manager, MSDataManagerImzML
+    ):
+        return _apply_mask_to_imzml(
+            data_manager,
+            normalized_mask,
+            output_path,
+            batch_size=batch_size,
+            temp_dir=temp_dir,
+        )
+
+    if isinstance(data_manager, MSDataManagerZarr):
+        return _apply_spectra_zarr_mask(
             data_manager,
             normalized_mask,
             output_path,

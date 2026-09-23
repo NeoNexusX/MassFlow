@@ -979,7 +979,7 @@ def plot_umap_image(
     dpi: int = 600,
     save_matrix: Literal["zarr"] | None = None,
     sample_ratio: float = 1.0,
-    transform_batch_size: int | None = 1024,
+    transform_batch_size: int | None = 4096,
     n_components: int = 3,
     umap_metric: str = "cosine",
     random_state: int | None = None,
