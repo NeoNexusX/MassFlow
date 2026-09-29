@@ -725,7 +725,7 @@ def build_umap_image(
     width: int | None = None,
     height: int | None = None,
 ) -> np.ndarray:
-    """Map a 3-component scaled embedding to an RGB spatial image."""
+    """Map a 3-component scaled embedding to an RGBA spatial image."""
     if scaled_embedding.shape[1] != 3:
         raise ValueError(
             f"UMAP image requires 3-component embedding, "
@@ -737,11 +737,12 @@ def build_umap_image(
     )
 
     rgb = np.clip(scaled_embedding, 0.0, 1.0)
-    rgb_uint8 = (rgb * 255).astype(np.uint8)
+    rgba_uint8 = np.full((scaled_embedding.shape[0], 4), 255, dtype=np.uint8)
+    rgba_uint8[:, :3] = (rgb * 255).astype(np.uint8)
 
-    image = np.zeros((h, w, 3), dtype=np.uint8)
+    image = np.zeros((h, w, 4), dtype=np.uint8)
     valid = (scatter_x >= 0) & (scatter_x < w) & (scatter_y >= 0) & (scatter_y < h)
-    image[scatter_y[valid], scatter_x[valid]] = rgb_uint8[valid]
+    image[scatter_y[valid], scatter_x[valid]] = rgba_uint8[valid]
 
     return image
 
@@ -754,17 +755,19 @@ def build_kmeans_image(
     width: int | None = None,
     height: int | None = None,
 ) -> np.ndarray:
-    """Map cluster labels to a colour-coded spatial image."""
+    """Map cluster labels to a colour-coded RGBA spatial image."""
     scatter_x, scatter_y, _, w, h = _infer_spatial_params(
         coordinates, width=width, height=height,
     )
 
     palette = _tab20_rgb_palette(n_clusters)
     colors = palette[labels]
+    rgba = np.full((colors.shape[0], 4), 255, dtype=np.uint8)
+    rgba[:, :3] = colors
 
-    image = np.zeros((h, w, 3), dtype=np.uint8)
+    image = np.zeros((h, w, 4), dtype=np.uint8)
     valid = (scatter_x >= 0) & (scatter_x < w) & (scatter_y >= 0) & (scatter_y < h)
-    image[scatter_y[valid], scatter_x[valid]] = colors[valid]
+    image[scatter_y[valid], scatter_x[valid]] = rgba[valid]
 
     return image
 
@@ -928,6 +931,7 @@ def _save_rgb_image(
         str(output),
         bbox_inches="tight",
         dpi=dpi,
+        transparent=True,
         pil_kwargs=pil_kwargs,
     )
     if show:

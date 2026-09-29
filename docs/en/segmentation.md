@@ -300,7 +300,7 @@ pipeline.apply_region_mask(
   - `output_path`: path for saving the new dataset.
   - `batch_size`: amount of data processed in each batch, default `256`. It must be positive.
   - `temp_dir`: temporary directory used only when writing imZML; it can be omitted.
-- Output: returns a new data manager corresponding to the input data type.
+- Output: an `.imzML` output returns a loaded `MSDataManagerImzML`; same-format output returns the corresponding source-format manager.
 
 Example:
 

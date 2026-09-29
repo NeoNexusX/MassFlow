@@ -304,7 +304,7 @@ pipeline.apply_region_mask(
   - `output_path`：新数据的保存路径。
   - `batch_size`：每批处理的数据量，默认 `256`，必须为正数。
   - `temp_dir`：仅 imZML 写出时使用的临时目录，可不填写。
-- 输出：返回与输入数据类型对应的新数据管理器。
+- 输出：`.imzML` 输出返回已加载的 `MSDataManagerImzML`；同格式输出返回对应源格式的新数据管理器。
 
 示例：
 

@@ -65,11 +65,11 @@ class UmapKmeansResult:
     def __post_init__(self) -> None:
         if self.kmeans_label_image.ndim != 2:
             raise ValueError("kmeans_label_image must be a two-dimensional array.")
-        expected_image_shape = (*self.kmeans_label_image.shape, 3)
+        expected_image_shape = (*self.kmeans_label_image.shape, 4)
         if self.umap_image.shape != expected_image_shape:
-            raise ValueError("umap_image must have shape (height, width, 3).")
+            raise ValueError("umap_image must have shape (height, width, 4).")
         if self.kmeans_image.shape != expected_image_shape:
-            raise ValueError("kmeans_image must have shape (height, width, 3).")
+            raise ValueError("kmeans_image must have shape (height, width, 4).")
 
     @classmethod
     def from_zarr(cls, zarr_path: str | Path) -> UmapKmeansResult:
@@ -172,7 +172,7 @@ class SegmentationPipeline:
         umap_metric: str = "cosine",
         n_clusters: int = 10,
         random_state: int | None = None,
-        show: bool = False,
+        show: bool = True,
     ) -> UmapKmeansResult:
         """Run UMAP/KMeans, retain its result, and clear any previous mask."""
         from massflow.segmentation.umap_kmeans import plot_umap_kmeans_image

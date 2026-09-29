@@ -1,5 +1,7 @@
 """Zarr 离子图像转写 + PyTorch 读取性能测试。"""
 
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-few-public-methods
+
 # pylint: disable=redefined-outer-name,broad-exception-caught,unused-argument,too-many-lines
 
 import os
@@ -21,6 +23,7 @@ from massflow.msi_zarr.writer import prepare_coordinate_index
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.morch import IonImageZarrDataset
 from massflow.segmentation.region_mask import apply_region_mask
+from massflow.tools.export_imzml import export_imzml
 
 EXAMPLE_IMZML = Path("/Users/dre/Desktop/data/Example_read/example.imzML")
 EXAMPLE_ZARR_DIR = Path("data")
@@ -549,4 +552,49 @@ class TestZarrCorrectness:
         finally:
             if output is not None:
                 output.close()
+            source.close()
+
+    def test_region_mask_imzml_delegates_to_export(self, tmp_path):
+        metadata = MetaDataZarr(pixel_size_x=50.0, pixel_size_y=60.0)
+        metadata.continuous = True
+        metadata.centroid_spectrum = True
+        source = _write_tiny_zarr(
+            tmp_path / "delegate_source.zarr",
+            tmp_path,
+            [(2, 2), (3, 2)],
+            width=4,
+            height=3,
+            metadata=metadata,
+        )
+        try:
+            mask = np.zeros((3, 4), dtype=bool)
+            mask[1, 2] = True
+            direct_path = export_imzml(source, tmp_path / "direct.imzML", mask=mask)
+            with apply_region_mask(source, mask, tmp_path / "masked.imzML") as output:
+                assert isinstance(output, MSDataManagerImzML)
+                assert len(output.ms) == 1
+                assert output.ms.meta.pixel_size_x == 50.0
+                assert output.ms.meta.pixel_size_y == 60.0
+                with MSDataManagerImzML(filepath=str(direct_path)) as direct:
+                    direct.load_head_data()
+                    assert (
+                        output.parser.coordinates
+                        == direct.parser.coordinates
+                        == [(3, 2, 1)]
+                    )
+                    for actual, expected in zip(
+                        output.parser.getspectrum(0), direct.parser.getspectrum(0)
+                    ):
+                        np.testing.assert_array_equal(actual, expected)
+            # Reopen the file independently of the returned metadata copy.
+            with MSDataManagerImzML(
+                filepath=str(tmp_path / "masked.imzML")
+            ) as reopened:
+                reopened.load_head_data()
+                assert reopened.ms.meta.pixel_size_x is None
+                assert reopened.ms.meta.pixel_size_y is None
+                assert reopened.ms.meta.mask is not None
+                assert reopened.ms.meta.mask.shape == (2, 3)
+                assert reopened.ms.meta.mask.sum() == 1
+        finally:
             source.close()
