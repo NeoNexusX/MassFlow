@@ -3,7 +3,7 @@ from numba import jit, njit, prange
 from massflow.preprocess.numba.noise_reduction_numba import _lowess_core
 from massflow.tools import lengths_to_offsets, prepare_flat_inputs
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True)
 def _median_of_finite(values: np.ndarray) -> float:
     """Return median of finite entries; fallback to 0.0 when no finite value exists."""
     n = values.size
@@ -29,7 +29,7 @@ def _median_of_finite(values: np.ndarray) -> float:
     return med
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True)
 def _constant_extrema_baseline(y: np.ndarray, upper: bool) -> np.ndarray:
     """Build constant baseline using finite extrema with robust fallback."""
     n = y.size
@@ -58,7 +58,7 @@ def _constant_extrema_baseline(y: np.ndarray, upper: bool) -> np.ndarray:
     return out
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True)
 def baseline_locmin_core(
     intensity: np.ndarray,
     width: int,
@@ -113,7 +113,7 @@ def baseline_locmin_core(
     return baseline
 
 
-@njit(parallel=True, cache=True, fastmath=True)
+@njit(parallel=True, cache=True)
 def _baseline_locmin_jit(
     flat: np.ndarray,
     lengths: np.ndarray,

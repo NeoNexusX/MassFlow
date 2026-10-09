@@ -3,7 +3,7 @@ from numpy.typing import NDArray
 from numba import jit, prange
 
 
-@jit(nopython=True, fastmath=True, cache=True)
+@jit(nopython=True, cache=True)
 def scalar_diff_jit(val1, val2, method_code):
     """JIT-optimized scalar difference calculation (always returns a non-negative value).
 
@@ -23,7 +23,7 @@ def scalar_diff_jit(val1, val2, method_code):
         return np.nan  # Avoid division by zero
     return diff / abs(denom)  # Relative difference
 
-@jit(nopython=True, fastmath=True, cache=True)
+@jit(nopython=True, cache=True)
 def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
     """JIT-compiled core algorithm for spectrum peak alignment.
 
@@ -96,7 +96,7 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
 
     return aligned
 
-@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+@jit(nopython=True, cache=True, parallel=True)
 def align_spectra_flat_parallel_jit(
     mz_data: NDArray[np.float64],
     intensity_flat: NDArray,
@@ -173,7 +173,7 @@ def align_spectra_flat_parallel_jit(
 
     return aligned
 
-@jit(nopython=True, fastmath=True, cache=True)
+@jit(nopython=True, cache=True)
 def search_nearest_jit(
     queries: NDArray[np.float64],
     targets: NDArray[np.float64],
@@ -228,7 +228,7 @@ def search_nearest_jit(
         result_indices[i] = best_idx
     return result_indices
 
-@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+@jit(nopython=True, cache=True, parallel=True)
 def estimate_domain_stats_flat_parallel_jit(
     mz_flat: NDArray[np.float64],
     lengths: NDArray[np.uint32],
@@ -312,7 +312,7 @@ def estimate_domain_stats_flat_parallel_jit(
 
     return mins, maxs, resolutions
 
-@jit(nopython=True, fastmath=True, cache=True, parallel=True)
+@jit(nopython=True, cache=True, parallel=True)
 def search_nearest_flat_parallel_jit(
     mz_flat: NDArray[np.float64],
     lengths: NDArray[np.uint32],

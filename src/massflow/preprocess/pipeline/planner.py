@@ -1,6 +1,7 @@
 from dataclasses import replace
 from pathlib import Path
 import tempfile
+import uuid
 
 from massflow.preprocess.pipeline.types import (
     ION_IMAGE_OUTPUT_FORMATS,
@@ -40,7 +41,7 @@ def _normalize_output_path(input_meta: InputMetaData, temp_dir: str) -> str | No
             path = path.with_suffix(suffix)
     else:
         output_name = "ion_image_output" if input_meta.result_format in ION_IMAGE_OUTPUT_FORMATS else "preprocess_output"
-        path = Path(temp_dir) / f"{output_name}{suffix}"
+        path = Path(temp_dir) / uuid.uuid4().hex / f"{output_name}{suffix}"
 
     return str(path)
 
