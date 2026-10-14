@@ -35,11 +35,11 @@ class IonImageBinaryDataset(IonImageDataset):
     Usage::
 
         from massflow.data_manager import IonImageDataManagerBinary
-        from massflow.morch import IonImageDatasetBinary
+        from massflow.morch import IonImageBinaryDataset
         from torch.utils.data import DataLoader
 
         dm = IonImageDataManagerBinary("output.iib", mode="r")
-        ds = IonImageDatasetBinary(dm)
+        ds = IonImageBinaryDataset(dm)
 
         loader = DataLoader(ds, batch_size=32, shuffle=True,
                             num_workers=4, pin_memory=True)

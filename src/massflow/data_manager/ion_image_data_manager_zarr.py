@@ -36,10 +36,12 @@ class IonImageDataManagerZarr(IonImageDataManager):
         ion_block: int = 256,
         temp_workers: int = 4,
         merge_workers: int = 4,
-        chunk_size: int = 4,
+        chunk_size: int = 1,
         metadata=None,
         shared_mz_axis: np.ndarray | None = None,
         compute_mean_spectrum: bool = False,
+        compute_rms: bool = False,
+        include_spectra: bool = True,
     ) -> None:
         del merge_workers
         if mode not in {"r", "w"}:
@@ -87,6 +89,8 @@ class IonImageDataManagerZarr(IonImageDataManager):
                 temp_workers=temp_workers,
                 ion_block=self.ion_block,
                 compute_mean_spectrum=compute_mean_spectrum,
+                compute_rms=compute_rms,
+                include_spectra=include_spectra,
             )
 
     def _require_reader(self) -> MSIZarrReader:
@@ -133,6 +137,10 @@ class IonImageDataManagerZarr(IonImageDataManager):
     @property
     def mean_spectrum(self) -> np.ndarray | None:
         return self._require_reader().read_mean_spectrum()
+
+    @property
+    def rms(self) -> np.ndarray | None:
+        return self._require_reader().read_rms()
 
     def write_flat_batch(
         self,
@@ -218,8 +226,10 @@ class IonImageDataManagerZarr(IonImageDataManager):
         ion_block=256,
         temp_workers=2,
         merge_workers=2,
-        chunk_size=4,
+        chunk_size=1,
         compute_mean_spectrum=False,
+        compute_rms=False,
+        include_spectra=True,
     ) -> "IonImageDataManagerZarr":
         meta = data_manager.ms.meta
         if (
@@ -249,6 +259,8 @@ class IonImageDataManagerZarr(IonImageDataManager):
             metadata=meta,
             shared_mz_axis=data_manager.ms.shared_mz_list,
             compute_mean_spectrum=compute_mean_spectrum,
+            compute_rms=compute_rms,
+            include_spectra=include_spectra,
         )
 
     @classmethod
@@ -265,8 +277,10 @@ class IonImageDataManagerZarr(IonImageDataManager):
         ion_block=256,
         temp_workers=2,
         merge_workers=2,
-        chunk_size=4,
+        chunk_size=1,
         compute_mean_spectrum=False,
+        compute_rms=False,
+        include_spectra=True,
     ) -> "IonImageDataManagerZarr":
         output_meta = deepcopy(data_manager.ms.meta)
         output_meta.continuous = True
@@ -291,4 +305,6 @@ class IonImageDataManagerZarr(IonImageDataManager):
             metadata=output_meta,
             shared_mz_axis=np.asarray(shared_mz_axis, dtype="<f8"),
             compute_mean_spectrum=compute_mean_spectrum,
+            compute_rms=compute_rms,
+            include_spectra=include_spectra,
         )

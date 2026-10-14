@@ -137,3 +137,78 @@
   --docsearch-primary-color: var(--vp-c-brand-1) !important;
 }
 
+/**
+ * Component: Mermaid
+ * -------------------------------------------------------------------------- */
+
+/*
+ * mermaid 给 svg 设的是 width:100% + max-width:<自然宽度>px，
+ * 所以当正文区比图更宽时，svg 的实际宽度会被卡在自然宽度上。
+ *
+ * 又因为 VitePress 的 base.css 把 svg 重置成了 display:block
+ * （base.css 中 img/svg/video/... { display: block }），
+ * 剩余空间全留在右侧，图就贴着容器左边。
+ *
+ * 块级盒子 + 确定宽度，用左右 auto 外边距均分剩余空间即可居中；
+ * text-align 对块级子元素无效，这里用不了。
+ */
+.mermaid svg {
+  margin-inline: auto;
+}
+
+/**
+ * Component: Home Hero Image
+ * -------------------------------------------------------------------------- */
+
+/*
+ * VitePress caps the hero image at 192/256/320px on both axes, which suits a
+ * square logo. Our hero art is a wide plot (1000x516), so it hits the width
+ * cap first and renders far smaller than the space allows.
+ *
+ * The caps live in a scoped rule -- `.VPHero[data-v-hash] .image-src`, weight
+ * 0,3,0 -- so these overrides need a fourth class to win regardless of the
+ * order the stylesheets happen to load in.
+ *
+ * Each cap is paired with `100%` through min(): between 960px and 1280px the
+ * image column is squeezed by the headline beside it (240px wide at a 960px
+ * viewport), and a fixed pixel cap there would push the artwork over the text
+ * and past the right edge of the screen.
+ */
+.VPHome .VPHero .image-container .image-src {
+  max-width: min(300px, 100%);
+  max-height: none;
+}
+
+/*
+ * The glow behind the image is a circle sized to the old square cap. Track the
+ * image instead: width follows the same min(), and aspect-ratio derives the
+ * height so it never becomes a tall ellipse behind a wide picture.
+ */
+.VPHome .VPHero .image-container .image-bg {
+  width: min(260px, 88%);
+  height: auto;
+  aspect-ratio: 1.6;
+}
+
+@media (min-width: 640px) {
+  .VPHome .VPHero .image-container .image-src {
+    max-width: min(400px, 100%);
+  }
+
+  .VPHome .VPHero .image-container .image-bg {
+    width: min(340px, 88%);
+  }
+}
+
+@media (min-width: 960px) {
+  .VPHome .VPHero .image-container .image-src {
+    /* max() keeps VitePress's original 320px floor in the 960-1150px band,
+     * where the image column is at its narrowest, so this override is never
+     * a downgrade on any viewport. */
+    max-width: max(320px, min(560px, 100%));
+  }
+
+  .VPHome .VPHero .image-container .image-bg {
+    width: min(470px, 88%);
+  }
+}

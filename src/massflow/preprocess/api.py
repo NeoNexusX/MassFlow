@@ -8,6 +8,7 @@ from massflow.preprocess.flat_pre_fun import FlatPreprocess
 from massflow.preprocess.pipeline.types import TaskScope
 from massflow.r_preprocess.adapter import CardinalAdapter
 from massflow.preprocess.helper.stat_filter_helper import filter_peaks_by_stats, IntensityMethod
+from massflow.preprocess.helper.adduct_filter_helper import filter_peaks_by_adducts
 from massflow.tools.logger import get_logger
 logger = get_logger("massflow.preprocess.api")
 
@@ -29,6 +30,9 @@ class _TaskRegistrar(Protocol):
 class PreprocessorAPI(_TaskRegistrar):
     """Chainable task registration APIs for `Preprocessor` (flat-first)."""
 
+    batch_size: int
+    temp_dir: str
+
     def baseline_correction(
             self,
             *,
@@ -41,7 +45,27 @@ class PreprocessorAPI(_TaskRegistrar):
             baseline_scale: float = 1.0,
             m: int | None = None,
             decreasing: bool = True,
+            backend: Backend = "python",
         ) -> Self:
+        if backend == "cardinal":
+            if niter != 15 or baseline_scale != 1.0 or m is not None:
+                logger.warning(
+                    "niter/baseline_scale/m are only supported by the python "
+                    "baseline_correction backend"
+                )
+            return self._register_task(
+                "baseline_correction",
+                scope="dataset",
+                apply_fn=CardinalAdapter.baseline_correction,
+                method=method,
+                smooth=smooth,
+                span=span,
+                upper=upper,
+                width=width,
+                decreasing=decreasing,
+                temp_dir=self.temp_dir,
+            )
+
         return self._register_task(
             "baseline_correction",
             scope="batch",
@@ -66,8 +90,23 @@ class PreprocessorAPI(_TaskRegistrar):
         polyorder: int = 3,
         deriv: int = 0,
         delta: float = 1.0,
+        backend: Backend = "python",
     ) -> Self:
-        """Register noise reduction flat task."""
+        """Register a noise reduction task."""
+        if backend == "cardinal":
+            return self._register_task(
+                "noise_reduction",
+                scope="dataset",
+                apply_fn=CardinalAdapter.noise_reduction,
+                method=method,
+                window=window,
+                sd=sd,
+                polyorder=polyorder,
+                deriv=deriv,
+                delta=delta,
+                temp_dir=self.temp_dir,
+            )
+
         return self._register_task(
             "noise_reduction",
             scope="batch",
@@ -87,8 +126,25 @@ class PreprocessorAPI(_TaskRegistrar):
         scale: float | None = None,
         ref: float | None = None,
         ref_tolerance: float = 0.1,
+        backend: Backend = "python",
     ) -> Self:
-        """Register normalization batch task."""
+        """Register a normalization task."""
+        if backend == "cardinal":
+            if ref_tolerance != 0.1:
+                logger.warning(
+                    "ref_tolerance is only supported by the python "
+                    "normalization backend"
+                )
+            return self._register_task(
+                "normalization",
+                scope="dataset",
+                apply_fn=CardinalAdapter.normalization,
+                method=method,
+                scale=scale,
+                ref=ref,
+                temp_dir=self.temp_dir,
+            )
+
         return self._register_task(
             "normalization",
             scope="batch",
@@ -125,6 +181,7 @@ class PreprocessorAPI(_TaskRegistrar):
                 relheight=relheight,
                 nbins=nbins,
                 overlap=overlap,
+                temp_dir=self.temp_dir,
             )
 
         return self._register_task(
@@ -139,29 +196,6 @@ class PreprocessorAPI(_TaskRegistrar):
             relheight=relheight,
             nbins=nbins,
             overlap=overlap,
-        )
-
-    def _reference_computer(
-        self,
-        *,
-        binfun: str = "median",
-        binratio: float = 2.0,
-        tolerance: float | None = None,
-        units: str = "ppm",
-        min_count: int | None = None,
-        min_frequency: float | None = None,
-    ) -> Self:
-        """Register reference computer dataset task, just for peak_align."""
-        return self._register_task(
-            "reference_computer",
-            scope="dataset",
-            apply_fn=reference_computer,
-            binfun=binfun,
-            binratio=binratio,
-            tolerance=tolerance,
-            units=units,
-            min_count=min_count,
-            min_frequency=min_frequency,
         )
 
     def filter_peaks_by_isotopes(
@@ -191,6 +225,30 @@ class PreprocessorAPI(_TaskRegistrar):
             start_intensity_check=start_intensity_check,
         )
 
+    def _reference_computer(
+        self,
+        *,
+        binfun: str = "median",
+        binratio: float = 2.0,
+        tolerance: float | None = None,
+        units: str = "ppm",
+        min_count: int | None = None,
+        min_frequency: float | None = None,
+    ) -> Self:
+        """Register reference computer dataset task, just for peak_align."""
+        return self._register_task(
+            "reference_computer",
+            scope="dataset",
+            apply_fn=reference_computer,
+            binfun=binfun,
+            binratio=binratio,
+            tolerance=tolerance,
+            units=units,
+            min_count=min_count,
+            min_frequency=min_frequency,
+            batch_size=self.batch_size,
+        )
+
     def peak_align(
         self,
         *,
@@ -216,6 +274,7 @@ class PreprocessorAPI(_TaskRegistrar):
                 units=units,
                 binfun=binfun,
                 binratio=binratio,
+                temp_dir=self.temp_dir,
             )
 
         if reference is None or tolerance is None:
@@ -267,4 +326,34 @@ class PreprocessorAPI(_TaskRegistrar):
             min_intensity=min_intensity,
             intensity_quantile=intensity_quantile,
             output_path=output_path,
+            temp_dir=self.temp_dir,
+            batch_size=self.batch_size,
+        )
+
+    def filter_peaks_by_adducts(
+        self,
+        *,
+        polarity: Literal["positive", "negative"] = "positive",
+        ppm: float = 5.0,
+        mzabs: float = 0.015,
+        require_quasi: bool = True,
+        min_spatial_correlation: float = 0.7,
+        output_path: str | None = None,
+        report_path: str | None = None,
+    ) -> Self:
+        """Register dataset task to filter peaks by adducts."""
+        return self._register_task(
+            "filter_peaks_by_adducts",
+            scope="dataset",
+            apply_fn=filter_peaks_by_adducts,
+            polarity=polarity,
+            ppm=ppm,
+            mzabs=mzabs,
+            require_quasi=require_quasi,
+            min_spatial_correlation=min_spatial_correlation,
+            batch_size=self.batch_size,
+            output_path=output_path,
+            temp_dir=self.temp_dir,
+            report_path=report_path,
+            remove=True
         )

@@ -70,7 +70,9 @@ def _savgol_1d_core(signal: np.ndarray,
     half = window // 2
     res = np.empty(n, dtype=signal.dtype)
     for i in range(n):
-        if i < half:
+        if n < window:
+            pos = half
+        elif i < half:
             pos = i
         elif i >= n - half:
             pos = window - (n - i)
@@ -81,7 +83,12 @@ def _savgol_1d_core(signal: np.ndarray,
         start = i - pos
         val = np.float64(0.0)
         for j in range(window):
-            val += signal[start + j] * k_weights[j]
+            idx = start + j
+            if idx < 0:
+                idx = 0
+            elif idx >= n:
+                idx = n - 1
+            val += signal[idx] * k_weights[j]
         res[i] = val
     return res
 

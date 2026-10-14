@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Iterator, Literal
 
 import matplotlib
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import umap
@@ -19,6 +21,8 @@ from massflow.data_manager import (
     IonImageDataManagerH5,
     IonImageDataManagerZarr,
     MSDataManagerImzML,
+    MSDataManagerZarr,
+    ZARR_MODE_CONTINUOUS,
 )
 from massflow.segmentation.segmentation_pipeline import TAB20_COLOR_NAMES, UmapKmeansResult
 from massflow.tools.logger import get_logger
@@ -134,6 +138,10 @@ def _read_umap_sample_matrix(
         return _read_imzml_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
         ), None
+    if isinstance(data_manager, MSDataManagerZarr):
+        return _read_spectra_zarr_sample_matrix(
+            data_manager, sample_ratio, random_state=random_state,
+        ), None
     if isinstance(data_manager, IonImageDataManagerZarr):
         return _read_zarr_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
@@ -157,6 +165,10 @@ def _iter_umap_matrix_batches(
     """Iterate nonzero spectra batches for UMAP transform."""
     if isinstance(data_manager, MSDataManagerImzML):
         return _iter_imzml_matrix_batches(data_manager, batch_size=batch_size)
+    if isinstance(data_manager, MSDataManagerZarr):
+        return _iter_spectra_zarr_matrix_batches(
+            data_manager, batch_size=batch_size,
+        )
     if isinstance(data_manager, IonImageDataManagerZarr):
         return _iter_zarr_matrix_batches(data_manager, batch_size=batch_size)
     if isinstance(data_manager, IonImageDataManagerH5):
@@ -170,6 +182,11 @@ def _estimate_umap_transform_batches(data_manager: Any, batch_size: int) -> int:
     """Estimate source batch count for UMAP transform progress logging."""
     if isinstance(data_manager, MSDataManagerImzML):
         total_items = len(data_manager.ms)
+    elif isinstance(data_manager, MSDataManagerZarr):
+        total_items = len(data_manager.ms)
+        if total_items == 0:
+            reader = data_manager._require_reader()  # pylint: disable=protected-access
+            total_items = reader.n_pixels
     elif isinstance(data_manager, (IonImageDataManagerZarr, IonImageDataManagerH5, IonImageDataManagerBinary)):
         total_items = int(data_manager.n_pixels)
     else:
@@ -216,10 +233,10 @@ def _finalize_umap_embeddings(
     embeddings: np.ndarray,
     coordinates: np.ndarray | None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Deduplicate imzML coordinates and scale UMAP embeddings to RGB range."""
+    """Deduplicate spectra coordinates and scale UMAP embeddings to RGB range."""
     if coordinates is None:
         raise ValueError("UMAP coordinates are missing.")
-    if isinstance(data_manager, MSDataManagerImzML):
+    if isinstance(data_manager, (MSDataManagerImzML, MSDataManagerZarr)):
         embeddings, coordinates = _deduplicate_last_by_xy(embeddings, coordinates)
 
     scaled = MinMaxScaler().fit_transform(embeddings).astype(np.float32)  # type: ignore
@@ -263,6 +280,10 @@ def _read_full_matrix(
     """Build a full nonzero spectra matrix and coordinate matrix from the active backend."""
     if isinstance(data_manager, MSDataManagerImzML):
         batch_iter = _iter_imzml_matrix_batches(
+            data_manager, batch_size=batch_size,
+        )
+    elif isinstance(data_manager, MSDataManagerZarr):
+        batch_iter = _iter_spectra_zarr_matrix_batches(
             data_manager, batch_size=batch_size,
         )
     elif isinstance(data_manager, IonImageDataManagerZarr):
@@ -360,6 +381,76 @@ def _deduplicate_last_by_xy(
 
     keep = np.array(sorted(last.values()), dtype=np.intp)
     return values[keep], coordinates[keep]
+
+
+# --- Pixel-major spectra Zarr backend --------------------------------------
+
+
+def _read_spectra_zarr_sample_matrix(
+    manager: MSDataManagerZarr,
+    sample_ratio: float,
+    *,
+    random_state: int | None = None,
+) -> np.ndarray:
+    """Randomly sample spectra from a pixel-major Zarr store in indexed batches."""
+    if sample_ratio <= 0 or sample_ratio > 1:
+        raise ValueError("sample_ratio must be in (0, 1].")
+
+    source_indices = manager._target_indices()  # pylint: disable=protected-access
+    n_spectra = int(source_indices.size)
+    if n_spectra == 0:
+        raise ValueError("No spectra found in the selected spatial region.")
+
+    sample_count = max(1, int(np.ceil(n_spectra * sample_ratio)))
+    rng = np.random.default_rng(random_state)
+    sample_positions = np.sort(
+        rng.choice(n_spectra, size=sample_count, replace=False)
+    )
+    sample_indices = source_indices[sample_positions]
+
+    reader = manager._require_reader()  # pylint: disable=protected-access
+    n_features = reader.n_ions
+    sample_matrix = np.empty((sample_count, n_features), dtype=np.float32)
+    for batch_start in range(0, sample_count, 4096):
+        batch_end = min(sample_count, batch_start + 4096)
+        _, intensity_flat, _lengths, _coordinates = reader.read_flat_batch(
+            sample_indices[batch_start:batch_end],
+            include_mz=False,
+        )
+        sample_matrix[batch_start:batch_end] = np.asarray(
+            intensity_flat,
+            dtype=np.float32,
+        ).reshape(batch_end - batch_start, n_features)
+
+    nonzero_mask = np.any(sample_matrix != 0, axis=1)
+    if not np.all(nonzero_mask):
+        sample_matrix = sample_matrix[nonzero_mask]
+    if sample_matrix.shape[0] == 0:
+        raise ValueError("All sampled spectra are zero; cannot build sample matrix.")
+    return sample_matrix
+
+
+def _iter_spectra_zarr_matrix_batches(
+    manager: MSDataManagerZarr,
+    *,
+    batch_size: int = 256,
+) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    """Yield nonzero spectrum matrices from a pixel-major Zarr store."""
+    for _, intensity_matrix, _lengths, coordinates in manager.matrix_generator(
+        batch_size=batch_size,
+        include_mz=False,
+    ):
+        intensity = np.asarray(intensity_matrix, dtype=np.float32)
+        coords = np.asarray(coordinates)[:, :2]
+
+        nonzero_mask = np.any(intensity != 0, axis=1)
+        if not np.any(nonzero_mask):
+            continue
+
+        if np.all(nonzero_mask):
+            yield intensity, coords
+        else:
+            yield intensity[nonzero_mask], coords[nonzero_mask]
 
 
 # --- Compact Zarr ion-image backend ----------------------------------------
@@ -655,9 +746,7 @@ def build_kmeans_image(
         coordinates, width=width, height=height,
     )
 
-    palette = (np.asarray(matplotlib.colormaps["tab20"].colors)[:, :3] * 255).astype(np.uint8) # type: ignore
-    if n_clusters > len(palette):
-        raise ValueError(f"n_clusters must be <= {len(palette)}.")
+    palette = _tab20_rgb_palette(n_clusters)
     colors = palette[labels]
 
     image = np.zeros((h, w, 3), dtype=np.uint8)
@@ -689,6 +778,15 @@ def build_kmeans_label_image(
 def _tab20_label_colors(n_clusters: int) -> dict[int, str]:
     """Build the human-readable label-to-colour mapping for KMeans results."""
     return {label: TAB20_COLOR_NAMES[label] for label in range(n_clusters)}
+
+
+def _tab20_rgb_palette(n_clusters: int) -> np.ndarray:
+    """Return the tab20 RGB palette used by KMeans labels."""
+    tab20_colors = matplotlib.colormaps["tab20"].colors  # type: ignore
+    palette = (np.asarray(tab20_colors)[:, :3] * 255).astype(np.uint8)
+    if n_clusters > len(palette):
+        raise ValueError(f"n_clusters must be <= {len(palette)}.")
+    return palette
 
 
 # ---------------------------------------------------------------------------
@@ -733,6 +831,8 @@ def _validate_parameters(
 
 def _is_continuous(data_manager: Any) -> bool:
     """Heuristic check for continuous/shared m/z axis."""
+    if isinstance(data_manager, MSDataManagerZarr):
+        return data_manager.storage_mode == ZARR_MODE_CONTINUOUS
     meta = getattr(getattr(data_manager, "ms", None), "meta", None)
     continuous = getattr(meta, "continuous", None)
     if continuous is True:
@@ -758,7 +858,10 @@ def _run_umap_stage(
     umap_metric: str,
     random_state: int | None,
 ) -> tuple[np.ndarray, np.ndarray, int | None, int | None]:
-    if isinstance(data_manager, MSDataManagerImzML) and _is_continuous(data_manager) is False:
+    if (
+        isinstance(data_manager, (MSDataManagerImzML, MSDataManagerZarr))
+        and _is_continuous(data_manager) is False
+    ):
         logger.error("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
         raise ValueError("Data must have a continuous/shared m/z axis for UMAP/KMeans analysis.")
 
@@ -775,15 +878,85 @@ def _run_umap_stage(
     return scaled_embedding, coordinates, width, height
 
 
-def _save_rgb_image(image: np.ndarray, output_path: str | Path, *, dpi: int) -> None:
+def _save_rgb_image(
+    image: np.ndarray,
+    output_path: str | Path,
+    *,
+    dpi: int,
+    legend_handles: list[mpatches.Patch] | None = None,
+    show: bool = False,
+) -> None:
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    plt.imsave(
-        str(output),
-        image,
-        dpi=dpi,
-        pil_kwargs={"quality": 95, "subsampling": 0, "optimize": True},
+    pil_kwargs: dict[str, Any] | None = None
+    if output.suffix.lower() in {".jpg", ".jpeg"}:
+        pil_kwargs = {"quality": 95, "subsampling": 0, "optimize": True}
+
+    if legend_handles is None:
+        plt.imsave(
+            str(output),
+            image,
+            dpi=dpi,
+            pil_kwargs=pil_kwargs,
+        )
+        return
+
+    fig, ax = plt.subplots()
+    ax.imshow(image)
+    ax.axis("off")
+    ncol = max(1, math.ceil(len(legend_handles) / 10))
+    ax.legend(
+        handles=legend_handles,
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        ncol=ncol,
     )
+    fig.savefig(
+        str(output),
+        bbox_inches="tight",
+        dpi=dpi,
+        pil_kwargs=pil_kwargs,
+    )
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+def _save_umap_result_zarr(
+    data_manager: Any,
+    output_path: str | Path,
+    scaled_embedding: np.ndarray,
+    coordinates: np.ndarray,
+) -> Path:
+    """Save UMAP arrays inside the source MSI Zarr or a standalone Zarr group."""
+    scatter_x, scatter_y, *_ = _infer_spatial_params(coordinates)
+    zero_based_coordinates = np.column_stack((scatter_x, scatter_y)).astype(
+        np.uint32,
+        copy=False,
+    )
+
+    if isinstance(data_manager, MSDataManagerZarr):
+        zarr_path = Path(data_manager.zarr_filepath)
+        root = zarr.open_group(str(zarr_path), mode="r+")
+        analysis_group = root.require_group("analysis")
+        result_group = analysis_group.require_group("umap")
+        overwrite = True
+    else:
+        zarr_path = Path(output_path).with_suffix(".zarr")
+        result_group = zarr.open_group(str(zarr_path), mode="w", zarr_format=3)
+        overwrite = False
+
+    result_group.create_array(
+        "scaled_embedding",
+        data=scaled_embedding,
+        overwrite=overwrite,
+    )
+    result_group.create_array(
+        "coordinates",
+        data=zero_based_coordinates,
+        overwrite=overwrite,
+    )
+    return zarr_path
 
 
 def plot_umap_image(
@@ -791,6 +964,7 @@ def plot_umap_image(
     *,
     output_path: str | Path = "./umap_image.jpg",
     dpi: int = 600,
+    save_matrix: Literal["zarr"] | None = None,
     sample_ratio: float = 0.1,
     transform_batch_size: int | None = 1024,
     n_components: int = 3,
@@ -798,6 +972,8 @@ def plot_umap_image(
     random_state: int | None = None,
 ) -> np.ndarray:
     """Run UMAP analysis, save the spatial UMAP image, and return it."""
+    if save_matrix not in {None, "zarr"}:
+        raise ValueError("save_matrix must be None or 'zarr'.")
     _validate_umap_parameters(
         n_components,
         sample_ratio,
@@ -820,6 +996,19 @@ def plot_umap_image(
     )
     _save_rgb_image(umap_img, output_path, dpi=dpi)
     logger.info(f"UMAP image saved to: {output_path}")
+    if save_matrix == "zarr":
+        zarr_path = _save_umap_result_zarr(
+            data_manager,
+            output_path,
+            scaled_embedding,
+            coordinates,
+        )
+        result_location = (
+            zarr_path / "analysis" / "umap"
+            if isinstance(data_manager, MSDataManagerZarr)
+            else zarr_path
+        )
+        logger.info(f"UMAP result matrices saved to: {result_location}")
     return umap_img
 
 
@@ -836,6 +1025,7 @@ def plot_umap_kmeans_image(
     umap_metric: str = "cosine",
     n_clusters: int = 10,
     random_state: int | None = None,
+    show: bool = False,
 ) -> UmapKmeansResult:
     """Run the full UMAP/KMeans analysis pipeline on processed MSI data."""
 
@@ -895,8 +1085,13 @@ def plot_umap_kmeans_image(
 
     # ---- 5. Save outputs ------------------------------------------------
     if save_images:
-        _save_rgb_image(umap_img, out / "umap_image.jpg", dpi=dpi)
-        _save_rgb_image(kmeans_img, out / "kmeans_image.jpg", dpi=dpi)
+        _save_rgb_image(umap_img, out / "umap_image.png", dpi=dpi)
+        palette = _tab20_rgb_palette(n_clusters)
+        legend_handles = [
+            mpatches.Patch(color=tuple(palette[i] / 255), label=str(i))
+            for i in range(n_clusters)
+        ]
+        _save_rgb_image(kmeans_img, out / "kmeans_image.png", dpi=dpi, legend_handles=legend_handles, show=show)
 
     if save_matrix == "zarr":
         result_group = zarr.open_group(str(out / "umap_kmeans_result.zarr"), mode="w")

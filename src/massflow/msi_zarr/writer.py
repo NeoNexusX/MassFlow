@@ -16,6 +16,8 @@ from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.msi_zarr.schema import (
     ZARR_FORMAT_NAME,
     ZARR_FORMAT_VERSION,
+    ZARR_GROUP_ION_IMAGE,
+    ZARR_GROUP_SPECTRA,
     ZARR_MODE_AUTO,
     ZARR_MODE_CONTINUOUS,
     ZARR_MODE_PROCESSED,
@@ -49,6 +51,9 @@ class MSIZarrWriter:
         temp_workers: int = 4,
         ion_block: int = 256,
         compute_mean_spectrum: bool = False,
+        compute_tic: bool = False,
+        compute_rms: bool = False,
+        include_spectra: bool = False,
     ) -> None:
         if row_axis not in {"pixel", "ion"}:
             raise ValueError("row_axis must be 'pixel' or 'ion'.")
@@ -60,11 +65,26 @@ class MSIZarrWriter:
             raise ValueError(
                 "encoding must be 'auto', 'continuous', or 'processed'."
             )
+        if include_spectra and (
+            row_axis != "ion" or encoding != ZARR_MODE_CONTINUOUS
+        ):
+            raise ValueError(
+                "include_spectra=True requires row_axis='ion' and "
+                "continuous encoding."
+            )
         if row_axis == "ion" and encoding != ZARR_MODE_CONTINUOUS:
             raise ValueError("ion-major output requires continuous encoding.")
+        if include_spectra:
+            compute_tic = True
+            compute_mean_spectrum = True
+        elif row_axis == "ion" and compute_tic:
+            raise ValueError("compute_tic is only supported for pixel-major output.")
+        elif row_axis == "ion" and compute_rms:
+            raise ValueError("compute_rms is only supported for pixel-major output.")
         self.path = _normalize_zarr_path(path)
         self.row_axis: ZarrRowAxis = row_axis
         self.encoding: ZarrWriteMode = encoding
+        self.include_spectra = bool(include_spectra)
         self.meta = MetaDataZarr() if metadata is None else metadata
         self.width = None if width is None else int(width)
         self.height = None if height is None else int(height)
@@ -74,6 +94,8 @@ class MSIZarrWriter:
         self.add_buffer_size = max(1, int(add_buffer_size))
         self.ion_block = max(1, int(ion_block))
         self.compute_mean_spectrum = bool(compute_mean_spectrum)
+        self.compute_tic = bool(compute_tic)
+        self.compute_rms = bool(compute_rms)
         self._temp_dir = temp_dir
         self._temp_workers = max(1, int(temp_workers))
         self._root: zarr.Group | None = None
@@ -81,10 +103,13 @@ class MSIZarrWriter:
         self._intensity: zarr.Array | None = None
         self._offsets: zarr.Array | None = None
         self._point_mz: zarr.Array | None = None
+        self._spectra_intensity: zarr.Array | None = None
+        self._spectra_offsets: zarr.Array | None = None
         self._shared_mz: np.ndarray | None = None
         self._coordinates: list[np.ndarray] = []
         self._temp_store: IonMajorTempStore | None = None
         self._total_points = 0
+        self._spectra_total_points = 0
         self._n_input_pixels = 0
         self._finalized = False
         self._add_intensity: list[np.ndarray] = []
@@ -93,6 +118,8 @@ class MSIZarrWriter:
         self._pending_batches: list[
             tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         ] = []
+        self._tic_batches: list[np.ndarray] = []
+        self._rms_batches: list[np.ndarray] = []
 
     # --- Public write lifecycle ----------------------------------------------
 
@@ -181,11 +208,18 @@ class MSIZarrWriter:
         if self._n_input_pixels == 0:
             raise ValueError("No spectra were written.")
         coordinates = np.vstack(self._coordinates)
-        coordinate_index = prepare_coordinate_index(
-            coordinates,
-            width=self.width,
-            height=self.height,
-        )
+        if self.row_axis == "pixel":
+            coordinate_index = prepare_pixel_coordinate_index(
+                coordinates,
+                width=self.width,
+                height=self.height,
+            )
+        else:
+            coordinate_index = prepare_coordinate_index(
+                coordinates,
+                width=self.width,
+                height=self.height,
+            )
         if coordinate_index.source_idx.size != coordinates.shape[0]:
             logger.warning(
                 "Removed duplicate coordinates while keeping the last pixel: "
@@ -227,7 +261,11 @@ class MSIZarrWriter:
         self._intensity = None
         self._offsets = None
         self._point_mz = None
+        self._spectra_intensity = None
+        self._spectra_offsets = None
         self._pending_batches.clear()
+        self._tic_batches.clear()
+        self._rms_batches.clear()
 
     # --- Batch ingestion ------------------------------------------------------
 
@@ -248,6 +286,7 @@ class MSIZarrWriter:
             lengths, dtype=np.int64
         )
         self._offsets.append(batch_offsets.astype("<i8", copy=False), axis=0)
+        self._accumulate_spectrum_stats(intensity, lengths)
 
     def _write_ion_batch(
         self,
@@ -255,6 +294,8 @@ class MSIZarrWriter:
         lengths: np.ndarray,
     ) -> None:
         assert self._shared_mz is not None
+        if self.include_spectra:
+            self._append_spectra_batch(intensity, lengths)
         if self._temp_store is None:
             self._temp_store = IonMajorTempStore(
                 temp_dir=self._temp_dir,
@@ -268,6 +309,101 @@ class MSIZarrWriter:
             n_ions=int(self._shared_mz.size),
         )
 
+    # --- Combined /spectra streaming -----------------------------------------
+
+    def _ensure_spectra_arrays(self, lengths: np.ndarray) -> None:
+        """Create the v1.1 root and the streaming /spectra group on first write."""
+        if self._spectra_intensity is not None:
+            return
+        if self._root is None:
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+            self._root = zarr.open_group(self.path, mode="w")
+            self._write_root_attrs(state="writing")
+        root = self._root
+        root.require_group("axes")
+        spectra = root.create_group(ZARR_GROUP_SPECTRA)
+        spectra.attrs.update(
+            {"row_axis": "pixel", "encoding": ZARR_MODE_CONTINUOUS}
+        )
+        assert self._shared_mz is not None
+        row_length = int(self._shared_mz.size)
+        chunk_points = _chunk_points(
+            row_length,
+            self.intensity_dtype.itemsize,
+            self.target_chunk_bytes,
+        )
+        self._spectra_intensity = spectra.create_array(
+            "intensity",
+            shape=(0,),
+            chunks=(chunk_points,),
+            dtype=self.intensity_dtype,
+        )
+        self._spectra_offsets = spectra.create_array(
+            "offsets",
+            data=np.array([0], dtype="<i8"),
+            chunks=(max(2, min(4096, int(lengths.size) + 1)),),
+        )
+
+    def _append_spectra_batch(
+        self,
+        intensity: np.ndarray,
+        lengths: np.ndarray,
+    ) -> None:
+        """Append one pixel-major batch and accumulate enabled spectrum stats."""
+        self._ensure_spectra_arrays(lengths)
+        assert self._spectra_intensity is not None
+        assert self._spectra_offsets is not None
+        self._spectra_intensity.append(intensity, axis=0)
+        self._spectra_total_points += int(intensity.size)
+        batch_offsets = (
+            self._spectra_total_points - intensity.size
+            + np.cumsum(lengths, dtype=np.int64)
+        )
+        self._spectra_offsets.append(
+            batch_offsets.astype("<i8", copy=False), axis=0
+        )
+        self._accumulate_spectrum_stats(intensity, lengths)
+
+    def _finalize_spectra(self, source_idx: np.ndarray) -> None:
+        """Compact streamed /spectra and write enabled spectrum stats."""
+        if source_idx.size != self._n_input_pixels:
+            self._compact_spectra_arrays(source_idx)
+            tic = (
+                np.concatenate(self._tic_batches)[source_idx]
+                if self._tic_batches
+                else np.empty(0, dtype=np.float64)
+            )
+            rms = (
+                np.concatenate(self._rms_batches)[source_idx]
+                if self._rms_batches
+                else np.empty(0, dtype=np.float64)
+            )
+        else:
+            tic = None
+            rms = None
+        self._write_tic(tic)
+        self._write_rms(rms)
+
+    def _compact_spectra_arrays(self, source_idx: np.ndarray) -> None:
+        assert self._spectra_intensity is not None
+        assert self._spectra_offsets is not None
+        old_offsets = np.asarray(self._spectra_offsets[:], dtype=np.int64)
+        destination = 0
+        new_offsets = np.empty(source_idx.size + 1, dtype="<i8")
+        new_offsets[0] = 0
+        for output_row, source_row in enumerate(source_idx):
+            start = int(old_offsets[source_row])
+            end = int(old_offsets[source_row + 1])
+            intensity = np.asarray(self._spectra_intensity[start:end])
+            next_destination = destination + intensity.size
+            self._spectra_intensity[destination:next_destination] = intensity
+            destination = next_destination
+            new_offsets[output_row + 1] = destination
+        self._spectra_intensity.resize((destination,))
+        self._spectra_offsets.resize(new_offsets.shape)
+        self._spectra_offsets[:] = new_offsets
+        self._spectra_total_points = destination
+
     # --- Pixel-major finalization --------------------------------------------
 
     def _ensure_pixel_arrays(self, lengths: np.ndarray) -> None:
@@ -278,7 +414,7 @@ class MSIZarrWriter:
         self._root = root
         self._write_root_attrs(state="writing")
         axes = root.create_group("axes")
-        data = root.create_group("data")
+        data = root.create_group(ZARR_GROUP_SPECTRA)
         self._data = data
         data.attrs.update(
             {"row_axis": self.row_axis, "encoding": self.encoding}
@@ -329,6 +465,66 @@ class MSIZarrWriter:
             data=coordinate_index.coordinates.astype("<u4", copy=False),
             overwrite=True,
         )
+        self._write_tic()
+        self._write_rms()
+
+    def _accumulate_spectrum_stats(
+        self,
+        intensity: np.ndarray,
+        lengths: np.ndarray,
+    ) -> None:
+        if not self.compute_tic and not self.compute_rms:
+            return
+        starts = np.empty(lengths.size, dtype=np.int64)
+        starts[0] = 0
+        if lengths.size > 1:
+            np.cumsum(lengths[:-1], dtype=np.int64, out=starts[1:])
+        work = intensity.astype(np.float64)
+        if self.compute_tic:
+            self._tic_batches.append(np.add.reduceat(work, starts))
+        if self.compute_rms:
+            np.square(work, out=work)
+            sum_squares = np.add.reduceat(work, starts)
+            self._rms_batches.append(np.sqrt(sum_squares / lengths))
+
+    def _write_tic(self, tic: np.ndarray | None = None) -> None:
+        if not self.compute_tic:
+            return
+        assert self._root is not None
+        if tic is None:
+            tic = (
+                np.concatenate(self._tic_batches)
+                if self._tic_batches
+                else np.empty(0, dtype=np.float64)
+            )
+        stats = self._root.require_group("stats")
+        array = stats.create_array("tic", data=tic, overwrite=True)
+        array.attrs.update(
+            {
+                "source": f"/{ZARR_GROUP_SPECTRA}",
+                "reduced_axis": "mz",
+            }
+        )
+
+    def _write_rms(self, rms: np.ndarray | None = None) -> None:
+        if not self.compute_rms:
+            return
+        assert self._root is not None
+        if rms is None:
+            rms = (
+                np.concatenate(self._rms_batches)
+                if self._rms_batches
+                else np.empty(0, dtype=np.float64)
+            )
+        stats = self._root.require_group("stats")
+        array = stats.create_array("rms", data=rms, overwrite=True)
+        array.attrs.update(
+            {
+                "source": f"/{ZARR_GROUP_SPECTRA}",
+                "reduced_axis": "mz",
+                "denominator": "spectrum_points",
+            }
+        )
 
     def _compact_pixel_arrays(self, source_idx: np.ndarray) -> None:
         assert self._intensity is not None and self._offsets is not None
@@ -362,18 +558,20 @@ class MSIZarrWriter:
         temp_store = self._temp_store
         shared_mz = self._shared_mz
         batches = temp_store.finish()
-        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        root = zarr.open_group(self.path, mode="w")
-        self._root = root
-        self._write_root_attrs(state="writing")
-        axes = root.create_group("axes")
+        if self._root is None:
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+            self._root = zarr.open_group(self.path, mode="w")
+            self._write_root_attrs(state="writing")
+        root = self._root
+        axes = root.require_group("axes")
         axes.create_array(
             "coordinates",
             data=coordinate_index.coordinates.astype("<u4", copy=False),
+            overwrite=True,
         )
-        mz_array = axes.create_array("mz", data=shared_mz)
+        mz_array = axes.create_array("mz", data=shared_mz, overwrite=True)
         mz_array.attrs["unit"] = "m/z"
-        data = root.create_group("data")
+        data = root.require_group(ZARR_GROUP_ION_IMAGE)
         self._data = data
         data.attrs.update(
             {"row_axis": self.row_axis, "encoding": self.encoding}
@@ -391,10 +589,13 @@ class MSIZarrWriter:
             shape=(n_ions * n_pixels,),
             chunks=(chunk_points,),
             dtype=self.intensity_dtype,
+            overwrite=True,
         )
         self._intensity = intensity_array
         offsets = np.arange(n_ions + 1, dtype=np.int64) * n_pixels
-        self._offsets = data.create_array("offsets", data=offsets.astype("<i8"))
+        self._offsets = data.create_array(
+            "offsets", data=offsets.astype("<i8"), overwrite=True
+        )
         selections = _split_source_indices(coordinate_index.source_idx, batches)
         merge_rows = max(rows_per_chunk, self.ion_block)
         merge_rows = ((merge_rows + rows_per_chunk - 1) // rows_per_chunk) * rows_per_chunk
@@ -437,6 +638,8 @@ class MSIZarrWriter:
                         band, axis=1, dtype=np.float64
                     )
         self._write_mean_spectrum(mean_spectrum)
+        if self.include_spectra:
+            self._finalize_spectra(coordinate_index.source_idx)
 
     def _write_mean_spectrum(
         self,
@@ -445,13 +648,15 @@ class MSIZarrWriter:
         if mean_spectrum is None:
             return
         assert self._root is not None
-        stats = self._root.create_group("stats")
-        array = stats.create_array("mean_spectrum", data=mean_spectrum)
+        stats = self._root.require_group("stats")
+        array = stats.create_array(
+            "mean_spectrum", data=mean_spectrum, overwrite=True
+        )
         array.attrs.update(
             {
                 "reduced_axis": "pixel",
                 "denominator": "sampled_pixels",
-                "source": "/data",
+                "source": f"/{ZARR_GROUP_ION_IMAGE}",
             }
         )
 
@@ -525,27 +730,68 @@ class MSIZarrWriter:
 
     def _validate_written_structure(self) -> None:
         assert self._root is not None
-        data = cast(zarr.Group, self._root["data"])
         axes = cast(zarr.Group, self._root["axes"])
+        coordinates = cast(zarr.Array, axes["coordinates"])
+        if self.row_axis == "pixel":
+            data = cast(zarr.Group, self._root[ZARR_GROUP_SPECTRA])
+            offsets = cast(zarr.Array, data["offsets"])
+            intensity = cast(zarr.Array, data["intensity"])
+            if (
+                _read_array_int(offsets, 0) != 0
+                or _read_array_int(offsets, -1) != int(intensity.shape[0])
+            ):
+                raise ValueError("Written offsets do not match intensity.")
+            n_rows = int(offsets.shape[0]) - 1
+            if n_rows != int(coordinates.shape[0]):
+                raise ValueError(
+                    "Written pixel row count does not match coordinates."
+                )
+            if self.encoding == ZARR_MODE_PROCESSED:
+                point_mz = cast(zarr.Array, data["mz"])
+                if int(point_mz.shape[0]) != int(intensity.shape[0]):
+                    raise ValueError(
+                        "Written spectra/mz does not match intensity."
+                    )
+            return
+        data = cast(zarr.Group, self._root[ZARR_GROUP_ION_IMAGE])
         offsets = cast(zarr.Array, data["offsets"])
         intensity = cast(zarr.Array, data["intensity"])
-        coordinates = cast(zarr.Array, axes["coordinates"])
+        shared_mz = cast(zarr.Array, axes["mz"])
         if (
             _read_array_int(offsets, 0) != 0
             or _read_array_int(offsets, -1) != int(intensity.shape[0])
         ):
             raise ValueError("Written offsets do not match intensity.")
         n_rows = int(offsets.shape[0]) - 1
-        if self.row_axis == "pixel" and n_rows != int(coordinates.shape[0]):
-            raise ValueError("Written pixel row count does not match coordinates.")
-        if self.row_axis == "ion":
-            shared_mz = cast(zarr.Array, axes["mz"])
-            if n_rows != int(shared_mz.shape[0]):
-                raise ValueError("Written ion row count does not match axes/mz.")
-        if self.encoding == ZARR_MODE_PROCESSED:
-            point_mz = cast(zarr.Array, data["mz"])
-            if int(point_mz.shape[0]) != int(intensity.shape[0]):
-                raise ValueError("Written data/mz does not match intensity.")
+        if n_rows != int(shared_mz.shape[0]):
+            raise ValueError("Written ion row count does not match axes/mz.")
+        if self.include_spectra:
+            spectra = cast(zarr.Group, self._root[ZARR_GROUP_SPECTRA])
+            if (
+                spectra.attrs.get("row_axis") != "pixel"
+                or spectra.attrs.get("encoding") != ZARR_MODE_CONTINUOUS
+            ):
+                raise ValueError(
+                    "Written spectra/ attrs must be pixel-major continuous."
+                )
+            s_offsets = cast(zarr.Array, spectra["offsets"])
+            s_intensity = cast(zarr.Array, spectra["intensity"])
+            if (
+                _read_array_int(s_offsets, 0) != 0
+                or _read_array_int(s_offsets, -1)
+                != int(s_intensity.shape[0])
+            ):
+                raise ValueError("Written spectra offsets do not match intensity.")
+            if int(s_offsets.shape[0]) - 1 != int(coordinates.shape[0]):
+                raise ValueError(
+                    "Written spectra row count does not match coordinates."
+                )
+            if int(s_intensity.shape[0]) != int(coordinates.shape[0]) * int(
+                shared_mz.shape[0]
+            ):
+                raise ValueError(
+                    "Written spectra intensity does not match pixel*ion size."
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -605,6 +851,37 @@ def prepare_coordinate_index(
         height=height,
         coordinates=retained,
         source_idx=source_idx,
+    )
+
+
+def prepare_pixel_coordinate_index(
+    coordinates: np.ndarray,
+    *,
+    width: int | None,
+    height: int | None,
+) -> CoordinateIndex:
+    """Validate pixel-major coordinates without dropping rows or rewriting z."""
+    coords = _ensure_xyz_coordinates(coordinates).astype(np.int64, copy=False)
+    xy = coords[:, :2]
+    if width is None:
+        width = int(np.max(xy[:, 0]))
+    if height is None:
+        height = int(np.max(xy[:, 1]))
+    width = int(width)
+    height = int(height)
+    valid = (
+        (xy[:, 0] >= 1)
+        & (xy[:, 0] <= width)
+        & (xy[:, 1] >= 1)
+        & (xy[:, 1] <= height)
+    )
+    if not bool(np.all(valid)):
+        raise ValueError("coordinates contains out-of-bounds values.")
+    return CoordinateIndex(
+        width=width,
+        height=height,
+        coordinates=coords.astype("<u4", copy=False),
+        source_idx=np.arange(coords.shape[0], dtype=np.intp),
     )
 
 

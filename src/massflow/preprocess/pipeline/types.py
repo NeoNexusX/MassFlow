@@ -55,7 +55,11 @@ class InputMetaData:
     result_path: str | None
     result_format: OutputFormat
     ion_block: int = 256
+    zarr_chunk_size: int = 1
     compute_mean_spectrum: bool = False
+    compute_tic: bool = False
+    compute_rms: bool = False
+    pipeline_stall_timeout: float | None = 60.0
 
 
 @dataclass(slots=True)

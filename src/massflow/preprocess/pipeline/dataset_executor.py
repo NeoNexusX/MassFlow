@@ -61,6 +61,14 @@ def imzml_to_ion_image_data_manager(
     else:
         raise ValueError(f"Unsupported output format: {output_format}")
 
+    zarr_options = (
+        {
+            "chunk_size": input_meta.zarr_chunk_size,
+            "compute_rms": input_meta.compute_rms,
+        }
+        if output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR
+        else {}
+    )
     output_dm = ion_image_cls.from_data_manager(
         data_manager=imzml_manager,
         filepath=file_path,
@@ -68,6 +76,7 @@ def imzml_to_ion_image_data_manager(
         temp_workers=input_meta.output_max_workers,
         merge_workers=input_meta.output_max_workers,
         compute_mean_spectrum=input_meta.compute_mean_spectrum,
+        **zarr_options, # type: ignore
     )
 
     return _write_through_generator(imzml_manager, output_dm, input_meta)

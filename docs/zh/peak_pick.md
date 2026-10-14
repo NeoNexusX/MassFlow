@@ -1,46 +1,32 @@
-# MassFlow
+# 峰提取
 
-本文介绍 MassFlow 中的峰提取（peak picking）模块，重点包括：
-- 流水线级入口 `Preprocessor.peak_pick`
-- 扁平数组入口 `FlatPreprocess.peak_pick_flat`
-- `preprocess/helper/peak_pick_helper.py` 中的峰提取辅助函数
+本文介绍 MassFlow 中的峰提取模块。
 
-内容涵盖：API 说明、示例代码、参数与调参建议、以及常见问题。
+
+
+作者：董乐强，董京伟
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
 
 ## 概述
 
+轮廓质谱通常包含大量连续的 *m/z* 采样点，其中很多数据点位于峰与峰之间，并不代表独立的离子峰。 峰提取用于从连续谱线中识别可能的离子峰位置，并结合信号强度和噪声水平去除不明显的候选峰。
+
+处理后，每条谱图会由连续谱线转换为较稀疏的峰列表，只保留识别出的峰位置及其对应强度。 MassFlow 在峰提取过程中会检查局部峰顶、信噪比和峰的突出程度，并可根据峰形确定峰的范围。
+
+峰提取不会改变像素的空间位置，但会明显减少每条谱图中的 *m/z* 数据点数量，为后续同位素过滤、峰对齐和统计分析提供更简洁的数据。
+
 - 输入与输出
-  - 输入为扁平数组形式（`mz_data`、`intensity`、`lengths`），表示一批谱图的 m/z 和强度数据。
-  - 输出为只保留峰顶点的扁平数组，非峰数据被置零。
+  - 输入为待处理的质谱数据。使用者只需要提供数据文件路径，MassFlow 会自动读取每个像素的 *m/z* 和信号强度。
+  - 输出为峰提取后的质谱数据，只保留识别出的峰位置及其对应强度，非峰数据点被移除。
 - 峰检测策略
-  - 局部极大值检测：通过固定窗口 `width` 扫描整条谱图，识别窗口内的极大值点。
-  - 信噪比过滤：基于估计的噪声水平，去除信噪比低于 `snr` 的候选峰。
-  - 峰边界检测（可选）：通过 `prominence` 和 `relheight` 参数控制峰的左右边界。
-- 噪声估计方法
-  - `"sd"`：基于局部标准差的噪声估计。
-  - `"mad"`：基于中位数绝对偏差的稳健噪声估计。
-  - `"quantile"`：基于分位数的噪声估计（默认）。
-  - `"diff"`：基于差分的噪声估计。
-- 分块处理
-  - 对于极长的谱图，可通过 `nbins` 参数将谱图等分为若干段分别处理，各段之间有 `overlap` 比例的重叠以保证边界峰的连续性。
+  - 局部极大值检测： 通过固定窗口 `width` 检查谱图中的局部高点，寻找可能的峰位置。
+  - 信噪比过滤：根据估计的噪声水平，去除信噪比低于 `snr` 的候选峰。
+  - 峰边界检测（可选）： 可通过 `prominence` 和 `relheight` 等参数进一步判断峰是否足够明显，并确定峰的范围。
 
-### 函数关系示意图
+## 功能说明
 
-```mermaid
-graph LR
-  A["Preprocessor.peak_pick"] --> B{后端选择}
-  B --> C["FlatPreprocess.peak_pick_flat (Python)"]
-  B --> D["CardinalAdapter.peak_pick (R/Cardinal)"]
-  C --> E[peak_picker]
-  E --> F["Numba 局部极大值检测"]
-  E --> G["estimator (噪声估计)"]
-  G --> H["信噪比过滤 & 峰保留"]
-  H --> I["返回提取的峰数据"]
-```
-
-## 核心 API
-
-### Preprocessor.peak_pick（流水线级）
+### Preprocessor.peak_pick
 
 ```python
 massflow.preprocess.api.PreprocessorAPI.peak_pick(
@@ -57,29 +43,32 @@ massflow.preprocess.api.PreprocessorAPI.peak_pick(
 ) -> Self
 ```
 
-- 描述：流水线级峰提取入口。通过 `Preprocessor` 链式调用，按批次处理所有光谱。
-- 输入：通过 `Preprocessor(dm)` 绑定数据管理器。
-- 输出：调用 `.start()` 后返回新的 `MSDataManagerImzML`，其光谱仅保留峰的 m/z 和强度。
-- 后端：
-  - `"python"`：使用 Numba 加速的纯 Python 实现。
-  - `"cardinal"`：调用 R 语言 Cardinal 包的 `peakPick` 函数。
+- 功能：在每条谱图中提取峰，将每条轮廓谱转换为只保留峰顶的质心峰列表。
 - 参数：
-  - `width`：局部极大值检测窗口半宽，默认 5。
+  - `width`：局部极大值检测窗口半宽，默认 5。决定局部极大值检测的邻域范围。较大的 width 合并邻近小峰，较小的 width 保留更多峰。建议范围：3–11。根据仪器分辨率和期望峰密度调节。
   - `method`：噪声估计方法，`"sd" | "mad" | "quantile" | "diff"`，默认 `"quantile"`。
-  - `snr`：信噪比阈值，默认 2.0。信号低于 `snr × noise` 的峰被丢弃。
+    - `quantile`基于强度的分位数估计噪声基线,为通用方法但是对离群峰不敏感，是相对稳健的选择。
+    - `sd`基于局部标准差的噪声估计,适用于噪声分布在数据中比较均匀的情况
+    - `mad`基于中位数绝对偏差的稳健估计，适用于含有较多离群值的情况
+    - `diff`基于相邻点差分的噪声估计，适用于基线缓慢变化、噪声波动较小的情况
+    - 对于基线平稳的数据，`"sd"` 或 `"diff"` 可能更敏感。
+    - 对于含大峰的数据，`"mad"` 的稳健性优于 `"sd"`。
+  - `snr`：信噪比阈值，默认 2.0。 `snr × noise` 为最小峰值，峰值低于此阈值的候选峰被丢弃。建议范围：1.5–5.0。较低的 snr 保留更多弱峰（含噪），较高的 snr 更保守。
   - `return_type`：峰强度返回类型，`"height"`（峰顶高度）或 `"area"`（峰面积），默认 `"height"`。
-  - `prominence`：峰的突出度阈值，小于此值的峰被丢弃（可选）。
-  - `relheight`：用于确定峰宽度的相对高度（可选）。
-  - `nbins`：分块数，默认 1（不分块）。
-  - `overlap`：分块重叠比例（0 ≤ overlap < 1），默认 0.5。
-- 异常：
-  - `ValueError`：不支持的 `method`；`return_type` 非法；`nbins < 1`；`overlap` 不在 `[0, 0.99]`。
+    - `"height"`：使用峰顶位置的信号强度作为该峰的强度。计算简单，适合常规峰提取、峰对齐和后续峰过滤，也是第一次使用时的推荐选择；
+    - `"area"`：使用峰边界范围内的积分面积表示峰强度。适合分析中明确希望利用完整峰形信息的情况，此时应重点检查 `relheight` 对积分边界的影响。
+  - `prominence`：衡量一个峰相对于周围局部基线的突出程度，小于此值的峰被丢弃（可选）。当设为非 None 值时，信号低于此突出度的峰将被丢弃。设置后数值越大，筛选越严格。
+  - `relheight`：用于确定峰宽度的相对高度（可选）。仅在 `return_type="area"` 时有意义，用于计算峰面积。它控制用于确定峰边界的相对高度，因此会进一步影响积分面积。
+  - `nbins`：分块数，默认 1（不分块）。输入值必须`>= 1`。极长谱图（如 FT-ICR 数据），分块处理可降低内存峰值。
+  - `overlap`：分块重叠比例（0 ≤ overlap < 1），默认 0.5。overlap 确保块边界附近的峰不会因分块而丢失。
+  - `backend`：后端方法，`"python"`（默认）或 `"cardinal"`。
 
 示例：
 
 ```python
 from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess.preprocessor import Preprocessor
+from massflow.tools.plot import plot_spectrum
 
 FILE_PATH = "data/example.imzML"
 dm = MSDataManagerImzML(filepath=FILE_PATH)
@@ -98,7 +87,7 @@ plot_spectrum(
     target=processed.ms[0],
     mz_range=(400, 410),
     intensity_range=(0.0, 20),
-    plot_mode="stem",
+    plot_mode=["line", "stem"],
     metrics_box=True,
 )
 
@@ -106,101 +95,61 @@ processed.close()
 dm.close()
 ```
 
-![image-20260430123153834](https://neonexus-picture.oss-ap-southeast-1.aliyuncs.com/test/image-20260430123153834.png)
+该示例依次完成：
 
-### peak_picker（辅助函数级）
+1. 读取 imZML 数据；
+2. 进行高斯平滑；
+3. 进行峰提取
 
-```python
-preprocess.helper.peak_pick_helper.peak_picker(
-    mz_data: np.ndarray,
-    intensity: np.ndarray,
-    lengths: np.ndarray,
-    width: int = 5,
-    method: str = "quantile",
-    snr: float = 2.0,
-    return_type: str = "height",
-    prominence: float | None = None,
-    relheight: float | None = None,
-    nbins: int = 1,
-    overlap: float = 0.5,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]
+
+
+以下为使用同一数据集，但是设置不同method所得到的结果：
+
+`method=sd` 
+
+![image-20260906171641959](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260906171642067.jpg_view)
+
+`method=mad` 
+
+![image-20260906172246817](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260906172246913.jpg_view)
+
+`method=quantile` 
+
+![Snipaste_2026-08-11_20-45-03](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste_2026-08-11_20-45-03.jpg_view)
+
+`method=diff` 
+
+![image-20260906171459963](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260906171500063.jpg_view)
+
+
+
+## 总体流程图
+
+```mermaid
+graph TD
+  A["经过基础预处理的谱图"] --> B["寻找局部峰顶"]
+  B --> C["估计噪声水平"]
+  C --> D["按 SNR 等条件筛选候选峰"]
+  D --> E["计算峰高或峰面积"]
+  E --> F["移除非峰数据点"]
+  F --> G["输出质心谱数据"]
 ```
 
-- 描述：扁平数组峰提取核心函数。对一批谱图执行局部极大值检测、噪声估计和信噪比过滤。
-- 参数：与 `Preprocessor.peak_pick` 相同。
-- 返回值：`(picked_mz, picked_intensity, picked_lengths)` —— 提取后的扁平 m/z、强度和长度数组。非峰位置的强度值被置零。
-- 说明：
-  - 内部调用 `prepare_flat_inputs` 确保输入格式一致。
-  - 噪声估计通过 `estimator` 函数（来自 `est_noise_helper`）完成。
-  - 实际的局部极大值检测和滤波在 Numba JIT 内核中执行。
 
-### FlatPreprocess.peak_pick_flat（扁平批处理级）
 
-```python
-massflow.preprocess.flat_pre_fun.FlatPreprocess.peak_pick_flat(
-    mz_data: np.ndarray,
-    intensity: np.ndarray,
-    lengths: np.ndarray,
-    width: int = 5,
-    method: str = "quantile",
-    snr: float = 2.0,
-    return_type: str = "height",
-    prominence: float | None = None,
-    relheight: float | None = None,
-    nbins: int = 1,
-    overlap: float = 0.5,
-) -> FlatBatchResult
-```
-
-- 描述：`Preprocessor.peak_pick`（Python 后端）的底层实现。返回包含 mz_data、intensity 和 lengths 的 `FlatBatchResult`。
-- 参数：与 `peak_picker` 相同，额外进行方法名合法性校验。
-- 支持的方法：`"sd"`, `"mad"`, `"quantile"`, `"diff"`。
-
-## 噪声估计方法说明
-
-| 方法 | 描述 | 适用场景 |
-|------|------|----------|
-| `quantile` | 基于强度的分位数估计噪声基线 | 通用，对离群峰不敏感（默认） |
-| `sd` | 基于局部标准差的噪声估计 | 噪声分布在数据中比较均匀的情况 |
-| `mad` | 基于中位数绝对偏差的稳健估计 | 含有较多离群值的情况 |
-| `diff` | 基于相邻点差分的噪声估计 | 基线缓慢变化、噪声波动较小的情况 |
-
-## 参数说明与调参建议
-
-- `width`（窗口半宽）
-  - 决定局部极大值检测的邻域范围。较大的 width 合并邻近小峰，较小的 width 保留更多峰。
-  - 建议范围：3–11。根据仪器分辨率和期望峰密度调节。
-- `snr`（信噪比阈值）
-  - 噪声水平 × snr = 最小峰值。峰值低于此阈值的候选峰被丢弃。
-  - 建议范围：1.5–5.0。较低的 snr 保留更多弱峰（含噪），较高的 snr 更保守。
-- `method`（噪声估计方法）
-  - `"quantile"` 是最稳健的默认选择。
-  - 对于基线平稳的数据，`"sd"` 或 `"diff"` 可能更敏感。
-  - 对于含大峰的数据，`"mad"` 的稳健性优于 `"sd"`。
-- `prominence`（峰突出度）
-  - 衡量一个峰相对于周围局部基线的突出程度。
-  - 当设为非 None 值时，信号低于此突出度的峰将被丢弃。
-- `relheight`（相对高度）
-  - 用于确定峰左右边界的相对高度（相对于峰顶）。
-  - 仅在 `return_type="area"` 时有意义，用于计算峰面积。
-- `nbins` 与 `overlap`
-  - 对于极长谱图（如 FT-ICR 数据），分块处理可降低内存峰值。
-  - overlap 确保块边界附近的峰不会因分块而丢失。
-
-## 参考
-
-- `preprocess/helper/peak_pick_helper.py`：峰提取核心实现（peak_picker）
-- `preprocess/helper/est_noise_helper.py`：噪声估计函数（estimator）
-- `preprocess/numba/peak_pick_numba.py`：Numba 加速的局部极大值检测与滤波
-- `preprocess/numba/est_noise_numba.py`：Numba 加速的噪声估计
-- `preprocess/flat_pre_fun.py`：扁平预处理入口（FlatPreprocess.peak_pick_flat）
-- `preprocess/api.py`：链式 API（PreprocessorAPI.peak_pick）
-
-## 错误处理与日志
+## 错误处理
 
 - 所有输入校验错误在抛出 `ValueError` 或 `TypeError` 前会通过 `logger.error` 记录。
 - method 校验：仅支持 `"sd"`, `"mad"`, `"quantile"`, `"diff"`，否则抛出 `ValueError`。
 - snr 校验：必须为有限正值，否则不进行信噪比过滤。
 - window 校验：自动将 `width < 1` 调整为 1。
-- nbins 校验：必须 `>= 1`。
 - overlap 校验：必须在 `[0.0, 0.99]` 范围内。
+
+## 参考
+
+- [`preprocess/helper/peak_pick_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/peak_pick_helper.py)：峰提取核心实现（peak_picker）
+- [`preprocess/helper/est_noise_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/est_noise_helper.py)：噪声估计函数（estimator）
+- [`preprocess/numba/peak_pick_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/peak_pick_numba.py)：Numba 加速的局部极大值检测与滤波
+- [`preprocess/numba/est_noise_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/est_noise_numba.py)：Numba 加速的噪声估计
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.peak_pick_flat`：扁平预处理入口
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.peak_pick`：峰提取功能的调用入口

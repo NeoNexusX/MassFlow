@@ -1,33 +1,28 @@
-# MassFlow
+# 归一化
 
-本文介绍 MassFlow 中的归一化（normalization）模块，重点包括：
-- 流水线级入口 `Preprocessor.normalization`
-- `preprocess/helper/normalizer_helper.py` 中的核心函数
+本文介绍 MassFlow 中的归一化模块。
+
+
+
+作者：董乐强，董京伟
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
 
 ## 概述
 
+不同像素的整体信号强度可能受到组织厚度、取样量、离子化效率和仪器响应变化影响。强度归一化用于把每条谱图调整到可比较的尺度，减少“整条谱图整体偏强或偏弱”对离子图和后续统计分析的影响。
+
 - 输入与输出
-  - 输入为扁平数组形式（`mz_data`、`intensity`、`lengths`），表示一批谱图的 m/z 和强度数据。
-  - 输出为归一化后的扁平数组，m/z 与坐标保持不变，强度替换为归一化后的值。
+  - 输入为待处理的质谱数据。使用者只需要提供数据文件路径，MassFlow *会自动读取每个像素的* *m/z* 和信号强度。
+  - 输出为归一化后的质谱数据，处理前后的 *m/z* 位置和像素坐标保持不变，强度替换为归一化后的值。
 - 方法
   - TIC（Total Ion Current）归一化（`tic_numba`）：将每条谱的强度缩放使总和（sum）等于指定值。
   - RMS（Root Mean Square）归一化（`rms_numba`）：将每条谱的强度缩放使均方根（RMS）等于指定值。
   - 参考峰归一化（`ref_numba`）：将每条谱的强度缩放使指定 m/z 附近的信号归一化到目标值。
-- 所有方法均在 Numba JIT 内核中按谱执行，利用 `prange` 并行循环。
 
-### 函数关系示意图
+## 功能说明
 
-```mermaid
-graph LR
-  A["Preprocessor.normalization"] --> B["FlatPreprocess.normalization_flat"]
-  B --> C["normalizer"]
-  C --> D["normalizer_numba<br/>(Numba JIT)"]
-  D --> E["归一化后数据"]
-```
-
-## 核心 API
-
-### Preprocessor.normalization（流水线级）
+### Preprocessor.normalization
 
 ```python
 massflow.preprocess.api.PreprocessorAPI.normalization(
@@ -39,17 +34,23 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
 ) -> Self
 ```
 
-- 描述：流水线级归一化入口。通过 `Preprocessor` 链式调用，按批次对所有光谱执行归一化。
-- 输入：通过 `Preprocessor(dm)` 绑定数据管理器。
-- 输出：调用 `.start()` 后返回新的 `MSDataManagerImzML`，其光谱的强度为归一化后的结果。
-- 支持方法：`"tic_numba"`、`"rms_numba"`、`"ref_numba"`。
+- 功能：按批次对所有质谱执行归一化。
+
 - 参数：
-  - `method`：归一化方法，默认 `"tic_numba"`。
-  - `scale`：归一化后的幅度缩放因子（可选）。若提供，强度会被乘以此值。
-  - `ref`：参考 m/z 值（`ref_numba` 时若为None，自动取值）。
-  - `ref_tolerance`：参考峰匹配容差（`ref_numba` 方法使用），默认 0.1。
-- 异常：
-  - `ValueError`：不支持的 method；scale 非法；ref_numba 缺少可用 m/z 数据或参考值。
+
+  - `method`：归一化方法，默认 `"tic_numba"`。有三种方法可供选择：`"tic_numba"`、`"rms_numba"`、`"ref_numba"`。
+
+    - `"tic_numba"`根据每条质谱的总离子流进行归一化。适合希望减小不同像素整体总信号量差异的情况。
+    - `"rms_numba"`：根据每条质谱的均方根强度进行归一化。由于强度在计算 RMS 时会被平方，高强度信号对归一化因子的影响相对更大
+    - `"ref_numba"`：根据指定参考峰进行归一化。当实验中存在已知内标峰或其他明确且稳定的参考信号时使用。
+
+  - `scale`：归一化后的幅度缩放因子（可选），输入值必须为有限非负数。若提供，强度会被乘以此值。常用场景：TIC 归一化后设为 1000 或 10000 便于数值展示。
+
+  - `ref`：目标内标峰 *m/z* 值（`ref_numba` 方法使用）若没有填写程序会自动取当前传入 m/z 数据的中间位置作为临时参考值。
+
+  - `ref_tolerance`：参考峰匹配容差（`ref_numba` 方法使用），默认 0.1Da。例如 `ref=500`、`ref_tolerance=0.1` 可理解为在 `500 ± 0.1 Da` 的邻域内寻找参考信号。输入值必须为有限的非负数
+
+    
 
 示例：
 
@@ -69,93 +70,93 @@ normalized = (
     .start()
 )
 
-plot_spectrum(normalized.ms[0])
+plot_spectrum(
+    base=dm.ms[100],
+    target=normalized.ms[100],
+    mz_range=(400.0, 420.0),
+    metrics_box=True,
+)
 normalized.close()
 dm.close()
 ```
 
-![image-20260430140609289](https://neonexus-picture.oss-ap-southeast-1.aliyuncs.com/test/image-20260430140609289.png)
+该示例依次完成：
 
-### normalizer（辅助函数级）
+1. 读取 imZML 数据；
+2. 计算每条谱图的总离子流；
+3. 将每条谱图中的所有信号强度除以该谱图的总强度，使归一化后的总强度为 1；
 
-```python
-preprocess.helper.normalizer_helper.normalizer(
-    intensity: np.ndarray,
-    method: str = "tic_numba",
-    scale: float | None = None,
-    mz_flat: np.ndarray | None = None,
-    ref: float | None = None,
-    ref_tolerance: float = 0.1,
-    lengths: np.ndarray | None = None,
-) -> np.ndarray
+![image-20260430140609289](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/image-20260430140609289.jpg_view)
+
+
+
+### 总体工作流程图
+
+```mermaid
+graph TD
+  A["输入每条谱图的强度"] --> B["选择 TIC、RMS 或参考峰"]
+  B --> C["计算当前谱图的归一化基准"]
+  C --> D["确定目标 scale"]
+  D --> E["用同一比例缩放整条谱图"]
+  E --> F["保持 m/z 和空间坐标不变"]
+  F --> G["输出归一化数据"]
 ```
 
-- 描述：扁平数组归一化分发器。根据 `method` 调用对应的 Numba 后端。
-- 参数：
-  - `intensity`：一维扁平强度数组。
-  - `lengths`：光谱长度数组，用于在 Numba 内部按谱拆分处理。
-  - `mz_flat`：底层 helper 参数，`ref_numba` 方法需要。流水线 API 会自动使用当前批次的 `mz_data` 填充该参数。
-  - 其余参数与流水线 API 一致。
-- 返回值：归一化后的强度数组。
-- 支持的方法仅限 `"tic_numba"`、`"rms_numba"` 和 `"ref_numba"`。
 
-### FlatPreprocess.normalization_flat（扁平批处理级）
-
-```python
-massflow.preprocess.flat_pre_fun.FlatPreprocess.normalization_flat(
-    mz_data: np.ndarray,
-    intensity: np.ndarray,
-    lengths: np.ndarray,
-    method: str = "tic_numba",
-    scale: float | None = None,
-    ref: float | None = None,
-    ref_tolerance: float = 0.1,
-) -> FlatBatchResult
-```
-
-- 描述：`Preprocessor.normalization` 的底层实现。返回包含 mz_data、归一化后 intensity 和 lengths 的 `FlatBatchResult`。
 
 ## 方法详解
 
 ### TIC 归一化（tic_numba）
 
-每条谱的强度除以该谱的强度总和，使 sum = 1。若提供了 `scale`，结果再乘以 scale。
+根据每条谱图中所有信号强度的总和对整条谱图进行统一缩放。归一化后，一条谱图中所有信号强度之和为 1。如果设置了 `scale`，归一化结果会再乘以 `scale`，此时所有信号强度之和约为 `scale`。
 
-适用场景：需要像素间总强度可比，适合可视化和相对定量分析。
+适用场景：它适合用于减小不同像素之间总信号量差异，使不同像素的谱图更方便进行比较。
 
 ### RMS 归一化（rms_numba）
 
-每条谱的强度除以该谱的均方根（`sqrt(mean(x^2))`），使 RMS = 1。若提供了 `scale`，结果再乘以 scale。
+根据整条谱图的均方根强度$RMS=\sqrt{\frac{1}{n}\sum_{i=1}^{n}x_i^2}$，对所有峰进行统一缩放。归一化后，谱图的 RMS 为 1。如果设置了 `scale`，归一化结果会再乘以 `scale`，此时谱图的 RMS 约为 `scale`。
 
-适用场景：对强峰不敏感，在含高动态范围信号的数据中更稳定。
+由于强度在计算过程中会被平方，高强度信号对 RMS 的贡献相对更大。因此，RMS 归一化与 TIC 归一化对不同强度分布的质谱可能产生不同的缩放结果
 
-### 参考峰归一化（ref_numba）
+### 参考峰归一化（ref_numba） 
 
-在每条谱中查找容差窗口内距离 `ref` 最近的峰，用该峰的强度值作为归一化因子。若提供了 `scale`，结果再乘以 scale。
+参考峰归一化使用一个预先选定的离子峰作为参照，将每条谱图中的其他峰按该参考峰的强度进行缩放。如果设置了 `scale`，归一化结果会再乘以 `scale`。
 
-## 参数说明与调参建议
+建议明确设置目标内标峰 *m/z* 值 `ref` 和合适的参考峰匹配容差 `ref_tolerance`。当使用 `method="ref_numba"` 但没有填写 `ref` 时，程序会自动取当前传入 *m/z* 数据的中间位置作为临时参考值。因此，在实际分析中建议根据实验使用的内标或已知稳定离子峰明确设置 `ref`，不要依赖程序自动选择参考值。
 
-- `method` 选择
-  - 需要像素间总强度可比时，优先选 `"tic_numba"`。
-  - 希望对极端值更稳健时，选 `"rms_numba"`。
-  - 已知内标峰时，选 `"ref_numba"`。
-- `scale`（幅度缩放因子）
-  - 归一化后的额外缩放。常用场景：TIC 归一化后设为 1000 或 10000 便于数值展示。
-  - 必须为有限非负数。
-- `ref`（参考峰归一化）
-  - `ref`：目标内标峰 m/z 值。
-  - `ref_tolerance`：内标峰搜索容差（绝对差值），默认 0.1 Da。
 
-## 参考
 
-- `preprocess/helper/normalizer_helper.py`：归一化分发器（normalizer）
-- `preprocess/numba/normalization_numba.py`：Numba 加速实现（normalizer_numba）
-- `preprocess/flat_pre_fun.py`：扁平预处理入口（FlatPreprocess.normalization_flat）
-- `preprocess/api.py`：链式 API（PreprocessorAPI.normalization）
+以下为三种归一化方法处理之后产生的离子图：
+
+TIC 归一化（tic_numba）：
+
+![ion_500_2000_2](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815221630080.jpg_view)
+
+RMS 归一化（rms_numba）：
+
+![ion_500_2000_1](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815221602925.jpg_view)
+
+参考峰归一化（ref_numba） 选择`ref`=500作为参考值：
+
+![ion_500_2000_3](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/20260815221707408.jpg_view)
 
 ## 错误处理与日志
 
-- 输入校验：intensity 必须为非空一维 numpy 数组，否则抛出 `TypeError`。
-- scale 校验：必须为有限非负数。
-- ref_tolerance 校验：必须为有限非负数。
+- 输入校验：输入数据必须为非空一维 numpy 数组，否则抛出 `TypeError`。
+
 - method 校验：仅支持 `"tic_numba"`、`"rms_numba"`、`"ref_numba"`。
+
+- 使用 `"ref_numba"` 时，应检查 `ref` 是否位于当前数据的 *m/z* 范围内，并确保参考峰在需要比较的质谱中具有有效信号。
+
+  
+
+## 参考
+
+- [`preprocess/helper/normalizer_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/normalizer_helper.py)：归一化分发器（normalizer）
+
+- [`preprocess/numba/normalization_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/normalization_numba.py)：Numba 加速实现（normalizer_numba）
+
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.normalization_flat`：扁平预处理入口
+
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.normalization`：归一化功能的调用入口
+

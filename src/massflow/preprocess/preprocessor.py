@@ -22,6 +22,7 @@ from massflow.preprocess.pipeline import (
     imzml_to_ion_image_data_manager,
     make_task_segments,
     run_segments,
+    validate_data_manager_mz,
 )
 from massflow.tools.infer_spectrum_type import resolve_spectrum_type
 from massflow.tools.logger import get_logger
@@ -44,6 +45,7 @@ class Preprocessor(PreprocessorAPI):
         *,
         batch_size: int = 256,
         ion_block: int = 256,
+        zarr_chunk_size: int = 1,
         queue_ab_size: int = 1,
         queue_bc_size: int = 1,
         temp_dir: str = "./temp",
@@ -52,6 +54,10 @@ class Preprocessor(PreprocessorAPI):
         output_path: str | None = None,
         output_max_workers: int = 2,
         compute_mean_spectrum: bool = False,
+        compute_tic: bool = False,
+        compute_rms: bool = False,
+        pipeline_stall_timeout: float | None = 180.0,
+        validate_processed_mz: bool = False,
     ): # pylint: disable=super-init-not-called
         if data_manager is None or batch_size <= 0 or batch_size > 9056 or queue_ab_size <= 0 or queue_bc_size <= 0 :
             logger.error(f"Invalid parameter values. please check:"
@@ -64,6 +70,10 @@ class Preprocessor(PreprocessorAPI):
                 "output_format must be 'imzml', 'spectra_zarr', "
                 "'ion_image_binary', 'ion_image_h5', or 'ion_image_zarr'."
             )
+        if pipeline_stall_timeout is not None and pipeline_stall_timeout <= 0:
+            raise ValueError("pipeline_stall_timeout must be positive or None.")
+        if zarr_chunk_size <= 0:
+            raise ValueError("zarr_chunk_size must be positive.")
         self.data_manager = data_manager
         self.batch_size = batch_size
         self.temp_dir = temp_dir
@@ -74,7 +84,12 @@ class Preprocessor(PreprocessorAPI):
         self.output_path = output_path
         self.output_max_workers = output_max_workers
         self.ion_block = ion_block
+        self.zarr_chunk_size = zarr_chunk_size
         self.compute_mean_spectrum = compute_mean_spectrum
+        self.compute_tic = compute_tic
+        self.compute_rms = compute_rms
+        self.pipeline_stall_timeout = pipeline_stall_timeout
+        self.validate_processed_mz = validate_processed_mz
 
         self._tasks: list[PreprocessTask] = []
 
@@ -97,6 +112,11 @@ class Preprocessor(PreprocessorAPI):
         return self
 
     def start(self) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
+        validate_data_manager_mz(
+            self.data_manager,
+            batch_size=self.batch_size,
+            validate_processed=self.validate_processed_mz,
+        )
         task_segments, input_meta = make_task_segments(
             list(self._tasks),
             input_spectrum_type=resolve_spectrum_type(self.data_manager),
@@ -106,11 +126,15 @@ class Preprocessor(PreprocessorAPI):
                 numba_max_threads=self.numba_max_threads,
                 output_max_workers=self.output_max_workers,
                 ion_block=self.ion_block,
+                zarr_chunk_size=self.zarr_chunk_size,
                 queue_ab_size=self.queue_ab_size,
                 queue_bc_size=self.queue_bc_size,
                 result_path=self.output_path,
                 result_format=self.output_format, # type: ignore
                 compute_mean_spectrum=self.compute_mean_spectrum,
+                compute_tic=self.compute_tic,
+                compute_rms=self.compute_rms,
+                pipeline_stall_timeout=self.pipeline_stall_timeout,
             ),
         )
         if not task_segments and self.output_format in ION_IMAGE_OUTPUT_FORMATS:

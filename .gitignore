@@ -229,3 +229,5 @@ logs/
 .mcp.json
 codex.json
 opencode.json
+*.cpp
+.idea/

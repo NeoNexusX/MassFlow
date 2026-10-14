@@ -1,35 +1,31 @@
-# MassFlow
+# 噪声抑制与平滑模块
 
-本文介绍 MassFlow 中的噪声抑制与平滑模块，重点包括：
-- 流水线级入口 `Preprocessor.noise_reduction`
-- `preprocess/helper/noise_reduction_helper.py` 中的平滑函数
+本文介绍 MassFlow 中的噪声抑制与平滑模块。
+
+
+
+作者：董乐强，董京伟
+
+**问题反馈：** 如果在使用 MassFlow 或阅读文档时发现问题，可通过 [GitHub Issues](https://github.com/NeoNexusX/MassFlow/issues) 提交反馈，或联系邮箱：707244007@qq.com。
 
 ## 概述
 
-- 输入与输出
-  - 输入为扁平数组形式（`mz_data`、`intensity`、`lengths`），表示一批谱图的 m/z 和强度数据。
-  - 输出为平滑后的扁平数组，m/z 和坐标保持不变，强度为去噪后的结果。
-- 方法
-  - 移动平均（`ma_numba`）：基于窗口的均匀卷积平滑，Numba 加速。
-  - 高斯平滑（`gaussian_numba`）：离散高斯核卷积平滑，Numba 加速。
-  - Savitzky-Golay 平滑（`savgol_numba`）：多项式拟合平滑，Numba 加速。
-- 所有方法均在 Numba JIT 内核中执行批次处理，利用 `prange` 并行循环提升性能。
+质谱信号中常会出现连续、快速的小幅波动。这些波动通常不代表真实离子峰，却可能在后续峰提取时被误认为峰。噪声抑制通过邻近数据点重新计算强度，使谱线更平滑，并减少峰提取时产生的假峰。
 
-### 函数关系示意图
+MassFlow 提供以下三种平滑方法：
 
-```mermaid
-graph LR
-  A["Preprocessor.noise_reduction"] --> B["FlatPreprocess.noise_reduction_flat"]
-  B --> C["smoother"]
-  C --> D["smooth_signal_ma_numba"]
-  C --> E["smooth_signal_gaussian_numba"]
-  C --> F["...others"]
-  D --> G["processed_data"]
-  E --> G
-  F --> G
-```
+- 移动平均平滑（`ma_numba`）：使用邻近数据点的平均强度替换当前强度。方法简单，平滑效果明显，但窗口过大时可能使窄峰变宽或降低。
+- 高斯平滑滤波（`gaussian_numba`）：距离当前点越近的数据对结果影响越大。与普通移动平均相比，通常能获得更自然的平滑结果。
+- Savitzky–Golay 平滑滤波（`savgol_numba`）：在局部范围内拟合谱线变化，通常更有利于保留峰形，但需要合理设置窗口大小和多项式阶数。
 
-## 核心 API
+输入与输出
+
+- 输入为待处理的质谱数据。使用者只需要提供数据文件路径，MassFlow 会自动读取每个像素的 *m/z* 和信号强度。
+- 输出为平滑处理后的质谱数据，处理前后的 *m/z* 位置和像素坐标保持不变，强度为去噪后的结果。
+
+
+
+## 功能说明
 
 ### Preprocessor.noise_reduction
 
@@ -45,17 +41,19 @@ massflow.preprocess.api.PreprocessorAPI.noise_reduction(
 ) -> Self
 ```
 
-- 描述：流水线级噪声抑制入口。通过 `Preprocessor` 链式调用，按批次对所有光谱执行平滑降噪。
-- 输入：通过 `Preprocessor(dm)` 绑定数据管理器。
-- 输出：调用 `.start()` 后返回新的 `MSDataManagerImzML`，其光谱的强度为平滑后的结果。
-- 支持方法：`"ma_numba"`、`"gaussian_numba"`、`"savgol_numba"`。
+- 功能：按批次对所有质谱执行平滑降噪。
 - 参数：
-  - `method`：平滑方法，默认 `"ma_numba"`。
-  - `window`：窗口长度（正整数），默认 5。偶数会自动调整为奇数以保证居中对齐。
-  - `sd`：高斯核标准差，默认 `window / 4.0`。
-  - `polyorder`：Savitzky-Golay 多项式阶数，必须 < `window`，默认 3。
-  - `deriv`：导数阶数（SG 参数），默认 0。
-  - `delta`：采样间隔（SG 参数），默认 1.0。
+  - `method`：平滑方法，默认 `"ma_numba"`。共有三种方法可供选择`"ma_numba"`、`"gaussian_numba"`、`"savgol_numba"`。
+    - `"ma_numba"`：通用方法，最快速；
+    - `"gaussian_numba"`：高斯平滑，平滑更柔和，对高斯噪声有理论支持；
+    - `"savgol_numba"`：Savitzky–Golay平滑，保峰能力强，适合后续需要峰面积的场景。
+  - `window`：窗口长度（正整数），默认 5。
+    - 输入必须为正整数，偶数会自动调整为奇数以保证居中对齐。
+    - 建议范围：5–15，可根据峰宽和噪声强度调节。窗口越大越平滑，但也可能模糊窄峰。
+  - `sd`：高斯核标准差，只用于高斯平滑。默认 `window / 4.0`，增大则平滑更强。
+  - `polyorder`：Savitzky-Golay 多项式阶数，输入值必须小于 `window`值，默认 3。较低阶数（如 1）更平滑，较高阶数（如 3）保峰更好。
+  - `deriv`：导数阶数，只用于Savitzky–Golay平滑，默认 `0`。普通平滑必须保持 0；大于 0 时输出的是导数，不再是原始强度。输入必须为非负整数
+  - `delta`：采样间隔，只用于Savitzky–Golay平滑，计算导数时的数据点间隔，默认 1.0。
 
 示例：
 
@@ -85,90 +83,65 @@ denoised.close()
 dm.close()
 ```
 
-![image-20260430140337481](https://neonexus-picture.oss-ap-southeast-1.aliyuncs.com/test/image-20260430140337481.png)
+该示例依次完成：
 
-### smoother（辅助函数级）
+1. 读取 imZML 数据；
+2. 进行噪声抑制
+3. 展示前后数据对比图
 
-```python
-preprocess.helper.noise_reduction_helper.smoother(
-    intensity: np.ndarray | None = None,
-    *,
-    method: str = "ma_numba",
-    window: int = 5,
-    sd: float | None = None,
-    polyorder: int = 2,
-    deriv: int = 0,
-    delta: float = 1.0,
-    lengths: np.ndarray | None = None,
-) -> np.ndarray
+![image-20260430140337481](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/image-20260430140337481.jpg_view)
+
+
+
+
+
+## 总体工作流程图
+
+```mermaid
+graph TD
+  A["输入原始数据"] --> B["选择平滑方法"]
+  B --> C["根据参数构造平滑窗口"]
+  C --> D["逐条谱图计算平滑强度"]
+  D --> E["保持 m/z 和坐标不变"]
+  E --> F["输出处理后的数据"]
 ```
 
-- 描述：扁平数组平滑分发器。根据 `method` 调用对应的 Numba 后端。
-- 参数：
-  - `intensity`：一维扁平强度数组。
-  - `lengths`：光谱长度数组，用于在 Numba 内部按谱拆分处理。
-  - 其余参数与流水线 API 一致。
-- 返回值：平滑后的一维强度数组。
-- 支持的方法仅限 `"ma_numba"`、`"gaussian_numba"` 和 `"savgol_numba"`。
 
-### FlatPreprocess.noise_reduction_flat（扁平批处理级）
-
-```python
-massflow.preprocess.flat_pre_fun.FlatPreprocess.noise_reduction_flat(
-    mz_data: np.ndarray,
-    intensity: np.ndarray,
-    lengths: np.ndarray,
-    method: str = "ma_numba",
-    window: int = 5,
-    sd: float | None = None,
-    polyorder: int = 3,
-    deriv: int = 0,
-    delta: float = 1.0,
-) -> FlatBatchResult
-```
-
-- 描述：`Preprocessor.noise_reduction` 的底层实现。返回包含 mz_data、平滑后 intensity 和 lengths 的 `FlatBatchResult`。
 
 ## 方法详解
 
 ### 移动平均（ma_numba）
 
-对窗口内数据点求算术平均。使用 `uniform_filter1d` 风格的一维卷积实现，`window` 决定平滑程度。偶数窗口自动加 1。
+移动平均使用当前位置附近多个数据点的平均强度重新计算当前强度。它操作简单、速度较快，窗口长度`window` 决定平滑程度，但窗口过大时可能使窄峰变宽或降低。偶数窗口自动加 1。
 
 ### 高斯平滑（gaussian_numba）
 
-使用离散高斯核进行加权卷积。`sd` 控制平滑程度，默认 `sd = window / 4.0`。`sd` 越大平滑越强。
+高斯平滑对距离当前位置较近的数据点给予更高权重，对较远的数据点给予较低权重。与普通移动平均相比，通常可以获得更自然的平滑结果。`sd` 控制平滑程度，默认 `sd = window / 4.0`。`sd` 越大平滑越强。
 
 ### Savitzky-Golay 平滑（savgol_numba）
 
-使用最小二乘多项式拟合的滑动窗口。`polyorder` 决定多项式阶数（通常 1–3），`window` 为奇数窗口。与 `scipy.signal.savgol_filter` 行为一致。
+Savitzky–Golay 方法在一个较小范围内拟合谱线的变化趋势，通常更有利于保留峰形。它需要同时设置窗口和拟合阶数，因此更适合已经有一定调参经验的使用者。`polyorder` 决定多项式阶数（通常 1–3），`window` 为奇数窗口。使用时应保证 `polyorder` 小于实际窗口大小。
 
-## 参数说明与调参建议
+以下为同一谱图，三种方法处理的结果：
 
-- `window`：对所有方法通用。
-  - 为正整数。偶数会自动调整为奇数。
-  - 建议范围：5–15，可根据峰宽和噪声强度调节。
-  - 窗口越大越平滑，但也可能模糊窄峰。
-- `sd`（高斯核标准差）
-  - 默认 `window / 4.0`，增大则平滑更强。
-- `polyorder`（SG 多项式阶数）
-  - 必须小于 `window`；推荐 1–3。
-  - 较低阶数（如 1）更平滑，较高阶数（如 3）保峰更好。
-- `method` 选择建议
-  - `"ma_numba"`：通用，最快速。
-  - `"gaussian_numba"`：平滑更柔和，对高斯噪声有理论支持。
-  - `"savgol_numba"`：保峰能力强，适合后续需要峰面积的场景。
+移动平均（ma_numba）:![Snipaste ma_2026-08-09_21-20-25](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20ma_2026-08-09_21-20-25.jpg_view)
 
-## 参考
+高斯平滑（gaussian_numba）:![Snipaste gaussian_2026-08-09_21-20-57](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20gaussian_2026-08-09_21-20-57.jpg_view)
 
-- `preprocess/helper/noise_reduction_helper.py`：平滑分发器（smoother）
-- `preprocess/numba/noise_reduction_numba.py`：Numba 加速实现（smooth_signal_ma_numba, smooth_signal_gaussian_numba, smooth_signal_savgol_numba）
-- `preprocess/flat_pre_fun.py`：扁平预处理入口（FlatPreprocess.noise_reduction_flat）
-- `preprocess/api.py`：链式 API（PreprocessorAPI.noise_reduction）
+Savitzky-Golay 平滑（savgol_numba）:![Snipaste sav_2026-08-09_21-19-48](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/Snipaste%20sav_2026-08-09_21-19-48.jpg_view)
 
-## 错误处理与日志
+
+
+## 错误处理
 
 - 输入校验：intensity 必须为非空一维 numpy 数组，否则抛出 `TypeError`。
 - window 校验：必须为正整数，否则抛出 `ValueError`。
 - sd 校验：必须为正，否则抛出 `ValueError`。
 - method 校验：仅支持 `"ma_numba"`、`"gaussian_numba"`、`"savgol_numba"`，否则抛出 `ValueError`。
+
+## 参考
+
+- [`preprocess/helper/noise_reduction_helper.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/helper/noise_reduction_helper.py)：平滑分发器（smoother）
+- [`preprocess/numba/noise_reduction_numba.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/numba/noise_reduction_numba.py)：Numba 加速实现（smooth_signal_ma_numba、smooth_signal_gaussian_numba、smooth_signal_savgol_numba）
+- [`preprocess/flat_pre_fun.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/flat_pre_fun.py)：`FlatPreprocess.noise_reduction_flat`：扁平预处理入口
+- [`preprocess/api.py`](https://github.com/NeoNexusX/MassFlow/blob/main/src/massflow/preprocess/api.py)：`PreprocessorAPI.noise_reduction`：噪声抑制与平滑功能的调用入口
