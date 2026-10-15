@@ -1,6 +1,6 @@
 ---
 name: msi-dataset-evaluation
-description: "Evaluate an imzML mass spectrometry imaging (MSI) dataset with the mzorbit tools: file integrity, acquisition facts (ion polarity, analyzer, ion source, m/z sampling and binning), spatial layout, mass axis, TIC artifacts (striping, edge effects, hot pixels, dropouts), biological metadata and a reference-ion calibration check, ending in one Proceed / Proceed with caveats / Hold verdict. Also reviews a processed output against its raw input. Use when a new .imzML arrives, or the user asks to inspect, QC, sanity-check, assess or compare MSI data (数据评估, 质控, 质量检查, 数据检查, 处理结果检查). Read-only: hand any processing to the msi-preprocessing skill."
+description: "Evaluate an imzML mass spectrometry imaging (MSI) dataset with the mzorbit tools: file integrity, acquisition facts (ion polarity, analyzer, ion source, m/z sampling and binning), spatial layout, mass axis, TIC artifacts (striping, edge effects, hot pixels, dropouts), biological metadata and a reference-ion calibration check, ending in one Proceed / Proceed with caveats / Hold verdict. Also reviews a processed output against its raw input. Use when a new .imzML arrives, or the user asks to inspect, QC, sanity-check, assess or compare MSI data (数据评估, 质控, 质量检查, 数据检查, 处理结果检查). Read-only: hand any processing to the msi-preprocessing skill, and segmentation, marker ions or compound annotation to msi-spatial-analysis."
 ---
 
 # MSI dataset evaluation
@@ -67,12 +67,21 @@ Run these in order; stop early only if a tool fails (then follow
      acquisition footprint.
    - **Calibration and polarity check** (centroid data only): run
      `annotate_adducts` with a 3–6 compound reference panel suited to the
-     tissue and polarity (`references/msi-domain-knowledge.md`). Several
-     panel ions found within tolerance with a consistent ppm offset confirm
-     polarity and calibration; a consistent large offset means calibration
-     drift; none found suggests wrong polarity, a different m/z range, or
-     unusual chemistry. For profile data, defer this check to the
-     post-processing review.
+     tissue and polarity (`references/msi-domain-knowledge.md`), passing
+     `imzml_path`, the `ion_source`, and a `ppm_tol` that reflects the
+     data's real accuracy — about 2–3× the analyzer's typical error (TOF
+     ~50, Orbitrap ~10, FT-ICR ~5, unknown ~25 ppm), or half a bin in ppm
+     at the lowest panel m/z for re-binned data. The tool always returns
+     the nearest peak and `ppm_tol` only sets the `within_tol` flag (its
+     default, 100 ppm, means little on TOF or Orbitrap data), so judge the
+     `best_ppm` values together: several panel ions sharing one offset confirm
+     polarity and calibration (report the offset); a shared large offset
+     means calibration drift; scattered values mean no real match — wrong
+     polarity, a different m/z range, or unusual chemistry. When the
+     polarity comes only from the file name or is unknown, pass
+     `polarity="both"` so positive and negative adducts compete; with
+     `auto` the check can only test the polarity already assumed. For
+     profile data, defer this check to the post-processing review.
 
 ## Interpretation rules
 
@@ -94,7 +103,9 @@ Run these in order; stop early only if a tool fails (then follow
   accumulation or ablation differences at section edges — or an off-tissue
   matrix margin inside the raster; dropouts suggest missed shots, holes or bare
   slide inside the raster; hot pixels need colour clipping. None of these are
-  chemistry.
+  chemistry. Preprocessing has no de-striping step (normalization reduces
+  striping but rarely removes it), so strongly striped data can only be
+  processed as an exploratory run: say so in the verdict.
 - **Nearly uniform TIC** (CV < 0.1, p99/p01 < 1.6, flagged): the data were
   almost certainly TIC-normalized before export. Record it: normalizing again
   is pointless, absolute intensities are not comparable, and TIC cannot locate
@@ -160,4 +171,5 @@ Write in the user's language. Keep it short and evidence-led:
    parameters the facts imply (e.g. "skip smoothing: re-binned 0.12 Da data").
 
 Do not interpret clusters, assign molecular identities, or draw biological
-conclusions here; those are downstream analyses the user requests separately.
+conclusions here; those are downstream analyses the user requests separately
+(the msi-spatial-analysis skill, on processed data).

@@ -57,6 +57,6 @@ user) before the verdict.
 |---|---|---|
 | Acquired pixels, bounding box | Unchanged (or = mask preview's kept pixels) | Lost spectra |
 | `representation`, `is_continuous` | centroid, true after alignment | Pipeline did not run as intended |
-| Feature drop after a filter pass | Equals the preview's removal count | Different data or parameters than previewed |
+| Feature drop after a filter pass | Equals the preview's removal count; with both filters in one pass, the union of the two previews' removals (an `intensity_quantile` cut is recomputed after the adduct filter, so it shifts slightly) | Different data or parameters than previewed |
 | Spectrum overlay at matched x/y | Stems on raw apexes; major peaks present | Peak picking too strict/loose or misalignment |
 | Reference-ion offset | Same as (or better than) raw | Alignment shifted masses |

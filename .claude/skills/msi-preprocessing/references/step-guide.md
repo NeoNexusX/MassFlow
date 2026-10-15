@@ -21,6 +21,10 @@ value `plan_preprocessing` derives from the data.
   in re-binned exports).
 - **Pitfall**: over-subtraction erases small peaks and changes relative
   intensities; compare the floor, not the peak tops, in the preview.
+- **Acceptance**: `try_step` on a sample — the median floor must drop by at
+  least 50% while median peak-height retention stays ≥ 0.95. On a fidelity
+  failure its suggestion widens `span` (×1.5, max 0.5) and lowers
+  `baseline_scale` (×0.8); on too little removal it adds 10 to `niter`.
 
 ## Noise reduction (profile data)
 

@@ -1,6 +1,6 @@
 ---
 name: msi-preprocessing
-description: "Preprocess an imzML mass spectrometry imaging dataset with MassFlow through the mzorbit tools: plan with data-derived parameters, decide baseline/smoothing/normalization with previews, pick and align peaks, optionally filter isotopes, adducts and rare peaks, remove off-tissue background with a tissue mask, write the processed imzML with provenance, and export Zarr/ion-image formats. Works in guided mode (asks at real decisions) or hands-off autonomous mode, and recovers from errors automatically. Use when the user asks to preprocess, peak-pick, align, normalize, denoise, filter peaks, remove background, or prepare MSI data for clustering, statistics or annotation (预处理, 峰提取, 峰对齐, 归一化, 去噪, 去背景, 数据处理). Evaluate the dataset first with msi-dataset-evaluation if that has not been done."
+description: "Preprocess an imzML mass spectrometry imaging dataset with MassFlow through the mzorbit tools: plan with data-derived parameters, decide baseline/smoothing/normalization with previews, pick and align peaks, optionally filter isotopes, adducts and rare peaks, remove off-tissue background with a tissue mask, write the processed imzML with provenance, and export Zarr/ion-image formats. Works in guided mode (asks at real decisions) or hands-off autonomous mode, and recovers from errors automatically. Use when the user asks to preprocess, peak-pick, align, normalize, denoise, filter peaks, remove background, or prepare MSI data for clustering, statistics or annotation (预处理, 峰提取, 峰对齐, 归一化, 去噪, 去背景, 数据处理). Evaluate the dataset first with msi-dataset-evaluation if that has not been done; hand interpretation of the processed data (regions, marker ions, compounds) to msi-spatial-analysis."
 ---
 
 # MSI preprocessing
@@ -31,7 +31,8 @@ its pitfalls) is in `references/step-guide.md`; failure handling is in
    - **Autonomous**: when the user asks for hands-off processing ("全自动",
      "直接处理", "don't ask me"), decide everything with the default policies
      below, never block, and report each decision with its evidence and how to
-     change it.
+     change it. The tools ask for the user's choice by default; a hands-off
+     request delegates those choices to you, so mark them `delegated`.
 4. **Outputs**: write next to the input unless told otherwise:
    `<stem>_aligned.imzML` (pass 1), `<stem>_filtered.imzML` (pass 2),
    `<stem>_tissue.imzML` (mask). Never reuse the input path; avoid dots in
@@ -41,7 +42,7 @@ its pitfalls) is in `references/step-guide.md`; failure handling is in
 
 | Step | Guided | Autonomous default | Evidence |
 |---|---|---|---|
-| baseline_correction | model proposes, **user** confirms | apply only if `baseline_to_peak_ratio` ≥ 0.1 **and** the floor gap is visible | `preview_baseline` |
+| baseline_correction | model proposes, **user** confirms | apply only if `baseline_to_peak_ratio` ≥ 0.1 **and** the floor gap is visible | `preview_baseline`, then `try_step` |
 | noise_reduction | plan + `try_step` | same | plan reason, `try_step(auto_tune)`, `preview_noise_reduction` |
 | normalization | **user** chooses | none; `tic_numba` only when the goal is clustering/segmentation | `compare_normalization` |
 | peak_pick | model (plan params, adjusted by preview) | same | `preview_peak_pick` |
@@ -74,11 +75,19 @@ Call `plan_preprocessing`. Read, in this order:
 
 1. **Baseline** — `preview_baseline`. Read the floor gap in the images and
    `baseline_to_peak_ratio`. State your call ("apply"/"skip") with both pieces
-   of evidence, then follow the mode.
+   of evidence, then follow the mode. When the decision is "apply", verify it
+   with `try_step(step="baseline_correction", params=<plan params>,
+   auto_tune=true)`: the preview judges the floor, this checks the peaks — on
+   a sample the floor must drop by at least half while peak heights keep
+   ≥ 95%, and gentler settings are tried if peaks suffer (over-subtraction
+   erases small peaks). Carry its accepted params forward; if it escalates,
+   skip baseline (autonomous) or show the user the attempt history (guided).
 2. **Noise reduction** — if the plan skipped it because peaks are
    under-sampled, report that and move on. Otherwise run
-   `try_step(step="noise_reduction", params=<plan params>, auto_tune=true)`
-   (fixed seed). If it returns `accepted`, confirm with
+   `try_step(step="noise_reduction", params=<plan params>,
+   accepted_steps=[<accepted baseline step, if any>], auto_tune=true)` (fixed
+   seed), so the sample is smoothed after the same baseline finalize will
+   apply. If it returns `accepted`, confirm with
    `preview_noise_reduction(params=<accepted params>)` at the default 10/20/50
    m/z windows; veto if peaks are clipped, shifted, broadened or merged at any
    scale. If it escalates, skip denoising (autonomous) or ask (guided).
@@ -125,7 +134,11 @@ Both filters need aligned data, so they are previewed on the pass-1 output:
 
 Then `finalize_preprocessing(imzml_path=<aligned>,
 output_path=<stem>_filtered.imzML, accepted_steps=[<finalize_step of each
-accepted preview>])`. The feature drop must equal the previews.
+accepted preview>])`. The feature drop must match the previews: one filter
+removes exactly its preview's count; both filters remove the union of the two
+previews' sets (an `intensity_quantile` cut is recomputed after the adduct
+filter, so it shifts slightly). Any other difference means the data or
+parameters differ from what was previewed.
 
 ### 5. Tissue mask (optional)
 
@@ -140,7 +153,10 @@ frame).
    signal above the middle of the m/z range (matrix-dominated spectra,
    `high_mass_ratio` ≤ 0.7) — often *brighter* in the TIC than tissue, so never
    decide by TIC alone. A frame-like cluster with normal `high_mass_ratio` is
-   tissue (an edge effect or adjacent tissue): keep it.
+   tissue (an edge effect or adjacent tissue): keep it. These clusters only
+   serve the mask; they include the background, so do not interpret them
+   biologically — segmentation belongs to msi-spatial-analysis, run on the
+   masked output.
 2. `preview_tissue_mask(result_path=<result_npz>)` (mode `auto` uses the
    suggestion) or with explicit `mode`/`labels`. Compare the masked image with
    the TIC image: the whole section must survive.
@@ -162,16 +178,19 @@ spectrum overlays, reference ions). Then report, in the user's language:
 
 1. **Input** — dataset, verdict and caveats from evaluation, key acquisition
    facts (polarity + source, bin width / peak sampling).
-2. **Decisions** — table: step, applied/skipped, owner (auto/verify/user), key
-   evidence, final parameters.
+2. **Decisions** — table: step, applied/skipped, owner (auto / verify / user /
+   delegated), key evidence, final parameters.
 3. **Outputs** — each pass's path, pixel and feature counts, audit CSVs,
    warnings and automatic recoveries.
 4. **Review** — what changed between raw and processed, what was verified,
    remaining limitations.
 5. **Reproduce** — the exact `accepted_steps` JSON of each pass.
+6. **Next step** — for regions, marker ions or compound questions, continue
+   with the msi-spatial-analysis skill on the final output, carrying the goal
+   and the evaluation caveats.
 
-Stay within preprocessing: interpreting clusters, naming molecules, and
-literature work are separate downstream requests.
+Stay within preprocessing: interpreting clusters, naming molecules and
+literature work belong to the msi-spatial-analysis skill.
 
 ## Error handling (summary)
 

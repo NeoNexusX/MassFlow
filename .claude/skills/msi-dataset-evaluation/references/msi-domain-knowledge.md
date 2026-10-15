@@ -97,12 +97,26 @@ include Na/K/Cl adducts), with the main ion expected:
 Heme b is detected as the intact cation (m/z 616.1767) rather than a protonated
 adduct: check it with `render_ion_images`, not `annotate_adducts`.
 
-Reading the check: several panel ions within tolerance with one consistent ppm
-offset → polarity and calibration confirmed (report the offset). A large
-consistent offset → calibration drift. Matches scattered at random ppm, or none
-→ wrong polarity, wrong m/z range, or a sample whose chemistry differs (e.g. a
+Reading the check: `annotate_adducts` always returns the nearest peak, and
+`within_tol` only compares it with the `ppm_tol` you passed, so read the
+`best_ppm` values together. Several panel ions with one consistent ppm offset →
+polarity and calibration confirmed (report the offset). A large consistent
+offset → calibration drift. Values scattered at random ppm → no real match:
+wrong polarity, wrong m/z range, or a sample whose chemistry differs (e.g. a
 drug or plant study): say which explanation the evidence favours. On re-binned
 data, offsets up to about half a bin are expected.
+
+Two traps:
+
+- **Dense peak pools.** On unaligned (per-spectrum) centroid data the tool pools
+  the peaks of ~100 spectra, so some peak sits near almost any m/z. Trust only an
+  offset shared by several panel ions, and prefer the aligned output (one
+  feature per ion) when it exists.
+- **Wrong polarity can still look close.** With `polarity="both"`, the best
+  adduct is simply the smallest |ppm|. In negative-mode data a compound's
+  [M+H]⁺ falls 7.84 mDa above the ¹³C₂ isotope of its [M−H]⁻ (8.8 ppm for
+  PI 38:4), so a near-miss in the wrong polarity is expected. A polarity is
+  confirmed when it gives the tighter, shared offset for most panel ions.
 
 ## Raster patterns and spatial artifacts
 
