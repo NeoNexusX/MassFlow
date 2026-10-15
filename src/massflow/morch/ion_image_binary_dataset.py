@@ -6,6 +6,7 @@ import numpy as np
 
 from massflow.data_manager import IonImageDataManagerBinary
 from massflow.morch.ion_image_dataset import IonImageDataset
+from massflow.tools.funs import zero_based_xy
 
 
 class IonImageIndexDataset:
@@ -56,18 +57,11 @@ class IonImageBinaryDataset(IonImageDataset):
         self._np_dtype = data_manager.intensity_dtype
         self._n_ions = data_manager.n_ions
 
-        coords = np.array(data_manager.coordinates)
-        xs = coords[:, 0].astype(np.int64, copy=False)
-        ys = coords[:, 1].astype(np.int64, copy=False)
-
-        if xs.size > 0 and int(xs.min()) != 0:
-            xs = xs - 1
-            ys = ys - 1
-
+        xs, ys = zero_based_xy(data_manager.coordinates)
         valid = (xs >= 0) & (xs < self._width) & (ys >= 0) & (ys < self._height)
         self._flat_idx = (ys[valid] * self._width + xs[valid])
         self._valid_px = np.where(valid)[0]
-        self._all_pixels_valid = np.array_equal(self._valid_px, np.arange(coords.shape[0]))
+        self._all_pixels_valid = bool(np.all(valid))
 
         self._dm: IonImageDataManagerBinary | None = None
 

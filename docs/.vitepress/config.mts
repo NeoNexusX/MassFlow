@@ -174,7 +174,8 @@ export default withMermaid(
           text: '环境配置',
           collapsed: false,
           items: [
-            {text: 'R 环境配置', link: '/zh/r_environment_setup'}
+            {text: 'R 环境配置', link: '/zh/r_environment_setup'},
+            {text: '智能体安装（opencode）', link: '/zh/agent_setup'}
           ]
         }
       ]
@@ -224,7 +225,8 @@ export default withMermaid(
           text: 'Environment Setup',
           collapsed: false,
           items: [
-            {text: 'R Environment Setup', link: '/r_environment_setup'}
+            {text: 'R Environment Setup', link: '/r_environment_setup'},
+            {text: 'Agent Setup (opencode)', link: '/agent_setup'}
           ]
         }
       ]

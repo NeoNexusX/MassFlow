@@ -78,7 +78,7 @@ class MSDataManager(ABC):
         if target_locs is not None:
             if len(target_locs) <= 1 or (target_locs[0][0] > target_locs[1][0] or target_locs[0][1] > target_locs[1][1]):
                 logger.error("target_locs must be non-empty or locs must x1<x2,y1<y2")
-                raise ValueError
+                raise ValueError("target_locs must be ([x1, y1], [x2, y2]) with x1 <= x2 and y1 <= y2.")
             self.target_locs = target_locs
         else:
             max_coord = int(np.iinfo(np.int32).max)
@@ -183,9 +183,11 @@ class MSDataManager(ABC):
         """Check if the m/z arrays in the MS data are sorted."""
 
         total_length = len(self.ms)
-        check_num = random.randint(0, total_length -1)
-        check_rsult = self.ms[check_num].is_sorted()
-        if not check_rsult:
+        if total_length == 0:
+            logger.warning("No spectra loaded; skipping m/z sort detection.")
+            return
+        check_num = random.randint(0, total_length - 1)
+        if not self.ms[check_num].is_sorted():
             logger.info("Detected unsorted m/z data in the MS object.")
             for spectrum in self.ms:
                 spectrum.sort_by_mz = False
@@ -211,8 +213,8 @@ class MSDataManager(ABC):
         mask = np.zeros((height, width), dtype=np.int8)
 
         # Fill the occupancy mask across all z-planes
-        xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict),dtype=np.int16,)
-        ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for y in ydict),dtype=np.int16,)
+        xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict), dtype=np.int64)
+        ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for ydict in z.values() for y in ydict), dtype=np.int64)
 
         valid = (1 <= xs) & (xs <= width) & (1 <= ys) & (ys <= height)
         mask[ys[valid] - 1, xs[valid] - 1] = 1

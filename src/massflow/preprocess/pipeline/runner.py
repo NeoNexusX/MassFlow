@@ -23,7 +23,6 @@ def _del_last_dm(
     """Helper function to delete intermediate data managers after a segment is done."""
     if del_dm is not original_dm:
         del_dm.close()
-        del del_dm
 
 def _flat_segment(
     data_manager: MSDataManagerImzML,

@@ -18,11 +18,9 @@ from massflow.data_manager import (
     IonImageDataManagerZarr,
 )
 from massflow.preprocess.flat_pre_fun import FlatBatchResult
+from massflow.preprocess.pipeline.dataset_executor import ion_image_writer
 from massflow.preprocess.pipeline.types import (
     OUTPUT_FORMAT_IMZML,
-    OUTPUT_FORMAT_ION_IMAGE_BINARY,
-    OUTPUT_FORMAT_ION_IMAGE_H5,
-    OUTPUT_FORMAT_ION_IMAGE_ZARR,
     OUTPUT_FORMAT_SPECTRA_ZARR,
     InputMetaData,
     OutputMetaData,
@@ -103,34 +101,13 @@ class FlatOutputSink:
         if self.output_meta.file_path is None:
             raise ValueError("ion image output requires a file_path.")
 
-        if self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_BINARY:
-            ion_image_cls = IonImageDataManagerBinary
-        elif self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_H5:
-            ion_image_cls = IonImageDataManagerH5
-        elif self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR:
-            ion_image_cls = IonImageDataManagerZarr
-        else:
-            raise ValueError(f"Unsupported ion image output format: {self.output_meta.output_format}")
-
-        zarr_options = (
-            {
-                "chunk_size": self.input_meta.zarr_chunk_size,
-                "compute_rms": self.input_meta.compute_rms,
-            }
-            if self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR
-            else {}
-        )
+        ion_image_cls, options = ion_image_writer(self.output_meta.output_format, self.input_meta)
         return ion_image_cls.from_flat_output_contract(
             self.source_data_manager,
             self.output_meta.file_path,
             shared_mz_axis=chunk.mz_data,
             output_spectrum_type=self.output_meta.spectrum_type,
-            temp_dir=self.input_meta.temp_dir,
-            temp_workers=self.input_meta.output_max_workers,
-            merge_workers=self.input_meta.output_max_workers,
-            ion_block=self.input_meta.ion_block,
-            compute_mean_spectrum=self.input_meta.compute_mean_spectrum,
-            **zarr_options, # type: ignore
+            **options,
         )
 
     def write_chunk(self, chunk: FlatChunk) -> None:

@@ -36,29 +36,6 @@ def aggregate_peak_profile_flat_parallel_jit(
     return counts, summed, int(lengths.size)
 
 
-@njit(parallel=True, cache=True)
-def count_peaks_flat_parallel_jit(
-    intensity_flat: np.ndarray,
-    lengths: np.ndarray,
-    spectrum_size: int,
-) -> tuple[np.ndarray, int]:
-    """Count spectra with positive intensity at each shared m/z position."""
-    counts = np.zeros(spectrum_size, dtype=np.int64)
-    offsets = lengths_to_offsets(lengths)
-
-    for peak_index in prange(spectrum_size):  # pylint: disable=not-an-iterable
-        count = 0
-        for spectrum_index in range(lengths.size):
-            if (
-                peak_index < lengths[spectrum_index]
-                and intensity_flat[offsets[spectrum_index] + peak_index] > 0
-            ):
-                count += 1
-        counts[peak_index] = count
-
-    return counts, int(lengths.size)
-
-
 # ---------------------------------------------------------------------------
 # Aggregate intensity spectrum for peak filtering
 # ---------------------------------------------------------------------------

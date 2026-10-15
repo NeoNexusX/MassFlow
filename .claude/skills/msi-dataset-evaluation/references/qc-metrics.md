@@ -36,6 +36,7 @@ user) before the verdict.
 | `empty_spectra_sampled` | Spectra with no positive signal | > 5% of the sample | Off-tissue/dropout pixels: check the TIC image |
 | `sampling.bin_width_da` + `uniform_bins` | Uniform bin grid width | Uniform and ≥ 0.02 Da | Re-binned data: accuracy ≈ ± half a bin |
 | `sampling.points_per_fwhm` | Samples across one peak (profile) | < 3 | Sampling-limited: skip smoothing; tolerances bin-sized |
+| `sampling.narrow_points_per_fwhm` (+ `narrow_peak_mz`) | Samples across the narrowest peaks (10th percentile, profile) | < ~4.3 | Note it: preprocessing narrows MassFlow's default windows (peak-pick width, smoothing window 5 → 3) so these peaks are not lowered or hidden |
 | `sampling.peak_fwhm_ppm` / `resolving_power` | Measured peak width (profile) | Much worse than the analyzer class typical | Either re-binning or instrument issue |
 | `n_mz_bins` (processed, aligned) | Aligned features | < 100 or > 20,000 | Too strict / too loose peak picking or alignment |
 

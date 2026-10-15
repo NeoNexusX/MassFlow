@@ -7,8 +7,6 @@ Main optimizations:
 5. Remove rounding operation (rounding in compression mode)
 """
 
-from __future__ import print_function
-
 import os
 import uuid as uuid_module
 from collections import namedtuple, OrderedDict
@@ -254,10 +252,6 @@ class ImzMLWriter:
         # Polarity setting
         self._set_polarity(polarity)
 
-        # Pre-calculate dtype byte sizes
-        self._mz_itemsize = self.mz_dtype.itemsize
-        self._int_itemsize = self.intensity_dtype.itemsize
-
     @staticmethod
     def _np_type_to_name(dtype: np.dtype) -> str:
         """Convert numpy dtype to imzML specification name"""
@@ -282,71 +276,54 @@ class ImzMLWriter:
                 f"Invalid polarity: {polarity}. Must be 'positive', 'negative', or None"
             )
 
-    def _write_binary_fast(
-        self, data: np.ndarray, target_dtype: np.dtype
+    @staticmethod
+    def _as_contiguous(data: np.ndarray, target_dtype: np.dtype) -> np.ndarray:
+        """Convert dtype and layout only when necessary (zero-copy otherwise)."""
+        if data.dtype != target_dtype:
+            data = data.astype(target_dtype, copy=False)
+        if not data.flags["C_CONTIGUOUS"]:
+            data = np.ascontiguousarray(data)
+        return data
+
+    def _write_array(
+        self, data: np.ndarray, target_dtype: np.dtype, compression: Any
     ) -> Tuple[int, int, int]:
         """
         Fast binary write - Core optimization method
 
         Optimization strategies:
-        1. Use np.asarray instead of np.array to avoid unnecessary copying
-        2. If dtype matches and array is C-contiguous, directly use data.data buffer
+        1. Convert dtype / make C-contiguous only when necessary
+        2. Uncompressed data is written straight from the array buffer
         3. Skip rounding operation in compression
 
         Returns: (offset, length, encoded_length)
         """
         offset = self.ibd.tell()
+        data = self._as_contiguous(data, target_dtype)
 
-        # Smart type conversion: Create new array only when necessary
-        if data.dtype != target_dtype:
-            data = data.astype(target_dtype, copy=False)
-
-        # Ensure C-contiguous (most numpy arrays already are)
-        if not data.flags["C_CONTIGUOUS"]:
-            data = np.ascontiguousarray(data)
-
-        if isinstance(self.mz_compression, NoCompression):
+        if isinstance(compression, NoCompression):
             # Fast path: avoid allocating an intermediate bytes object.
             self.ibd.write(memoryview(data))
             return offset, len(data), data.nbytes
 
         # Compressed path
-        raw_bytes = self.mz_compression.compress(data.tobytes())
+        raw_bytes = compression.compress(data.tobytes())
         self.ibd.write(raw_bytes)
         return offset, len(data), len(raw_bytes)
 
     def _write_mz(self, mzs: np.ndarray) -> Tuple[int, int, int]:
         """Write m/z array"""
-        return self._write_binary_fast(mzs, self.mz_dtype)
+        return self._write_array(mzs, self.mz_dtype, self.mz_compression)
 
     def _write_intensities(self, intensities: np.ndarray) -> Tuple[int, int, int]:
         """Write intensity array"""
-        offset = self.ibd.tell()
-
-        # Smart type conversion
-        if intensities.dtype != self.intensity_dtype:
-            intensities = intensities.astype(self.intensity_dtype, copy=False)
-
-        if not intensities.flags["C_CONTIGUOUS"]:
-            intensities = np.ascontiguousarray(intensities)
-
-        if isinstance(self.intensity_compression, NoCompression):
-            # Fast path: avoid allocating an intermediate bytes object.
-            self.ibd.write(memoryview(intensities))
-            return offset, len(intensities), intensities.nbytes
-
-        raw_bytes = self.intensity_compression.compress(intensities.tobytes())
-        self.ibd.write(raw_bytes)
-        return offset, len(intensities), len(raw_bytes)
+        return self._write_array(intensities, self.intensity_dtype, self.intensity_compression)
 
     def _write_uncompressed_block(
         self, data: np.ndarray, target_dtype: np.dtype
     ) -> Tuple[int, np.ndarray]:
         """Write a contiguous ndarray block via memoryview and return start offset + normalized array."""
-        if data.dtype != target_dtype:
-            data = data.astype(target_dtype, copy=False)
-        if not data.flags["C_CONTIGUOUS"]:
-            data = np.ascontiguousarray(data)
+        data = self._as_contiguous(data, target_dtype)
         offset = self.ibd.tell()
         self.ibd.write(memoryview(data))
         return offset, data
@@ -504,11 +481,7 @@ class ImzMLWriter:
         elif self.mode == "processed":
             is_continuous = False
         else:
-            if mz_flat is None:
-                raise ValueError("mz_flat cannot be None for auto mode in swap_flat_out2disk")
-
             self._update_auto_mode_from_flat(mz_flat, lengths)
-
             is_continuous = self._auto_detected_mode == "continuous"
 
         mz_bytes_per_elem = self.mz_dtype.itemsize
@@ -520,18 +493,11 @@ class ImzMLWriter:
             np.cumsum(lengths[:-1], dtype=np.int64, out=cumulative_lengths[1:])
 
         if is_continuous:
-            # Continuous mode
-            if getattr(self, "first_mz", None) is None:
-                if mz_flat is None:
-                    raise ValueError(
-                        "mz_flat cannot be None for first spectrum in continuous mode")
-                # Write shared m/z array exactly once
-                self.first_mz = self._write_binary_fast(mz_flat, self.mz_dtype)
+            # Continuous mode: write the shared m/z array exactly once
+            if self.first_mz is None:
+                self.first_mz = self._write_mz(mz_flat)
 
-            first_mz = self.first_mz
-            if first_mz is None:
-                raise ValueError("first_mz is unexpectedly None in continuous mode")
-            mz_offset_shared, mz_len_shared, mz_enc_len_shared = first_mz
+            mz_offset_shared, mz_len_shared, mz_enc_len_shared = self.first_mz
             mz_offsets = np.full(num_spectra, mz_offset_shared, dtype=np.int64)
             mz_lens = np.full(num_spectra, mz_len_shared, dtype=np.int64)
             mz_enc_lens = np.full(num_spectra, mz_enc_len_shared, dtype=np.int64)
@@ -545,11 +511,6 @@ class ImzMLWriter:
 
         else:
             # Processed / auto mode
-            if mz_flat is None:
-                raise ValueError(
-                    "mz_flat cannot be None for processed data in swap_flat_out2disk"
-                )
-
             mz_start_offset, mz_flat = self._write_uncompressed_block(
                 mz_flat, self.mz_dtype
             )

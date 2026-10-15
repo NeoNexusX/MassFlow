@@ -13,6 +13,7 @@ from massflow.tools.logger import get_logger
 logger = get_logger("massflow.preprocess.api")
 
 Backend = Literal["python", "cardinal"]
+_ALIGN_MIN_FREQUENCY = 0.01  # default reference support filter of the python peak_align
 
 
 class _TaskRegistrar(Protocol):
@@ -228,6 +229,7 @@ class PreprocessorAPI(_TaskRegistrar):
     def _reference_computer(
         self,
         *,
+        reference: np.ndarray | None = None,
         binfun: str = "median",
         binratio: float = 2.0,
         tolerance: float | None = None,
@@ -235,11 +237,15 @@ class PreprocessorAPI(_TaskRegistrar):
         min_count: int | None = None,
         min_frequency: float | None = None,
     ) -> Self:
-        """Register reference computer dataset task, just for peak_align."""
+        """Register reference computer dataset task, just for peak_align.
+
+        A user-supplied ``reference`` is passed through so only the tolerance is estimated.
+        """
         return self._register_task(
             "reference_computer",
             scope="dataset",
             apply_fn=reference_computer,
+            reference=reference,
             binfun=binfun,
             binratio=binratio,
             tolerance=tolerance,
@@ -258,12 +264,12 @@ class PreprocessorAPI(_TaskRegistrar):
         binfun: str = "min",
         binratio: float = 2.0,
         min_count: int | None = None,
-        min_frequency: float | None = 0.01,
+        min_frequency: float | None = _ALIGN_MIN_FREQUENCY,
         backend: Backend = "python",
     ) -> Self:
         """Register peak alignment flat task."""
         if backend == "cardinal":
-            if min_count is not None or min_frequency is not None:
+            if min_count is not None or min_frequency != _ALIGN_MIN_FREQUENCY:
                 logger.warning("min_count/min_frequency are only supported by the python peak_align backend")
             return self._register_task(
                 "peak_align",
@@ -279,6 +285,7 @@ class PreprocessorAPI(_TaskRegistrar):
 
         if reference is None or tolerance is None:
             self._reference_computer(
+                reference=reference,
                 binfun=binfun,
                 binratio=binratio,
                 tolerance=tolerance,

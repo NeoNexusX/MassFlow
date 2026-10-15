@@ -342,6 +342,9 @@ def peak_pick_flat_parallel_core_jit(
     input_offsets = lengths_to_offsets(lengths_arr)
 
     out_lengths = np.zeros(n_spectra, dtype=np.uint32)
+    # Pass 1 detects peaks once and marks their apexes in the flat input space;
+    # pass 2 only compacts the marked points.
+    peak_mask = np.zeros(intensity_arr.size, dtype=np.bool_)
 
     for s in prange(n_spectra):  # pylint: disable=not-an-iterable
         start = int(input_offsets[s])
@@ -362,6 +365,8 @@ def peak_pick_flat_parallel_core_jit(
             snr=snr,
             noise_x=noise_seg,
         )
+        for i in range(peaks.size):
+            peak_mask[start + peaks[i]] = True
         out_lengths[s] = np.uint32(peaks.size)
 
     output_offsets = lengths_to_offsets(out_lengths)
@@ -389,22 +394,7 @@ def peak_pick_flat_parallel_core_jit(
             # processed: each spectrum has its own m/z slice in the flat buffer.
             mz_segment = mz_arr[in_start:in_end]
 
-        noise_segment = noise_arr[in_start:in_end] if use_snr else np.empty(0, dtype=np.float64)
-
-        peaks = _findpeaks_filtered_indices_safe_jit(
-            x=segment,
-            width=width,
-            use_prominence=use_prominence,
-            prominence=prominence,
-            use_relheight=use_relheight,
-            relheight=relheight,
-            use_snr=use_snr,
-            snr=snr,
-            noise_x=noise_segment,
-        )
-
-        if peaks.size == 0:
-            continue
+        peaks = _indices_from_bool_mask_jit(peak_mask[in_start:in_end])
 
         if return_area:
             left, right = _peak_boundaries_jit(segment, peaks)

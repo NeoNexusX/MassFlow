@@ -176,17 +176,8 @@ def keep_clusters(
     label_image = source.kmeans_label_image
     valid = label_image >= 0
     keep_labels = valid & np.isin(label_image, labels)
-    traversable = ~keep_labels
-
-    exterior_seeds = np.zeros(label_image.shape, dtype=bool)
-    exterior_seeds[0, :] = traversable[0, :]
-    exterior_seeds[-1, :] = traversable[-1, :]
-    exterior_seeds[:, 0] = traversable[:, 0]
-    exterior_seeds[:, -1] = traversable[:, -1]
-    exterior_reachable = np.asarray(
-        binary_propagation(exterior_seeds, mask=traversable),
-        dtype=bool,
-    )
+    # Everything reachable from the border without crossing a kept label is outside.
+    exterior_reachable = _exterior_background(keep_labels)
 
     mask = (valid & ~exterior_reachable).astype(np.uint8)
     _save_outputs(mask, source.kmeans_image, source.umap_image, output_dir)

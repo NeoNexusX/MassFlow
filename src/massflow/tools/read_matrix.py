@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, Sequence
+from typing import BinaryIO, Callable, Optional, Sequence
 import numpy as np
 
 # File layout descriptor (Immutable)
@@ -103,16 +103,24 @@ def filter_target_indices(
     return np.nonzero(mask)[0].astype(np.int64, copy=False)
 
 # Batch metadata
+def batch_lengths(
+    layout: IbdFileLayout,
+    batch_indices: Sequence[int] | np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the spectrum lengths and coordinates of a batch."""
+    idx = np.asarray(batch_indices, dtype=np.intp)
+    lengths = np.take(layout.intensity_lengths, idx).astype(np.uint32, copy=False)
+    coords = np.take(layout.coordinates, idx, axis=0).astype(np.int32, copy=False)
+    return lengths, coords
+
+
 def batch_lengths_and_coords(
     layout: IbdFileLayout,
     batch_indices: Sequence[int] | np.ndarray,
 ) -> tuple[np.ndarray, int, np.ndarray]:
     """Calculate length array, maximum length, and coordinate matrix for a batch."""
-    idx = np.asarray(batch_indices, dtype=np.intp)
-    lengths = np.take(layout.intensity_lengths, idx).astype(np.uint32, copy=False)
-    max_len = int(np.max(lengths))
-    coords = np.take(layout.coordinates, idx, axis=0).astype(np.int32, copy=False)
-    return lengths, max_len, coords
+    lengths, coords = batch_lengths(layout, batch_indices)
+    return lengths, int(np.max(lengths)), coords
 
 # Contiguity detection
 def is_disk_contiguous(
@@ -130,6 +138,49 @@ def is_disk_contiguous(
     actual = layout.intensity_offsets[batch_indices[-1]] - layout.intensity_offsets[batch_indices[0]]
     return expected == actual
 
+# Low-level reads
+def read_into(f: BinaryIO, offset: int, out: np.ndarray, file_dtype: np.dtype) -> None:
+    """Fill the contiguous 1-D ``out`` with values of ``file_dtype`` read at ``offset``.
+
+    Reads straight into ``out`` when the dtypes match, so the result is always
+    a writable array and no intermediate ``bytes`` copy is made.
+    """
+    f.seek(int(offset))
+    target = out if out.dtype == file_dtype else np.empty(out.size, dtype=file_dtype)
+    if f.readinto(target) != target.nbytes:
+        raise OSError(f"Unexpected end of .ibd data: {out.size} values requested at offset {offset}.")
+    if target is not out:
+        out[...] = target
+
+
+def read_fragmented(
+    layout: IbdFileLayout,
+    batch_indices: Sequence[int] | np.ndarray,
+    executor: ThreadPoolExecutor,
+    max_threads: int,
+    read_one: Callable[[BinaryIO, int, int], None],
+) -> None:
+    """Call ``read_one(file, position_in_batch, spectrum_index)`` for every spectrum of a batch.
+
+    The batch is split into ``max_threads`` mini-batches; each worker opens its
+    own file handle so seeks never race.
+    """
+    if max_threads < 2:
+        raise ValueError("Single-thread mode is not supported for fragmented reads. Set max_threads >= 2.")
+    if executor is None:
+        raise ValueError("A ThreadPoolExecutor is required for fragmented reads.")
+
+    batch_size = len(batch_indices)
+    chunk = max(1, (batch_size + max_threads - 1) // max_threads)
+
+    def _read_chunk(start: int) -> None:
+        with open(layout.ibd_path, "rb") as f:
+            for position in range(start, min(start + chunk, batch_size)):
+                read_one(f, position, int(batch_indices[position]))
+
+    list(executor.map(_read_chunk, range(0, batch_size, chunk)))
+
+
 # Contiguous block reading (Strategy A)
 def read_contiguous_block(
     layout: IbdFileLayout,
@@ -138,18 +189,10 @@ def read_contiguous_block(
     max_length: int,
 ) -> np.ndarray:
     """Read contiguous intensity data with single seek + single read and reshape to 2-D matrix."""
-    first_offset = layout.intensity_offsets[batch_indices[0]]
-    total_bytes = batch_size * max_length * layout.intensity_element_bytes
-
+    out = np.empty((batch_size, max_length), dtype=layout.out_intensity_dtype)
     with open(layout.ibd_path, "rb") as f:
-        f.seek(first_offset)
-        raw = f.read(total_bytes)
-
-    flat = np.frombuffer(raw, dtype=layout.file_intensity_dtype)
-    if layout.file_intensity_dtype != layout.out_intensity_dtype:
-        flat = flat.astype(layout.out_intensity_dtype)
-
-    return flat.reshape(batch_size, max_length)
+        read_into(f, layout.intensity_offsets[batch_indices[0]], out.reshape(-1), layout.file_intensity_dtype)
+    return out
 
 # Fragmented multi-threaded reading (Strategy B)
 def read_fragmented_block(
@@ -174,45 +217,12 @@ def read_fragmented_block(
         executor: Thread pool.
         max_threads: Number of threads (for splitting mini-batches), must be >= 2.
     """
-    if max_threads < 2:
-        raise ValueError("Single-thread mode is not supported for fragmented matrix reads. Set max_threads >= 2.")
-    if executor is None:
-        raise ValueError("A ThreadPoolExecutor is required for fragmented matrix reads.")
 
-    batch_size = len(batch_indices)
-    chunk = max(1, (batch_size + max_threads - 1) // max_threads)
+    def _read_one(f: BinaryIO, row: int, spec_idx: int) -> None:
+        length = int(layout.intensity_lengths[spec_idx])
+        read_into(f, layout.intensity_offsets[spec_idx], intensity_out[row, :length], layout.file_intensity_dtype)
+        if mz_out is not None:  # Processed + include_mz only
+            mz_len = int(layout.mz_lengths[spec_idx])
+            read_into(f, layout.mz_offsets[spec_idx], mz_out[row, :mz_len], layout.file_mz_dtype)
 
-    def _read_chunk(info: tuple[Sequence[int], int]) -> None:
-        indices, row_offset = info
-        with open(layout.ibd_path, "rb") as f:
-            for idx, spec_idx in enumerate(indices):
-                row = row_offset + idx
-
-                # Intensity
-                off = layout.intensity_offsets[spec_idx]
-                length = layout.intensity_lengths[spec_idx]
-                f.seek(off)
-                raw = f.read(length * layout.intensity_element_bytes)
-                arr = np.frombuffer(raw, dtype=layout.file_intensity_dtype)
-                if layout.file_intensity_dtype != layout.out_intensity_dtype:
-                    arr = arr.astype(layout.out_intensity_dtype)
-                intensity_out[row, :length] = arr
-
-                # m/z (Processed + include_mz only)
-                if mz_out is not None:
-                    mz_off = layout.mz_offsets[spec_idx]
-                    mz_len = layout.mz_lengths[spec_idx]
-                    f.seek(mz_off)
-                    mz_raw = f.read(mz_len * layout.mz_element_bytes)
-                    mz_arr = np.frombuffer(mz_raw, dtype=layout.file_mz_dtype)
-                    if layout.file_mz_dtype != layout.out_mz_dtype:
-                        mz_arr = mz_arr.astype(layout.out_mz_dtype)
-                    mz_out[row, :mz_len] = mz_arr
-
-    # Split into mini-batches
-    mini_batches: list[tuple[Sequence[int], int]] = []
-    for i in range(0, batch_size, chunk):
-        end = min(i + chunk, batch_size)
-        mini_batches.append((batch_indices[i:end], i)) #type: ignore
-
-    list(executor.map(_read_chunk, mini_batches))
+    read_fragmented(layout, batch_indices, executor, max_threads, _read_one)

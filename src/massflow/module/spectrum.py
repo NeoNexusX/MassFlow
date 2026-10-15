@@ -2,7 +2,6 @@ import copy
 from typing import Union, Optional, Sequence
 import numpy as np
 from massflow.module.pixel_coordinates import PixelCoordinates
-from massflow.tools.stream_imzml_writer import ImzMLWriter
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.module.spectrum")
@@ -129,8 +128,8 @@ class Spectrum:
         """Return a string representation of the spectrum basic info."""
 
         if self.mz_list is not None and len(self.mz_list) > 0:
-            mz_min, mz_max = min(self.mz_list), max(self.mz_list)
-            intensity_max = max(self.intensity) if self.intensity is not None else 0
+            mz_min, mz_max = np.min(self.mz_list), np.max(self.mz_list)
+            intensity_max = np.max(self.intensity) if self.intensity is not None else 0
 
             return (f"  MS len: {len(self)}\r\n"
                     f"  MS range: {mz_min} - {mz_max}\r\n"
@@ -246,27 +245,14 @@ class Spectrum:
     @property
     def x(self):
         """Get X coordinate."""
-        if self.coordinate is None:
-            logger.error("coordinates is not initialized.")
-            raise AttributeError("coordinates is not initialized.")
         return self.coordinate.x
 
     @property
     def y(self):
         """Get Y coordinate."""
-        if self.coordinate is None:
-            logger.error("coordinates is not initialized.")
-            raise AttributeError("coordinates is not initialized.")
         return self.coordinate.y
 
     @property
     def z(self):
         """Get Z coordinate."""
-        if self.coordinate is None:
-            logger.error("coordinates is not initialized.")
-            raise AttributeError("coordinates is not initialized.")
         return self.coordinate.z
-
-
-    def swap_out2disk(self, writer: ImzMLWriter):
-        """Method to swap data."""

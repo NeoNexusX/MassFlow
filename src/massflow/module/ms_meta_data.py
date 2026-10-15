@@ -112,10 +112,6 @@ class MetaField:
             value = self.converter(value)
         obj._meta[self.name] = value
 
-    def __int__(self):
-        """Allows int() to be called on the descriptor itself when accessed on the class."""
-        return int(self.default) if self.default is not None else 0
-
 
 class MetaDataBase:
     """
@@ -301,11 +297,6 @@ class MetaDataBase:
         raise KeyError(
             f"Unknown metadata section {section!r}; expected one of: {valid}"
         )
-
-    def update_meta(self):
-        """Update the meta index with new entries."""
-        for meta_key in self._meta:
-            self._meta[meta_key] = getattr(self, meta_key, None)
 
     def __str__(self):
         """Format metadata information as a string, skipping None or empty values."""

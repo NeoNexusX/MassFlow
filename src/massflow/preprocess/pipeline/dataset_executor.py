@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import cast, Callable
+from typing import Any, cast, Callable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -24,6 +24,35 @@ from massflow.preprocess.pipeline.types import (
 from massflow.tools.infer_spectrum_type import set_spectrum_type_metadata
 from massflow.tools.logger import get_logger
 logger = get_logger("massflow.preprocess.pipeline.dataset_executor")
+
+IonImageDataManagerType = type[IonImageDataManagerBinary] | type[IonImageDataManagerH5] | type[IonImageDataManagerZarr]
+
+_ION_IMAGE_CLASSES: dict[OutputFormat, IonImageDataManagerType] = {
+    OUTPUT_FORMAT_ION_IMAGE_BINARY: IonImageDataManagerBinary,
+    OUTPUT_FORMAT_ION_IMAGE_H5: IonImageDataManagerH5,
+    OUTPUT_FORMAT_ION_IMAGE_ZARR: IonImageDataManagerZarr,
+}
+
+
+def ion_image_writer(
+    output_format: OutputFormat,
+    input_meta: InputMetaData,
+) -> tuple[IonImageDataManagerType, dict[str, Any]]:
+    """Return the ion-image manager class for ``output_format`` and its writer options."""
+    ion_image_cls = _ION_IMAGE_CLASSES.get(output_format)
+    if ion_image_cls is None:
+        raise ValueError(f"Unsupported ion image output format: {output_format}")
+    options: dict[str, Any] = {
+        "temp_dir": input_meta.temp_dir,
+        "temp_workers": input_meta.output_max_workers,
+        "merge_workers": input_meta.output_max_workers,
+        "ion_block": input_meta.ion_block,
+        "compute_mean_spectrum": input_meta.compute_mean_spectrum,
+    }
+    if output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR:
+        options["chunk_size"] = input_meta.zarr_chunk_size
+        options["compute_rms"] = input_meta.compute_rms
+    return ion_image_cls, options
 
 def _write_through_generator(
         data_manager: MSDataManager,
@@ -52,31 +81,11 @@ def imzml_to_ion_image_data_manager(
     file_path: str,
 ) -> IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
     """Convert an imzML manager to an ion image data manager by writing through a generator."""
-    if output_format == OUTPUT_FORMAT_ION_IMAGE_BINARY:
-        ion_image_cls = IonImageDataManagerBinary
-    elif output_format == OUTPUT_FORMAT_ION_IMAGE_H5:
-        ion_image_cls = IonImageDataManagerH5
-    elif output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR:
-        ion_image_cls = IonImageDataManagerZarr
-    else:
-        raise ValueError(f"Unsupported output format: {output_format}")
-
-    zarr_options = (
-        {
-            "chunk_size": input_meta.zarr_chunk_size,
-            "compute_rms": input_meta.compute_rms,
-        }
-        if output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR
-        else {}
-    )
+    ion_image_cls, options = ion_image_writer(output_format, input_meta)
     output_dm = ion_image_cls.from_data_manager(
         data_manager=imzml_manager,
         filepath=file_path,
-        temp_dir=input_meta.temp_dir,
-        temp_workers=input_meta.output_max_workers,
-        merge_workers=input_meta.output_max_workers,
-        compute_mean_spectrum=input_meta.compute_mean_spectrum,
-        **zarr_options, # type: ignore
+        **options,
     )
 
     return _write_through_generator(imzml_manager, output_dm, input_meta)

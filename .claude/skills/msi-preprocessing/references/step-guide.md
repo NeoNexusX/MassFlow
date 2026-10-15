@@ -33,12 +33,19 @@ value `plan_preprocessing` derives from the data.
 - **Methods**: `gaussian_numba` (default; `sd = window/4`), `ma_numba` (moving
   average; fast, broadens narrow peaks), `savgol_numba` (Savitzky–Golay;
   preserves peak shape; needs `polyorder ≤ window − 2` to actually smooth).
-- **Plan rule**: `window ≈ samples per FWHM` (odd, 3–15). With fewer than 3
-  samples per FWHM (re-binned data) every window merges neighbouring bins, so
-  the plan skips smoothing — a Gaussian window 5 on 1-bin peaks kept only ~35%
-  of peak height in testing.
+- **Plan rule**: MassFlow's default window 5, which keeps ~92% of a peak 6
+  samples wide and ~99% of one 20 samples wide. Window 3 when the narrowest
+  peaks span fewer than ~4.3 samples per FWHM (window 5 would keep < 85% of
+  their height: ~84% at 4 samples, ~75% at 3). Skipped below 3 samples per
+  FWHM (re-binned data), where every window merges neighbouring bins — window
+  5 kept only ~35% of 1-bin peaks in testing. Windows stay within 3–9; wider
+  ones (e.g. 15) flatten small peaks and shoulders before picking.
 - **Acceptance**: numeric (`try_step`: SNR gain must beat attenuation for most
-  pixels; median peak retention ≥ 0.5) plus the visual veto at 10/20/50 m/z.
+  pixels; median peak retention ≥ 0.85) plus the visual veto at 10/20/50 m/z.
+  Retries on damaged peaks narrow the window (to 3), then switch to
+  Savitzky–Golay (window 5, polyorder 3 keeps ~94% of a 3-sample peak); an
+  under-smoothed sample widens by 2 up to 9, never past the window the
+  narrowest peaks tolerate. Nothing left to try → escalate (skip denoising).
 
 ## Normalization
 
@@ -60,16 +67,36 @@ on the aligned output if deferred.
 
 ## Peak picking (profile → centroid)
 
-- **Knobs**: `snr` (default 2; 1.5–5), `method` (noise estimate: `mad` default,
-  robust to intense peaks; `quantile`, `sd`, `diff`), `width` (local-maximum
-  window in samples: plan = samples per FWHM, 3 for re-binned data),
+- **Purpose**: recall — keep every candidate peak. Noise is screened later:
+  alignment's `min_frequency` drops picks that do not recur across pixels, and
+  `filter_peaks_by_stats` can cut rare or weak features after a preview.
+- **Knobs** (MassFlow defaults unless a problem shows): `width` (local-maximum
+  window: a pick must be the highest point within ±width//2 samples; default
+  5; 3 for under-sampled or narrow peaks), `snr` (default 2), `method` (noise
+  estimate: `mad` default, robust to intense peaks; `quantile`, `sd`, `diff`),
   `return_type` (`height` default; `area` only for well-sampled peaks),
-  `nbins`/`overlap` (chunked noise for very long FT-ICR spectra).
-- **Reading the preview**: stems on apexes, no missed visible peaks, no picks on
-  baseline grass. The SNR sweep tells how many picks sit just above the noise:
-  more than ~1.6× as many peaks at SNR 2 as at SNR 3 means raise `snr` to 3.
-- **Typical counts**: MALDI-TOF profile spectra give hundreds to a few thousand
-  peaks per spectrum before alignment.
+  `nbins`/`overlap` (chunked noise for very long FT-ICR spectra), `prominence`
+  (only for a collapsed noise estimate).
+- **Why the window must stay small**: when a peak's valley to a taller
+  neighbour is ≥ 10% of its height, the neighbour's flank stays at least 0.46
+  FWHM away from its apex. A window radius below that cannot hide it; a wider
+  one can. Width 5 (±2 samples) is safe for peaks wider than ~4.3 samples per
+  FWHM; a window sized to the whole peak (e.g. width 15 for 21-sample peaks,
+  ±7 samples) swallows small peaks on the flanks of taller ones. In testing,
+  width 15 kept half the picks of width 5, and together with window-15
+  smoothing a third (2,800 vs 8,900 per spectrum).
+- **When to change a parameter** — only for a preview problem: `window_check`
+  `too_wide` (wider than the default, or than the narrowest peaks allow) → the
+  suggested (narrower) width; `noise_check` `collapsed` (zero
+  noise, e.g. zero-filled bins: every positive point passes) → a `prominence`;
+  a visible peak without a stem → lower `width` or `snr`. Not for many
+  near-noise picks: the SNR sweep and `weak_pick_fraction` describe the picks
+  (in MALDI profile data typically > 90% of picks sit below 1% of the base
+  peak), they are not defects.
+- **Typical counts**: MALDI-TOF profile spectra give hundreds to many thousands
+  of picks per spectrum before alignment (9,000–13,000 from 75,000 points on a
+  0.008 Da grid with the defaults, with or without smoothing); alignment and
+  the filters reduce them.
 
 ## Isotope filter (per spectrum, between peak picking and alignment)
 
@@ -92,10 +119,16 @@ on the aligned output if deferred.
   `min` (default: finest bins, longest axis), `median`, `max`; `binratio`
   scales the tolerance; `min_frequency=0.01` (default) drops reference peaks
   found in < 1% of spectra; `min_count` sets an absolute floor.
+- `tolerance=None` is derived from the closest picks (with `binfun="min"`,
+  twice the smallest spacing between peaks in any spectrum), so it follows the
+  picking window: width 5 keeps picks ≥ 3 samples apart (tolerance ~6
+  samples), while width 15 kept them ≥ 8 apart (~16 samples) and could merge
+  close ions. Keep the default unless the output shows a bad tolerance.
 - **Signs of a bad tolerance**: too wide merges neighbouring ions (feature
   count unexpectedly low); too narrow splits one ion into near-duplicate
   features (adduct preview points at Δm/z ≈ 0, many features spaced a few ppm
-  apart).
+  apart). Only then set `tolerance` (ppm) explicitly, around half the peak
+  FWHM.
 - TOF m/z drift across a section (topography, temperature) is absorbed when it
   is smaller than the tolerance.
 

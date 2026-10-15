@@ -65,21 +65,21 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ### 2. Clone and sync
 
 ```bash
-git clone https://github.com/NeoNexusX/MassFlow.git
+git clone --recurse-submodules https://github.com/NeoNexusX/MassFlow.git
 cd MassFlow
-uv sync
+uv sync --all-packages --extra mcp
 ```
 
-`uv sync` installs **both** `massflow` and `mzorbit` as editable packages in one step. No separate `pip install -e .` needed.
+`uv sync --all-packages` installs **both** `massflow` and `mzorbit` (a git submodule; run
+`git submodule update --init` if you cloned without `--recurse-submodules`) as editable
+packages; `--extra mcp` adds the MCP server. A plain `uv sync` installs only `massflow` and
+**removes** `mzorbit` from `.venv`, so always re-sync with these flags.
 
 ### 3. Optional extras
 
 ```bash
 # R/Cardinal backend (requires a local R installation)
-uv sync --extra r
-
-# MCP server support for mzorbit
-uv sync --extra mcp
+uv sync --all-packages --extra mcp --extra r
 ```
 
 ### 4. Smoke test
@@ -109,10 +109,11 @@ uv run pytest tests/ mzorbit/tests/
 
 `mzorbit` is the agent interface on top of MassFlow. It provides:
 
-- CLI commands (`python -m mzorbit <cmd>`) for loading, preprocessing, annotation, and end-to-end workflow
-- An MCP server (`mzorbit-mcp-server`) that exposes these tools to MCP clients such as Claude Code and Cursor
+- An MCP server (`mzorbit-mcp-server`) exposing evaluation, preprocessing and analysis tools to MCP clients such as opencode, Claude Code and Codex
+- Three agent skills in `.claude/skills/` (`msi-dataset-evaluation`, `msi-preprocessing`, `msi-spatial-analysis`) that hold the workflows
 
-See [mzorbit/README.md](mzorbit/README.md) for the full developer guide, CLI reference, and MCP setup.
+Setup for opencode (skills + MCP): [docs/en/agent_setup.md](docs/en/agent_setup.md) ([中文](docs/zh/agent_setup.md)). Tool reference and
+other clients: [mzorbit/README.md](mzorbit/README.md).
 
 ---
 

@@ -9,7 +9,6 @@ import numpy as np
 from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess.numba.stat_filter_numba import (
     aggregate_peak_profile_flat_parallel_jit,
-    count_peaks_flat_parallel_jit,
     filter_peaks_flat_parallel_jit,
     sum_intensity_flat_parallel_jit,
 )
@@ -323,62 +322,6 @@ def filter_peaks_by_stats(
     )
 
 
-def filter_peaks_by_count(
-    data_manager: MSDataManagerImzML,
-    *,
-    min_count: int | None = None,
-    min_frequency: float | None = None,
-    profile: PeakFilterProfile | None = None,
-    output_path: str | Path | None = None,
-    temp_dir: str | Path | None = None,
-) -> MSDataManagerImzML:
-    """Filter peaks using occurrence count and frequency thresholds."""
-    if min_count is None and min_frequency is None:
-        raise ValueError("Either min_count or min_frequency must be provided.")
-
-    profile = _resolve_profile(data_manager, profile)
-    keep_mask = _build_count_mask(
-        profile,
-        min_count=min_count,
-        min_frequency=min_frequency,
-    )
-    return filter_data_by_mask(
-        data_manager,
-        keep_mask,
-        output_path=output_path,
-        temp_dir=temp_dir,
-    )
-
-
-def filter_peaks_by_intensity(
-    data_manager: MSDataManagerImzML,
-    *,
-    method: IntensityMethod = "mean",
-    min_intensity: float | None = None,
-    intensity_quantile: float | None = 0.05,
-    profile: PeakFilterProfile | None = None,
-    output_path: str | Path | None = None,
-    temp_dir: str | Path | None = None,
-) -> MSDataManagerImzML:
-    """Filter peaks using aggregate intensity thresholds."""
-    if min_intensity is None and intensity_quantile is None:
-        raise ValueError("Either min_intensity or intensity_quantile must be provided.")
-
-    profile = _resolve_profile(data_manager, profile)
-    keep_mask = _build_intensity_mask(
-        profile,
-        method=method,
-        min_intensity=min_intensity,
-        quantile=intensity_quantile,
-    )
-    return filter_data_by_mask(
-        data_manager,
-        keep_mask,
-        output_path=output_path,
-        temp_dir=temp_dir,
-    )
-
-
 def compute_sum_intensity(
     data_manager: MSDataManagerImzML,
     *,
@@ -391,18 +334,3 @@ def compute_sum_intensity(
         batch_size=batch_size,
     )
     return summed
-
-
-def compute_mean_intensity(data_manager: MSDataManagerImzML) -> np.ndarray:
-    """Compute the mean spectrum across all spectra in the data manager."""
-    summed, spectrum_count = _aggregate_batches(
-        data_manager,
-        sum_intensity_flat_parallel_jit,
-    )
-    return summed / spectrum_count
-
-
-def compute_peak_counts(data_manager: MSDataManagerImzML) -> np.ndarray:
-    """Compute the occurrence count spectrum across all spectra."""
-    counts, _ = _aggregate_batches(data_manager, count_peaks_flat_parallel_jit)
-    return counts

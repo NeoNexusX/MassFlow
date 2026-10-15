@@ -16,7 +16,7 @@ from massflow.data_manager import (
     IonImageDataManagerZarr,
     MSDataManagerImzML,
 )
-from massflow.tools.funs import infer_shared_mz
+from massflow.tools.funs import infer_shared_mz, is_zero_based
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.tools")
@@ -169,18 +169,13 @@ def _infer_image_geometry(
     height: int | None = None,
 ) -> tuple[bool, int, int]:
     """Infer zero-based coordinates and final image dimensions from pixel coordinates."""
-    coords = np.asarray(coordinates)
-    xy = coords[:, :2].astype(np.int64, copy=False)
-    xs = xy[:, 0]
-    ys = xy[:, 1]
-    zero_based = bool(
-        (xs.size > 0 and int(xs.min()) == 0) or (ys.size > 0 and int(ys.min()) == 0)
-    )
+    xy = np.asarray(coordinates)[:, :2].astype(np.int64, copy=False)
+    zero_based = is_zero_based(xy)
 
     if width is None:
-        width = int(xs.max()) + 1 if zero_based else int(xs.max())
+        width = int(xy[:, 0].max()) + int(zero_based)
     if height is None:
-        height = int(ys.max()) + 1 if zero_based else int(ys.max())
+        height = int(xy[:, 1].max()) + int(zero_based)
     if width <= 0 or height <= 0:
         raise ValueError(f"Invalid image dimensions: width={width}, height={height}")
 
@@ -219,15 +214,7 @@ def _valid_region_mask(
     else:
         coordinates = np.asarray(data_manager.coordinates)
 
-    height, width = image_shape
-    if isinstance(data_manager, IonImageDataManagerZarr):
-        zero_based = False
-    else:
-        zero_based, _, _ = _infer_image_geometry(
-            coordinates,
-            width=width,
-            height=height,
-        )
+    zero_based = is_zero_based(coordinates)
     mask = np.zeros(image_shape, dtype=bool)
     _scatter_values_into_image(
         mask,
@@ -245,28 +232,13 @@ def _imzml_image_geometry(manager: Any) -> tuple[bool, int | None, int | None]:
     height = getattr(meta, "max_count_of_pixels_y", None)
     width = int(width) if width else None
     height = int(height) if height else None
-    min_x = min_y = max_x = max_y = None
 
-    for spectrum in manager.ms:
-        x = int(spectrum.x)
-        y = int(spectrum.y)
-        min_x = x if min_x is None else min(min_x, x)
-        min_y = y if min_y is None else min(min_y, y)
-        max_x = x if max_x is None else max(max_x, x)
-        max_y = y if max_y is None else max(max_y, y)
-
-    if min_x is None or min_y is None or max_x is None or max_y is None:
+    coordinates = np.asarray(
+        [(int(spectrum.x), int(spectrum.y)) for spectrum in manager.ms], dtype=np.int64
+    ).reshape(-1, 2)
+    if coordinates.shape[0] == 0:
         return False, width, height
-
-    zero_based = bool(min_x == 0 or min_y == 0)
-    if width is None:
-        width = max_x + 1 if zero_based else max_x
-    if height is None:
-        height = max_y + 1 if zero_based else max_y
-    if width <= 0 or height <= 0:
-        raise ValueError(f"Invalid image dimensions: width={width}, height={height}")
-
-    return zero_based, width, height
+    return _infer_image_geometry(coordinates, width=width, height=height)
 
 
 # ---------------------------------------------------------------------------
@@ -445,73 +417,24 @@ def _read_ion_manager_tic_image(manager: IonImageManager) -> np.ndarray:
     if n_ions <= 0:
         raise ValueError("Ion image source contains no ions.")
 
-    if isinstance(manager, IonImageDataManagerZarr):
-        return _read_zarr_ion_manager_tic_image(manager)
-    # H5 can sum ion blocks directly from the underlying dense dataset.
-    if isinstance(manager, IonImageDataManagerH5):
-        return _read_dense_ion_manager_tic_image(manager)
-    # Binary stores (ion, pixel) data, so summing the memmap by pixel is cheaper.
     if isinstance(manager, IonImageDataManagerBinary):
-        return _read_binary_ion_manager_tic_image(manager)
-
-    raise TypeError("manager must be a supported ion-image data manager.")
-
-
-def _read_dense_ion_manager_tic_image(
-    manager: IonImageDataManagerH5,
-) -> np.ndarray:
-    """Compute TIC for H5 managers by summing compact ion blocks."""
-    n_ions = int(manager.n_ions)
-    height = int(manager.height)
-    width = int(manager.width)
-    dtype = np.result_type(manager.intensity_dtype, np.float64)
-    values = np.zeros(manager.n_pixels, dtype=dtype)
-    ion_block = max(1, int(getattr(manager, "ion_block", 256)))
-
-    for ion_start in range(0, n_ions, ion_block):
-        ion_end = min(n_ions, ion_start + ion_block)
-        values += np.sum(
-            manager.get_ion_block(ion_start, ion_end),
+        # Binary stores (ion, pixel) data, so summing the memmap by pixel is cheaper.
+        values = np.sum(
+            manager.intensity_matrix,
             axis=0,
-            dtype=dtype,
+            dtype=np.result_type(manager.intensity_matrix.dtype, np.float64),
         )
-    image = np.zeros((height, width), dtype=dtype)
-    coordinates = np.asarray(manager.coordinates, dtype=np.int64)
-    xy = coordinates[:, :2]
-    if not bool(np.any(xy == 0)):
-        xy = xy - 1
-    image[xy[:, 1], xy[:, 0]] = values
-    return image
+    elif isinstance(manager, (IonImageDataManagerH5, IonImageDataManagerZarr)):
+        # H5/Zarr return compact (ion, pixel) blocks; sum them block by block.
+        dtype = np.result_type(manager.intensity_dtype, np.float64)
+        values = np.zeros(int(manager.n_pixels), dtype=dtype)
+        ion_block = max(1, int(manager.ion_block))
+        for ion_start in range(0, n_ions, ion_block):
+            ion_end = min(n_ions, ion_start + ion_block)
+            values += np.sum(manager.get_ion_block(ion_start, ion_end), axis=0, dtype=dtype)
+    else:
+        raise TypeError("manager must be a supported ion-image data manager.")
 
-
-def _read_zarr_ion_manager_tic_image(
-    manager: IonImageDataManagerZarr,
-) -> np.ndarray:
-    """Compute TIC from compact ion-major Zarr rows."""
-    values = np.zeros(manager.n_pixels, dtype=np.float64)
-    ion_block = max(1, int(manager.ion_block))
-    for start in range(0, manager.n_ions, ion_block):
-        end = min(manager.n_ions, start + ion_block)
-        values += np.sum(
-            manager.get_ion_block(start, end),
-            axis=0,
-            dtype=np.float64,
-        )
-    image = np.zeros((manager.height, manager.width), dtype=values.dtype)
-    coords = np.asarray(manager.coordinates, dtype=np.int64)
-    image[coords[:, 1] - 1, coords[:, 0] - 1] = values
-    return image
-
-
-def _read_binary_ion_manager_tic_image(
-    manager: IonImageDataManagerBinary,
-) -> np.ndarray:
-    """Compute TIC for binary managers by summing the ion-major memmap by pixel."""
-    values = np.sum(
-        manager.intensity_matrix,
-        axis=0,
-        dtype=np.result_type(manager.intensity_matrix.dtype, np.float64),
-    )
     coords = np.asarray(manager.coordinates)
     zero_based, width, height = _infer_image_geometry(
         coords,

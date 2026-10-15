@@ -18,6 +18,7 @@ import hdf5plugin
 import numpy as np
 
 from massflow.data_manager.ion_image_data_manager import IonImageDataManager
+from massflow.tools.funs import zero_based_xy
 from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
 from massflow.tools.ion_major_temp_store import BatchInfo, IonMajorTempStore
 from massflow.tools.logger import get_logger
@@ -63,7 +64,7 @@ class IonImageDataManagerH5(IonImageDataManager):
         self.intensity_dtype = np.dtype(intensity_dtype).newbyteorder("<")
         self.ion_block = max(1, int(ion_block))
         self._temp_workers = max(1, int(temp_workers))
-        self._merge_workers = max(1, int(merge_workers))
+        del merge_workers  # accepted for signature parity with the other backends
         self._chunk_size = max(1, int(chunk_size))
         self._h5: h5py.File | None = None
         self._dset: h5py.Dataset | None = None
@@ -203,13 +204,7 @@ class IonImageDataManagerH5(IonImageDataManager):
         assert n is not None and self._temp_store is not None
 
         # 散射索引（所有 ion 共用）
-        xs = self.coordinates[:, 0].astype(np.int64, copy=False)
-        ys = self.coordinates[:, 1].astype(np.int64, copy=False)
-        if xs.size > 0 and int(xs.min()) != 0:
-            xs, ys = xs - 1, ys - 1
-        valid = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
-        fidx = (ys[valid] * w + xs[valid])
-        self._flat_idx = fidx
+        fidx = self._flat_idx = self._scatter_index()
 
         with h5py.File(self.filepath, "w") as f:
             f.attrs["width"], f.attrs["height"] = w, h
@@ -258,6 +253,12 @@ class IonImageDataManagerH5(IonImageDataManager):
                         )
                     dset[start:end] = current
 
+    def _scatter_index(self) -> np.ndarray:
+        """Flat (y * width + x) image index of every in-bounds pixel."""
+        xs, ys = zero_based_xy(self.coordinates)
+        valid = (xs >= 0) & (xs < self.width) & (ys >= 0) & (ys < self.height)
+        return ys[valid] * self.width + xs[valid]
+
     # ---- 读路径 --------------------------------------------------------------
 
     def _open_for_read(self) -> None:
@@ -272,13 +273,7 @@ class IonImageDataManagerH5(IonImageDataManager):
         self._n_ions = int(cast(int, self._h5.attrs["n_ions"]))
         self._n_pixels = int(cast(int, self._h5.attrs["n_pixels"]))
         # 重建散射索引（供 get_ion_vector 使用）
-        xs = self.coordinates[:, 0].astype(np.int64, copy=False)
-        ys = self.coordinates[:, 1].astype(np.int64, copy=False)
-        if xs.size > 0 and int(xs.min()) != 0:
-            xs, ys = xs - 1, ys - 1
-        w, h = self.width, self.height
-        valid = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
-        self._flat_idx = (ys[valid] * w + xs[valid])
+        self._flat_idx = self._scatter_index()
 
     def get_ion_image(self, ion_idx: int) -> np.ndarray:
         """读取单 chunk → 解压 → 返回 (H, W)。"""

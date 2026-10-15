@@ -15,6 +15,7 @@ logger = get_logger("massflow.tools")
 class SeriesStyle:
     color: str
     line_width: float
+    marker_size: float
     mode: str
     label: Optional[str] = None
 
@@ -74,7 +75,9 @@ class SpectrumPlotter:
             mz = np.asarray(spectrum.mz_list)
             intensity = np.asarray(spectrum.intensity)
         else:
-            cropped = spectrum.crop_range(mz_range=mz_range, sort_by_mz=True, mode="new")
+            cropped = spectrum.crop_range(
+                mz_range=mz_range, sort_by_mz=True, mode="new"
+            )
             mz = np.asarray(cropped.mz_list)
             intensity = np.asarray(cropped.intensity)
 
@@ -120,7 +123,7 @@ class SpectrumPlotter:
 
         markerline, stemlines, baseline = ax.stem(mz, intensity, label=style.label)
         plt.setp(stemlines, color=style.color, linewidth=style.line_width, alpha=1)
-        plt.setp(markerline, color=style.color, markersize=3, alpha=1)
+        plt.setp(markerline, color=style.color, markersize=style.marker_size, alpha=1)
         plt.setp(baseline, color="gray", linewidth=0.5, alpha=1)
 
     @staticmethod
@@ -240,7 +243,9 @@ class SpectrumPlotter:
 
         self._save_or_show(fig, self.config.save_path, self.config.dpi)
 
-    def plot_overlay(self, base: Spectrum, target: Spectrum, styles: Sequence[SeriesStyle]) -> None:
+    def plot_overlay(
+        self, base: Spectrum, target: Spectrum, styles: Sequence[SeriesStyle]
+    ) -> None:
         base_mz, base_int = self._slice_arrays(base, self.config.mz_range)
         target_mz, target_int = self._slice_arrays(target, self.config.mz_range)
 
@@ -262,7 +267,9 @@ class SpectrumPlotter:
         fig.tight_layout()
         self._save_or_show(fig, self.config.save_path, self.config.dpi)
 
-    def plot_compare(self, base: Spectrum, target: Spectrum, styles: Sequence[SeriesStyle]) -> None:
+    def plot_compare(
+        self, base: Spectrum, target: Spectrum, styles: Sequence[SeriesStyle]
+    ) -> None:
         base_mz, base_int = self._slice_arrays(base, self.config.mz_range)
         target_mz, target_int = self._slice_arrays(target, self.config.mz_range)
 
@@ -295,7 +302,6 @@ class SpectrumPlotter:
         self._save_or_show(fig, self.config.save_path, self.config.dpi)
 
 
-
 def plot_spectrum(
     base: Optional[Spectrum] = None,
     target: Optional[Spectrum] = None,
@@ -304,6 +310,7 @@ def plot_spectrum(
     dpi: int = 300,
     colors: Optional[Sequence[str]] = None,
     line_width: Optional[Sequence[float]] = None,
+    marker_size: Optional[Sequence[float]] = None,
     plot_mode: Optional[Sequence[str]] = None,
     mz_range: Optional[Tuple[float, float]] = None,
     intensity_range: Optional[Tuple[float, float]] = None,
@@ -312,7 +319,9 @@ def plot_spectrum(
 ):
     """Public API: plot one or two spectra with optional overlay and metrics."""
     if base is None and target is None:
-        raise ValueError("At least one of 'base' or 'target' spectrum must be provided.")
+        raise ValueError(
+            "At least one of 'base' or 'target' spectrum must be provided."
+        )
 
     if base is None and target is not None:
         base = target
@@ -321,10 +330,20 @@ def plot_spectrum(
     base = SpectrumPlotter._validate_spectrum("base", base)
 
     color_pair = SpectrumPlotter._normalize_pair(colors, SpectrumPlotter.DEFAULT_COLORS)
-    line_pair = [float(v) for v in SpectrumPlotter._normalize_pair(line_width, [1.5, 1.5])]
-    mode_pair = [SpectrumPlotter._normalize_mode(m) for m in SpectrumPlotter._normalize_pair(plot_mode, ["line", "line"])]
+    line_pair = [
+        float(v) for v in SpectrumPlotter._normalize_pair(line_width, [1.5, 1.5])
+    ]
+    marker_pair = [
+        float(v) for v in SpectrumPlotter._normalize_pair(marker_size, [3.0, 3.0])
+    ]
+    mode_pair = [
+        SpectrumPlotter._normalize_mode(m)
+        for m in SpectrumPlotter._normalize_pair(plot_mode, ["line", "line"])
+    ]
 
-    resolved_figsize = figsize if (overlay or target is None) else (figsize[0], figsize[1] * 2)
+    resolved_figsize = (
+        figsize if (overlay or target is None) else (figsize[0], figsize[1] * 2)
+    )
 
     config = PlotConfig(
         save_path=save_path,
@@ -337,14 +356,19 @@ def plot_spectrum(
 
     logger.info(
         f"Plotting spectrum: overlay={overlay}, "
-        f"modes={mode_pair}, linewidth={line_pair}, mz_range={mz_range}, "
+        f"modes={mode_pair}, linewidth={line_pair}, marker_size={marker_pair}, mz_range={mz_range}, "
         f"intensity_range={intensity_range}, metrics_box={metrics_box}"
     )
 
     plotter = SpectrumPlotter(config)
 
     if target is None:
-        style = SeriesStyle(color=str(color_pair[0]), line_width=line_pair[0], mode=mode_pair[0])
+        style = SeriesStyle(
+            color=str(color_pair[0]),
+            line_width=line_pair[0],
+            marker_size=marker_pair[0],
+            mode=mode_pair[0],
+        )
         plotter.plot_single(base, style)
         return
 
@@ -353,12 +377,14 @@ def plot_spectrum(
         SeriesStyle(
             color=str(color_pair[0]),
             line_width=line_pair[0],
+            marker_size=marker_pair[0],
             mode=mode_pair[0],
             label="Original",
         ),
         SeriesStyle(
             color=str(color_pair[1]),
             line_width=line_pair[1],
+            marker_size=marker_pair[1],
             mode=mode_pair[1],
             label="Preprocessed",
         ),

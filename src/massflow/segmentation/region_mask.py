@@ -6,7 +6,6 @@ from copy import deepcopy
 from pathlib import Path
 
 import h5py
-import hdf5plugin
 import numpy as np
 import zarr
 
@@ -22,12 +21,14 @@ from massflow.data_manager.ion_image_data_manager_binary import (
     UINT32_SIZE,
     IonImageBinaryHeader,
 )
+from massflow.data_manager.ion_image_data_manager_h5 import _H5_ARGS
 
 from massflow.msi_zarr.schema import (
     ZARR_FORMAT_NAME,
     ZARR_FORMAT_VERSION,
     ZARR_GROUP_ION_IMAGE,
 )
+from massflow.tools.funs import zero_based_xy
 
 DataManager = (
     MSDataManagerImzML
@@ -63,20 +64,10 @@ def _normalize_mask(mask: np.ndarray, *, width: int, height: int) -> np.ndarray:
     return normalized.astype(bool, copy=False)
 
 
-def _select_coordinates(
-    mask: np.ndarray,
-    coordinates: np.ndarray,
-    coordinate_base: str | None = None,
-) -> np.ndarray:
+def _select_coordinates(mask: np.ndarray, coordinates: np.ndarray) -> np.ndarray:
     """Return which coordinates fall inside the mask."""
-    xy = np.asarray(coordinates)[:, :2].astype(np.int64, copy=False)
-    if coordinate_base == "zero":
-        xy0 = xy
-    elif coordinate_base == "one":
-        xy0 = xy - 1
-    else:
-        xy0 = xy if bool(np.any(xy == 0)) else xy - 1
-    return mask[xy0[:, 1], xy0[:, 0]]
+    xs, ys = zero_based_xy(coordinates)
+    return mask[ys, xs]
 
 
 def _filter_flat_batch(
@@ -159,12 +150,7 @@ def _selected_coordinates(
     mask: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return selected coordinate rows and their source indices."""
-    selected = _select_coordinates(
-        mask,
-        data_manager.coordinates,
-        getattr(data_manager, "_coordinate_base", None),
-    )
-    selected_indices = np.flatnonzero(selected)
+    selected_indices = np.flatnonzero(_select_coordinates(mask, data_manager.coordinates))
     if selected_indices.size == 0:
         raise ValueError("mask does not retain any source pixels.")
     return np.asarray(data_manager.coordinates)[selected_indices], selected_indices
@@ -242,7 +228,6 @@ def _write_h5_masked(
     """Write masked dense ion-image blocks directly to a new H5 file."""
     coordinates, _ = _selected_coordinates(data_manager, mask)
     chunk_size = int(data_manager._dset.chunks[0])  # type: ignore  # pylint: disable=protected-access
-    compression = hdf5plugin.Bitshuffle(nelems=0, cname="lz4", clevel=1)  # type: ignore
 
     with h5py.File(output_path, "w") as output_file:
         output_file.attrs["width"] = data_manager.width
@@ -256,7 +241,7 @@ def _write_h5_masked(
             shape=(data_manager.n_ions, data_manager.height, data_manager.width),
             chunks=(chunk_size, data_manager.height, data_manager.width),
             dtype=data_manager.intensity_dtype,
-            **compression,
+            **_H5_ARGS,
         )
         for start in range(0, data_manager.n_ions, batch_size):
             end = min(data_manager.n_ions, start + batch_size)

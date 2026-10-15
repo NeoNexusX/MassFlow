@@ -1006,6 +1006,24 @@ def compute_adduct_annotations(
     )
 
 
+def _remove_adducts(
+    data_manager: MSDataManagerImzML,
+    result: AdductAnnotationResult,
+    *,
+    output_path: str | Path | None,
+    temp_dir: str | Path | None,
+) -> MSDataManagerImzML:
+    """Write a copy of the dataset without the peaks the result removes."""
+    keep_mask = _build_adduct_keep_mask(result.mz_axis.size, result.groups)
+    return filter_data_by_mask(
+        data_manager,
+        keep_mask,
+        output_path=output_path,
+        temp_dir=temp_dir,
+        batch_size=result.config.batch_size,
+    )
+
+
 def apply_adduct_annotations(
     data_manager: MSDataManagerImzML,
     result: AdductAnnotationResult,
@@ -1019,13 +1037,7 @@ def apply_adduct_annotations(
     _validate_annotations_belong_to(result, data_manager)
     if report_path is not None:
         write_adduct_filter_report(result, report_path)
-    keep_mask = _build_adduct_keep_mask(result.mz_axis.size, result.groups)
-    return filter_data_by_mask(
-        data_manager,
-        keep_mask,
-        output_path=output_path,
-        temp_dir=temp_dir,
-    )
+    return _remove_adducts(data_manager, result, output_path=output_path, temp_dir=temp_dir)
 
 
 def filter_peaks_by_adducts(
@@ -1058,11 +1070,4 @@ def filter_peaks_by_adducts(
         write_adduct_filter_report(result, report_path)
     if not remove:
         return data_manager
-    keep_mask = _build_adduct_keep_mask(result.mz_axis.size, result.groups)
-    return filter_data_by_mask(
-        data_manager,
-        keep_mask,
-        output_path=output_path,
-        temp_dir=temp_dir,
-        batch_size=batch_size,
-    )
+    return _remove_adducts(data_manager, result, output_path=output_path, temp_dir=temp_dir)

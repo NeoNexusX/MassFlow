@@ -226,10 +226,6 @@ class MSDataManagerImzML(MSDataManager):
 
         logger.info("Extracting metadata...")
 
-        if self.parser is None:
-            logger.error("Parser is not initialized. Please set parser or filepath first.")
-            raise ValueError("Parser is not initialized. Please set parser or filepath first.")
-
         if not isinstance(self.ms.meta, MetaDataImzMl):
             logger.error("ms.meta is not MetaDataImzMl; cannot populate from ImzML parser.")
             raise TypeError("ms.meta is not MetaDataImzMl; cannot populate from ImzML parser.")
@@ -263,9 +259,6 @@ class MSDataManagerImzML(MSDataManager):
             self.ms.meta.copy(source_dm.ms.meta)
         else:
             logger.warning("Source and target metadata types do not match.")
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
 
     def _ensure_multithread_mode(self, max_threads: int = 0) -> None:
         """Apply thread configuration and reject single-thread mode for direct I/O generators."""

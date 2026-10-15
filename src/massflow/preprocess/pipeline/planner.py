@@ -77,8 +77,13 @@ def _arrange_tasks(tasks, spectrum_type) -> list[PreprocessTask]:
     return ordered_tasks
 
 def make_task_segments(tasks, input_spectrum_type, input_meta: InputMetaData) -> tuple[list[Segment], InputMetaData]:
-    """Execute registered tasks and return new data manager with processed data."""
-    ordered_tasks = _arrange_tasks(tasks, input_spectrum_type)
+    """Plan registered tasks into batch/dataset segments ending in the requested output."""
+    # Plan on copies: planning and execution fill in kwargs (output_path, the
+    # computed alignment reference) that must not leak into the caller's tasks.
+    ordered_tasks = [
+        replace(task, kwargs=dict(task.kwargs))
+        for task in _arrange_tasks(tasks, input_spectrum_type)
+    ]
     input_meta = _resolve_input_meta(input_meta)
     task_segments = []
     current_spectrum_type = input_spectrum_type

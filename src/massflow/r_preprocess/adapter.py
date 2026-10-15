@@ -217,13 +217,6 @@ class CardinalAdapter:
         )
 
     @classmethod
-    def normalize(cls, **kwargs) -> MSDataManagerImzML:
-        """
-        Alias for normalization to match the Cardinal function name.
-        """
-        return cls.normalization(**kwargs)
-
-    @classmethod
     def cardinal_runner(
         cls,
         data_manager: MSDataManagerImzML,

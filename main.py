@@ -1,8 +1,8 @@
-"""MassFlow pipeline example: imzML → binary ion image."""
+"""MassFlow pipeline example: imzML → HDF5 ion image."""
 
 from pathlib import Path
 
-from massflow.data_manager import IonImageDataManagerBinary, MSDataManagerImzML
+from massflow.data_manager import MSDataManagerImzML
 from massflow.preprocess import Preprocessor
 
 

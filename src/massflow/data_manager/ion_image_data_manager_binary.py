@@ -4,19 +4,18 @@ from __future__ import annotations
 
 import os
 import struct
-import threading
 import uuid
 from copy import deepcopy
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import astuple, dataclass, fields
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
 from massflow.data_manager.ion_image_data_manager import IonImageDataManager
+from massflow.tools.funs import zero_based_xy
 from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
-from massflow.tools.ion_major_temp_store import BatchInfo, IonMajorTempStore
+from massflow.tools.ion_major_temp_store import BatchInfo, IonMajorTempStore, positioned_write
 from massflow.tools.logger import get_logger
 
 # Header 中每个字段都是 little-endian uint64；sentinel 作为终止标记，
@@ -25,30 +24,6 @@ logger = get_logger("massflow.data_manager.ion_image_data_manager_binary")
 UINT32_SIZE = np.dtype("<u4").itemsize
 _HEADER_SENTINEL = 0xFFFFFFFFFFFFFFFF
 _BINARY_OPEN_FLAG = getattr(os, "O_BINARY", 0)
-_OS_PWRITE = getattr(os, "pwrite", None)
-_POSITIONED_IO_LOCK = threading.Lock()
-
-
-def _pwrite(fd: int, data: Any, offset: int) -> int:
-    """Write the complete buffer at an explicit offset."""
-    view = memoryview(data).cast("B")
-    total = len(view)
-    if _OS_PWRITE is not None:
-        while view:
-            written = _OS_PWRITE(fd, view, offset)
-            if written == 0:
-                raise OSError("Positioned write returned zero bytes.")
-            view = view[written:]
-            offset += written
-        return total
-    with _POSITIONED_IO_LOCK:
-        os.lseek(fd, offset, os.SEEK_SET)
-        while view:
-            written = os.write(fd, view)
-            if written == 0:
-                raise OSError("Write returned zero bytes.")
-            view = view[written:]
-    return total
 
 
 def _float_dtype_from_bits(bits: int, *, field_name: str) -> np.dtype:
@@ -491,9 +466,9 @@ class IonImageDataManagerBinary(IonImageDataManager):
         try:
             # header、mz_axis、coordinates 都是一次性写入；大矩阵区域先
             # ftruncate 预分配，再由 _merge_intensity 分块 pwrite。
-            _pwrite(fd, self.header.to_bytes(), 0)
-            _pwrite(fd, self.mz_axis.astype(self.mz_dtype, copy=False).tobytes(order="C"), mz_offset)
-            _pwrite(fd, self._coordinates.astype("<u4", copy=False).tobytes(order="C"), coordinate_offset)
+            positioned_write(fd, self.header.to_bytes(), 0)
+            positioned_write(fd, self.mz_axis.astype(self.mz_dtype, copy=False).tobytes(order="C"), mz_offset)
+            positioned_write(fd, self._coordinates.astype("<u4", copy=False).tobytes(order="C"), coordinate_offset)
             os.ftruncate(fd, final_size)
 
             self._merge_intensity(fd, batch_infos, intensity_offset)
@@ -540,7 +515,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
                 pixel_start = pixel_end
 
             output_offset = intensity_offset + ion_start * self._n_pixels * itemsize
-            _pwrite(output_fd, memoryview(np.ascontiguousarray(band)), output_offset)
+            positioned_write(output_fd, np.ascontiguousarray(band), output_offset)
 
         pending: set[Future[None]] = set()
         with ThreadPoolExecutor(max_workers=self.merge_workers) as executor:
@@ -601,15 +576,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
             raise IndexError(f"ion_idx out of range: {ion_idx}")
 
         image = np.zeros((self.height, self.width), dtype=self.intensity_dtype)
-        coords = np.asarray(self.coordinates)
-        xs = coords[:, 0].astype(np.int64, copy=False)
-        ys = coords[:, 1].astype(np.int64, copy=False)
-
-        zero_based = (xs.size > 0 and int(xs.min()) == 0) or (ys.size > 0 and int(ys.min()) == 0)
-        if not zero_based:
-            xs = xs - 1
-            ys = ys - 1
-
+        xs, ys = zero_based_xy(self.coordinates)
         valid = (xs >= 0) & (xs < self.width) & (ys >= 0) & (ys < self.height)
         image[ys[valid], xs[valid]] = np.asarray(self.intensity_matrix[ion_idx])[valid]
         return image
@@ -640,4 +607,6 @@ class IonImageDataManagerBinary(IonImageDataManager):
             self._temp_store = None
 
     def __del__(self):
-        self.close()
+        # __init__ may have raised before every attribute was assigned.
+        if hasattr(self, "_temp_store"):
+            self.close()

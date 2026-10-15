@@ -1,18 +1,26 @@
 import os
-from inspect import signature
-from typing import Any, Callable, Optional
+from typing import Optional
 from numba import njit
 import numpy as np
 
 def is_valid_file(path):
     return os.path.exists(path) and os.path.getsize(path) > 0
 
-def dispatch_with_supported_kwargs(func: Callable[..., Any], **kwargs: Any) -> np.ndarray:
-    """Dispatch to function with only supported kwargs."""
-    supported = signature(func).parameters
-    filtered_kwargs = {name: value for name, value in kwargs.items() if name in supported}
-    result = func(**filtered_kwargs)
-    return np.asarray(result)
+def is_zero_based(coordinates: np.ndarray) -> bool:
+    """Return whether pixel coordinates are 0-based.
+
+    imzML coordinates are 1-based, but some writers emit 0-based ones; a 0 in
+    either the x or the y column marks the whole set as 0-based.
+    """
+    xy = np.asarray(coordinates)[:, :2]
+    return bool(xy.size) and (int(xy[:, 0].min()) == 0 or int(xy[:, 1].min()) == 0)
+
+def zero_based_xy(coordinates: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return the x and y columns of pixel coordinates as 0-based int64 arrays."""
+    xy = np.asarray(coordinates)[:, :2].astype(np.int64, copy=False)
+    if not is_zero_based(xy):
+        xy = xy - 1
+    return xy[:, 0], xy[:, 1]
 
 def prepare_flat_inputs(
     mz_data: Optional[np.ndarray],

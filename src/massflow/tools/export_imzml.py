@@ -16,39 +16,16 @@ from massflow.data_manager import (
     IonImageDataManagerZarr,
     MSDataManagerZarr,
 )
-from massflow.msi_zarr import (
-    ZARR_MODE_CONTINUOUS,
-    ZARR_MODE_PROCESSED,
-)
+from massflow.msi_zarr import ZARR_MODE_CONTINUOUS
+from massflow.tools.ion_major_temp_store import positioned_write
 
 IonImageSource = (
     IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr
 )
 ExportSource = IonImageSource | MSDataManagerZarr
 # ---------------------------------------------------------------------------
-# Positioned I/O and tile layout
+# Tile layout
 # ---------------------------------------------------------------------------
-
-_OS_PWRITE = getattr(os, "pwrite", None)
-
-
-def _write_at(fd: int, data: np.ndarray, offset: int) -> None:
-    view = memoryview(data).cast("B")
-    if _OS_PWRITE is not None:
-        while view:
-            written = _OS_PWRITE(fd, view, offset)
-            if written == 0:
-                raise OSError("Positioned write returned zero bytes.")
-            view = view[written:]
-            offset += written
-        return
-
-    os.lseek(fd, offset, os.SEEK_SET)
-    while view:
-        written = os.write(fd, view)
-        if written == 0:
-            raise OSError("Write returned zero bytes.")
-        view = view[written:]
 
 
 def _pixel_batches(
@@ -408,7 +385,7 @@ def _create_tiled_temp(
 
             for ion_start in range(0, source.n_ions, block_rows):
                 ion_end = min(source.n_ions, ion_start + block_rows)
-                ion_block = _read_ion_block(source, ion_start, ion_end)
+                ion_block = source.get_ion_block(ion_start, ion_end)
                 expected_shape = (ion_end - ion_start, source.n_pixels)
                 if ion_block.shape != expected_shape:
                     raise ValueError(
@@ -429,7 +406,7 @@ def _create_tiled_temp(
                         ion_start=ion_start,
                         itemsize=np.dtype(source.intensity_dtype).itemsize,
                     )
-                    _write_at(fd, tile, offset)
+                    positioned_write(fd, tile, offset)
         finally:
             os.close(fd)
     except BaseException:
@@ -439,7 +416,7 @@ def _create_tiled_temp(
     return temp_path
 
 
-# --- Backend-aware block sizing and source reads ---------------------------
+# --- Backend-aware block sizing ----------------------------------------------
 def _aligned_block_rows(target_rows: int, chunk_rows: int) -> int:
     target_rows = max(1, int(target_rows))
     chunk_rows = max(1, int(chunk_rows))
@@ -470,7 +447,3 @@ def _target_block_rows(
 
     target_rows = max(1, target_elements // max(1, row_elements))
     return min(source.n_ions, _aligned_block_rows(target_rows, chunk_rows))
-
-
-def _read_ion_block(source: IonImageSource, start: int, end: int) -> np.ndarray:
-    return source.get_ion_block(start, end)

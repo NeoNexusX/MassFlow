@@ -18,6 +18,8 @@ from massflow.msi_zarr.schema import (
     ZARR_MODE_PROCESSED,
     ZarrRowAxis,
     ZarrStorageMode,
+    normalize_zarr_path,
+    read_array_int,
 )
 from massflow.tools.logger import get_logger
 
@@ -28,7 +30,7 @@ class MSIZarrReader:
     """Read one finalized MassFlow MSI Zarr store."""
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
-        self.path = _normalize_zarr_path(path)
+        self.path = normalize_zarr_path(path)
         self.root: zarr.Group = zarr.open_group(self.path, mode="r")
         self._combined = False
         self._spectra_group: zarr.Group | None = None
@@ -115,32 +117,23 @@ class MSIZarrReader:
             raise ValueError("This store does not have a shared m/z axis.")
         return np.asarray(self.shared_mz_axis[:])
 
-    def read_mean_spectrum(self) -> np.ndarray | None:
+    def _read_stat(self, name: str) -> np.ndarray | None:
+        """Read ``stats/<name>``, or None when the store does not have it."""
         if "stats" not in self.root:
             return None
         stats = cast(zarr.Group, self.root["stats"])
-        if "mean_spectrum" not in stats:
+        if name not in stats:
             return None
-        array = cast(zarr.Array, stats["mean_spectrum"])
-        return np.asarray(array[:])
+        return np.asarray(cast(zarr.Array, stats[name])[:])
+
+    def read_mean_spectrum(self) -> np.ndarray | None:
+        return self._read_stat("mean_spectrum")
 
     def read_tic(self) -> np.ndarray | None:
-        if "stats" not in self.root:
-            return None
-        stats = cast(zarr.Group, self.root["stats"])
-        if "tic" not in stats:
-            return None
-        array = cast(zarr.Array, stats["tic"])
-        return np.asarray(array[:])
+        return self._read_stat("tic")
 
     def read_rms(self) -> np.ndarray | None:
-        if "stats" not in self.root:
-            return None
-        stats = cast(zarr.Group, self.root["stats"])
-        if "rms" not in stats:
-            return None
-        array = cast(zarr.Array, stats["rms"])
-        return np.asarray(array[:])
+        return self._read_stat("rms")
 
     # --- Pixel-major batch access --------------------------------------------
 
@@ -183,8 +176,8 @@ class MSIZarrReader:
 
     def read_row(self, index: int) -> np.ndarray:
         index = self._normalize_row_index(index)
-        start = _read_array_int(self.offsets, index)
-        end = _read_array_int(self.offsets, index + 1)
+        start = read_array_int(self.offsets, index)
+        end = read_array_int(self.offsets, index + 1)
         return np.asarray(self.intensity[start:end])
 
     def read_rows(self, start: int, end: int) -> np.ndarray:
@@ -192,8 +185,8 @@ class MSIZarrReader:
         end = min(self.n_rows, int(end))
         if end < start:
             raise ValueError("end must be greater than or equal to start.")
-        point_start = _read_array_int(self.offsets, start)
-        point_end = _read_array_int(self.offsets, end)
+        point_start = read_array_int(self.offsets, start)
+        point_end = read_array_int(self.offsets, end)
         values = np.asarray(self.intensity[point_start:point_end])
         if start == end:
             return values.reshape((0, 0))
@@ -211,8 +204,8 @@ class MSIZarrReader:
             pixel_index += self.n_pixels
         if pixel_index < 0 or pixel_index >= self.n_pixels:
             raise IndexError("pixel index out of range")
-        start = _read_array_int(offsets_array, pixel_index)
-        end = _read_array_int(offsets_array, pixel_index + 1)
+        start = read_array_int(offsets_array, pixel_index)
+        end = read_array_int(offsets_array, pixel_index + 1)
         intensity = np.asarray(intensity_array[start:end])
         if encoding == ZARR_MODE_CONTINUOUS:
             assert self.shared_mz_axis is not None
@@ -268,49 +261,14 @@ class MSIZarrReader:
             if np.any(lengths != self.shared_mz_axis.shape[0]):
                 raise ValueError("Every continuous spectrum must match axes/mz.")
         if self._combined:
+            # Row count and stats shapes are already checked when the store is opened.
             assert self._spectra_group is not None
             spectra_offsets = cast(zarr.Array, self._spectra_group["offsets"])
             s_offsets = np.asarray(spectra_offsets[:], dtype=np.int64)
             if np.any(np.diff(s_offsets) < 0):
                 raise ValueError("spectra/offsets must be monotonic.")
-            if int(spectra_offsets.shape[0]) - 1 != int(
-                self.coordinates.shape[0]
-            ):
-                raise ValueError(
-                    "spectra row count must match axes/coordinates count."
-                )
             if np.any(np.diff(s_offsets) != self.n_ions):
                 raise ValueError("Every continuous spectrum must match axes/mz.")
-        if "stats" in self.root:
-            stats = cast(zarr.Group, self.root["stats"])
-            if "mean_spectrum" in stats:
-                mean_spectrum = cast(zarr.Array, stats["mean_spectrum"])
-                if self.shared_mz_axis is None:
-                    raise ValueError(
-                        "stats/mean_spectrum requires a shared m/z axis."
-                    )
-                if mean_spectrum.ndim != 1 or int(
-                    mean_spectrum.shape[0]
-                ) != int(self.shared_mz_axis.shape[0]):
-                    raise ValueError(
-                        "stats/mean_spectrum must match axes/mz length."
-                    )
-            if "tic" in stats:
-                tic = cast(zarr.Array, stats["tic"])
-                if tic.ndim != 1 or int(
-                    tic.shape[0]
-                ) != int(self.coordinates.shape[0]):
-                    raise ValueError(
-                        "stats/tic must match axes/coordinates length."
-                    )
-            if "rms" in stats:
-                rms = cast(zarr.Array, stats["rms"])
-                if rms.ndim != 1 or int(
-                    rms.shape[0]
-                ) != int(self.coordinates.shape[0]):
-                    raise ValueError(
-                        "stats/rms must match axes/coordinates length."
-                    )
 
     def close(self) -> None:
         """Release reader resources.
@@ -527,8 +485,8 @@ class MSIZarrReader:
         if n_rows < 0:
             raise ValueError("ion_image/offsets must contain at least one value.")
         if (
-            _read_array_int(offsets, 0) != 0
-            or _read_array_int(offsets, -1) != int(intensity.shape[0])
+            read_array_int(offsets, 0) != 0
+            or read_array_int(offsets, -1) != int(intensity.shape[0])
         ):
             raise ValueError(
                 "ion_image/offsets boundaries do not match intensity."
@@ -577,8 +535,8 @@ class MSIZarrReader:
         if n_rows < 0:
             raise ValueError("spectra/offsets must contain at least one value.")
         if (
-            _read_array_int(offsets, 0) != 0
-            or _read_array_int(offsets, -1) != int(intensity.shape[0])
+            read_array_int(offsets, 0) != 0
+            or read_array_int(offsets, -1) != int(intensity.shape[0])
         ):
             raise ValueError(
                 "spectra/offsets boundaries do not match intensity."
@@ -686,16 +644,6 @@ class MSIZarrReader:
 # ---------------------------------------------------------------------------
 # Module helpers
 # ---------------------------------------------------------------------------
-
-
-def _normalize_zarr_path(path: str | os.PathLike[str]) -> str:
-    value = str(path)
-    return value if value.endswith(".zarr") else f"{value}.zarr"
-
-
-def _read_array_int(array: zarr.Array, index: int) -> int:
-    """Read one integer scalar without exposing Zarr's broad selection type."""
-    return int(np.asarray(array[index]).item())
 
 
 def _is_supported_mz_dtype(dtype: np.dtype | type) -> bool:

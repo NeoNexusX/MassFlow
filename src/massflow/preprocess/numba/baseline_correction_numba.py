@@ -188,7 +188,10 @@ def baseline_snip_jit(
     m_eval: int,
     decreasing: bool,
 ) -> np.ndarray:
-    """Parallel SNIP dispatcher for flat spectra."""
+    """Parallel SNIP dispatcher for flat spectra.
+
+    ``m_eval <= 0`` selects the window per spectrum as ``min(100, max(10, len // 10))``.
+    """
     out = np.empty(flat.size, dtype=np.float64)
     offsets = lengths_to_offsets(lengths)
 
@@ -203,7 +206,7 @@ def baseline_snip_jit(
             out[start:end] = flat[start:end]
             continue
 
-        m_seg = m_eval
+        m_seg = m_eval if m_eval > 0 else min(100, max(10, seg_len // 10))
         m_cap = (seg_len - 1) // 2
         if m_seg > m_cap:
             m_seg = m_cap
@@ -259,16 +262,16 @@ def baseline_snip_numba(
     m: int | None = None,
     decreasing: bool = True,
 ) -> np.ndarray:
-    """Compute the SNIP baseline for a 1D spectrum.
+    """Compute the SNIP baseline for flat spectra.
 
     Args:
-        intensity: 1D intensity array.
-        m: Maximum window radius; if None, choose based on spectrum length.
+        intensity: 1D flat intensity array.
+        lengths: Per-spectrum lengths; None treats ``intensity`` as one spectrum.
+        m: Maximum window radius; if None, choose it from each spectrum's length.
         decreasing: Whether to iterate window sizes from large to small.
-        numba_max_threads: Maximum number of threads for Numba parallel execution.
 
     Returns:
-        Baseline array (float32).
+        Baseline array with the dtype of ``intensity``.
     """
 
     if not isinstance(intensity, np.ndarray) or intensity.ndim != 1:
@@ -277,34 +280,16 @@ def baseline_snip_numba(
     target_dtype = intensity.dtype
     _, intensity_arr, lengths_arr = prepare_flat_inputs(None, intensity, lengths)
 
-    if lengths_arr.ndim != 1:
-        raise ValueError("lengths must be a 1D array")
-    if lengths_arr.size == 0:
-        return np.array([], dtype=target_dtype)
-
-    lengths_i64 = np.ascontiguousarray(lengths_arr.astype(np.int64, copy=False))
-    if np.any(lengths_i64 < 0):
-        raise ValueError("lengths must contain non-negative integers")
-
-    total_len = int(lengths_i64.sum())
-    if total_len != int(intensity_arr.size):
-        raise ValueError("sum(lengths) must equal intensity.size")
-
-    n = int(intensity_arr.size)
-    if n == 0:
+    if lengths_arr.size == 0 or intensity_arr.size == 0:
         return np.array([], dtype=target_dtype)
 
     if m is not None and m < 1:
         raise ValueError("m must be a positive integer for SNIP baseline")
+    # 0 lets the kernel pick the window from each spectrum's own length.
+    m_eval = 0 if m is None else int(m)
 
-    if m is None:
-        m_in = min(100, max(10, n // 10))
-    else:
-        m_in = int(m)
-    m_eval = max(1, min(m_in, (n - 1) // 2))
-
-    xi = np.asarray(intensity_arr, dtype=np.float64)
-    xi = np.ascontiguousarray(xi)
+    lengths_i64 = np.ascontiguousarray(lengths_arr.astype(np.int64, copy=False))
+    xi = np.ascontiguousarray(intensity_arr, dtype=np.float64)
 
     baseline = baseline_snip_jit(xi, lengths_i64, m_eval, decreasing)
     return baseline.astype(target_dtype, copy=False)
@@ -350,11 +335,6 @@ def baseline_locmin_numba(
         return np.array([], dtype=target_dtype)
 
     lengths_i64 = np.ascontiguousarray(lengths_arr.astype(np.int64, copy=False))
-
-    total_len = int(lengths_i64.sum())
-    if total_len != int(intensity_arr.size):
-        raise ValueError("sum(lengths) must equal intensity.size")
-
     xi = np.ascontiguousarray(intensity_arr.astype(np.float64, copy=False))
     baseline64 = _baseline_locmin_jit(
         xi,

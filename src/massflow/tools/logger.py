@@ -16,8 +16,36 @@ LOG_LEVELS = {
     "critical": logging.CRITICAL
 }
 
+LOG_FORMAT = "%(levelname)s%(asctime)s %(lineno)d %(name)s - %(message)s"
+CONSOLE_DATEFMT = "%y-%m-%d %H:%M"
 
-class ColorFormatter(logging.Formatter):
+
+class FileFormatter(logging.Formatter):
+    """文件日志格式化器，保持原始记录名"""
+
+    @staticmethod
+    def _level_label(record) -> str:
+        return f"{record.levelname + ':':<10.10}"
+
+    def format(self, record):
+        formatted = super().format(record)
+        # levelname leads LOG_FORMAT: replace only that occurrence, never a
+        # level name that appears inside the message text.
+        formatted = formatted.replace(record.levelname, self._level_label(record), 1)
+
+        # multilines helper: align continuation lines with the message column;
+        # exception/stack text that follows the message is kept unchanged.
+        message_lines = record.message.split('\n')
+        if len(message_lines) > 1:
+            lines = formatted.split('\n')
+            aligned_prefix = ' ' * (len(lines[0]) - len(message_lines[0]))
+            lines[1:len(message_lines)] = [aligned_prefix + line for line in message_lines[1:]]
+            formatted = '\n'.join(lines)
+
+        return formatted
+
+
+class ColorFormatter(FileFormatter):
     """带颜色的日志格式化器（仅对控制台生效）"""
 
     # 定义不同日志级别的颜色
@@ -30,68 +58,26 @@ class ColorFormatter(logging.Formatter):
     }
 
     def format(self, record):
-        original_message = super().format(record)
-        levelname_fixed = f"{record.levelname + ':':<10.10}"
-        # get color
+        # color the label after alignment so escape codes never shift the indent
+        label = self._level_label(record)
         color = self.LEVEL_COLORS.get(record.levelno, Fore.RESET)
-        # replace [LEVEL] with color
-        colored_level = f"{color}{levelname_fixed}{Fore.RESET}"
-        formatted_record = original_message.replace(f"{record.levelname}", colored_level)
+        return super().format(record).replace(label, f"{color}{label}{Fore.RESET}", 1)
 
-        # multilines helper
-        if '\n' in record.message:
-            # calculate prefix length
-            first_line = formatted_record.split('\n')[0]
-            # (len(colored_level)-len(levelname_fixed)) = 10
-            prefix_length = len(first_line) - len(record.message.split('\n')[0])-10
-            # split into sever lines
-            lines = record.message.split('\n')
-            # add first line
-            formatted_lines = [first_line]
-
-            # add prefix
-            for line in lines[1:]:
-                aligned_prefix = ' ' * prefix_length
-                formatted_lines.append(f"{aligned_prefix}{line}")
-
-            # rebuild lines
-            formatted_record = '\n'.join(formatted_lines)
-
-        return formatted_record
-
-
-class FileFormatter(logging.Formatter):
-    """文件日志格式化器，保持原始记录名"""
-    def format(self, record):
-        original_message = super().format(record)
-        levelname_fixed = f"{record.levelname + ':':<10.10}"
-        formatted_record = original_message.replace(f"{record.levelname}", levelname_fixed)
-
-        # multilines helper
-        if '\n' in record.message:
-            # calculate prefix length
-            first_line = formatted_record.split('\n')[0]
-            prefix_length = len(first_line) - len(record.message.split('\n')[0])
-            # split into sever lines
-            lines = record.message.split('\n')
-            # add first line
-            formatted_lines = [first_line]
-
-            # add prefix
-            for line in lines[1:]:
-                aligned_prefix = ' ' * prefix_length
-                formatted_lines.append(f"{aligned_prefix}{line}")
-
-            # rebuild lines
-            formatted_record = '\n'.join(formatted_lines)
-
-        return formatted_record
 
 def custom_formatwarning(message, category, filename, lineno, line=None): #pylint: disable=unused-argument
     """Custom warning formatter to show a clean message with concise origin info."""
     # 仅提取文件名，去掉冗长的绝对路径
     short_filename = os.path.basename(filename)
     return f"[{short_filename}:{lineno} | {category.__name__}] {message}"
+
+def console_stream():
+    """Console log stream: stdout, or stderr when MASSFLOW_LOG_STREAM=stderr.
+
+    An MCP stdio server (mzorbit) sets it: its stdout is the protocol channel.
+    """
+    if os.environ.get("MASSFLOW_LOG_STREAM", "").strip().lower() == "stderr":
+        return sys.stderr
+    return sys.stdout
 
 class LoggerManager:
     """logger manager to control the logger"""
@@ -103,6 +89,7 @@ class LoggerManager:
         self.max_bytes = 1 * 1024 * 1024  # 1MB
         self.backup_count = 5
         self.initialized = False
+        self._file_handlers: dict[str, RotatingFileHandler] = {}
 
 
     def init_app(self, log_level="info", log_dir='logs'):
@@ -115,8 +102,7 @@ class LoggerManager:
             self.log_dir = log_dir
 
         # make sure logger dir exist
-        if not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir)
+        os.makedirs(self.log_dir, exist_ok=True)
 
         # configure root logger
         self._configure_root_logger()
@@ -126,43 +112,44 @@ class LoggerManager:
         return self
 
 
+    def _file_handler(self, file_name: str) -> RotatingFileHandler:
+        """Return the rotating handler for ``file_name``, shared by all loggers writing to it.
+
+        Two handlers rotating the same file would rename it out from under each other.
+        """
+        path = os.path.abspath(os.path.join(self.log_dir, file_name))
+        handler = self._file_handlers.get(path)
+        if handler is None:
+            handler = RotatingFileHandler(path, maxBytes=self.max_bytes, backupCount=self.backup_count)
+            handler.setFormatter(FileFormatter(LOG_FORMAT))
+            self._file_handlers[path] = handler
+        handler.setLevel(self.log_level)
+        return handler
+
+
+    def _add_handlers(self, logger, file_name: str) -> None:
+        """Attach a colored console handler and a rotating file handler."""
+        console_handler = logging.StreamHandler(console_stream())
+        console_handler.setLevel(self.log_level)
+        console_handler.setFormatter(ColorFormatter(LOG_FORMAT, datefmt=CONSOLE_DATEFMT))
+        logger.addHandler(console_handler)
+        logger.addHandler(self._file_handler(file_name))
+
+
     def _configure_root_logger(self):
         """configure root logger"""
         # get root logger
         root_logger = logging.getLogger()
         root_logger.setLevel(self.log_level)
 
-        # clear logger handlers
-        if root_logger.handlers:
-            for handler in root_logger.handlers:
-                root_logger.removeHandler(handler)
+        # clear logger handlers (iterate over a copy: removeHandler mutates the list)
+        for handler in list(root_logger.handlers):
+            root_logger.removeHandler(handler)
 
-        # add console handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(self.log_level)
-        console_formatter = ColorFormatter(  # console Formatter for colors
-            '%(levelname)s%(asctime)s %(lineno)d %(name)s - %(message)s',
-            datefmt='%y-%m-%d %H:%M'
-        )
-        console_handler.setFormatter(console_formatter)
-        root_logger.addHandler(console_handler)
+        self._add_handlers(root_logger, "massflow.log")
 
         logging.captureWarnings(True)
         warnings.formatwarning = custom_formatwarning
-
-        # add file handler
-        root_file_path = os.path.join(self.log_dir, "massflow.log")
-        file_handler = RotatingFileHandler(
-            root_file_path,
-            maxBytes=self.max_bytes,
-            backupCount=self.backup_count
-        )
-        file_formatter = FileFormatter(
-            '%(levelname)s%(asctime)s %(lineno)d %(name)s - %(message)s'
-        )
-        file_handler.setLevel(self.log_level)
-        file_handler.setFormatter(file_formatter)
-        root_logger.addHandler(file_handler)
 
 
     def _configure_logger(self, logger, name):
@@ -177,27 +164,7 @@ class LoggerManager:
         # Prevent propagation to root logger
         logger.propagate = False
 
-        # add console handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(self.log_level)
-        console_formatter = ColorFormatter(
-            "%(levelname)s%(asctime)s %(lineno)d %(name)s - %(message)s",
-            datefmt="%y-%m-%d %H:%M",
-        )
-        console_handler.setFormatter(console_formatter)
-        logger.addHandler(console_handler)
-
-        # add file handler
-        file_path = os.path.join(self.log_dir, f"{name}.log")
-        file_handler = RotatingFileHandler(
-            file_path, maxBytes=self.max_bytes, backupCount=self.backup_count
-        )
-        file_handler.setLevel(self.log_level)
-        file_formatter = FileFormatter(
-            "%(levelname)s%(asctime)s %(lineno)d %(name)s - %(message)s"
-        )
-        file_handler.setFormatter(file_formatter)
-        logger.addHandler(file_handler)
+        self._add_handlers(logger, f"{name}.log")
 
         return logger
 
@@ -215,7 +182,7 @@ class LoggerManager:
         - file output keeps original record.name (bootstrap.xxx)
         """
         if not self.initialized:
-            raise RuntimeError("LoggerManager is not initialized. Call bootstrap.init_logging()")
+            raise RuntimeError("LoggerManager is not initialized. Call LOGGER_MANAGER.init_app() first.")
 
         group = self._logger_group(name)
 
@@ -275,8 +242,4 @@ LOGGER_MANAGER.init_app()
 # 获取日志器的便捷函数
 def get_logger(name="app") -> logging.Logger:
     """Get logger by name."""
-
-    if LOGGER_MANAGER is None:
-        raise RuntimeError("LoggerManager is not initialized")
-    else:
-        return LOGGER_MANAGER.get_logger(name)
+    return LOGGER_MANAGER.get_logger(name)

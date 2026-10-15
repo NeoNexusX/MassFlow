@@ -48,7 +48,8 @@ Run these in order; stop early only if a tool fails (then follow
    z levels, flags. Check the extent is plausible for a tissue section
    (typically 2–25 mm per side) given the pixel size.
 3. **`profile_mass_axis`** — m/z range, sortedness, empty spectra, and
-   `sampling`: bin width, peak FWHM, samples per FWHM, `sampling_limited`.
+   `sampling`: bin width, peak FWHM, samples per FWHM (median and the
+   narrowest peaks'), `sampling_limited`.
    Read `recommended_parameters` only as context; the processing skill acts
    on them.
 4. **`render_tic_image`** — look at the PNG, then `quality` and `flags`:

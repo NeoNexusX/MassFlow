@@ -16,6 +16,7 @@ import numpy as np
 
 _BINARY_OPEN_FLAG = getattr(os, "O_BINARY", 0)
 _OS_PREAD = getattr(os, "pread", None)
+_OS_PWRITE = getattr(os, "pwrite", None)
 _POSITIONED_IO_LOCK = threading.Lock()
 _TEMP_WRITE_ION_BLOCK = 2048
 
@@ -27,6 +28,28 @@ def positioned_read(fd: int, nbytes: int, offset: int) -> bytes:
     with _POSITIONED_IO_LOCK:
         os.lseek(fd, offset, os.SEEK_SET)
         return os.read(fd, nbytes)
+
+
+def positioned_write(fd: int, data: Any, offset: int) -> int:
+    """Write the complete buffer at an explicit file offset and return its size."""
+    view = memoryview(data).cast("B")
+    total = len(view)
+    if _OS_PWRITE is not None:
+        while view:
+            written = _OS_PWRITE(fd, view, offset)
+            if written == 0:
+                raise OSError("Positioned write returned zero bytes.")
+            view = view[written:]
+            offset += written
+        return total
+    with _POSITIONED_IO_LOCK:
+        os.lseek(fd, offset, os.SEEK_SET)
+        while view:
+            written = os.write(fd, view)
+            if written == 0:
+                raise OSError("Write returned zero bytes.")
+            view = view[written:]
+    return total
 
 
 @dataclass(frozen=True, slots=True)

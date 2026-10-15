@@ -16,7 +16,6 @@ from contextlib import nullcontext
 from typing import Optional
 from pyimzml.ImzMLParser import PortableSpectrumReader
 from massflow.module.spectrum import Spectrum
-from massflow.tools.stream_imzml_writer import ImzMLWriter
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.module.spectrum_imzml")
@@ -97,18 +96,3 @@ class SpectrumImzML(Spectrum):
             self._mz_list = mz_list.copy()
 
         self._intensity = intensity.copy()
-
-    def swap_out2disk(self, writer: ImzMLWriter):
-        """Write spectrum data to disk using ImzMLWriter."""
-
-        if self._reader is None:
-
-            if self.mz_list is None or self.intensity is None or self.coordinate is None:
-                logger.error("Both mz_list and intensity cannot be None")
-                raise ValueError("Both mz_list and intensity cannot be None")
-
-            # add spectrum to writer
-            writer.add_spectrum(self.mz_list, self.intensity, self.coordinate.get_tuple())
-
-        # clear loaded data to save memory
-        self.clear_data()

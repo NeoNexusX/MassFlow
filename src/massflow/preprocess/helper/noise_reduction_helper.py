@@ -52,12 +52,11 @@ def smoother(
     when they are not meaningful for the selected backend.
     """
 
-    target_dtype = intensity.dtype if intensity is not None else np.float64
-    method_norm = (method or "ma_numba").strip().lower()
     if intensity is None:
         raise TypeError("intensity must be provided")
-
     _input_validation(intensity, window=window, sd=sd)
+    target_dtype = intensity.dtype
+    method_norm = (method or "ma_numba").strip().lower()
 
     if method_norm == "ma_numba":
         smoothed_intensity = smooth_signal_ma_numba(

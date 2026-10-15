@@ -1,0 +1,35 @@
+[
+  {"query": "刚从合作者那拿到 data/5c02ec_Mouse_Brain_MALDI_100_Negative.imzML，帮我看看这个数据质量怎么样，能不能用来做脂质成像", "expected": "msi-dataset-evaluation"},
+  {"query": "can you QC data/Mouse_Kidney_MALDI_30_Negative_77bf5d.imzML before I spend time on it? mainly want to know about striping and whether the polarity is actually recorded in the file", "expected": "msi-dataset-evaluation"},
+  {"query": "我跑完预处理了，把 data/k35_picked_aligned.imzML 和原始的 data/k35.imzML 比一下，看看处理有没有把数据弄坏", "expected": "msi-dataset-evaluation"},
+  {"query": "is data/k35.imzML a test acquisition or a real tissue section? check the pixel grid and the TIC", "expected": "msi-dataset-evaluation"},
+  {"query": "data/k35.imzML 的 TIC 图边缘特别亮，这是边缘效应还是玻片上的基质？", "expected": "msi-dataset-evaluation"},
+  {"query": "check whether the mass calibration of data/Mouse_Kidney_MALDI_30_Negative_77bf5d_picked_aligned.imzML is off, using a few reference lipids", "expected": "msi-dataset-evaluation"},
+
+  {"query": "帮我把 data/Mouse_Kidney_MALDI_30_Negative_77bf5d.imzML 做一下预处理，峰提取加对齐，归一化我想自己选", "expected": "msi-preprocessing"},
+  {"query": "preprocess data/5c02ec_Mouse_Brain_MALDI_100_Negative.imzML fully automatically, don't ask me anything, I need a peak table for statistics tomorrow", "expected": "msi-preprocessing"},
+  {"query": "k35 外面一圈是玻片背景，帮我把背景像素去掉再导出成 zarr，文件是 data/k35_picked_aligned.imzML", "expected": "msi-preprocessing"},
+  {"query": "the aligned kidney file has tons of adduct and isotope duplicates, can you filter them out? data/Mouse_Kidney_MALDI_30_Negative_77bf5d_picked_aligned.imzML", "expected": "msi-preprocessing"},
+  {"query": "should I use TIC or RMS normalization for data/k35.imzML? I want to cluster it later", "expected": "msi-preprocessing"},
+  {"query": "data/k35.imzML 去噪之后峰被压平了，帮我重新调一下平滑参数", "expected": "msi-preprocessing"},
+
+  {"query": "data/k35_picked_aligned.imzML 做个空间分割，看看有几个区域，每个区域的标志离子是什么", "expected": "msi-spatial-analysis"},
+  {"query": "which ions are specific to the inner region of the kidney section in data/Mouse_Kidney_MALDI_30_Negative_77bf5d_picked_aligned.imzML?", "expected": "msi-spatial-analysis"},
+  {"query": "m/z 885.55 在小鼠脑切片 data/5c02ec_Mouse_Brain_MALDI_100_Negative.imzML 里可能是什么物质？主要分布在哪些区域？", "expected": "msi-spatial-analysis"},
+  {"query": "查一下文献里 PM2.5 暴露和肾脏脂质代谢相关的化合物，看看在 data/Mouse_Kidney_MALDI_30_Negative_77bf5d_picked_aligned.imzML 里能不能找到", "expected": "msi-spatial-analysis"},
+  {"query": "is there any PFOS signal in data/Mouse_Kidney_MALDI_30_Negative_77bf5d_picked_aligned.imzML? if so, where in the section is it", "expected": "msi-spatial-analysis"},
+  {"query": "画一下硫苷脂（sulfatide）的离子图，数据是 data/k35_picked_aligned.imzML，看它们是不是集中在某个区域", "expected": "msi-spatial-analysis"},
+  {"query": "I ran UMAP on the kidney data and got 10 clusters, help me figure out what each cluster is biologically", "expected": "msi-spatial-analysis"},
+
+  {"query": "MassFlow 的 peak_align 在 tolerance=None 的时候是怎么估计容差的？帮我看一下源码解释一下", "expected": "none"},
+  {"query": "write a pytest for mzorbit's safe_output_path that checks dotted output names get their dots replaced", "expected": "none"},
+  {"query": "imzML 的 continuous 和 processed 两种存储模式有什么区别？简单讲一下就行", "expected": "none"},
+  {"query": "the table in docs/en/adduct_filter.md renders broken on the VitePress site, can you fix the markdown", "expected": "none"},
+  {"query": "帮我把 docs/zh/umap.md 翻译成英文，放到 docs/en/umap.md", "expected": "none"},
+  {"query": "mzorbit 的 MCP server 启动时报 ModuleNotFoundError: No module named 'mcp'，怎么解决", "expected": "none"},
+  {"query": "add a tqdm progress bar to MassFlow's Preprocessor.start() so long runs show progress", "expected": "none"},
+  {"query": "refactor run_umap_clustering in mzorbit/src/mzorbit/tools/analysis.py so every run writes into its own output folder instead of overwriting umap_clustering/", "expected": "none"},
+  {"query": "update the description of the msi-preprocessing skill in .claude/skills so it also mentions Zarr export", "expected": "none"},
+  {"query": "review the normalization code in src/massflow/preprocess for numerical bugs, especially division by zero", "expected": "none"},
+  {"query": "UMAP 和 t-SNE 在降维原理上有什么本质区别？", "expected": "none"}
+]

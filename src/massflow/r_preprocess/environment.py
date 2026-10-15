@@ -77,8 +77,10 @@ class REnvironment:
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(REnvironment, cls).__new__(cls)
-            cls._instance._initialize()
+            instance = super().__new__(cls)
+            instance._initialize()
+            # Cache only a fully initialized environment so a failed start can be retried.
+            cls._instance = instance
         return cls._instance
 
     def _initialize(self):
@@ -108,11 +110,16 @@ class REnvironment:
 
         except ImportError as e:
             logger.error("Required Python package 'rpy2' is not installed.")
-            raise ImportError("This error should not occur Please open a issue to github") from e
+            raise ImportError(
+                "The Cardinal backend requires rpy2; install it with `pip install massflow[r]`."
+            ) from e
 
         except Exception as e:
-            logger.error(f"Failed to load R packages. Ensure follw pkgs are install :{essential_pkgs}it is installed in your R environment.")
-            raise RuntimeError("This error should not occur Please open a issue to github") from e
+            logger.error(f"Failed to initialize R or load the R packages {essential_pkgs}: {e}")
+            raise RuntimeError(
+                f"Failed to initialize R or load the R packages {essential_pkgs}. "
+                "Check R_HOME and that these packages are installed in R."
+            ) from e
 
     @property
     def cardinal(self):

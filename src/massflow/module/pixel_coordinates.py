@@ -1,4 +1,5 @@
 from typing import Union, Sequence
+import numpy as np
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.module.pixel_coordinates")
@@ -36,7 +37,7 @@ class PixelCoordinates:
         self._y = None
         self._z = None
 
-        if isinstance(x, (list, tuple)) and len(x) == 3:
+        if isinstance(x, (list, tuple, np.ndarray)) and len(x) == 3:
             self._x, self._y, self._z = x
 
         elif isinstance(x, PixelCoordinates):
@@ -44,7 +45,7 @@ class PixelCoordinates:
             self._y = x._y
             self._z = x._z
 
-        elif isinstance(x, int):
+        elif isinstance(x, (int, np.integer)):
             self._x = x
             self._y = y
             self._z = z
@@ -54,8 +55,15 @@ class PixelCoordinates:
                 "List x must have exactly three elements with x, y, z coordinates."
             )
             raise ValueError(
-                "List x must have exactly three elements with x, y, z coordinates.."
+                "List x must have exactly three elements with x, y, z coordinates."
             )
+
+    @staticmethod
+    def _require(value, axis: str):
+        if value is None:
+            logger.error(f"{axis} coordinate is not set.")
+            raise ValueError(f"{axis} coordinate is not set.")
+        return value
 
     @property
     def x(self) -> int:
@@ -65,11 +73,7 @@ class PixelCoordinates:
         Returns:
             int: X coordinate.
         """
-        if self._x is not None:
-            return self._x
-        else:
-            logger.error("X coordinate is not set.")
-            raise ValueError("X coordinate is not set.")
+        return self._require(self._x, "X")
 
     @x.setter
     def x(self, value: int):
@@ -83,32 +87,22 @@ class PixelCoordinates:
         Returns:
             int: Y coordinate.
         """
-        if self._y is not None:
-            return self._y
-        else:
-            logger.error("Y coordinate is not set.")
-            raise ValueError("X coordinate is not set.")
+        return self._require(self._y, "Y")
 
     @y.setter
     def y(self, value: int):
-        if isinstance(value, int):
-            self._y = value
+        self._y = value
 
     @property
     def z(self) -> int:
         """
         Get the Z coordinate.
         """
-        if self._z is not None:
-            return self._z
-        else:
-            logger.error("Z coordinate is not set.")
-            raise ValueError("X coordinate is not set.")
+        return self._require(self._z, "Z")
 
     @z.setter
     def z(self, value: int):
-        if isinstance(value, int):
-            self._z = value
+        self._z = value
 
     def get_tuple(self) -> tuple:
         """
@@ -116,12 +110,11 @@ class PixelCoordinates:
 
         Returns:
             tuple: (x, y, z) coordinates.
+
+        Raises:
+            ValueError: If any coordinate is not set.
         """
-        if self.x is not None and self.y is not None and self.z is not None:
-            return (self.x, self.y, self.z)
-        else:
-            logger.error("One or more coordinates are not set.")
-            raise ValueError("One or more coordinates are not set.")
+        return (self.x, self.y, self.z)
 
     def __eq__(self, other: object) -> bool:
         """
@@ -134,7 +127,7 @@ class PixelCoordinates:
             bool: True if all adjusted coordinates match; False otherwise.
         """
         if not isinstance(other, PixelCoordinates):
-            raise TypeError("other must be a PixelCoordinates instance")
+            return NotImplemented
 
         return self.x == other.x and self.y == other.y and self.z == other.z
 

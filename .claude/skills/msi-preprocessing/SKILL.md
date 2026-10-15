@@ -1,6 +1,6 @@
 ---
 name: msi-preprocessing
-description: "Preprocess an imzML mass spectrometry imaging dataset with MassFlow through the mzorbit tools: plan with data-derived parameters, decide baseline/smoothing/normalization with previews, pick and align peaks, optionally filter isotopes, adducts and rare peaks, remove off-tissue background with a tissue mask, write the processed imzML with provenance, and export Zarr/ion-image formats. Works in guided mode (asks at real decisions) or hands-off autonomous mode, and recovers from errors automatically. Use when the user asks to preprocess, peak-pick, align, normalize, denoise, filter peaks, remove background, or prepare MSI data for clustering, statistics or annotation (预处理, 峰提取, 峰对齐, 归一化, 去噪, 去背景, 数据处理). Evaluate the dataset first with msi-dataset-evaluation if that has not been done; hand interpretation of the processed data (regions, marker ions, compounds) to msi-spatial-analysis."
+description: "Preprocess an imzML mass spectrometry imaging dataset with MassFlow through the mzorbit tools: plan with MassFlow's default parameters (changed only on evidence), decide baseline/smoothing/normalization with previews, pick and align peaks, optionally filter isotopes, adducts and rare peaks, remove off-tissue background with a tissue mask, write the processed imzML with provenance, and export Zarr/ion-image formats. Works in guided mode (asks at real decisions) or hands-off autonomous mode, and recovers from errors automatically. Use when the user asks to preprocess, peak-pick, align, normalize, denoise, filter peaks, remove background, or prepare MSI data for clustering, statistics or annotation (预处理, 峰提取, 峰对齐, 归一化, 去噪, 去背景, 数据处理). Evaluate the dataset first with msi-dataset-evaluation if that has not been done; hand interpretation of the processed data (regions, marker ions, compounds) to msi-spatial-analysis."
 ---
 
 # MSI preprocessing
@@ -43,9 +43,9 @@ its pitfalls) is in `references/step-guide.md`; failure handling is in
 | Step | Guided | Autonomous default | Evidence |
 |---|---|---|---|
 | baseline_correction | model proposes, **user** confirms | apply only if `baseline_to_peak_ratio` ≥ 0.1 **and** the floor gap is visible | `preview_baseline`, then `try_step` |
-| noise_reduction | plan + `try_step` | same | plan reason, `try_step(auto_tune)`, `preview_noise_reduction` |
+| noise_reduction | plan + `try_step` (window 3–9) | same | plan reason, `try_step(auto_tune)`, `preview_noise_reduction` |
 | normalization | **user** chooses | none; `tic_numba` only when the goal is clustering/segmentation | `compare_normalization` |
-| peak_pick | model (plan params, adjusted by preview) | same | `preview_peak_pick` |
+| peak_pick | model: plan params (MassFlow defaults), changed only for a preview problem | same | `preview_peak_pick` |
 | filter_peaks_by_isotopes | offer when redundancy matters; **user** | apply when the goal needs a feature table/clustering | plan params |
 | peak_align | auto (skipped if already aligned) | same | plan |
 | filter_peaks_by_adducts | **user** after preview | apply if polarity comes from the file/user and the preview removes ≤ 25% with evidence above threshold | `preview_adduct_filter` |
@@ -57,6 +57,25 @@ The user's explicit instruction always overrides a default. A plan step with
 `decision: "auto"` and `execute: false` (e.g. smoothing skipped on re-binned
 data) is a finding, not a question: report it, don't ask.
 
+## Parameter policy
+
+Preprocessing should keep as many real features as possible; removing noise
+is the job of the later steps (alignment's `min_frequency`, the peak filters,
+the tissue mask).
+
+- **MassFlow's defaults first.** The plan uses them (`peak_pick` width 5,
+  snr 2; Gaussian smoothing window 5) and only ever narrows a window, for
+  narrow peaks: under-sampled peaks (< 3 samples per FWHM) get width 3 and no
+  smoothing; when the narrowest peaks span fewer than ~4.3 samples per FWHM,
+  width and window drop to 3. It never widens them — a wide window swallows
+  small peaks next to taller ones.
+- **Picking is for recall.** Many small or near-noise picks are expected.
+  Never raise `snr`, `width` or the smoothing just to get fewer peaks.
+- **Change a parameter only on evidence**: a problem a preview reports, a
+  `try_step` failure, or something clearly wrong in the images (a real peak
+  without a stem, peaks flattened or merged). Say what the evidence was. Keep
+  smoothing windows within 3–9; when in doubt, keep the default.
+
 ## Workflow
 
 ### 1. Plan
@@ -64,8 +83,9 @@ data) is a finding, not a question: report it, don't ask.
 Call `plan_preprocessing`. Read, in this order:
 
 - `context.acquisition` — polarity and its source, analyzer, ion source,
-  `points_per_fwhm`, `bin_width_da`, `sampling_limited`. These drive every
-  default parameter.
+  `points_per_fwhm` and the narrowest peaks' `narrow_points_per_fwhm`,
+  `bin_width_da`, `sampling_limited`. These decide whether a default window is
+  narrowed and set the filter tolerances.
 - `context.notes` and `warnings` — automatic repairs.
 - `auto_steps`, `verify_steps`, `user_decisions` — the work list.
 - Each step's `params`, `reason` and `evidence`. Use the params as given unless
@@ -87,23 +107,38 @@ Call `plan_preprocessing`. Read, in this order:
    `try_step(step="noise_reduction", params=<plan params>,
    accepted_steps=[<accepted baseline step, if any>], auto_tune=true)` (fixed
    seed), so the sample is smoothed after the same baseline finalize will
-   apply. If it returns `accepted`, confirm with
-   `preview_noise_reduction(params=<accepted params>)` at the default 10/20/50
-   m/z windows; veto if peaks are clipped, shifted, broadened or merged at any
-   scale. If it escalates, skip denoising (autonomous) or ask (guided).
+   apply. Smoothing is accepted only if the typical peak keeps ≥ 85% of its
+   height; when peaks suffer the retries narrow the window (down to 3) before
+   switching to Savitzky–Golay, and an under-smoothed sample widens only up to
+   9 and only as far as the narrowest peaks allow. If it returns `accepted`,
+   confirm with `preview_noise_reduction(params=<accepted params>)` at the
+   default 10/20/50 m/z windows; veto if peaks are clipped, shifted, broadened
+   or merged at any scale. If it escalates, skip denoising (autonomous) or ask
+   (guided).
 3. **Normalization** — `compare_normalization`; show the three images and the
    `uniformity` numbers; explain TIC vs RMS vs reference-peak (see the step
    guide); follow the mode. TIC-normalized TIC images are flat by construction —
    that is not over-normalization. If evaluation flagged the raw TIC as already
    nearly uniform, the data were normalized upstream: recommend none.
 4. **Peak picking** — `preview_peak_pick(accepted_steps=<accepted baseline/noise
-   steps>)`. Check stems sit on apexes, real peaks are not missed, and baseline
-   grass is not picked; read the SNR sweep. Use `finalize_step`, or
-   `suggested_params` when the sweep shows many near-noise picks. If
-   `stats.weak_pick_fraction` is above ~0.5, most picks are grass (the noise
-   estimate collapsed on zero-filled bins): preview again with a `prominence`
-   (e.g. a few times the typical grass height) or a higher `snr`, and compare
-   peaks per spectrum.
+   steps>)` with the plan params. The aim is to keep every candidate peak, so
+   use `finalize_step` unless `stats.problems` lists one of these:
+   - `window_check` `too_wide` — the window is wider than MassFlow's default
+     (fewer candidates kept) or can hide resolved neighbours of the narrowest
+     peaks: use `suggested_params` (the widest safe width; the basis compares
+     picks per spectrum); the `narrow_width…` close-ups show the narrowest
+     peaks picked with it.
+   - `noise_check` `collapsed` — the noise estimate is zero (often
+     zero-filled bins), so every positive point passes the SNR test: preview
+     again with a `prominence` a few times the typical grass height and
+     compare peaks per spectrum.
+
+   Also look at the images: a clearly visible peak without a stem means
+   picking is too strict (lower `width` or `snr` and preview again); stems on
+   shoulders instead of apexes mean the peaks were distorted (revisit the
+   smoothing). Many picks near the noise (`snr_sweep`) or far below the base
+   peak (`weak_pick_fraction`) are normal in MSI and not a reason to change
+   anything: alignment screens them.
 
 ### 3. Pass 1 — core chain
 
@@ -112,7 +147,11 @@ accepted_steps=[...])` with, in any order (the tool applies MassFlow's order):
 accepted baseline/noise/normalization steps, `peak_pick`, optional
 `filter_peaks_by_isotopes` (plan params), and `peak_align` (plan params).
 Check `output_summary` (pixel count unchanged, `centroid`, aligned feature
-count) and every warning.
+count) and every warning. Alignment keeps MassFlow's defaults: its
+`min_frequency=0.01` drops picks that do not recur across pixels, which is
+where most near-noise picks go. Set its `tolerance` only when the output
+shows a problem (one ion split into features a few ppm apart, or neighbouring
+ions merged; see the step guide).
 
 Input that is already aligned (plan `context.is_aligned`) skips pass 1.
 
@@ -179,7 +218,8 @@ spectrum overlays, reference ions). Then report, in the user's language:
 1. **Input** — dataset, verdict and caveats from evaluation, key acquisition
    facts (polarity + source, bin width / peak sampling).
 2. **Decisions** — table: step, applied/skipped, owner (auto / verify / user /
-   delegated), key evidence, final parameters.
+   delegated), key evidence, final parameters; name every departure from
+   MassFlow's defaults with the evidence behind it.
 3. **Outputs** — each pass's path, pixel and feature counts, audit CSVs,
    warnings and automatic recoveries.
 4. **Review** — what changed between raw and processed, what was verified,

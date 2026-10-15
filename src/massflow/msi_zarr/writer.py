@@ -24,6 +24,8 @@ from massflow.msi_zarr.schema import (
     ZarrRowAxis,
     ZarrStorageMode,
     ZarrWriteMode,
+    normalize_zarr_path,
+    read_array_int,
 )
 from massflow.tools.ion_major_temp_store import BatchInfo, IonMajorTempStore
 from massflow.tools.logger import get_logger
@@ -81,7 +83,7 @@ class MSIZarrWriter:
             raise ValueError("compute_tic is only supported for pixel-major output.")
         elif row_axis == "ion" and compute_rms:
             raise ValueError("compute_rms is only supported for pixel-major output.")
-        self.path = _normalize_zarr_path(path)
+        self.path = normalize_zarr_path(path)
         self.row_axis: ZarrRowAxis = row_axis
         self.encoding: ZarrWriteMode = encoding
         self.include_spectra = bool(include_spectra)
@@ -99,7 +101,6 @@ class MSIZarrWriter:
         self._temp_dir = temp_dir
         self._temp_workers = max(1, int(temp_workers))
         self._root: zarr.Group | None = None
-        self._data: zarr.Group | None = None
         self._intensity: zarr.Array | None = None
         self._offsets: zarr.Array | None = None
         self._point_mz: zarr.Array | None = None
@@ -257,7 +258,6 @@ class MSIZarrWriter:
             self._temp_store.close()
             self._temp_store = None
         self._root = None
-        self._data = None
         self._intensity = None
         self._offsets = None
         self._point_mz = None
@@ -309,17 +309,21 @@ class MSIZarrWriter:
             n_ions=int(self._shared_mz.size),
         )
 
+    def _ensure_root(self) -> zarr.Group:
+        """Create the store root, marked as still being written, on first use."""
+        if self._root is None:
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+            self._root = zarr.open_group(self.path, mode="w")
+            self._write_root_attrs(state="writing")
+        return self._root
+
     # --- Combined /spectra streaming -----------------------------------------
 
     def _ensure_spectra_arrays(self, lengths: np.ndarray) -> None:
         """Create the v1.1 root and the streaming /spectra group on first write."""
         if self._spectra_intensity is not None:
             return
-        if self._root is None:
-            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-            self._root = zarr.open_group(self.path, mode="w")
-            self._write_root_attrs(state="writing")
-        root = self._root
+        root = self._ensure_root()
         root.require_group("axes")
         spectra = root.create_group(ZARR_GROUP_SPECTRA)
         spectra.attrs.update(
@@ -409,13 +413,9 @@ class MSIZarrWriter:
     def _ensure_pixel_arrays(self, lengths: np.ndarray) -> None:
         if self._root is not None:
             return
-        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        root = zarr.open_group(self.path, mode="w")
-        self._root = root
-        self._write_root_attrs(state="writing")
+        root = self._ensure_root()
         axes = root.create_group("axes")
         data = root.create_group(ZARR_GROUP_SPECTRA)
-        self._data = data
         data.attrs.update(
             {"row_axis": self.row_axis, "encoding": self.encoding}
         )
@@ -456,9 +456,8 @@ class MSIZarrWriter:
             self._point_mz = point_mz
 
     def _finalize_pixel(self, coordinate_index: "CoordinateIndex") -> None:
+        # Pixel-major output keeps every input row (see prepare_pixel_coordinate_index).
         assert self._root is not None
-        if coordinate_index.source_idx.size != self._n_input_pixels:
-            self._compact_pixel_arrays(coordinate_index.source_idx)
         axes = cast(zarr.Group, self._root["axes"])
         axes.create_array(
             "coordinates",
@@ -487,68 +486,32 @@ class MSIZarrWriter:
             sum_squares = np.add.reduceat(work, starts)
             self._rms_batches.append(np.sqrt(sum_squares / lengths))
 
-    def _write_tic(self, tic: np.ndarray | None = None) -> None:
-        if not self.compute_tic:
-            return
+    def _write_spectrum_stat(
+        self,
+        name: str,
+        values: np.ndarray | None,
+        batches: list[np.ndarray],
+        extra_attrs: dict[str, str],
+    ) -> None:
+        """Write one per-spectrum statistic to ``stats/<name>``."""
         assert self._root is not None
-        if tic is None:
-            tic = (
-                np.concatenate(self._tic_batches)
-                if self._tic_batches
-                else np.empty(0, dtype=np.float64)
-            )
+        if values is None:
+            values = np.concatenate(batches) if batches else np.empty(0, dtype=np.float64)
         stats = self._root.require_group("stats")
-        array = stats.create_array("tic", data=tic, overwrite=True)
+        array = stats.create_array(name, data=values, overwrite=True)
         array.attrs.update(
-            {
-                "source": f"/{ZARR_GROUP_SPECTRA}",
-                "reduced_axis": "mz",
-            }
+            {"source": f"/{ZARR_GROUP_SPECTRA}", "reduced_axis": "mz", **extra_attrs}
         )
+
+    def _write_tic(self, tic: np.ndarray | None = None) -> None:
+        if self.compute_tic:
+            self._write_spectrum_stat("tic", tic, self._tic_batches, {})
 
     def _write_rms(self, rms: np.ndarray | None = None) -> None:
-        if not self.compute_rms:
-            return
-        assert self._root is not None
-        if rms is None:
-            rms = (
-                np.concatenate(self._rms_batches)
-                if self._rms_batches
-                else np.empty(0, dtype=np.float64)
+        if self.compute_rms:
+            self._write_spectrum_stat(
+                "rms", rms, self._rms_batches, {"denominator": "spectrum_points"}
             )
-        stats = self._root.require_group("stats")
-        array = stats.create_array("rms", data=rms, overwrite=True)
-        array.attrs.update(
-            {
-                "source": f"/{ZARR_GROUP_SPECTRA}",
-                "reduced_axis": "mz",
-                "denominator": "spectrum_points",
-            }
-        )
-
-    def _compact_pixel_arrays(self, source_idx: np.ndarray) -> None:
-        assert self._intensity is not None and self._offsets is not None
-        old_offsets = np.asarray(self._offsets[:], dtype=np.int64)
-        destination = 0
-        new_offsets = np.empty(source_idx.size + 1, dtype="<i8")
-        new_offsets[0] = 0
-        for output_row, source_row in enumerate(source_idx):
-            start = int(old_offsets[source_row])
-            end = int(old_offsets[source_row + 1])
-            intensity = np.asarray(self._intensity[start:end])
-            next_destination = destination + intensity.size
-            self._intensity[destination:next_destination] = intensity
-            if self._point_mz is not None:
-                mz = np.asarray(self._point_mz[start:end])
-                self._point_mz[destination:next_destination] = mz
-            destination = next_destination
-            new_offsets[output_row + 1] = destination
-        self._intensity.resize((destination,))
-        if self._point_mz is not None:
-            self._point_mz.resize((destination,))
-        self._offsets.resize(new_offsets.shape)
-        self._offsets[:] = new_offsets
-        self._total_points = destination
 
     # --- Ion-major writing ----------------------------------------------------
 
@@ -558,11 +521,7 @@ class MSIZarrWriter:
         temp_store = self._temp_store
         shared_mz = self._shared_mz
         batches = temp_store.finish()
-        if self._root is None:
-            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-            self._root = zarr.open_group(self.path, mode="w")
-            self._write_root_attrs(state="writing")
-        root = self._root
+        root = self._ensure_root()
         axes = root.require_group("axes")
         axes.create_array(
             "coordinates",
@@ -572,7 +531,6 @@ class MSIZarrWriter:
         mz_array = axes.create_array("mz", data=shared_mz, overwrite=True)
         mz_array.attrs["unit"] = "m/z"
         data = root.require_group(ZARR_GROUP_ION_IMAGE)
-        self._data = data
         data.attrs.update(
             {"row_axis": self.row_axis, "encoding": self.encoding}
         )
@@ -737,8 +695,8 @@ class MSIZarrWriter:
             offsets = cast(zarr.Array, data["offsets"])
             intensity = cast(zarr.Array, data["intensity"])
             if (
-                _read_array_int(offsets, 0) != 0
-                or _read_array_int(offsets, -1) != int(intensity.shape[0])
+                read_array_int(offsets, 0) != 0
+                or read_array_int(offsets, -1) != int(intensity.shape[0])
             ):
                 raise ValueError("Written offsets do not match intensity.")
             n_rows = int(offsets.shape[0]) - 1
@@ -758,8 +716,8 @@ class MSIZarrWriter:
         intensity = cast(zarr.Array, data["intensity"])
         shared_mz = cast(zarr.Array, axes["mz"])
         if (
-            _read_array_int(offsets, 0) != 0
-            or _read_array_int(offsets, -1) != int(intensity.shape[0])
+            read_array_int(offsets, 0) != 0
+            or read_array_int(offsets, -1) != int(intensity.shape[0])
         ):
             raise ValueError("Written offsets do not match intensity.")
         n_rows = int(offsets.shape[0]) - 1
@@ -777,8 +735,8 @@ class MSIZarrWriter:
             s_offsets = cast(zarr.Array, spectra["offsets"])
             s_intensity = cast(zarr.Array, spectra["intensity"])
             if (
-                _read_array_int(s_offsets, 0) != 0
-                or _read_array_int(s_offsets, -1)
+                read_array_int(s_offsets, 0) != 0
+                or read_array_int(s_offsets, -1)
                 != int(s_intensity.shape[0])
             ):
                 raise ValueError("Written spectra offsets do not match intensity.")
@@ -816,21 +774,21 @@ class CoordinateIndex:
         self.source_idx = source_idx
 
 
-def prepare_coordinate_index(
+def _validated_coordinates(
     coordinates: np.ndarray,
     *,
     width: int | None,
     height: int | None,
-) -> CoordinateIndex:
-    """Validate one-based coordinates and keep the last duplicate occurrence."""
+) -> tuple[np.ndarray, int, int]:
+    """Return int64 ``(n, 3)`` one-based coordinates and the image size.
+
+    Missing dimensions are taken from the largest coordinate; any pixel outside
+    ``[1, width] x [1, height]`` is rejected.
+    """
     coords = _ensure_xyz_coordinates(coordinates).astype(np.int64, copy=False)
     xy = coords[:, :2]
-    if width is None:
-        width = int(np.max(xy[:, 0]))
-    if height is None:
-        height = int(np.max(xy[:, 1]))
-    width = int(width)
-    height = int(height)
+    width = int(np.max(xy[:, 0])) if width is None else int(width)
+    height = int(np.max(xy[:, 1])) if height is None else int(height)
     valid = (
         (xy[:, 0] >= 1)
         & (xy[:, 0] <= width)
@@ -839,6 +797,17 @@ def prepare_coordinate_index(
     )
     if not bool(np.all(valid)):
         raise ValueError("coordinates contains out-of-bounds values.")
+    return coords, width, height
+
+
+def prepare_coordinate_index(
+    coordinates: np.ndarray,
+    *,
+    width: int | None,
+    height: int | None,
+) -> CoordinateIndex:
+    """Validate one-based coordinates and keep the last duplicate occurrence."""
+    coords, width, height = _validated_coordinates(coordinates, width=width, height=height)
     normalized = coords.copy()
     normalized[:, 2] = 1
     last: dict[tuple[int, int, int], int] = {}
@@ -861,22 +830,7 @@ def prepare_pixel_coordinate_index(
     height: int | None,
 ) -> CoordinateIndex:
     """Validate pixel-major coordinates without dropping rows or rewriting z."""
-    coords = _ensure_xyz_coordinates(coordinates).astype(np.int64, copy=False)
-    xy = coords[:, :2]
-    if width is None:
-        width = int(np.max(xy[:, 0]))
-    if height is None:
-        height = int(np.max(xy[:, 1]))
-    width = int(width)
-    height = int(height)
-    valid = (
-        (xy[:, 0] >= 1)
-        & (xy[:, 0] <= width)
-        & (xy[:, 1] >= 1)
-        & (xy[:, 1] <= height)
-    )
-    if not bool(np.all(valid)):
-        raise ValueError("coordinates contains out-of-bounds values.")
+    coords, width, height = _validated_coordinates(coordinates, width=width, height=height)
     return CoordinateIndex(
         width=width,
         height=height,
@@ -924,21 +878,11 @@ def update_metadata_attrs(
     """
     if not items:
         return
-    root = zarr.open_group(_normalize_zarr_path(path), mode="r+")
+    root = zarr.open_group(normalize_zarr_path(path), mode="r+")
     if "metadata" not in root:
         raise ValueError("Zarr store has no metadata group.")
     metadata = cast(zarr.Group, root["metadata"])
     metadata.attrs.update(items)
-
-
-def _normalize_zarr_path(path: str | os.PathLike[str]) -> str:
-    value = str(path)
-    return value if value.endswith(".zarr") else f"{value}.zarr"
-
-
-def _read_array_int(array: zarr.Array, index: int) -> int:
-    """Read one integer scalar without exposing Zarr's broad selection type."""
-    return int(np.asarray(array[index]).item())
 
 
 def _normalize_mz_dtype(dtype: np.dtype | type) -> np.dtype:
