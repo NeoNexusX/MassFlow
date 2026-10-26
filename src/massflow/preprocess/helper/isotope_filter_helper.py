@@ -53,7 +53,7 @@ def filter_peaks_by_isotopes(
     intensity: np.ndarray,
     lengths: np.ndarray,
     *,
-    mz_tolerance: float = 10.0,
+    mz_tolerance: float = 1.0,
     units: Literal["da", "ppm"] = "ppm",
     min_charge: int = 1,
     max_charge: int = 1,

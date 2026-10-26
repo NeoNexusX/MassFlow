@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Iterator, Literal
 
 import matplotlib
@@ -32,6 +33,7 @@ from massflow.data_manager import (
 )
 from massflow.segmentation.segmentation_pipeline import TAB20_COLOR_NAMES, UmapKmeansResult
 from massflow.tools.logger import get_logger
+from massflow.tools.read_matrix import filter_target_indices
 
 logger = get_logger("massflow.segmentation.feature_analysis")
 
@@ -104,35 +106,52 @@ def compute_streaming_umap_embeddings(
         metric=metric,
         random_state=random_state,
     )
-    sample_matrix, full_coordinates = _read_umap_sample_matrix(
+    spectra_input = isinstance(data_manager, (MSDataManagerImzML, MSDataManagerZarr))
+    read_started = perf_counter()
+    sample_matrix, full_coordinates, sample_indices = _read_umap_sample_matrix(
         data_manager,
         sample_ratio,
         random_state=random_state,
     )
 
     sample_matrix = _nan_to_num_inplace_chunks(sample_matrix)
+    if spectra_input:
+        logger.info(f"UMAP input preparation took {perf_counter() - read_started:.2f}s.")
     logger.info(
         f"Streaming UMAP fit: sample_ratio={sample_ratio}, "
         f"sample_matrix shape={sample_matrix.shape}"
     )
     if sample_matrix.shape[0] < 2:
         raise ValueError("UMAP transform requires at least two non-zero fitted samples.")
+    fit_started = perf_counter()
     reducer.fit(sample_matrix)
+    if spectra_input:
+        logger.info(f"UMAP fit took {perf_counter() - fit_started:.2f}s.")
     if sample_ratio == 1.0:
-        embeddings = reducer.transform(sample_matrix).astype(np.float32, copy=False) # type: ignore
+        if spectra_input:
+            embeddings = reducer.embedding_.astype(np.float32, copy=False)
+        else:
+            embeddings = reducer.transform(sample_matrix).astype(np.float32, copy=False) # type: ignore
         coordinates = full_coordinates
         del sample_matrix
         return _finalize_umap_embeddings(data_manager, embeddings, coordinates) # type: ignore
     del sample_matrix
 
-    if random_state is None:
+    transform_started = perf_counter()
+    if random_state is None and sample_indices is None:
         enable_umap_parallel_transform(reducer)
 
     embeddings, coordinates = _transform_umap_batches(
         data_manager,
         reducer,
         batch_size=transform_batch_size,
+        sample_indices=sample_indices,
     )
+    if spectra_input:
+        logger.info(
+            f"UMAP transform (including index preparation) took "
+            f"{perf_counter() - transform_started:.2f}s."
+        )
     return _finalize_umap_embeddings(data_manager, embeddings, coordinates)
 
 
@@ -141,31 +160,33 @@ def _read_umap_sample_matrix(
     sample_ratio: float,
     *,
     random_state: int | None,
-) -> tuple[np.ndarray, np.ndarray | None]:
-    """Read the matrix used to fit UMAP and optional full coordinates."""
+) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
+    """Read training spectra, optional full coordinates and fitted source IDs."""
     if sample_ratio == 1.0:
         sample_matrix, coordinates = _read_full_matrix(data_manager, batch_size=4096)
-        return sample_matrix, coordinates
+        return sample_matrix, coordinates, None
     if isinstance(data_manager, MSDataManagerImzML):
-        return _read_imzml_sample_matrix(
+        matrix, indices = _read_imzml_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
-        ), None
+        )
+        return matrix, None, indices
     if isinstance(data_manager, MSDataManagerZarr):
-        return _read_spectra_zarr_sample_matrix(
+        matrix, indices = _read_spectra_zarr_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
-        ), None
+        )
+        return matrix, None, indices
     if isinstance(data_manager, IonImageDataManagerZarr):
         return _read_zarr_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
-        ), None
+        ), None, None
     if isinstance(data_manager, IonImageDataManagerH5):
         return _read_dense_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
-        ), None
+        ), None, None
     if isinstance(data_manager, IonImageDataManagerBinary):
         return _read_binary_sample_matrix(
             data_manager, sample_ratio, random_state=random_state,
-        ), None
+        ), None, None
     raise TypeError(f"Unsupported data_manager type: {type(data_manager).__name__}")
 
 
@@ -211,8 +232,13 @@ def _transform_umap_batches(
     reducer: umap.UMAP,
     *,
     batch_size: int,
+    sample_indices: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Transform nonzero spectra batches with a fitted UMAP reducer."""
+    if sample_indices is not None:
+        return _transform_unseen_spectra(
+            data_manager, reducer, sample_indices, batch_size=batch_size,
+        )
     embeddings_parts: list[np.ndarray] = []
     coordinates_parts: list[np.ndarray] = []
     total_batches = _estimate_umap_transform_batches(data_manager, batch_size)
@@ -238,6 +264,89 @@ def _transform_umap_batches(
 
     logger.info(f"UMAP transform complete: transformed {transformed_batches} nonzero batches.")
     return np.vstack(embeddings_parts), np.vstack(coordinates_parts)
+
+
+def _transform_unseen_spectra(
+    data_manager: MSDataManagerImzML | MSDataManagerZarr,
+    reducer: umap.UMAP,
+    sample_indices: np.ndarray,
+    *,
+    batch_size: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Reuse fitted source rows and pack only unseen spectra into query batches."""
+    if isinstance(data_manager, MSDataManagerImzML):
+        source_indices = filter_target_indices(
+            data_manager.parser.coordinates, data_manager.target_locs,
+        )
+    else:
+        source_indices = data_manager._target_indices()  # pylint: disable=protected-access
+    sample_order = np.argsort(sample_indices)
+    sorted_samples = sample_indices[sample_order]
+    fit_embedding = np.asarray(reducer.embedding_, dtype=np.float32)
+    embeddings = np.empty((source_indices.size, fit_embedding.shape[1]), dtype=np.float32)
+    batches = data_manager.matrix_generator(batch_size=batch_size, include_mz=False)
+    batch = next(batches, None)
+    if batch is None:
+        raise ValueError("No non-zero spectra found during transform.")
+    coordinates = np.empty((source_indices.size, 2), dtype=np.asarray(batch[3]).dtype)
+    query = np.empty((batch_size, np.asarray(batch[1]).shape[1]), dtype=np.float32)
+    query_positions = np.empty(batch_size, dtype=np.intp)
+    source_cursor = output_cursor = filled = calls = transformed_rows = reused_rows = 0
+    batch_number = 0
+    total_batches = max(1, math.ceil(source_indices.size / batch_size))
+
+    def flush(count: int) -> None:
+        nonlocal calls, transformed_rows
+        if calls == 0 and reducer.random_state is None:
+            enable_umap_parallel_transform(reducer)
+        _nan_to_num_inplace_chunks(query[:count])
+        embeddings[query_positions[:count]] = reducer.transform(query[:count])
+        calls += 1
+        transformed_rows += count
+
+    while batch is not None:
+        _, intensity_matrix, _, batch_coordinates = batch
+        batch_number += 1
+        intensity = np.asarray(intensity_matrix, dtype=np.float32)
+        end = source_cursor + intensity.shape[0]
+        indices = source_indices[source_cursor:end]
+        source_cursor = end
+        nonzero = np.any(intensity != 0, axis=1)
+        indices = indices[nonzero]
+        if not np.all(nonzero):
+            intensity = intensity[nonzero]
+        output_end = output_cursor + indices.size
+        coordinates[output_cursor:output_end] = np.asarray(batch_coordinates)[nonzero, :2]
+        positions = np.searchsorted(sorted_samples, indices)
+        fitted = positions < sorted_samples.size
+        fitted[fitted] = sorted_samples[positions[fitted]] == indices[fitted]
+        embeddings[output_cursor + np.flatnonzero(fitted)] = fit_embedding[
+            sample_order[positions[fitted]]
+        ]
+        reused_rows += int(np.count_nonzero(fitted))
+        unseen = np.flatnonzero(~fitted)
+        offset = 0
+        while offset < unseen.size:
+            take = min(batch_size - filled, unseen.size - offset)
+            selected = unseen[offset:offset + take]
+            query[filled:filled + take] = intensity[selected]
+            query_positions[filled:filled + take] = output_cursor + selected
+            filled += take
+            offset += take
+            if filled == batch_size:
+                flush(filled)
+                filled = 0
+        output_cursor = output_end
+        if batch_number % max(1, total_batches // 10) == 0 or batch_number == total_batches:
+            logger.info(f"UMAP source batches: {batch_number}/{total_batches}.")
+        batch = next(batches, None)
+    if filled:
+        flush(filled)
+    logger.info(
+        f"UMAP reused {reused_rows} fit rows; transformed {transformed_rows} "
+        f"unseen rows in {calls} batches."
+    )
+    return embeddings[:output_cursor], coordinates[:output_cursor]
 
 
 def _finalize_umap_embeddings(
@@ -291,15 +400,9 @@ def _read_full_matrix(
     batch_size: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Build a full nonzero spectra matrix and coordinate matrix from the active backend."""
-    if isinstance(data_manager, MSDataManagerImzML):
-        batch_iter = _iter_imzml_matrix_batches(
-            data_manager, batch_size=batch_size,
-        )
-    elif isinstance(data_manager, MSDataManagerZarr):
-        batch_iter = _iter_spectra_zarr_matrix_batches(
-            data_manager, batch_size=batch_size,
-        )
-    elif isinstance(data_manager, IonImageDataManagerZarr):
+    if isinstance(data_manager, (MSDataManagerImzML, MSDataManagerZarr)):
+        return _read_full_spectra_matrix(data_manager, batch_size=batch_size)
+    if isinstance(data_manager, IonImageDataManagerZarr):
         batch_iter = _iter_zarr_matrix_batches(
             data_manager, batch_size=batch_size,
         )
@@ -326,39 +429,86 @@ def _read_full_matrix(
     return np.vstack(matrix_parts), np.vstack(coordinates_parts)
 
 
+def _read_full_spectra_matrix(
+    data_manager: MSDataManagerImzML | MSDataManagerZarr,
+    *,
+    batch_size: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Fill one allocation instead of retaining and stacking all spectra batches."""
+    if isinstance(data_manager, MSDataManagerImzML):
+        # Use the same spatial selection as matrix_generator, independent of ms.
+        source_indices = filter_target_indices(
+            data_manager.parser.coordinates, data_manager.target_locs,
+        )
+    else:
+        source_indices = data_manager._target_indices()  # pylint: disable=protected-access
+    n_spectra = source_indices.size
+    del source_indices
+
+    batches = _iter_umap_matrix_batches(data_manager, batch_size=batch_size)
+    batch = next(batches, None)
+    if batch is None:
+        raise ValueError("No non-zero spectra found.")
+    matrix = np.empty((n_spectra, batch[0].shape[1]), dtype=np.float32)
+    coordinates = np.empty((n_spectra, batch[1].shape[1]), dtype=batch[1].dtype)
+    row_start = 0
+    while batch is not None:
+        batch_matrix, batch_coords = batch
+        row_end = row_start + batch_matrix.shape[0]
+        matrix[row_start:row_end] = batch_matrix
+        coordinates[row_start:row_end] = batch_coords
+        row_start = row_end
+        batch = next(batches, None)
+
+    # Both arrays own their buffers; no views escape before shrinking zero rows.
+    if row_start < n_spectra:
+        matrix.resize((row_start, matrix.shape[1]))
+        coordinates.resize((row_start, coordinates.shape[1]))
+    return matrix, coordinates
+
+
 # --- imzML backend ---------------------------------------------------------
 #
-# imzML reads spectra from the raw spectrum list for sampling, then uses the
+# imzML samples source pixel IDs with a shared .ibd handle, then uses the
 # data manager's matrix_generator for sequential batch transforms.
 def _read_imzml_sample_matrix(
     manager: MSDataManagerImzML,
     sample_ratio: float,
     *,
     random_state: int | None = None,
-) -> np.ndarray:
-    """Randomly sample spectra from *manager.ms* by ratio and return a matrix."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Randomly sample spectra and return their matrix and source pixel IDs."""
     if sample_ratio <= 0 or sample_ratio > 1:
         raise ValueError("sample_ratio must be in (0, 1].")
 
-    n_spectra = len(manager.ms)
+    available_indices = filter_target_indices(manager.parser.coordinates, manager.target_locs)
+    n_spectra = available_indices.size
     n_features = len(manager.ms.shared_mz_list)  # type: ignore
     sample_count = max(1, int(np.ceil(n_spectra * sample_ratio)))
 
     rng = np.random.default_rng(random_state)
-    sample_indices = np.sort(rng.choice(n_spectra, size=sample_count, replace=False))
+    sample_positions = np.sort(rng.choice(n_spectra, size=sample_count, replace=False))
+    sample_indices = available_indices[sample_positions]
 
-    rows: list[np.ndarray] = []
-    for idx in sample_indices:
-        spectrum = manager.ms[int(idx)]
-        intensity = np.asarray(spectrum.intensity, dtype=np.float32)
-        spectrum.clear_data()
-        if np.any(intensity != 0):
-            rows.append(intensity[:n_features])
+    sample_matrix = np.empty((sample_count, n_features), dtype=np.float32)
+    source_indices = np.empty(sample_count, dtype=np.int64)
+    row_count = 0
+    reader = manager.reader
+    with open(manager.ibd_filepath, "rb") as file_handle:
+        for idx in sample_indices:
+            _, raw_intensity = reader.read_spectrum_from_file(file_handle, int(idx))
+            intensity = np.asarray(raw_intensity, dtype=np.float32)
+            if np.any(intensity != 0):
+                sample_matrix[row_count] = intensity[:n_features]
+                source_indices[row_count] = idx
+                row_count += 1
 
-    if not rows:
+    if row_count == 0:
         raise ValueError("All sampled spectra are zero; cannot build sample matrix.")
-
-    return np.vstack(rows)
+    if row_count < sample_count:
+        sample_matrix.resize((row_count, n_features))
+        source_indices.resize(row_count)
+    return sample_matrix, source_indices
 
 
 def _iter_imzml_matrix_batches(
@@ -377,7 +527,11 @@ def _iter_imzml_matrix_batches(
         if not np.any(nonzero_mask):
             continue
 
-        yield intensity[nonzero_mask], coords[nonzero_mask]
+        # Direct .ibd reads may be read-only views over bytes; UMAP sanitizes in place.
+        if np.all(nonzero_mask) and intensity.flags.writeable:
+            yield intensity, coords
+        else:
+            yield intensity[nonzero_mask], coords[nonzero_mask]
 
 
 def _deduplicate_last_by_xy(
@@ -404,8 +558,8 @@ def _read_spectra_zarr_sample_matrix(
     sample_ratio: float,
     *,
     random_state: int | None = None,
-) -> np.ndarray:
-    """Randomly sample spectra from a pixel-major Zarr store in indexed batches."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Read sampled spectra and their source IDs from a pixel-major Zarr store."""
     if sample_ratio <= 0 or sample_ratio > 1:
         raise ValueError("sample_ratio must be in (0, 1].")
 
@@ -438,9 +592,10 @@ def _read_spectra_zarr_sample_matrix(
     nonzero_mask = np.any(sample_matrix != 0, axis=1)
     if not np.all(nonzero_mask):
         sample_matrix = sample_matrix[nonzero_mask]
+        sample_indices = sample_indices[nonzero_mask]
     if sample_matrix.shape[0] == 0:
         raise ValueError("All sampled spectra are zero; cannot build sample matrix.")
-    return sample_matrix
+    return sample_matrix, sample_indices
 
 
 def _iter_spectra_zarr_matrix_batches(
