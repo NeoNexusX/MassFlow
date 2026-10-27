@@ -14,7 +14,7 @@ Because naturally occurring isotopes are present, the same compound often produc
 
 - The input must already have been processed and centroided: each spectrum has its own peak *m/z* array.
 - The program checks each pixel's spectrum separately and does not mix peaks from different pixels when making assignments.
-- Data points identified as later isotope peaks are actually removed.
+- Pipeline calls filter peaks and output data. Standalone helper calls identify and report peaks by default; set `remove=True` explicitly to remove later isotope peaks.
 - The recommended order is  `peak_pick → filter_peaks_by_isotopes → peak_align`.
 
 ## Function Description
@@ -35,7 +35,7 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_isotopes(
 ) -> Self
 ```
 
-- Function: identifies isotope clusters in each centroided spectrum and removes every peak in a cluster except the starting peak with the lowest *m/z* value.
+- Function: identifies isotope clusters in each centroided spectrum and outputs filtered data retaining only the lowest-*m/z* starting peak of each cluster and unassigned peaks. The pipeline API does not expose `remove` or report parameters.
 - Parameters:
   - `mz_tolerance`: isotope-peak matching tolerance, default `10.0`. The input value must be finite and positive.
   - `units`: tolerance unit, `"ppm"` or `"da"`, default `"ppm"`. The `ppm` tolerance cannot exceed `100 ppm`, and the `da` tolerance cannot exceed `0.1 Da`.
@@ -89,6 +89,57 @@ This example performs the following steps:
 
 
 
+## CSV Report
+
+To generate only a report, pass an `MSDataManagerImzML` as `data_manager` to the standalone helper with its default `remove=False`:
+
+```python
+from massflow.data_manager import MSDataManagerImzML
+from massflow.preprocess.helper.isotope_filter_helper import filter_peaks_by_isotopes
+
+# Input must be processed + centroided imzML, after peak picking and before alignment.
+dm = MSDataManagerImzML(filepath="data/centroided.imzML")
+dm.load_head_data()
+
+filter_peaks_by_isotopes(
+    data_manager=dm,
+    mz_tolerance=10.0,
+    max_charge=3,
+    batch_size=512,
+    report_path="reports/isotopes.csv",
+)
+dm.close()
+```
+
+Manager input streams spectra and report rows by `batch_size`. By default it returns the original manager without creating an output imzML. The `.csv` suffix is added if no suffix is given; omit `report_path` to skip writing a report file.
+
+To filter, set `remove=True`. The returned manager is a new dataset and must be closed by the caller:
+
+```python
+with MSDataManagerImzML(filepath="data/centroided.imzML") as dm:
+    dm.load_head_data()
+    filtered_dm = filter_peaks_by_isotopes(
+        data_manager=dm,
+        mz_tolerance=10.0,
+        max_charge=3,
+        remove=True,
+        output_path="data/isotope_filtered.imzML",
+        report_path="reports/isotopes.csv",
+    )
+    filtered_dm.close()
+```
+
+Without `output_path`, output is written to temporary storage; use `temp_dir` to choose its directory. Filtering preserves per-spectrum m/z, pixel coordinates, and input dtypes, and leaves the input manager usable. Array calls, `filter_peaks_by_isotopes(mz_data, intensity, lengths, ...)`, remain supported and return three arrays. Pipeline calls still always filter, with no executor changes.
+
+Each row represents one isotope peak proposed for removal and contains four columns:
+
+| spectrum_index | representative_mz | isotope_mz | charge |
+|---|---|---|---|
+| 0 | 500.000000 | 501.003355 | 1 |
+| 0 | 500.000000 | 502.006710 | 1 |
+
+`spectrum_index` is the zero-based spectrum index in the input's read order and continues across batches for manager input. `representative_mz` is the lowest-*m/z* starting peak of the cluster, which is retained when filtering. `charge` is the inferred charge state. Reports with no matches contain only the header.
+
 ### Workflow
 
 ```mermaid
@@ -126,7 +177,7 @@ Each spectrum is processed as follows:
 2. Test charge states in the order `max_charge → min_charge`.
 3. For each expected *m/z* value, select the peak with the smallest error inside the tolerance window.
 4. Stop extending the cluster if a peak is missing, has already been assigned, or does not satisfy the intensity model.
-5. If the cluster size reaches `min_isotope_count`, retain the starting peak and remove the remaining isotope peaks.
+5. If the cluster size reaches `min_isotope_count`, record the relationship between the starting peak and later isotope peaks. Pipeline calls remove later peaks; standalone helper calls remove them only when `remove=True`.
 6. Peaks that do not form a valid isotope cluster remain unchanged.
 
 ### Decreasing-Intensity Model

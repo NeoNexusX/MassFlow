@@ -42,6 +42,8 @@ def _build_isotope_keep_mask_jit(
     max_isotope_count: int,
     use_decreasing_model: bool,
     start_intensity_check: int,
+    representative_indices: np.ndarray,
+    charges: np.ndarray,
 ) -> np.ndarray:
     """Build a keep mask using the OpenMS simple deisotoping model."""
     keep = np.ones(mz.size, dtype=np.bool_)
@@ -87,6 +89,9 @@ def _build_isotope_keep_mask_jit(
                     isotope_peak = extensions[extension_index]
                     assigned[isotope_peak] = True
                     keep[isotope_peak] = False
+                    if representative_indices.size:
+                        representative_indices[isotope_peak] = current_peak
+                        charges[isotope_peak] = charge
                 break
 
     return keep
@@ -105,11 +110,15 @@ def isotope_keep_masks_flat_parallel_jit(
     max_isotope_count: int,
     use_decreasing_model: bool,
     start_intensity_check: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Build per-spectrum isotope keep masks and output lengths."""
+    collect_annotations: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Build keep masks, lengths, and optional per-peak report annotations."""
     offsets = lengths_to_offsets(lengths)
     keep = np.empty(intensity.size, dtype=np.bool_)
     filtered_lengths = np.empty(lengths.size, dtype=np.uint32)
+    annotation_size = intensity.size if collect_annotations else 0
+    representative_indices = np.empty(annotation_size, dtype=np.int64)
+    charges = np.empty(annotation_size, dtype=np.int64)
 
     for spectrum_index in prange(lengths.size):  # pylint: disable=not-an-iterable
         start = offsets[spectrum_index]
@@ -125,6 +134,8 @@ def isotope_keep_masks_flat_parallel_jit(
             max_isotope_count,
             use_decreasing_model,
             start_intensity_check,
+            representative_indices[start:end],
+            charges[start:end],
         )
         kept = 0
         for local_index in range(spectrum_keep.size):
@@ -133,7 +144,7 @@ def isotope_keep_masks_flat_parallel_jit(
                 kept += 1
         filtered_lengths[spectrum_index] = kept
 
-    return keep, filtered_lengths
+    return keep, filtered_lengths, representative_indices, charges
 
 
 @njit(parallel=True, cache=True)

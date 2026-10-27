@@ -168,6 +168,7 @@ class FlatPreprocess:
             max_isotope_count=max_isotope_count,
             use_decreasing_model=use_decreasing_model,
             start_intensity_check=start_intensity_check,
+            remove=True,
         )
         return FlatBatchResult(
             mz_data=filtered_mz,

@@ -14,7 +14,7 @@
 
 - 输入必须是已处理且已质心化的数据：每条谱具有自己的峰 *m/z* 数组。
 - 程序会分别检查每个像素中的质谱，不会把不同像素的峰混在一起判断。
-- 被识别为后续同位素峰的数据点会被真正删除。
+- Pipeline 中调用会实际过滤并输出数据。单独调用 helper 时默认只识别并报告，显式指定 `remove=True` 才删除后续同位素峰。
 - 推荐使用顺序为峰提取→同位素峰过滤→峰对齐 `peak_pick → filter_peaks_by_isotopes → peak_align`。
 
 ## 功能说明
@@ -35,7 +35,7 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_isotopes(
 ) -> Self
 ```
 
-- 功能：在每条已质心化谱中识别同位素簇，删除簇内除最低 *m/z* 起始峰以外的峰。
+- 功能：在每条已质心化谱中识别同位素簇，删除后续同位素峰，输出仅包含簇内最低 *m/z* 起始峰及未分配峰的数据。Pipeline 入口不提供 `remove` 或报告参数。
 - 参数：
   - `mz_tolerance`：同位素峰匹配容差，默认 `10.0`。输入值必须为有限正数。
   - `units`：容差单位，`"ppm"` 或 `"da"`，默认 `"ppm"`。`ppm`容差不能超过 `100 ppm`。`da` 容差不能超过 `0.1 Da`。
@@ -89,6 +89,57 @@ dm.close()
 
 
 
+## CSV 报告
+
+只生成报告请单独调用 helper，通过 `data_manager` 传入 `MSDataManagerImzML`，默认 `remove=False`：
+
+```python
+from massflow.data_manager import MSDataManagerImzML
+from massflow.preprocess.helper.isotope_filter_helper import filter_peaks_by_isotopes
+
+# 输入必须是已做峰提取、尚未峰对齐的 processed + centroided imzML。
+dm = MSDataManagerImzML(filepath="data/centroided.imzML")
+dm.load_head_data()
+
+filter_peaks_by_isotopes(
+    data_manager=dm,
+    mz_tolerance=10.0,
+    max_charge=3,
+    batch_size=512,
+    report_path="reports/isotopes.csv",
+)
+dm.close()
+```
+
+dm 模式按 `batch_size` 流式读取并写入报告，默认返回原 dm，不生成新的 imzML。`report_path` 无后缀时自动添加 `.csv`，省略时不写报告文件。
+
+实际过滤时指定 `remove=True`，返回新的 dm，并由调用者关闭：
+
+```python
+with MSDataManagerImzML(filepath="data/centroided.imzML") as dm:
+    dm.load_head_data()
+    filtered_dm = filter_peaks_by_isotopes(
+        data_manager=dm,
+        mz_tolerance=10.0,
+        max_charge=3,
+        remove=True,
+        output_path="data/isotope_filtered.imzML",
+        report_path="reports/isotopes.csv",
+    )
+    filtered_dm.close()
+```
+
+省略 `output_path` 时写入临时文件，可通过 `temp_dir` 指定临时目录。过滤结果保留逐谱 m/z、像素坐标及输入数据类型，输入 dm 保持可用。原有数组调用 `filter_peaks_by_isotopes(mz_data, intensity, lengths, ...)` 仍支持，并返回三个数组。Pipeline 仍始终过滤，执行器无需改动。
+
+每行对应一个拟移除的同位素峰，仅包含四列：
+
+| spectrum_index | representative_mz | isotope_mz | charge |
+|---|---|---|---|
+| 0 | 500.000000 | 501.003355 | 1 |
+| 0 | 500.000000 | 502.006710 | 1 |
+
+`spectrum_index` 是本次输入中按读取顺序从 0 开始的谱索引，dm 模式跨批次连续计数；`representative_mz` 是该同位素簇中最低 *m/z* 的起始峰，也是过滤时保留的峰。`charge` 是识别出的电荷数。没有匹配时只写表头。
+
 ### 流程图
 
 ```mermaid
@@ -125,7 +176,7 @@ $$
 2. 按 `max_charge → min_charge` 的顺序测试电荷状态。
 3. 对每个期望 *m/z*，在容差窗口内选择误差最小的峰。
 4. 遇到缺失峰、已分配峰或不满足强度模型时停止扩展。
-5. 若簇大小达到 `min_isotope_count`，保留起始峰并删除其余同位素峰。
+5. 若簇大小达到 `min_isotope_count`，记录起始峰与后续同位素峰的关系。Pipeline 会删除后续峰；单独调用 helper 时仅在 `remove=True` 时删除。
 6. 未组成有效同位素簇的峰保持不变。
 
 ### 强度递减模型
