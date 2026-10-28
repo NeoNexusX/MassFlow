@@ -11,12 +11,13 @@ from __future__ import print_function
 
 import os
 import uuid as uuid_module
-from collections import namedtuple, OrderedDict
+import zlib
+from collections import namedtuple
 from typing import Optional, List, Tuple, Union, Any
 import numpy as np
 
 from wheezy.template import Engine, CoreExtension, DictLoader
-from pyimzml.compression import NoCompression
+from pyimzml.compression import NoCompression, ZlibCompression
 
 _Spectrum = namedtuple(
     "_Spectrum",
@@ -160,6 +161,7 @@ IMZML_TEMPLATE = """\
 
 
 PLACEHOLDER_SHA1 = "0" * 40
+_MZ_COMPARE_CHUNK_SIZE = 64 * 1024
 
 
 class ImzMLWriter:
@@ -208,7 +210,7 @@ class ImzMLWriter:
 
         # Open files
         self.xml = open(self.filename, "w")  # pylint: disable=W1514
-        self.ibd = open(self.ibd_filename, "wb")
+        self.ibd = open(self.ibd_filename, "w+b" if mode == "auto" else "wb")
 
         # UUID
         self.uuid = uuid_module.uuid4()
@@ -234,9 +236,10 @@ class ImzMLWriter:
         # Continuous mode: Store position information of the first m/z array
         self.first_mz: Optional[Tuple[int, int, int]] = None
 
-        # LRU cache needed for auto mode (maintain compatibility)
-        self._lru_cache: OrderedDict = OrderedDict()
-        self._lru_maxlen = 10
+        # Auto mode retains every distinct m/z location, without retaining arrays.
+        self._mz_index: dict[Tuple[int, bytes], List[Tuple[int, int, int]]] = {}
+        self._mz_compare_buffer = bytearray()
+        self._auto_has_multiple_mz = False
         self._auto_detected_mode: Optional[str] = None
 
         # Polarity setting
@@ -307,6 +310,86 @@ class ImzMLWriter:
         """Write m/z array"""
         return self._write_binary_fast(mzs, self.mz_dtype)
 
+    def _get_previous_mz(self, mzs: np.ndarray) -> Tuple[int, int, int]:
+        """Reuse an indexed m/z array only after comparing its stored bytes."""
+        length = len(mzs)
+        # Sample bytes keep NaN payloads and signed zero consistent with comparison.
+        samples = b""
+        if length:
+            samples = b"".join(
+                mzs[i].tobytes()
+                for i in (0, length // 4, length // 2, 3 * length // 4, length - 1)
+            )
+        key = (length, samples)
+        candidates = self._mz_index.get(key)
+
+        if candidates is not None:
+            write_offset = self.ibd.tell()
+            data = memoryview(mzs).cast("B")
+            try:
+                for mz_data in candidates:
+                    self.ibd.seek(mz_data[0])
+                    if self._stored_mz_matches(data, mz_data[2]):
+                        return mz_data
+            finally:
+                self.ibd.seek(write_offset)
+
+        mz_data = self._write_mz(mzs)
+        if self._mz_index:
+            self._auto_has_multiple_mz = True
+        if candidates is None:
+            self._mz_index[key] = [mz_data]
+        else:
+            candidates.append(mz_data)
+        return mz_data
+
+    def _stored_mz_matches(self, data: memoryview, encoded_length: int) -> bool:
+        """Compare the m/z block at the current file position in bounded chunks."""
+        if not self._mz_compare_buffer:
+            self._mz_compare_buffer = bytearray(_MZ_COMPARE_CHUNK_SIZE)
+        buffer = self._mz_compare_buffer
+        buffer_view = memoryview(buffer)
+
+        if isinstance(self.mz_compression, ZlibCompression):
+            return self._stored_zlib_mz_matches(data, encoded_length, buffer_view)
+        if not isinstance(self.mz_compression, NoCompression):
+            raise ValueError("Auto-mode m/z reuse supports NoCompression and ZlibCompression.")
+
+        for start in range(0, len(data), len(buffer)):
+            size = min(len(buffer), len(data) - start)
+            if self.ibd.readinto(buffer_view[:size]) != size: # type: ignore
+                raise EOFError("Incomplete m/z block in ibd file.")
+            chunk = buffer if size == len(buffer) else buffer[:size]
+            if chunk != data[start : start + size]:
+                return False
+        return True
+
+    def _stored_zlib_mz_matches(
+        self, data: memoryview, encoded_length: int, buffer: memoryview
+    ) -> bool:
+        """Limit both compressed input and decoded output to the comparison chunk size."""
+        decoder = zlib.decompressobj()
+        remaining = encoded_length
+        start = 0
+        pending: Union[bytes, memoryview] = b""
+        while not decoder.eof:
+            if not pending and remaining:
+                size = min(len(buffer), remaining)
+                if self.ibd.readinto(buffer[:size]) != size: # type: ignore
+                    raise EOFError("Incomplete compressed m/z block in ibd file.")
+                pending = buffer[:size]
+                remaining -= size
+
+            chunk = decoder.decompress(pending, len(buffer))
+            pending = decoder.unconsumed_tail
+            end = start + len(chunk)
+            if bytearray(chunk) != data[start:end]:
+                return False
+            start = end
+            if not chunk and not pending and not remaining and not decoder.eof:
+                raise EOFError("Incomplete zlib stream in ibd file.")
+        return start == len(data)
+
     def _write_intensities(self, intensities: np.ndarray) -> Tuple[int, int, int]:
         """Write intensity array"""
         offset = self.ibd.tell()
@@ -376,21 +459,8 @@ class ImzMLWriter:
             mz_offset, mz_len, mz_enc_len = self._write_mz(mzs)
 
         elif self.mode == "auto":
-            # Auto mode: Use simplified cache strategy
-            mz_key = (
-                len(mzs),
-                mzs[0] if len(mzs) > 0 else 0,
-                mzs[-1] if len(mzs) > 0 else 0,
-            )
-            if mz_key in self._lru_cache:
-                mz_offset, mz_len, mz_enc_len = self._lru_cache[mz_key]
-            else:
-                mz_data = self._write_mz(mzs)
-                self._lru_cache[mz_key] = mz_data
-                # Simple LRU: Delete oldest when exceeding limit
-                if len(self._lru_cache) > self._lru_maxlen:
-                    self._lru_cache.popitem(last=False)
-                mz_offset, mz_len, mz_enc_len = mz_data
+            mzs = np.ascontiguousarray(mzs, dtype=self.mz_dtype)
+            mz_offset, mz_len, mz_enc_len = self._get_previous_mz(mzs)
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
 
@@ -630,7 +700,7 @@ class ImzMLWriter:
             if self._auto_detected_mode is not None:
                 mode = self._auto_detected_mode
             else:
-                mode = "processed" if len(self._lru_cache) > 1 else "continuous"
+                mode = "processed" if self._auto_has_multiple_mz else "continuous"
         else:
             mode = self.mode
 

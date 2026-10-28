@@ -164,6 +164,8 @@ class IonImageDataManagerH5(IonImageDataManager):
         if intensity.size != lengths.size * self._n_ions:
             raise ValueError("intensity_flat size does not match the batch shape.")
 
+        if np.any(coordinates[:, :2] < 0):
+            raise ValueError("coordinates must be non-negative.")
         xy = coordinates[:, :2].astype("<u4", copy=False)
         self._coordinate_chunks.append(xy.copy())
         self._n_pixels += int(lengths.size)
@@ -172,6 +174,27 @@ class IonImageDataManagerH5(IonImageDataManager):
             n_pixels=int(lengths.size),
             n_ions=self._n_ions,
         )
+
+    def _build_flat_index(self) -> np.ndarray:
+        """Build a checked pixel index from zero- or one-based coordinates."""
+        xs = self.coordinates[:, 0].astype(np.int64, copy=False)
+        ys = self.coordinates[:, 1].astype(np.int64, copy=False)
+        zero_based = (xs.size > 0 and int(xs.min()) == 0) or (
+            ys.size > 0 and int(ys.min()) == 0
+        )
+        if not zero_based:
+            xs, ys = xs - 1, ys - 1
+        if self._width is None:
+            self._width = int(xs.max()) + 1
+        if self._height is None:
+            self._height = int(ys.max()) + 1
+        valid = (xs >= 0) & (xs < self.width) & (ys >= 0) & (ys < self.height)
+        if not np.all(valid):
+            raise ValueError(
+                "coordinates are outside the H5 image bounds "
+                f"(width={self.width}, height={self.height})."
+            )
+        return ys * self.width + xs
 
     def finalize(self) -> None:
         """合并 temp 文件 → H5（bitshuffle+lz4 压缩）。"""
@@ -186,10 +209,7 @@ class IonImageDataManagerH5(IonImageDataManager):
             raise ValueError("No ion-image batches were written.")
         batch_infos = self._temp_store.finish()
         self._coordinates = np.vstack(self._coordinate_chunks)
-        if self._width is None:
-            self._width = int(np.max(self.coordinates[:, 0]))
-        if self._height is None:
-            self._height = int(np.max(self.coordinates[:, 1]))
+        self._flat_idx = self._build_flat_index()
 
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
         self._merge_to_h5(batch_infos)
@@ -205,14 +225,8 @@ class IonImageDataManagerH5(IonImageDataManager):
         dtype = self.intensity_dtype
         assert n is not None and self._temp_store is not None
 
-        # 散射索引（所有 ion 共用）
-        xs = self.coordinates[:, 0].astype(np.int64, copy=False)
-        ys = self.coordinates[:, 1].astype(np.int64, copy=False)
-        if xs.size > 0 and int(xs.min()) != 0:
-            xs, ys = xs - 1, ys - 1
-        valid = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
-        fidx = (ys[valid] * w + xs[valid])
-        self._flat_idx = fidx
+        assert self._flat_idx is not None
+        fidx = self._flat_idx
 
         with h5py.File(self.filepath, "w") as f:
             f.attrs["width"], f.attrs["height"] = w, h
@@ -276,13 +290,7 @@ class IonImageDataManagerH5(IonImageDataManager):
         self._n_ions = int(cast(int, self._h5.attrs["n_ions"]))
         self._n_pixels = int(cast(int, self._h5.attrs["n_pixels"]))
         # 重建散射索引（供 get_ion_vector 使用）
-        xs = self.coordinates[:, 0].astype(np.int64, copy=False)
-        ys = self.coordinates[:, 1].astype(np.int64, copy=False)
-        if xs.size > 0 and int(xs.min()) != 0:
-            xs, ys = xs - 1, ys - 1
-        w, h = self.width, self.height
-        valid = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
-        self._flat_idx = (ys[valid] * w + xs[valid])
+        self._flat_idx = self._build_flat_index()
 
     def get_ion_image(self, ion_idx: int) -> np.ndarray:
         """读取单 chunk → 解压 → 返回 (H, W)。"""

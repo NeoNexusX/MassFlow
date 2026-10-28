@@ -173,6 +173,12 @@ def _write_binary_masked(
     batch_size: int,
 ) -> IonImageDataManagerBinary:
     """Write selected Binary pixel columns directly to a new Binary file."""
+    output_path = Path(output_path)
+    if output_path.resolve() == data_manager.filepath.resolve() or (
+        output_path.exists() and output_path.samefile(data_manager.filepath)
+    ):
+        raise ValueError("Binary mask output must not overwrite the source file.")
+
     coordinates, selected_indices = _selected_coordinates(data_manager, mask)
     mz_axis = np.asarray(data_manager.mz_axis, dtype=data_manager.mz_dtype)
     coordinates = coordinates[:, :2].astype("<u4", copy=False)
@@ -192,7 +198,7 @@ def _write_binary_masked(
         intensity_offset=intensity_offset,
     )
 
-    with Path(output_path).open("wb") as output_file:
+    with output_path.open("wb") as output_file:
         output_file.write(header.to_bytes())
         output_file.write(memoryview(np.ascontiguousarray(mz_axis)))
         output_file.write(memoryview(np.ascontiguousarray(coordinates)))
