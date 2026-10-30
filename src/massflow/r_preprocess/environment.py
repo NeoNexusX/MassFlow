@@ -77,13 +77,18 @@ class REnvironment:
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(REnvironment, cls).__new__(cls)
-            cls._instance._initialize()
+            # 先完成初始化、成功后才登记为单例：初始化失败时 _instance 保持
+            # None，下次调用会重新初始化，而不是拿到半初始化的对象。
+            instance = super(REnvironment, cls).__new__(cls)
+            instance._initialize()
+            cls._instance = instance
         return cls._instance
 
     def _initialize(self):
 
         essential_pkgs = ['base', 'utils', 'methods', 'S4Vectors','Cardinal']
+        # 保存宿主进程的 locale 设置；无论初始化成功或失败都还原
+        saved_locale = {key: os.environ.get(key) for key in ("LANGUAGE", "LC_ALL")}
         # 1. Configure environment
         try:
             RConfig.setup_env()
@@ -108,11 +113,24 @@ class REnvironment:
 
         except ImportError as e:
             logger.error("Required Python package 'rpy2' is not installed.")
-            raise ImportError("This error should not occur Please open a issue to github") from e
+            raise ImportError(
+                "rpy2 is not installed. Install it with the R extras: "
+                "pip install 'massflow[r]'"
+            ) from e
 
         except Exception as e:
-            logger.error(f"Failed to load R packages. Ensure follw pkgs are install :{essential_pkgs}it is installed in your R environment.")
-            raise RuntimeError("This error should not occur Please open a issue to github") from e
+            logger.error(f"Failed to load R packages: {essential_pkgs}")
+            raise RuntimeError(
+                f"Failed to load R packages {essential_pkgs}. "
+                "Ensure they are installed in your R environment."
+            ) from e
+
+        finally:
+            for key, value in saved_locale.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
     @property
     def cardinal(self):

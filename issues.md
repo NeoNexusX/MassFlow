@@ -47,7 +47,7 @@
 
 ## 1. 严重问题
 
-- [ ] **BUG-01 [P0][实测] imzML 写出器在 auto 模式下会把不同谱的 m/z 写成同一条**
+- [x] **BUG-01 [P0][实测] imzML 写出器在 auto 模式下会把不同谱的 m/z 写成同一条**
   - 位置：[stream_imzml_writer.py:378-393](src/massflow/tools/stream_imzml_writer.py#L378-L393)
   - 问题：缓存用 `(长度, 首值, 尾值)` 判断两条 m/z 是否相同。两条 processed 谱只要这三项一样，第二条就会复用第一条的 m/z 偏移，而且没有任何报错。元数据没有标明 continuous 或 processed 时，`MSDataManagerImzML.add_spectrum` 和 `swap_matrix_data_out2disk` 都会走这个模式。
   - 复现：依次写入 `[100, 150.2, 200]` 和 `[100, 170.5, 200]`，读回的第二条是 `[100, 150.2, 200]`。
@@ -65,7 +65,7 @@
   - 复现：先 `step1 = Preprocessor(dm).filter_peaks_by_isotopes().start()`，再 `Preprocessor(step1).peak_align().start()`，报 `could not broadcast input array from shape (0,) into shape (40,)`。
   - 建议：默认文件名加上 uuid；路径解析后如果与输入相同，直接报错。
 
-- [ ] **BUG-04 [P0][实测] H5 离子图在 finalize 时崩溃**
+- [x] **BUG-04 [P0][实测] H5 离子图在 finalize 时崩溃**
   - 位置：[ion_image_data_manager_h5.py:206-211](src/massflow/data_manager/ion_image_data_manager_h5.py#L206-L211)、[:428](src/massflow/data_manager/ion_image_data_manager_h5.py#L428)
   - 问题：`dense[:, flat_idx] = sparse` 默认所有像素都有效，只要有一个坐标越界就报 shape mismatch。另外，判断坐标从 0 还是从 1 开始时只看 x 的最小值（第 208 行）：如果 y 含 0 而 x 不含 0，程序会把 x、y 整体减 1，y 就变成 -1，同样崩溃。同一组坐标在 Binary 后端下输出正确。
   - 建议：散射时只取有效列（`sparse[:, valid]`），并和其他后端统一坐标基准（见 LOGIC-06）。
@@ -76,7 +76,7 @@
   - 复现：把软上限设为 256（macOS 上 launchd 的默认值，从 Finder/Dock 启动的 Jupyter 会继承），写入 300 个 batch 后调用 `finalize()`，报 `OSError: [Errno 24] Too many open files`。按 `batch_size=256` 计算，约 6.4 万像素就会触发；Linux 常见的默认上限 1024 对应约 26 万像素。
   - 建议：每读完一个 band 就关闭 fd，或者只用一个容量很小的 fd LRU，或者把临时 batch 合并写入同一个文件。
 
-- [ ] **BUG-06 [P0][实测] import 时修改宿主程序的全局日志和警告配置**
+- [x] **BUG-06 [P0][实测] import 时修改宿主程序的全局日志和警告配置**
   - 位置：[logger.py:273](src/massflow/tools/logger.py#L273)、[:118-119](src/massflow/tools/logger.py#L118-L119)、[:136-138](src/massflow/tools/logger.py#L136-L138)、[:150-151](src/massflow/tools/logger.py#L150-L151)
   - 问题：import 任意一个 massflow 模块都会产生以下副作用：
     - 在当前工作目录创建 `logs/`；
@@ -104,20 +104,23 @@
     - 没有传 `ref` 时，程序取当前 flat m/z 数组中间的那个值。对 processed 数据，这个值每个 batch 都不一样，各 batch 的归一化基准不一致（读码）。
   - 建议：找不到参考峰时保留原值或写入 NaN 并告警；`ref` 为 None 时直接报错，或者在整个数据集上只确定一次。
 
-- [ ] **BUG-10 [P1][实测/读码] `start()` 会改写已注册的任务**
+- [x] **BUG-10 [P1][实测/读码] `start()` 会改写已注册的任务**
   - 位置：[runner.py:75-80](src/massflow/preprocess/pipeline/runner.py#L75-L80)、[planner.py:137-138](src/massflow/preprocess/pipeline/planner.py#L137-L138)
-  - 问题：runner 把算出来的 reference/tolerance 写回了 `Preprocessor._tasks` 里的同一个任务对象（实测），在 Jupyter 里第二次调用 `start()` 时会沿用上一次的参考轴。planner 还会覆盖 dataset 任务的 `output_path`，用户显式传入的值也会被盖掉（读码）。
+  - 问题：runner 把算出来的 reference/tolerance 写回了 `Preprocessor._tasks` 里的同一个任务对象（实测），在 Jupyter 里第二次调用 `start()` 时会沿用上一次的参考轴。
   - 建议：规划前对任务做 `copy.deepcopy`，运行过程中产生的结果只写进副本。
+  - 修复及约定（2026-10-29）：规划前已深拷贝任务，规划和运行时的修改只作用于副本。最终输出路径统一由顶层 `Preprocessor(..., output_path=...)` 决定，未指定时使用默认路径；planner 将该路径注入最后一个 dataset 任务是预期行为。
 
-- [ ] **BUG-11 [P1][实测] 文件名带点时路径解析出错，四处规则也不一致**
+- [x] **BUG-11 [P1][实测] 文件名带点时路径解析出错，四处规则也不一致**
   - 位置：[ms_data_manager.py:70-73](src/massflow/data_manager/ms_data_manager.py#L70-L73)；对比 [stream_imzml_writer.py:204](src/massflow/tools/stream_imzml_writer.py#L204)、[export_imzml.py:361-364](src/massflow/tools/export_imzml.py#L361-L364)、[scripts/imzml_to_zarr.py:113](scripts/imzml_to_zarr.py#L113)
-  - 问题：DataManager 会循环剥掉所有扩展名，`sample.v2.imzML` 被解析成 `sample.imzML`，结果找不到文件；另外三处都只剥掉一层。
+  - 问题：DataManager 会循环剥掉所有扩展名，`sample.v2.imzML` 被解析成 `sample.imzML`，结果找不到文件；另外三处中写出器只剥一层（正确），但 export 的 `with_suffix` 链随后又替换一层，`out.v2.imzML` 同样被解析成 `out.imzML`（实测）。
   - 建议：只去掉已知后缀（`.imzML`、`.ibd`、`.zarr`，不区分大小写），四处共用同一个函数。
+  - 修复（2026-10-29）：库内三处统一改用 `funs.strip_known_suffix`；`scripts/imzml_to_zarr.py` 未入库，入库时需替换。
 
-- [ ] **BUG-12 [P1][实测/读码] 生成器会永久改掉 DataManager 的线程数**
+- [x] **BUG-12 [P1][实测/读码] 生成器会永久改掉 DataManager 的线程数**
   - 位置：[ms_data_manager_imzml.py:270-276](src/massflow/data_manager/ms_data_manager_imzml.py#L270-L276)
   - 问题：调用 `flat_generator(max_threads=2)` 之后，`dm.max_threads` 从 8 变成了 2（实测）。画图函数和 `reference_computer` 默认传 2，dataset executor 传 `output_max_workers`，所以用户的输入 DataManager 会被悄悄降速。如果 `output_max_workers=1`，还会直接报 "Single-thread mode is not supported"（读码）。
   - 建议：生成器内部使用局部的线程数，不要写回实例属性。
+  - 修复：并发管理重构（Refactor/concurrency-management）中消除——`max_threads` 参数已移除，`flat_generator` 不再接收/写回线程数，并发度改由 `massflow.concurrency` 按阶段统一解析（`resolve_workers("io_read")`）。
 
 ## 2. 逻辑错误与隐患
 
@@ -126,10 +129,11 @@
   - 问题：`copy_meta` 要求源元数据和目标是同一类型，从 `MetaDataZarr` 复制到 `MetaDataImzMl` 时只打一条警告、什么都不复制；而反方向的 `MetaDataZarr.copy` 支持跨类型，两边不对称。另外，`ImzMLWriter.from_ms_meta` 本身就不写像素尺寸（IMS:1000046/47）和极性，所以经 MassFlow 写出的 imzML 都会丢掉像素尺寸。
   - 建议：按字段名跨类型复制；模板补上 pixel size 和 polarity。
 
-- [ ] **LOGIC-02 [P1][读码] 谱类型未知时一律写成 centroid，重新读入后 profile 步骤会被丢弃**
+- [x] **LOGIC-02 [P1][读码] 谱类型未知时一律写成 centroid，重新读入后 profile 步骤会被丢弃**
   - 位置：[stream_imzml_writer.py:659](src/massflow/tools/stream_imzml_writer.py#L659)
   - 问题：只要 `profile_spectrum` 不是 True，就写 centroid。之后读入这个文件时，planner 会把它当 centroid 数据，丢掉 baseline、noise 和 peak_pick 任务。
   - 建议：类型未知时不写谱类型的 cvParam，或者在写出前先推断。
+  - 修复（2026-10-29 核实）：pipeline 主链路已闭环——入口 `resolve_spectrum_type` 对未标注数据回落启发式推断，`flat_executor` 对每个输出规范化 meta（`set_spectrum_type_metadata`），"未知"状态不再流到写出器。残余：绕过 pipeline 直接 `add_spectrum` 且未 `copy_meta` 时，空 meta 仍默认写 centroid（writer 默认 `spec_type="centroid"`），属直接 API 使用的小角落。
 
 - [ ] **LOGIC-03 [P2][读码] 写出的 imzML 不完全符合规范**
   - 位置：[stream_imzml_writer.py:30-33](src/massflow/tools/stream_imzml_writer.py#L30-L33)、[:68](src/massflow/tools/stream_imzml_writer.py#L68)、[:528](src/massflow/tools/stream_imzml_writer.py#L528)、[:541-552](src/massflow/tools/stream_imzml_writer.py#L541-L552)、[:706-711](src/massflow/tools/stream_imzml_writer.py#L706-L711)
@@ -138,18 +142,20 @@
     - `ms level` 写成了 0；
     - flat 写出路径忽略压缩配置，XML 里却照样声明压缩方式（默认不压缩，所以目前不会触发）；
     - `__exit__` 遇到异常时会留下半成品文件。
+  - 决定不修（2026-10-29）：默认配置下输出正确，影响仅限严格校验工具、非默认压缩配置与异常路径。
 
-- [ ] **LOGIC-04 [P2][实测] 连续读取路径返回只读数组**
+- [x] **LOGIC-04 [P2][实测] 连续读取路径返回只读数组**
   - 位置：[read_matrix.py:148-152](src/massflow/tools/read_matrix.py#L148-L152)、[read_flat.py:37-41](src/massflow/tools/read_flat.py#L37-L41)
   - 问题：磁盘 dtype 与输出 dtype 相同时，程序直接返回 `frombuffer` 的只读视图，而碎片化读取路径返回的是可写数组。用户对结果做原地运算时会报错，而且报不报错取决于数据在磁盘上是否连续。
   - 建议：统一返回可写数组，例如用 `readinto` 读进预分配的数组。
+  - 核实（2026-10-29），不修：内部消费链（flat_pre_fun 各任务及全部 generator 调用点）均为函数式——读输入、建新输出，从不原地改写，只读无害；外部用户原地操作会得到明确的 `ValueError` 而非静默错误。仅存"可写性随磁盘排布不一致"的 API 契约毛刺。
 
-- [ ] **LOGIC-05 [P1][实测] H5 数据集无法 pickle，在 macOS 上用多进程 DataLoader 会失败**
+- [x] **LOGIC-05 [P1][实测] H5 数据集无法 pickle，在 macOS 上用多进程 DataLoader 会失败**
   - 位置：[ion_image_h5_dataset.py:85-89](src/massflow/morch/ion_image_h5_dataset.py#L85-L89)
   - 问题：数据集被访问过一次之后会持有 `h5py.File`，此时 `pickle.dumps` 报 `h5py objects cannot be pickled`。macOS 默认用 spawn 启动 worker，需要 pickle 数据集。Binary 版本没有这个问题。
   - 建议：实现 `__getstate__`，把 `_file` 和 `_dset` 丢掉。
 
-- [ ] **LOGIC-06 [P2][读码] 判断坐标从 0 还是从 1 开始，代码里有 6 套不同的规则**
+- [x] **LOGIC-06 [P2][读码] 判断坐标从 0 还是从 1 开始，代码里有 6 套不同的规则**
   - 位置（括号内是各处的判断方式）：
     - [ion_image_data_manager_binary.py:608](src/massflow/data_manager/ion_image_data_manager_binary.py#L608)（x 或 y 含 0）
     - [ion_image_data_manager_h5.py:208](src/massflow/data_manager/ion_image_data_manager_h5.py#L208)（只看 x 的最小值）
@@ -159,54 +165,66 @@
     - [umap_kmeans.py:692-695](src/massflow/segmentation/umap_kmeans.py#L692-L695)
   - 问题：同一份数据在不同模块里可能被当成不同的基准。[region_mask.py:66-79](src/massflow/segmentation/region_mask.py#L66-L79) 没有越界检查，坐标为 -1 时会静默取到最后一行或最后一列；[:165](src/massflow/segmentation/region_mask.py#L165) 读取的 `_coordinate_base` 属性在任何类里都不存在。
   - 建议：imzML 规范和 Zarr schema 都规定坐标从 1 开始。可以统一成一个函数，或者直接固定为从 1 开始。
+  - 核实+修复（2026-10-29）：大部分已在先前修复中收敛——H5（090bd9c）改为"x 或 y 含 0"并加越界检查，binary/plot×3/umap 语义本就一致，region_mask 判定已参数化（`_select_coordinates`，zarr 路径显式 `"one"`）。本次将最后一个异类 morch binary dataset 对齐为"x 或 y 含 0"（消除 x≥1 且 y 含 0 时静默丢弃第一行像素），并删除 region_mask 里永不存在的 `_coordinate_base` getattr（死属性，永远返回 None）。
 
-- [ ] **LOGIC-07 [P2][读码] processed 数据的离子图取"最近峰"时不设容差**
+- [x] **LOGIC-07 [P2][读码] processed 数据的离子图取"最近峰"时不设容差**
   - 位置：[plot_ion_image.py:146-150](src/massflow/tools/plot_ion_image.py#L146-L150)
   - 问题：`mz_tolerance=None` 时，每个像素都取离目标最近的峰，即使相距几十 Da 也会被画进离子图。
   - 建议：没给容差时使用一个默认的 ppm 容差，超出范围的像素填 0。
+  - 修复（2026-10-29）：不传容差时改为"10 ppm 窗口内取最近，窗口外填 0"（`DEFAULT_MZ_TOLERANCE_PPM = 10.0`，与 isotope filter 惯例对齐），三条路径（processed / shared 轴 / ion-image manager）统一；显式 `mz_tolerance` 的窗口求和行为不变；结果全零时打 warning 提示放宽容差。默认窗口用"取最近"而非"求和"，避免 continuous/profile 轴上跨多个采样 bin 求和的失真。
 
-- [ ] **LOGIC-08 [P2][读码] Cardinal 后端的若干问题**
+- [x] **LOGIC-08 [P2][读码] Cardinal 后端的若干问题**
   - 位置：[api.py:261](src/massflow/preprocess/api.py#L261)、[:266](src/massflow/preprocess/api.py#L266)；[adapter.py:260-261](src/massflow/r_preprocess/adapter.py#L260-L261)
   - 问题：
     - `peak_align` 的 `min_frequency` 默认值是 0.01，所以"只有 Python 后端支持"的警告每次都会打印；
     - `cardinal_runner` 直接读 `data_manager.imzml_filepath`，输入是 Zarr 时会报 AttributeError；
     - R 端会读取整个文件，`target_locs` 被静默忽略。
+  - 决定不修（2026-10-29）：Cardinal/R 后端的固有行为限制，massflow 侧无法根治。
 
-- [ ] **LOGIC-09 [P2][读码] R 环境初始化的问题**
+- [x] **LOGIC-09 [P2][读码] R 环境初始化的问题**
   - 位置：[environment.py:78-82](src/massflow/r_preprocess/environment.py#L78-L82)、[:109-111](src/massflow/r_preprocess/environment.py#L109-L111)、[:42-43](src/massflow/r_preprocess/environment.py#L42-L43)；[r_preprocess/\_\_init\_\_.py:5-12](src/massflow/r_preprocess/__init__.py#L5-L12)
   - 问题：
     - 单例先给 `_instance` 赋值再初始化，初始化失败后再调用，拿到的是一个半初始化的对象；
     - rpy2 没有安装时提示 "This error should not occur"，而没有提示安装 `--extra r`；
     - `LC_ALL=C` 改的是整个 Python 进程的环境变量；
     - `set_default_r_home` 先赋值、后校验路径。
+  - 修复（2026-10-29）：单例改为初始化成功后才登记（失败保持 None、可重试）；两条报错改为可执行的指引（rpy2 → `pip install 'massflow[r]'`，R 包缺失 → 列出包名）；`LANGUAGE`/`LC_ALL` 在初始化前保存，并通过 `finally` 在成功或异常时还原，显式传入 `r_home` 的入口也在提前配置环境前保存；`set_default_r_home` 先校验后赋值。
 
-- [ ] **LOGIC-10 [P2][读码] 没有注册任务且输出为 imzML 时，`output_path` 被静默忽略**
+- [x] **LOGIC-10 [P2][读码] 没有注册任务且输出为 imzML 时，`output_path` 被静默忽略**
   - 位置：[preprocessor.py:140-149](src/massflow/preprocess/preprocessor.py#L140-L149)
   - 问题：程序直接返回输入的 DataManager，不写任何文件，也不给提示。
+  - 决定不修（2026-10-29）：零任务即恒等变换，透传输入 DataManager 是合理的程序化语义。
 
 - [ ] **LOGIC-11 [P2][读码] 各模块支持的数据类型不一致**
   - 位置：[plot_ion_image.py:28-31](src/massflow/tools/plot_ion_image.py#L28-L31)、[region_mask.py:32-37](src/massflow/segmentation/region_mask.py#L32-L37)
   - 问题：流水线可以输出 `spectra_zarr`，UMAP/KMeans 也接受 `MSDataManagerZarr`，但 `read_ion_image`、`plot_ion_image`、`plot_tic_image` 和 `apply_region_mask` 都不支持它。结果是 `SegmentationPipeline` 用 `MSDataManagerZarr` 能跑完 UMAP，到 `apply_region_mask` 这一步才报错。
 
-- [ ] **LOGIC-12 [P2][读码] 输入数据可能被意外修改或删除**
+- [x] **LOGIC-12 [P2][读码] 输入数据可能被意外修改或删除**
   - 位置：[umap_kmeans.py:938-943](src/massflow/segmentation/umap_kmeans.py#L938-L943)、[region_mask.py:203](src/massflow/segmentation/region_mask.py#L203)、[ms_data_manager.py:247-248](src/massflow/data_manager/ms_data_manager.py#L247-L248)、[ms_data_manager_imzml.py:254-258](src/massflow/data_manager/ms_data_manager_imzml.py#L254-L258)
   - 问题：
     - UMAP 的 `save_matrix="zarr"` 以 `r+` 模式把结果写进源 MSI Zarr；
     - Binary 后端的 region mask 在输出路径等于输入路径时，会先截断源文件再读取；
     - `filepath=None` 的 imzML DataManager 被垃圾回收时（`__del__`）会自动删除文件，只保存了路径字符串的调用方会发现文件不见了。
+  - 核实（2026-10-29），设计行为 + 已修：
+    - UMAP `r+`：仅在源 Zarr 追加 `analysis/umap` 结果组，原始数据不动，且由显式参数 `save_matrix="zarr"` 触发（默认不写）——设计意图；
+    - Binary region mask：已在 090bd9c 修复，输出路径等于源文件时直接 raise ValueError；
+    - `__del__` 删文件：仅清理 `filepath=None` 时自建的 `temp_<uuid>` 私有临时 swap 文件，防止临时目录堆积——设计意图。
 
-- [ ] **LOGIC-13 [P2][读码] 构造 DataManager 时会覆盖传入的 `ms` 的元数据**
+- [x] **LOGIC-13 [P2][读码] 构造 DataManager 时会覆盖传入的 `ms` 的元数据**
   - 位置：[ms_data_manager_imzml.py:76](src/massflow/data_manager/ms_data_manager_imzml.py#L76)；Zarr 版本在 [ms_data_manager_zarr.py:65](src/massflow/data_manager/ms_data_manager_zarr.py#L65)，问题相同。
+  - 决定不修（2026-10-29）：仅影响"直接构造且传入带 meta 的 `ms`"的非常规用法；主流路径（`filepath` 读文件、pipeline 内部 `copy_meta`）不经过该覆盖点。
 
-- [ ] **LOGIC-14 [P2][读码] `units="relative"` 时 tolerance 的含义不明确**
+- [x] **LOGIC-14 [P2][读码] `units="relative"` 时 tolerance 的含义不明确**
   - 位置：[api.py:290](src/massflow/preprocess/api.py#L290)、[peak_align_helper.py:41-43](src/massflow/preprocess/helper/peak_align_helper.py#L41-L43)、[:449](src/massflow/preprocess/helper/peak_align_helper.py#L449)
   - 问题：只有 `units == "ppm"` 时才会乘以 1e-6，而 `_normalize_units` 把 `"relative"` 和 `"ppm"` 当成同一类。所以传入 `units="relative", tolerance=10` 时，10 会被当成相对值 10（即 1000%）。
+  - 修复（2026-10-29）：`"relative"` 从公开 API 移除——`peak_align` 入口先将 `units` 转为小写，再校验仅接受 `"da"`、`"ppm"`，兼容 `"Da"`、`"DA"`、`"PPM"` 等大小写写法；内部 `_reference_computer` 使用规范化后的 `Literal["da", "ppm"]`，传 `"relative"` 直接报 ValueError。触发面确认极窄（默认 `ppm`，内部 `"relative"` 是已换算的比例刻度约定，仅显式传入隐藏取值才触发）。`_normalize_units` 只归一类别标签、数值换算散在两处字符串比较的结构问题仍在，但入口收紧后不可达，暂不动。
 
-- [ ] **LOGIC-15 [P2][读码] ion-image 的 `from_data_manager` 没有处理元数据中宽高为 0 的情况**
+- [x] **LOGIC-15 [P2][读码] ion-image 的 `from_data_manager` 没有处理元数据中宽高为 0 的情况**
   - 位置：[ion_image_data_manager_zarr.py:246-247](src/massflow/data_manager/ion_image_data_manager_zarr.py#L246-L247)、[ion_image_data_manager_binary.py:236-237](src/massflow/data_manager/ion_image_data_manager_binary.py#L236-L237)、[ion_image_data_manager_h5.py:337-338](src/massflow/data_manager/ion_image_data_manager_h5.py#L337-L338)
   - 问题：宽高直接取 `int(meta.max_count_of_pixels_x/y)`，而这两个字段的默认值是 0。宽高为 0 时，Zarr 会把所有坐标判为越界，Binary 会写出宽度为 0 的文件（离子图全空），H5 则会崩溃。`MSDataManagerZarr` 对 `<= 0` 做了保护，这三个后端没有。
+  - 决定暂缓（2026-10-29）：触发面窄（仅源元数据 `max_count_of_pixels_x/y` 未解析、保持默认 0 的坏文件）；且 `from_flat_output_contract` 另有三处同构取值，一并修需改六处工厂方法。核实备注：三后端的现有防御（None 推断/报错机制）全部只拦 `None` 不拦 `0`，默认值恰好落在盲区；将来修法建议在工厂方法取值处校验并 raise（构造即失败、早于任何写入），而非照抄 MSDataManagerZarr 的 0→None 转换（三后端写模式下 None 的归宿不一致，报错会偏离根因）。
 
-- [ ] **LOGIC-16 [P2][实测/读码] `MassSpectrumSet`、`PixelCoordinates`、`Spectrum` 的 API 缺陷**
+- [x] **LOGIC-16 [P2][实测/读码] `MassSpectrumSet`、`PixelCoordinates`、`Spectrum` 的 API 缺陷**
   - 位置：[mass_spectrum_set.py:229-236](src/massflow/module/mass_spectrum_set.py#L229-L236)、[:271-277](src/massflow/module/mass_spectrum_set.py#L271-L277)；[pixel_coordinates.py:39-58](src/massflow/module/pixel_coordinates.py#L39-L58)、[:90](src/massflow/module/pixel_coordinates.py#L90)、[:92-111](src/massflow/module/pixel_coordinates.py#L92-L111)；[spectrum.py:150-155](src/massflow/module/spectrum.py#L150-L155)
   - 问题：
     - `ms[x, y, z, w]` 静默返回 None（实测）；
@@ -214,6 +232,7 @@
     - numpy 整数在构造函数里被拒绝，在 y/z 的 setter 里被静默忽略（实测）；
     - y 和 z 的报错信息都写成了 "X coordinate"；
     - `Spectrum` 定义了 `__eq__` 却没有定义 `__hash__`，因此不可哈希（实测）。
+  - 决定暂缓（2026-10-29）：实际流程中未观察到触发（坐标流转不直接经过这些 API 边角）。五条均已核实存在，修法备忘：四元组索引加 else 兜底、`ms[x,y]` 读写统一 z 选取公式、类型检查放宽为 `(int, np.integer)` 且 setter 补 else 报错、y/z 报错文案改正、`Spectrum` 补 `__hash__`（与坐标 `__eq__` 一致）。
 
 - [ ] **LOGIC-17 [P2][读码] DataManager 基类的边界处理**
   - 位置：[ms_data_manager.py:79-81](src/massflow/data_manager/ms_data_manager.py#L79-L81)、[:182-193](src/massflow/data_manager/ms_data_manager.py#L182-L193)、[:202](src/massflow/data_manager/ms_data_manager.py#L202)、[:214-215](src/massflow/data_manager/ms_data_manager.py#L214-L215)

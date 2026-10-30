@@ -67,15 +67,31 @@ def _batch_uses_shared_mz(
 # m/z selection helpers
 # ---------------------------------------------------------------------------
 
+# Default relative window used when no explicit mz_tolerance is given: peaks
+# farther away than this are treated as "no signal" instead of "nearest".
+DEFAULT_MZ_TOLERANCE_PPM = 10.0
+
 
 def _nearest_mz_index(
     mz_axis: np.ndarray,
     mz: float,
+    mz_tolerance: float | None = None,
 ) -> int:
-    """Return the index of the m/z value nearest to the requested target."""
+    """Return the index of the m/z value nearest to the requested target.
+
+    Without an explicit ``mz_tolerance`` the search is limited to a
+    ``DEFAULT_MZ_TOLERANCE_PPM`` window around the target; ``-1`` is returned
+    when nothing falls inside the window.
+    """
     if mz_axis.ndim != 1 or mz_axis.size == 0:
         raise ValueError("mz_axis must be a non-empty 1-D array.")
-    return int(np.nanargmin(np.abs(mz_axis.astype(float, copy=False) - float(mz))))
+    if mz_tolerance is None:
+        mz_tolerance = abs(float(mz)) * DEFAULT_MZ_TOLERANCE_PPM * 1e-6
+    window = _mz_window_indices(mz_axis, mz, mz_tolerance)
+    if window.size == 0:
+        return -1
+    deltas = np.abs(mz_axis[window].astype(float, copy=False) - float(mz))
+    return int(window[int(np.argmin(deltas))])
 
 
 def _mz_window_indices(
@@ -144,10 +160,16 @@ def _sum_processed_mz_values(
         intensity_slice = intensity_flat[offset:end]
         if length > 0:
             if mz_tolerance is None:
-                nearest = int(
-                    np.nanargmin(np.abs(mz_slice.astype(float, copy=False) - float(mz)))
+                # No explicit tolerance: take the nearest peak only if it lies
+                # inside the default ppm window; otherwise keep the pixel at 0.
+                window = _mz_window_indices(
+                    mz_slice, float(mz), abs(float(mz)) * DEFAULT_MZ_TOLERANCE_PPM * 1e-6
                 )
-                values[index] = intensity_slice[nearest]
+                if window.size > 0:
+                    nearest = window[
+                        int(np.argmin(np.abs(mz_slice[window].astype(float, copy=False) - float(mz))))
+                    ]
+                    values[index] = intensity_slice[nearest]
             else:
                 mask = (mz_slice >= low) & (mz_slice <= high)
                 values[index] = np.sum(intensity_slice[mask])
@@ -274,8 +296,8 @@ def _imzml_image_geometry(manager: Any) -> tuple[bool, int | None, int | None]:
 #
 # imzML may expose a shared m/z axis for continuous data or flattened
 # per-spectrum m/z values for processed data.  The public m/z semantics stay
-# the same in both cases: nearest peak when mz_tolerance is None, otherwise
-# sum the requested m/z window.
+# the same in both cases: nearest peak inside the default ppm window when
+# mz_tolerance is None, otherwise sum the requested m/z window.
 
 
 def _read_imzml_tic_image(
@@ -354,7 +376,13 @@ def _read_imzml_ion_image(
             if mz_tolerance is None:
                 if selected_idx is None:
                     selected_idx = _nearest_mz_index(mz_arr, float(mz))
-                values = intensity_matrix[:, selected_idx]
+                if selected_idx < 0:
+                    values = np.zeros(
+                        intensity_matrix.shape[0],
+                        dtype=np.result_type(intensity_matrix.dtype, np.float64),
+                    )
+                else:
+                    values = intensity_matrix[:, selected_idx]
             else:
                 if selected_indices is None:
                     selected_indices = _mz_window_indices(
@@ -415,6 +443,9 @@ def _read_ion_manager_ion_image(
         ion_indices = _mz_window_indices(mz_axis, float(mz), float(mz_tolerance))
         return _sum_ion_manager_images(manager, ion_indices)
     ion_idx = _nearest_mz_index(mz_axis, float(mz))
+    if ion_idx < 0:
+        dtype = np.result_type(getattr(manager, "intensity_dtype", np.float32), np.float64)
+        return np.zeros((int(manager.height), int(manager.width)), dtype=dtype)
     return np.asarray(manager.get_ion_image(ion_idx))
 
 
@@ -530,27 +561,41 @@ def read_ion_image(
     batch_size: int = 256,
     mz_tolerance: float | None = None,
 ) -> np.ndarray:
-    """Read a single ion image from a supported data manager."""
+    """Read a single ion image from a supported data manager.
+
+    Without ``mz_tolerance`` the nearest peak is used only when it falls
+    inside a ``DEFAULT_MZ_TOLERANCE_PPM`` window around ``mz``; pixels with no
+    peak in the window are left at zero. With ``mz_tolerance`` (absolute m/z
+    units) the whole window is summed instead.
+    """
     if mz_tolerance is not None and mz_tolerance < 0:
         raise ValueError("mz_tolerance must be non-negative.")
 
     if isinstance(data_manager, MSDataManagerImzML):
         logger.info("Reading ion image from imzML data manager.")
         _ensure_imzml_loaded(data_manager)
-        return _read_imzml_ion_image(
+        image = _read_imzml_ion_image(
             data_manager,
             mz=mz,
             batch_size=int(batch_size),
             mz_tolerance=mz_tolerance,
         )
-    if isinstance(data_manager, IonImageManager):
+    elif isinstance(data_manager, IonImageManager):
         logger.info("Reading ion image from ion-image data manager.")
-        return _read_ion_manager_ion_image(
+        image = _read_ion_manager_ion_image(
             data_manager,
             mz=mz,
             mz_tolerance=mz_tolerance,
         )
-    raise TypeError("data_manager must be a supported data manager.")
+    else:
+        raise TypeError("data_manager must be a supported data manager.")
+
+    if not np.any(image):
+        logger.warning(
+            "Ion image is all zeros: no peak falls inside the m/z tolerance "
+            f"window around m/z={mz!r}. Consider a larger mz_tolerance."
+        )
+    return image
 
 
 def read_tic_image(

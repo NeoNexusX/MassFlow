@@ -4,9 +4,13 @@ from pathlib import Path
 
 from massflow.data_manager import IonImageDataManagerBinary, MSDataManagerImzML
 from massflow.preprocess import Preprocessor
+from massflow.tools.logger import LOGGER_MANAGER
 
 
 def main():
+    # 显式初始化 massflow 的日志系统（彩色控制台输出 + logs/ 目录）
+    LOGGER_MANAGER.init_app()
+
     input_path = Path("data/example.imzML")
     output_path = Path("data/example.h5")
 

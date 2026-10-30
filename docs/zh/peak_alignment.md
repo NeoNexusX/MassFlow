@@ -46,7 +46,7 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
 - 参数：
   - `reference`：外部参考 *m/z* 轴；`None` 时自动计算。提供现成 `reference` 后，程序不会重新建立参考轴，`min_count` 和 `min_frequency` 也不再参与参考轴筛选。
   - `tolerance`：容差半窗口；`None` 时根据数据分辨率自动估算。
-  - `units`：容差单位，`"ppm"`（相对）或 `"Da"`（绝对）。默认使用 `"ppm"`（相对容差），对 *m/z* 范围变化有更好的适应性。
+  - `units`：容差单位，`"ppm"`（相对）或 `"da"`（绝对），不区分大小写（例如 `"Da"`、`"DA"`、`"PPM"` 均可）。默认使用 `"ppm"`（相对容差），对 *m/z* 范围变化有更好的适应性。
   - `binfun`：分辨率聚合策略，`"median" | "min" | "max"`。
     - `"median"`：中位数，稳健（默认推荐），
     - `"min"`：最细分辨率，参考轴更大。
@@ -203,7 +203,7 @@ graph TD
 
 ## 错误处理
 
-- 参数`"ppm"` / `"relative"` 归一化为相对单位，其他归一化为绝对单位。
+- `Preprocessor.peak_align` 的 `units` 仅接受 `"ppm"` 和 `"da"`，不区分大小写；传入 `"relative"` 等不支持的值会抛出 `ValueError`。
 - `min_count`的输入必须为正整数，否则抛出 `ValueError`。
 - `min_frequency`的输入必须在 [0, 1] 范围内，否则抛出 `ValueError`。
 - 当选择`Cardinal` 后端并传入 `min_count` 或 `min_frequency` 会抛出 `ValueError`。

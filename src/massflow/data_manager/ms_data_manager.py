@@ -19,6 +19,7 @@ import numpy as np
 from massflow.concurrency import resolve_workers
 from massflow.concurrency.runtime import get_io_executor
 from massflow.module import MassSpectrumSet
+from massflow.tools.funs import strip_known_suffix
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.datamanager")
@@ -68,10 +69,7 @@ class MSDataManager(ABC):
             os.makedirs(base_dir ,exist_ok=True)
             self.file_base_path = os.path.join(base_dir, f"temp_{uuid.uuid4().hex}")
         else:
-            base_path = filepath
-            while (next_base := os.path.splitext(base_path)[0]) != base_path:
-                base_path = next_base
-            self.file_base_path = base_path
+            self.file_base_path = strip_known_suffix(filepath)
 
 
     def _init_target_locs(self, target_locs):

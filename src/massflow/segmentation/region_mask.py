@@ -151,11 +151,7 @@ def _selected_coordinates(
     mask: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return selected coordinate rows and their source indices."""
-    selected = _select_coordinates(
-        mask,
-        data_manager.coordinates,
-        getattr(data_manager, "_coordinate_base", None),
-    )
+    selected = _select_coordinates(mask, data_manager.coordinates)
     selected_indices = np.flatnonzero(selected)
     if selected_indices.size == 0:
         raise ValueError("mask does not retain any source pixels.")

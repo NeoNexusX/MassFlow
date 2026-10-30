@@ -88,3 +88,12 @@ class IonImageH5Dataset(IonImageDataset):
             self._dset = self._file["ion_images"]
         assert self._dset is not None
         return self._dset
+
+    def __getstate__(self):
+        """Drop live h5py handles so the dataset survives pickling (spawn-based
+        DataLoader workers). Each worker reopens its own file lazily via
+        ``_ensure_dset`` on first access."""
+        state = self.__dict__.copy()
+        state["_file"] = None
+        state["_dset"] = None
+        return state

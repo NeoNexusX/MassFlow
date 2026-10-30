@@ -46,7 +46,7 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
 - Parameters:
   - `reference`: external reference *m/z* axis. If `None`, it is calculated automatically.Once a ready-made `reference` is provided, the program will not recreate the reference axes, and `min_count` and `min_frequency` will no longer be used in the selection of reference axes.
   - `tolerance`: half-width of the matching tolerance window. If `None`, it is estimated automatically from the data resolution.
-  - `units`: tolerance unit, `"ppm"` (relative) or `"Da"` (absolute). The default is `"ppm"`, which adapts better across changing *m/z* ranges.
+  - `units`: tolerance unit, `"ppm"` (relative) or `"da"` (absolute), case-insensitive (for example, `"Da"`, `"DA"`, and `"PPM"` are accepted). The default is `"ppm"`, which adapts better across changing *m/z* ranges.
   - `binfun`: resolution aggregation strategy: `"median"`, `"min"`, or `"max"`.
     - `"median"`: median resolution, robust and recommended by default.
     - `"min"`: finest resolution, resulting in a larger reference axis.
@@ -203,7 +203,7 @@ After filtering, only the retained reference peaks participate in subsequent ali
 
 ## Error Handling
 
-- `"ppm"` and `"relative"` are normalized to relative units; other unit strings are normalized to absolute units.
+- `Preprocessor.peak_align` accepts only `"ppm"` and `"da"` for `units`, case-insensitively. Unsupported values, including `"relative"`, raise a `ValueError`.
 - `min_count` must be a positive integer; otherwise, a `ValueError` is raised.
 - `min_frequency` must be within `[0, 1]`; otherwise, a `ValueError` is raised.
 - Selecting the Cardinal backend while also passing `min_count` or `min_frequency` logs a warning and ignores these Python-only options.

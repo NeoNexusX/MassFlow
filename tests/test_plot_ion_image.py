@@ -15,6 +15,8 @@ from massflow.data_manager import (
     MSDataManagerImzML,
 )
 from massflow.tools.plot_ion_image import (
+    _nearest_mz_index,
+    _sum_processed_mz_values,
     _valid_region_mask,
     plot_ion_image,
     plot_tic_image,
@@ -336,3 +338,33 @@ class TestPlotIonImage:
         np.testing.assert_allclose(tic_image, np.sum(expected_stack, axis=0), rtol=1e-5, atol=1e-5)
         assert plot_path.exists()
         assert tic_cover_path.exists()
+
+
+class TestDefaultMzToleranceWindow:
+    """Without an explicit tolerance, distant peaks must not leak into the image."""
+
+    def test_processed_nearest_is_limited_to_default_ppm_window(self):
+        # Pixel 0: peak 2 ppm away (inside the 10 ppm default window).
+        # Pixel 1: nearest peak 50 Da away — must stay at zero.
+        mz_flat = np.array([150.0003, 100.0])
+        intensity = np.array([20.0, 999.0])
+        lengths = np.array([1, 1])
+
+        values = _sum_processed_mz_values(mz_flat, intensity, lengths, mz=150.0, mz_tolerance=None)
+
+        np.testing.assert_allclose(values, [20.0, 0.0])
+
+    def test_explicit_tolerance_still_sums_whole_window(self):
+        # One pixel whose two peaks (149.5 and 150.5) both fall inside ±0.6 Da.
+        mz_flat = np.array([149.5, 150.5])
+        intensity = np.array([1.0, 2.0])
+
+        values = _sum_processed_mz_values(mz_flat, intensity, np.array([2]), mz=150.0, mz_tolerance=0.6)
+
+        np.testing.assert_allclose(values, [3.0])
+
+    def test_nearest_mz_index_returns_minus_one_for_empty_window(self):
+        axis = np.array([100.0, 100.02])
+
+        assert _nearest_mz_index(axis, 100.01) == -1  # nearest peak is 100 ppm away
+        assert _nearest_mz_index(axis, 100.0008) == 0  # 8 ppm away, inside the window

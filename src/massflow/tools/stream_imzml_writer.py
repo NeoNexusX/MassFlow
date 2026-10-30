@@ -9,7 +9,6 @@ Main optimizations:
 
 from __future__ import print_function
 
-import os
 import uuid as uuid_module
 import zlib
 from collections import namedtuple
@@ -18,6 +17,8 @@ import numpy as np
 
 from wheezy.template import Engine, CoreExtension, DictLoader
 from pyimzml.compression import NoCompression, ZlibCompression
+
+from massflow.tools.funs import strip_known_suffix
 
 _Spectrum = namedtuple(
     "_Spectrum",
@@ -203,7 +204,7 @@ class ImzMLWriter:
         self.compute_stats = compute_stats
 
         # File path processing
-        self.run_id = os.path.splitext(output_filename)[0]
+        self.run_id = strip_known_suffix(output_filename)
         self.filename = self.run_id + ".imzML"
         self.ibd_filename = self.run_id + ".ibd"
         self._finished = False

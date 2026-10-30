@@ -19,6 +19,7 @@ from massflow.data_manager import (
     MSDataManagerZarr,
 )
 from massflow.msi_zarr import ZARR_MODE_CONTINUOUS
+from massflow.tools.funs import strip_known_suffix
 from massflow.tools.stream_imzml_writer import ImzMLWriter
 
 IonImageSource = (
@@ -457,9 +458,8 @@ def _writer_metadata_from_source(source: ExportSource) -> dict[str, Any]:
 
 
 def _output_paths(output_path: str | os.PathLike[str]) -> tuple[Path, Path]:
-    output_path = Path(output_path)
-    base_path = output_path.with_suffix("") if output_path.suffix else output_path
-    return base_path.with_suffix(".imzML"), base_path.with_suffix(".ibd")
+    base = strip_known_suffix(output_path)
+    return Path(f"{base}.imzML"), Path(f"{base}.ibd")
 
 
 def _prepare_imzml_coordinates(

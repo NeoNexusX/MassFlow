@@ -6,15 +6,24 @@ def set_default_r_home(r_home: str):
     """
     Set the default R_HOME path.
     """
-    RConfig.DEFAULT_R_HOME = r_home
-
     if not r_home or not os.path.exists(r_home):
         raise FileNotFoundError(f"R_HOME not found at: {r_home}")
+
+    RConfig.DEFAULT_R_HOME = r_home
 
 def init_r_environment(r_home: Optional[str] = None):
     """
     Initialize R environment by setting up necessary environment variables.
     """
-    if r_home:
-        RConfig.setup_env(r_home=r_home)
-    return REnvironment()
+    # 显式 r_home 会提前配置环境，必须在这一步之前保存 locale
+    saved_locale = {key: os.environ.get(key) for key in ("LANGUAGE", "LC_ALL")}
+    try:
+        if r_home:
+            RConfig.setup_env(r_home=r_home)
+        return REnvironment()
+    finally:
+        for key, value in saved_locale.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value

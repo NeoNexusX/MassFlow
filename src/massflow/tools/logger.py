@@ -5,8 +5,6 @@ import warnings
 from logging.handlers import RotatingFileHandler
 from colorama import init, Fore, Back, Style
 
-init(autoreset=True)  # 自动重置颜色
-
 # 日志级别映射
 LOG_LEVELS = {
     "debug": logging.DEBUG,
@@ -107,6 +105,10 @@ class LoggerManager:
 
     def init_app(self, log_level="info", log_dir='logs'):
         """init logger system"""
+        # colorama 需要在输出彩色日志前初始化（包装 stdout/stderr），
+        # 属于显式初始化时才允许的全局副作用
+        init(autoreset=True)  # 自动重置颜色
+
         # set logger level
         self.log_level = LOG_LEVELS.get(log_level.lower(), logging.INFO)
 
@@ -132,10 +134,9 @@ class LoggerManager:
         root_logger = logging.getLogger()
         root_logger.setLevel(self.log_level)
 
-        # clear logger handlers
-        if root_logger.handlers:
-            for handler in root_logger.handlers:
-                root_logger.removeHandler(handler)
+        # clear logger handlers（遍历副本：removeHandler 会修改原列表，边遍历边删会漏删）
+        for handler in list(root_logger.handlers):
+            root_logger.removeHandler(handler)
 
         # add console handler
         console_handler = logging.StreamHandler(sys.stdout)
@@ -167,8 +168,8 @@ class LoggerManager:
 
     def _configure_logger(self, logger, name):
         """Configure a named logger with console and rotating file handlers."""
-        # Avoid adding duplicate handlers
-        if logger.handlers:
+        # Avoid adding duplicate handlers (NullHandler 是库标记，不算已配置)
+        if any(not isinstance(h, logging.NullHandler) for h in logger.handlers):
             return logger
 
         # Set base logger level
@@ -267,16 +268,25 @@ class LoggerManager:
             for handler in logger.handlers:
                 handler.setLevel(level)
 
-# 创建日志管理器单例实例
+# 创建日志管理器单例实例。
+# 注意：这里刻意不调用 init_app()——import 不应产生任何副作用（创建 logs/、
+# 修改 root logger、接管 warnings 等）。需要 massflow 自己的日志输出时，
+# 由应用入口显式调用 LOGGER_MANAGER.init_app()。
 LOGGER_MANAGER = LoggerManager()
 
-LOGGER_MANAGER.init_app()
+# 库模式标记：在包名 logger 上挂 NullHandler（官方推荐的库做法）。
+# NullHandler 不产生任何输出，仅声明"massflow 是一个日志配置权在使用者手中的库"。
+logging.getLogger("massflow").addHandler(logging.NullHandler())
 
 # 获取日志器的便捷函数
 def get_logger(name="app") -> logging.Logger:
-    """Get logger by name."""
+    """Get logger by name.
 
-    if LOGGER_MANAGER is None:
-        raise RuntimeError("LoggerManager is not initialized")
-    else:
-        return LOGGER_MANAGER.get_logger(name)
+    - 未显式初始化（库模式）：返回裸 logger，不挂任何 handler，
+      日志沿 propagate 冒泡到 root，由宿主程序统一控制输出。
+    - 已调用 LOGGER_MANAGER.init_app()（应用模式）：返回带 console/file
+      handler 的 logger，行为与原来一致。
+    """
+    if not LOGGER_MANAGER.initialized:
+        return logging.getLogger(name)
+    return LOGGER_MANAGER.get_logger(name)

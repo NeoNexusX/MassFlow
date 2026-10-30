@@ -60,7 +60,8 @@ class IonImageBinaryDataset(IonImageDataset):
         xs = coords[:, 0].astype(np.int64, copy=False)
         ys = coords[:, 1].astype(np.int64, copy=False)
 
-        if xs.size > 0 and int(xs.min()) != 0:
+        zero_based = (xs.size > 0 and int(xs.min()) == 0) or (ys.size > 0 and int(ys.min()) == 0)
+        if not zero_based:
             xs = xs - 1
             ys = ys - 1
 
