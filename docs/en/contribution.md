@@ -4,13 +4,13 @@ Welcome to contribute to MassFlow! This document provides a unified workflow and
 
 ## Quick Start
 - After forking the repository, first switch to the remote `dev` branch and create your working branch (see branch naming rules below).
-- Install the recommended Cursor/Trae/VSCode extensions locally (see README and `.vscode/extensions.json`). PyCharm users can skip this.
+- Install the recommended Cursor/Trae/VSCode extensions locally (see README). PyCharm users can skip this.
 - Install dependencies and development environment:
   ```bash
   # Ensure uv is installed
-  uv sync && uv pip install -e .  
+  uv sync --group dev
   ```
-- Follow naming conventions and code style (`NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`, `.pylintrc`).
+- Follow naming conventions and code style ([naming-conventions.md](./naming-conventions.md), `.pylintrc`).
 - After completing the task, submit a PR, self-check against the review checklist, and request a review.
 
 ## Branch Strategy
@@ -39,17 +39,17 @@ Welcome to contribute to MassFlow! This document provides a unified workflow and
 - Example: `feat(data-manager): support split/merge write modes`
 
 ## Code Standards and Naming
-- Follow `NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`:
-  - Classes: `PascalCase`, keep domain acronyms uppercase (e.g., `MSIDataManager`)
-  - Functions/variables/files: `snake_case` (e.g., `load_full_data_from_file`)
-  - Attributes: Private `_meta_*` mapped to public `meta_*` attributes (via `@property`)
+- Follow [naming-conventions.md](./naming-conventions.md):
+  - Classes: `PascalCase`, keep domain acronyms uppercase (e.g., `MSDataManagerImzML`)
+  - Functions/variables/files: `snake_case` (e.g., `load_head_data`)
+  - Attributes: public metadata fields such as `pixel_size_x` and `continuous`; `_meta` stores their values
 - Unified style and static checks:
   - Run `pylint` (following `.pylintrc`), `black`, `isort`
 
 ## Editor and Tools
 - Cursor/Trae/VSCode:
   - Install recommended extensions (Python, Pylance, Pylint, Ruff, Black, isort, Jupyter, Markdownlint, GitLens, H5Web)
-  - Workspace `.vscode/extensions.json` will automatically prompt for installation
+  - Install extensions through your editor settings; workspace settings are not bundled
 - Optional: Enable Format on Save and configure Black/isort consistency.
 
 ## Testing and Quality Assurance

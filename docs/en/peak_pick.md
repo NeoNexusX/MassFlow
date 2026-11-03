@@ -22,7 +22,7 @@ Peak picking does not change the spatial positions of pixels, but it substantial
 - Peak-detection strategy
   - Local-maximum detection: uses a fixed `width` window to inspect local high points in a spectrum and identify possible peak positions.
   - Signal-to-noise filtering: removes candidate peaks whose signal-to-noise ratio is below `snr`, based on the estimated noise level.
-  - Peak-boundary detection (optional): parameters such as `prominence` and `relheight` can be used to further determine whether a peak is sufficiently distinct and to define its range.
+  - Optional peak filters: `prominence` and `relheight` filter candidate peaks. When `return_type="area"`, separate boundary searches define the integration range.
 
 ## Function Description
 
@@ -32,7 +32,7 @@ Peak picking does not change the spatial positions of pixels, but it substantial
 massflow.preprocess.api.PreprocessorAPI.peak_pick(
     *,
     width: int = 5,
-    method: str = "quantile",
+    method: str = "mad",
     snr: float = 2.0,
     return_type: str = "height",
     prominence: float | None = None,
@@ -45,8 +45,8 @@ massflow.preprocess.api.PreprocessorAPI.peak_pick(
 
 - Function: picks peaks from each spectrum and converts each profile spectrum into a centroid peak list containing only peak maxima.
 - Parameters:
-  - `width`: half-width of the local-maximum detection window, default `5`. It determines the neighborhood used for local-maximum detection. Larger values merge nearby small peaks, while smaller values retain more peaks. Recommended range: 3–11. Adjust it according to instrument resolution and the expected peak density.
-  - `method`: noise-estimation method, `"sd" | "mad" | "quantile" | "diff"`; default `"quantile"`.
+  - `width`: local-maximum window-size parameter, default `5`. The radius is `width // 2`, so the effective window contains `2 * (width // 2) + 1` points (five points for the default). The Python backend requires a complete window on both sides of each candidate. It determines the neighborhood used for local-maximum detection. Larger values merge nearby small peaks, while smaller values retain more peaks. Recommended range: 3–11. Adjust it according to instrument resolution and the expected peak density.
+  - `method`: noise-estimation method, `"sd" | "mad" | "quantile" | "diff"`; default `"mad"`.
     - `quantile` estimates the noise baseline from intensity quantiles. It is a general-purpose method, is not overly influenced by outlier peaks and is a relatively robust choice.
     - `sd` estimates noise from the local standard deviation and is suitable when the noise distribution is relatively uniform across the data.
     - `mad` uses the median absolute deviation for robust noise estimation and is suitable when the data contain many outliers.
@@ -56,11 +56,11 @@ massflow.preprocess.api.PreprocessorAPI.peak_pick(
   - `snr`: signal-to-noise threshold, default `2.0`. `snr × noise` defines the minimum peak intensity, and candidate peaks below this threshold are discarded. Recommended range: 1.5–5.0. Lower `snr` values retain more weak peaks, including more noise, while higher values are more conservative.
   - `return_type`: returned peak-intensity type: `"height"` for peak height or `"area"` for peak area. Default: `"height"`.
     - `“height”`: Uses the signal intensity at the peak’s highest point as the peak’s intensity. This method is simple to calculate and is suitable for standard peak extraction, peak alignment, and subsequent peak filtering; it is also the recommended choice for first-time users.
-    - `“area”`: Represents peak intensity as the integrated area within the peak’s boundaries. This method is suitable for analyses where you explicitly wish to utilize the complete peak shape information; in such cases, you should pay close attention to how `relheight` affects the integration boundaries.
+    - `“area”`: Represents peak intensity as the integrated area within the peak’s boundaries. This method is suitable for analyses where you explicitly wish to utilize the complete peak shape information; the Python backend finds boundaries by descending toward local minima on both sides of the apex. `relheight` does not set these boundaries.
   - `prominence`: measures how much a peak stands out relative to its surrounding local baseline. Peaks below this value are discarded (optional). When set to a value, peaks with lower prominence are removed.The higher the value set, the stricter the filter.
-  - `relheight`: relative height used to determine peak width (optional). It is meaningful only when `return_type="area"` and is used when calculating peak area.
-  - `nbins`: number of chunks, default `1` (no chunking). The value must be `>= 1`. For extremely long spectra, such as FT-ICR data, chunked processing can reduce peak memory usage.
-  - `overlap`: overlap ratio between chunks (`0 <= overlap < 1`), default `0.5`. Overlap prevents peaks near chunk boundaries from being lost because of chunking.
+  - `relheight`: minimum peak-height ratio relative to the tallest candidate remaining after prominence filtering (optional, Python backend only). Candidates below this ratio are discarded for both `"height"` and `"area"`; it does not control integration boundaries. The Cardinal backend ignores this parameter with a warning.
+  - `nbins`: number of bins for noise estimation, default `1` (one noise estimate per spectrum). The value must be `>= 1`. With multiple bins, bin estimates are interpolated into a noise curve; this does not split peak detection into separate chunks.
+  - `overlap`: overlap ratio between noise-estimation bins, default `0.5`. It affects the noise curve when `nbins > 1`; it is not an overlap between independent peak-detection chunks.
   - `backend`: backend method, `"python"` (default) or `"cardinal"`.
 
 Example:
@@ -137,7 +137,7 @@ graph TD
 
 ## Error Handling
 
-- All input-validation errors are recorded with `logger.error` before a `ValueError` or `TypeError` is raised.
+- Invalid inputs can raise `ValueError` or `TypeError`; logging depends on the validation path.
 - `method` validation: only `"sd"`, `"mad"`, `"quantile"`, and `"diff"` are supported; otherwise, a `ValueError` is raised.
 - `snr` validation: it must be a finite positive value; otherwise, signal-to-noise filtering is not performed.
 - `window` validation: `width < 1` is automatically adjusted to `1`.

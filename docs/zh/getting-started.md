@@ -144,12 +144,12 @@ dm.load_head_data()
 
 第一次使用时，不需要理解其中的所有信息，可以先重点关注：
 
-- `meta_profile_spectrum`：当前数据是否为轮廓型（profile）数据，若是则会输出`True`，若是质心型（centroid）数据则会输出`False`
+- `meta_profile_spectrum`：轮廓型（profile）数据时显示 `True`；质心型数据时该字段为 `None`，打印时省略，`meta_centroid_spectrum` 为 `True`
 - `meta_max_count_of_pixels_x`：X 方向的像素数量
 - `meta_max_count_of_pixels_y`：Y 方向的像素数量
 - `meta_pixel_size_x`：X 方向的像素尺寸
 - `meta_pixel_size_y`：Y 方向的像素尺寸
-- `meta_continuous`：不同像素是否使用同一条 *m/z* 轴，若共享一条m/z轴则输出为`True`，若不共享则输出`False`
+- `meta_continuous`：共享 *m/z* 轴时显示 `True`；processed 数据时该字段为 `None`，打印时省略，`meta_processed` 为 `True`
 - `meta_mask`：MSI 数据在空间上的矩阵尺寸
 
 例如：
@@ -334,8 +334,10 @@ MassFlow 提供的常用处理包括：
 | 峰提取       | 从轮廓型数据中识别主要离子峰                |
 | 同位素峰过滤 | 按需要减少后续同位素峰                      |
 | 峰对齐       | 将不同像素中位置接近的峰匹配到共享 *m/z* 轴 |
-| 统计峰过滤   | 根据峰的出现情况和强度进一步筛选            |
 | 加合物过滤   | 识别并筛选可能来自同一化合物的不同加合离子  |
+| 统计峰过滤   | 根据峰的出现情况和强度进一步筛选            |
+
+同一次 `Preprocessor.start()` 中，任务会按固定顺序执行，链式方法的注册顺序不会改变执行顺序：基线校正 → 降噪 → 归一化 → 峰提取 → 同位素过滤 → 自动参考轴计算（需要时）→ 峰对齐 → 加合物过滤 → 统计过滤。质心型输入会跳过仅适用于 profile 的基线校正、降噪和峰提取任务。若需要控制跨阶段顺序，可分多次调用预处理，并使用不同输出路径。
 
 第一次处理新的 MSI 数据时，不建议读取数据后立即运行完整预处理流程。
 

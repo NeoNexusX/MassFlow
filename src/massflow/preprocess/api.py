@@ -228,6 +228,7 @@ class PreprocessorAPI(_TaskRegistrar):
     def _reference_computer(
         self,
         *,
+        reference: np.ndarray | None = None,
         binfun: str = "median",
         binratio: float = 2.0,
         tolerance: float | None = None,
@@ -240,6 +241,7 @@ class PreprocessorAPI(_TaskRegistrar):
             "reference_computer",
             scope="dataset",
             apply_fn=reference_computer,
+            reference=reference,
             binfun=binfun,
             binratio=binratio,
             tolerance=tolerance,
@@ -282,6 +284,7 @@ class PreprocessorAPI(_TaskRegistrar):
 
         if reference is None or tolerance is None:
             self._reference_computer(
+                reference=reference,
                 binfun=binfun,
                 binratio=binratio,
                 tolerance=tolerance,

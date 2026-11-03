@@ -77,4 +77,4 @@ If you encounter this error, MassFlow was unable to locate R automatically. Chec
 
 ### Errors Related to `UnicodeDecodeError`
 
-MassFlow automatically sets the R locale to English (`LANGUAGE=en`, `LC_ALL=C`) to avoid character-encoding problems. In most cases, no manual user intervention is required.
+During R initialization, MassFlow temporarily sets the Python process environment variables `LANGUAGE=en` and `LC_ALL=C` to reduce message-encoding problems while loading rpy2 and R packages. `init_r_environment()` restores the original values (or removes previously absent variables) after initialization, whether it succeeds or fails. This changes process environment variables temporarily; it is not an isolated R-only locale setting.

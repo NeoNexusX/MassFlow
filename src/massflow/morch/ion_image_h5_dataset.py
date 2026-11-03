@@ -54,7 +54,7 @@ class IonImageH5Dataset(IonImageDataset):
             idx += self._n
         dset = self._ensure_dset()
         img = dset[idx]  # (H, W) single chunk, decompressed on read
-        return torch.from_numpy(np.asarray(img)).unsqueeze(0).clone()
+        return torch.from_numpy(np.asarray(img)).unsqueeze(0)
 
     def get_batch(self, indices):
         """Read a batch of H5 ion images and return ``(B, 1, H, W)``.

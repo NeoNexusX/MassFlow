@@ -34,10 +34,10 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
     reference: np.ndarray | None = None,
     tolerance: float | None = None,
     units: str = "ppm",
-    binfun: str = "median",
+    binfun: str = "min",
     binratio: float = 2.0,
     min_count: int | None = None,
-    min_frequency: float | None = None,
+    min_frequency: float | None = 0.01,
     backend: Literal["python", "cardinal"] = "python",
 ) -> Self
 ```
@@ -47,16 +47,16 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
   - `reference`: external reference *m/z* axis. If `None`, it is calculated automatically.Once a ready-made `reference` is provided, the program will not recreate the reference axes, and `min_count` and `min_frequency` will no longer be used in the selection of reference axes.
   - `tolerance`: half-width of the matching tolerance window. If `None`, it is estimated automatically from the data resolution.
   - `units`: tolerance unit, `"ppm"` (relative) or `"da"` (absolute), case-insensitive (for example, `"Da"`, `"DA"`, and `"PPM"` are accepted). The default is `"ppm"`, which adapts better across changing *m/z* ranges.
-  - `binfun`: resolution aggregation strategy: `"median"`, `"min"`, or `"max"`.
-    - `"median"`: median resolution, robust and recommended by default.
-    - `"min"`: finest resolution, resulting in a larger reference axis.
+  - `binfun`: resolution aggregation strategy: `"median"`, `"min"`, or `"max"`; default `"min"`.
+    - `"median"`: median resolution; an optional alternative to the default.
+    - `"min"`: finest resolution (default), resulting in a larger reference axis.
     - `"max"`: coarsest resolution, resulting in a smaller reference axis.
   - `binratio`: tolerance scaling factor, default `2.0`. Tolerance = step size × `binratio`. Increasing `binratio` allows more matches but may introduce incorrect matches.
   - `min_count`: minimum number of spectra supporting a reference peak (Python backend only).
     - A merged reference peak is retained when `count >= min_count`.
     - This can prefilter low-support noise peaks and shorten the reference axis.
     - A value of 2 is a reasonable starting point. Lower values retain more peaks; higher values shorten the reference axis more aggressively.
-  - `min_frequency`: minimum occurrence frequency of a reference peak, in the range `[0, 1]` (Python backend only).
+  - `min_frequency`: minimum occurrence frequency of a reference peak, in the range `[0, 1]`; default `0.01` (Python backend only). Set `None` to disable frequency filtering.
     - Frequency = `min(count, n_spectra) / n_spectra`.
     - When set together with `min_count`, the two conditions are combined using logical AND semantics.
     - A frequency of `0.01` requires each reference peak to appear in at least 1% of the spectra.

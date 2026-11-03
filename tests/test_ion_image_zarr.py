@@ -195,6 +195,7 @@ def _write_tiny_zarr(
     chunk_size: int = 1,
     compute_mean_spectrum: bool = False,
     compute_rms: bool = False,
+    include_spectra: bool = True,
     metadata=None,
 ) -> IonImageDataManagerZarr:
     """Write a tiny two-ion Zarr store for correctness tests."""
@@ -214,6 +215,7 @@ def _write_tiny_zarr(
         chunk_size=chunk_size,
         compute_mean_spectrum=compute_mean_spectrum,
         compute_rms=compute_rms,
+        include_spectra=include_spectra,
         metadata=metadata,
         shared_mz_axis=(
             np.array([100.0, 200.0], dtype=np.float64) if metadata is not None else None
@@ -400,10 +402,24 @@ class TestZarrCorrectness:
         with IonImageDataManagerZarr(str(path), mode="r") as reopened:
             np.testing.assert_allclose(reopened.mean_spectrum, np.array([1.5, 15.0])) # type: ignore
 
-    def test_mean_spectrum_is_absent_by_default(self, tmp_path):
-        dm = _write_tiny_zarr(tmp_path / "no_mean.zarr", tmp_path, [(1, 1), (2, 1)])
+    def test_mean_spectrum_absent_when_spectra_excluded(self, tmp_path):
+        # include_spectra=True(默认)会连带计算 mean_spectrum;
+        # 显式排除 spectra 时才应缺席。
+        dm = _write_tiny_zarr(
+            tmp_path / "no_mean.zarr",
+            tmp_path,
+            [(1, 1), (2, 1)],
+            include_spectra=False,
+        )
         try:
             assert dm.mean_spectrum is None
+        finally:
+            dm.close()
+
+    def test_empty_ion_block_keeps_pixel_width(self, tmp_path):
+        dm = _write_tiny_zarr(tmp_path / "empty_block.zarr", tmp_path, [(1, 1), (2, 1)])
+        try:
+            assert dm.get_ion_block(0, 0).shape == (0, dm.n_pixels)
         finally:
             dm.close()
 

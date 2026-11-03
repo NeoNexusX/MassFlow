@@ -2,7 +2,7 @@
 
 English | [简体中文](README_CN.md)
 
-MassFlow is a modular preprocessing and data management framework for Mass Spectrometry Imaging (MSI) data.
+MassFlow is a modular preprocessing and data management framework for Mass Spectrometry Imaging (MSI) and Mass Spectrometry (MS) data.
 
 ## Get the code
 
@@ -26,22 +26,23 @@ MassFlow/
 ├── docs/                    # Documentation (VitePress)
 │   ├── en/
 │   └── zh/
-├── logs/                    # Runtime logs
+├── logs/                    # Logs created by explicit initialization
 ├── src/
 │   └── massflow/            # Core source code
-│       ├── data_manager/         # Data managers (MSDataManager, MSDataManagerImzML)
+│       ├── data_manager/         # imzML / spectra Zarr and Binary / H5 / Zarr ion-image managers
 │       ├── module/               # Core data models
 │       │   ├── spectrum.py       # Spectrum base type
-│       │   ├── spectrum_imzml.py # ImzML spectrum with lazy loading
-│       │   ├── mass_spectrum_set.py  # Collection of spectra
-│       │   ├── ms_meta_data.py       # Metadata structures (ImzMlMetaData, etc.)
+│       │   ├── spectrum_imzml.py # ImzML spectrum with lazy loading (SpectrumImzML)
+│       │   ├── mass_spectrum_set.py  # Collection of spectra (MassSpectrumSet)
+│       │   ├── ms_meta_data.py       # Shared metadata (MetaDataBase)
 │       │   └── ...
-│       ├── preprocess/              # Preprocessing pipeline
+│       ├── preprocess/              # Preprocessing entry points and helper functions
 │       │   ├── api.py               # Chainable task registration API (PreprocessorAPI)
 │       │   ├── preprocessor.py      # Pipeline executor (Preprocessor)
-│       │   ├── flat_pre_fun.py      # Flat-array preprocessing (FlatPreprocess)
+│       │   ├── flat_pre_fun.py      # Batch processing utilities (FlatPreprocess)
 │       │   └── ...
 │       ├── r_preprocess/       # R/Cardinal adapter
+│       ├── msi_zarr/           # MSI Zarr schema, reader, and writer
 │       └── tools/              # Utility functions
 ├── tests/                   # Test cases
 ├── LICENSE
@@ -55,36 +56,37 @@ MassFlow/
 
 ### Quick Dev Start
 
-It is recommended to run the following code (main.py) directly to verify data loading:
+It is recommended to run the following code (`main.py`) directly to verify data loading:
 
 ```bash
-# Close conda first:
+# First, close conda:
 conda deactivate
 
 # Install uv:
-please follow :https://docs.astral.sh/uv/getting-started/installation/
+# Please refer to: https://docs.astral.sh/uv/getting-started/installation/
 
-# For Example:
+# For example:
 # Linux && macOS:
-curl -LsSf https://astral.sh/uv/install.sh | sh 
+curl -LsSf https://astral.sh/uv/install.sh | sh
 # Windows:
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 # Install dependencies:
-uv sync 
-uv pip install -e .
+uv sync
 
 # Install optional R backend dependencies (requires local R):
 uv sync --extra r
 
-#run the code
+# Run the code
 uv run python main.py
 ```
 
-- Default installation (`uv sync`) does not include R/Cardinal backend dependencies.
-- If you need Cardinal backend (`backend="cardinal"`), install extra dependency group `r` and make sure R is installed and available in PATH (or set `R_HOME`).
+- `uv sync` installs the project itself by default, in editable mode (equivalent to `pip install -e .`); use `--no-editable` to disable editable installation.
+- The default installation (`uv sync`) does not include R/Cardinal backend dependencies.
+- Development dependencies are declared in the `dependency-groups.dev` section of `pyproject.toml`; install them with `uv sync --group dev`.
+- To use the Cardinal backend (`backend="cardinal"`), install the `r` optional dependency and make sure R can be found on the system (on `PATH`, or via `R_HOME`).
 
-- please read Contribution Guide: `docs/en/contribution.md` and `docs/zh/contribution.md`  first 
+- Please read the Contribution Guide first: `docs/en/contribution.md` and `docs/zh/contribution.md`
 - Naming Conventions: `docs/en/naming-conventions.md` and `docs/zh/naming-conventions.md`
 - Commit Convention: Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `refactor:`, `test:`)
 - Recommended Extensions: Python, Pylance, Pylint, H5Web
@@ -97,14 +99,14 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 - MATLAB Mass Spectrometry Preprocessing: https://www.mathworks.com/help/bioinfo/ug/preprocessing-raw-mass-spectrometry-data.html
 - Cardinal MSI: https://cardinalmsi.org/
-  - Cardinal  Guide Book;https://bioconductor.org/packages/devel/bioc/vignettes/Cardinal/inst/doc/Cardinal3-guide.html
-  - Cardinal  Github：https://github.com/kuwisdelu/Cardinal
-  - Matter Github：https://github.com/kuwisdelu/matter
+  - Cardinal Guide: https://bioconductor.org/packages/devel/bioc/vignettes/Cardinal/inst/doc/Cardinal3-guide.html
+  - Cardinal Github: https://github.com/kuwisdelu/Cardinal
+  - Matter Github: https://github.com/kuwisdelu/matter
 - PyOpenMS: https://pyopenms.readthedocs.io/
-  - github：https://github.com/OpenMS/OpenMS
-  - docs：https://github.com/OpenMS/OpenMS-docs
-  - contributing libraries ：https://github.com/OpenMS/contrib
-  - Flash APP ：https://github.com/OpenMS/FLASHApp
+  - Github: https://github.com/OpenMS/OpenMS
+  - Docs: https://github.com/OpenMS/OpenMS-docs
+  - Contributed libraries: https://github.com/OpenMS/contrib
+  - Flash APP: https://github.com/OpenMS/FLASHApp
 
 ## Feedback
 

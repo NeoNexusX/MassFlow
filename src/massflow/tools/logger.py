@@ -216,7 +216,7 @@ class LoggerManager:
         - file output keeps original record.name (bootstrap.xxx)
         """
         if not self.initialized:
-            raise RuntimeError("LoggerManager is not initialized. Call bootstrap.init_logging()")
+            raise RuntimeError("LoggerManager is not initialized. Call massflow.tools.logger.LOGGER_MANAGER.init_app()")
 
         group = self._logger_group(name)
 

@@ -70,11 +70,12 @@
   - 问题：`dense[:, flat_idx] = sparse` 默认所有像素都有效，只要有一个坐标越界就报 shape mismatch。另外，判断坐标从 0 还是从 1 开始时只看 x 的最小值（第 208 行）：如果 y 含 0 而 x 不含 0，程序会把 x、y 整体减 1，y 就变成 -1，同样崩溃。同一组坐标在 Binary 后端下输出正确。
   - 建议：散射时只取有效列（`sparse[:, valid]`），并和其他后端统一坐标基准（见 LOGIC-06）。
 
-- [ ] **BUG-05 [P0][实测] 离子图写出器为每个临时 batch 保留一个打开的文件描述符**
+- [x] **BUG-05 [P0][实测] 离子图写出器为每个临时 batch 保留一个打开的文件描述符**
   - 位置：[ion_major_temp_store.py:128-132](src/massflow/tools/ion_major_temp_store.py#L128-L132)
   - 问题：`read_ion_block` 按 batch 缓存 fd，直到 `close()` 才关闭，batch 数一旦超过进程的打开文件上限就会失败。Binary、H5、Zarr 三种 ion-image 输出都走这条路径。
   - 复现：把软上限设为 256（macOS 上 launchd 的默认值，从 Finder/Dock 启动的 Jupyter 会继承），写入 300 个 batch 后调用 `finalize()`，报 `OSError: [Errno 24] Too many open files`。按 `batch_size=256` 计算，约 6.4 万像素就会触发；Linux 常见的默认上限 1024 对应约 26 万像素。
   - 建议：每读完一个 band 就关闭 fd，或者只用一个容量很小的 fd LRU，或者把临时 batch 合并写入同一个文件。
+  - 修复（2026-11-02）：所有临时 batch 合并写入同一文件 `massflow_ion_major_<uuid>/batches.bin`，batch k 占据 `global_pixel_start × n_ions × itemsize` 起的连续 `[n_ions, n_pixels]` 段；段偏移在 `append_batch` 提交时即确定、互不重叠，写侧改为共享 fd 上按 2048-ion 块 `positioned_write`（pwrite，Windows 无 pwrite 时 lseek+write+全局锁，与 `positioned_read` 同模式）。`read_ion_block` 语义/签名/返回布局不变，仍为常开 fd 上一次 pread；store 全生命周期只占 1 个 fd，与 batch 数解耦，fd 缓存 dict 与锁整体删除。顺带把"各 batch n_ions 必须一致"从隐含约定变为 `append_batch` 显式校验。验证：① `ulimit -n 64` + 200 batch，旧代码第 61 个 batch 复现 Errno 24，新代码通过且数据逐元素一致；② 相关单测 186 项全过，新增 `tests/test_ion_major_temp_store.py`（不齐 batch 布局、n_ions 校验、低 fd 上限回归）；③ 真实数据端到端（file_min_profile.imzML，16632 像素 × 965 离子，binary/zarr 各 5 次取中位）耗时与峰值 RSS 均无回退（binary −3.9%、zarr −0.9%，噪声级），输出与修复前字节级一致（`cmp`/`diff -rq`）；temp store 隔离微基准反而略快（append −11%~−24%、扫读 −22%~−26%，单文件省去 N 次建文件与打开）。排除"小 LRU"方案：读取为"每 ion block 扫全部 batch"的循环整扫，容量 < N 的缓存必然 100% miss，劣于不缓存。
 
 - [x] **BUG-06 [P0][实测] import 时修改宿主程序的全局日志和警告配置**
   - 位置：[logger.py:273](src/massflow/tools/logger.py#L273)、[:118-119](src/massflow/tools/logger.py#L118-L119)、[:136-138](src/massflow/tools/logger.py#L136-L138)、[:150-151](src/massflow/tools/logger.py#L150-L151)
@@ -85,24 +86,27 @@
     - `massflow` logger 设为 `propagate=False`，用户无法通过 root logger 收到它的日志。
   - 建议：库内只使用 `logging.getLogger(__name__)` 并挂一个 `NullHandler`；`init_app()` 改为由用户显式调用。
 
-- [ ] **BUG-07 [P0][实测] 峰提取后只要有像素没有峰，输出为 `spectra_zarr` 就会崩溃**
+- [x] **BUG-07 [P0][实测] 峰提取后只要有像素没有峰，输出为 `spectra_zarr` 就会崩溃**
   - 位置：[msi_zarr/writer.py:159-160](src/massflow/msi_zarr/writer.py#L159-L160)
   - 问题：Zarr 写出器拒绝长度为 0 的谱。MSI 数据中组织外的全零背景像素很常见，这些像素在峰提取后长度为 0，于是 `Preprocessor(..., output_format="spectra_zarr").peak_pick().start()` 直接失败。同样的数据输出为 imzML 则正常。用 `scripts/imzml_to_zarr.py` 转换含空谱的 processed imzML 时，也会在这一步失败（读码）。
   - 复现：见附录 B7，报 `ValueError: Writer does not accept empty spectra.`。
   - 建议：允许空谱（offsets 可以表示长度为 0 的行），同时调整 auto 编码推断中对长度为 0 的处理。
+  - 修复（2026-11-02）：`write_flat_batch` 放行长度为 0 的谱，仅拒绝负长度；offsets 生成、坐标去重压缩、结构校验、reader 经实测对 0 长度行天然兼容，零改动。连带修复统计核算——放行空谱后 `compute_tic/rms=True` 会出错（`np.add.reduceat` 无法表达空行：中间空行拿到下一行首点的值、尾部空行与全空批直接 IndexError），`_accumulate_spectrum_stats` 改为前缀和差分，空行 TIC=RMS=0、非空行数值不变。auto 编码推断对空行容零：共享轴判定只看非零长度，"非零长度全等且等于 mz 尺寸"的混合批推断为 continuous 后由既有等长契约明确报错；"mz 尺寸==非零长度且含空行"的歧义批定为 processed（continuous 带空行违反等长契约，processed 是唯一合法解释，与改前行为一致）。验证：B7 链成功（processed、8/32 空行、背景行读回空数组）；批首/中/尾空行 + TIC/RMS 统计空行得 0、非空行与手算一致；含空谱 zarr 读回后可再进 pipeline 转出 imzML；新增 8 项回归测试（`tests/test_ms_data_manager_zarr.py`），相关套件 87 项全过。`scripts/imzml_to_zarr.py`（未入库）自动受益。
 
-- [ ] **BUG-08 [P1][实测] SNIP 基线的结果随 batch 大小变化**
+- [x] **BUG-08 [P1][实测] SNIP 基线的结果随 batch 大小变化**
   - 位置：[baseline_correction_numba.py:300-304](src/massflow/preprocess/numba/baseline_correction_numba.py#L300-L304)
   - 问题：默认窗口 `m` 用整个 batch 的总点数计算，而不是单条谱的长度。
   - 复现：同一条 300 点的谱，batch=1 和 batch=64 算出的基线最大相差 0.17。
   - 建议：在 jit 函数内按每条谱的长度计算默认 `m`。
+  - 修复（2026-11-02）：与 Cardinal/matter 对齐——`estbase_snip` 的默认窗口是固定常数 `width=100L`，逐谱传入，C++ 层按单谱长度封顶（`src/signal.h` 的 `smooth_snip`：`m = min2(m, n)`）。本仓库同样改为固定默认：`baseline_snip_numba` 的 `m` 默认值由 `None → min(100, max(10, n//10))`（n 为 batch 总点数）改为直接 `100`（签名默认 `m=100`，显式 `None` 亦解析为 100），wrapper 层基于总点数的 `min(m_in, (n-1)//2)` 冗余封顶一并删除，真正的逐谱封顶只保留在 `baseline_snip_jit` 内既有的 `m_cap = (seg_len-1)//2`。显式传 `m` 的行为不变。注意：默认结果数值有变化——原启发式下短谱/小 batch 的窗口偏小（如 300 点谱单条 batch 得 m=30），现统一为 100（300 点谱实际生效 100，短谱封顶到半谱长），这是向 Cardinal 默认行为的刻意对齐。验证：① 复现脚本 batch=1 vs batch=64 同一谱基线 max|Δ| 由 0.1864 降为 0；② 新增 `tests/test_baseline_snip.py` 5 项回归（batch 不变性、默认=固定 100、超宽 m 逐谱封顶、混合长度 batch 逐谱独立、m<1 报错）全过；③ `tests/test_baseline.py` 仅剩既有的数据文件缺失 error（`data/baseline_test.ibd` 不在仓库），与本次无关。
 
-- [ ] **BUG-09 [P1][实测/读码] `ref` 归一化会把整条谱清零，默认参考 m/z 还随 batch 变化**
+- [x] **BUG-09 [P1][实测/读码] `ref` 归一化会把整条谱清零，默认参考 m/z 还随 batch 变化**
   - 位置：[normalization_numba.py:84-85](src/massflow/preprocess/numba/normalization_numba.py#L84-L85)、[:99](src/massflow/preprocess/numba/normalization_numba.py#L99)、[:127](src/massflow/preprocess/numba/normalization_numba.py#L127)；[flat_pre_fun.py:255-256](src/massflow/preprocess/flat_pre_fun.py#L255-L256)
   - 问题：
     - 找不到参考峰时函数直接 return，而输出数组是用 `np.zeros` 初始化的，这条谱就变成全 0（实测）。
     - 没有传 `ref` 时，程序取当前 flat m/z 数组中间的那个值。对 processed 数据，这个值每个 batch 都不一样，各 batch 的归一化基准不一致（读码）。
   - 建议：找不到参考峰时保留原值或写入 NaN 并告警；`ref` 为 None 时直接报错，或者在整个数据集上只确定一次。
+  - 修复（2026-11-02）：与 Cardinal 对照后按两点决策修复（Cardinal `normalize(method="reference")` → `matter::rescale_ref`：ref 缺失即报错、ref 用 nearest 吸附永不 miss、参考点强度为 0 时同样整条清零）。① `ref=None` 直接报错：删除 `normalization_flat` 里"取 batch flat mz 中点"的静默 fallback，由 helper/numba 层既有校验抛 `ValueError: ref is required when method='ref_numba'`；与 Cardinal 顶层行为及本仓库 cardinal 后端（`r_preprocess/adapter.py` 早已报错）对齐，python/cardinal 两后端一致。② 找不到参考峰/参考点强度非正（≤0 或 NaN）→ 保留原值 + 告警（此处刻意比 Cardinal 保守：MSI 背景像素参考点为 0 很常见，Cardinal 的整条清零等于静默丢像素）：`_get_ref` 重构为 `_get_ref_idx`（返回匹配索引或 -1），`_normalize_core_ref` 失败时把输入原样拷入输出并返回状态码（1=tolerance 内无匹配，2=匹配强度非正/NaN），`_normalize_flat_ref_jit` 逐谱记录 status 数组并随结果一起返回，`normalizer_numba` 统计两类计数后 `logger.warning` 一次（f-string）。tolerance 匹配语义保留未改（未改成 Cardinal 的 nearest 吸附）。TIC/RMS 路径未动（非负数据下 base≤0 ⟺ 全零谱，输出全零语义本就正确）。验证：① 复现验证：修复前同一谱三种 batch 组合三种结果（其一整条清零）、不传 ref 静默猜中点；修复后不传 ref 报 ValueError，显式 ref 下三种组合结果全部一致，no-match/零强度谱保留原值（此前全零），告警按原因给出 `n/N` 计数；② 新增 `tests/test_normalization_ref.py` 6 项回归（缺 ref 报错、no-match 保留原值、零强度保留原值、告警内容与计数、batch 不变性、scale 仅作用于成功谱）全过；③ pipeline 路径确认：`flat_executor` 直接调用注册的 `normalization_flat`，同一链路生效；`tests/test_normalization.py` 剩余 error 均为数据文件缺失的既有问题。
 
 - [x] **BUG-10 [P1][实测/读码] `start()` 会改写已注册的任务**
   - 位置：[runner.py:75-80](src/massflow/preprocess/pipeline/runner.py#L75-L80)、[planner.py:137-138](src/massflow/preprocess/pipeline/planner.py#L137-L138)
@@ -124,10 +128,11 @@
 
 ## 2. 逻辑错误与隐患
 
-- [ ] **LOGIC-01 [P1][读码] Zarr 转 imzML 时元数据被丢弃，MassFlow 写出的 imzML 都没有像素尺寸**
+- [x] **LOGIC-01 [P1][读码] Zarr 转 imzML 时元数据被丢弃，MassFlow 写出的 imzML 都没有像素尺寸**
   - 位置：[ms_data_manager_imzml.py:260-265](src/massflow/data_manager/ms_data_manager_imzml.py#L260-L265)、[stream_imzml_writer.py:648-688](src/massflow/tools/stream_imzml_writer.py#L648-L688)
   - 问题：`copy_meta` 要求源元数据和目标是同一类型，从 `MetaDataZarr` 复制到 `MetaDataImzMl` 时只打一条警告、什么都不复制；而反方向的 `MetaDataZarr.copy` 支持跨类型，两边不对称。另外，`ImzMLWriter.from_ms_meta` 本身就不写像素尺寸（IMS:1000046/47）和极性，所以经 MassFlow 写出的 imzML 都会丢掉像素尺寸。
   - 建议：按字段名跨类型复制；模板补上 pixel size 和 polarity。
+  - 修复（2026-11-02，部分）：实测复现两个独立缺口。① copy_meta 不对称：`MSDataManagerImzML.copy_meta` 删除同类型 isinstance 门槛，改为与 zarr 侧对称的 `self.ms.meta.copy(source_dm.ms.meta)`——`MetaDataImzMl.copy` 本就按字段名遍历源 `_meta` 并 `hasattr` 过滤，跨类型安全；`exclude_keys`（mask/filepath/spectrum_count_num/continuous/processed/谱类型）不泄漏。经此 zarr→imzML 及 cardinal 适配路径（`r_preprocess/adapter.py` 同样调用 imzML 侧 copy_meta）的 pixel_size/instrument_model/扫描参数等在内存元数据中不再丢失。新增回归 `tests/test_export_imzml.py::test_zarr_to_imzml_copy_meta_cross_type`（读路径 extract_metadata 后跨类型复制、排除字段不泄漏）。② 写出器不写像素尺寸/极性（模板无 IMS:1000046/47 条目、`from_ms_meta` 不传 polarity、元数据模型无 polarity 字段）：**经决策不修**——imzML 仅作导出格式，下游需要时手动设置；后果为经 MassFlow 写出的 imzML 文件本身不含这两类信息（zarr 链路不受影响），作为已知残留记录于此。
 
 - [x] **LOGIC-02 [P1][读码] 谱类型未知时一律写成 centroid，重新读入后 profile 步骤会被丢弃**
   - 位置：[stream_imzml_writer.py:659](src/massflow/tools/stream_imzml_writer.py#L659)
@@ -195,9 +200,10 @@
   - 问题：程序直接返回输入的 DataManager，不写任何文件，也不给提示。
   - 决定不修（2026-10-29）：零任务即恒等变换，透传输入 DataManager 是合理的程序化语义。
 
-- [ ] **LOGIC-11 [P2][读码] 各模块支持的数据类型不一致**
+- [x] **LOGIC-11 [P2][读码] 各模块支持的数据类型不一致**
   - 位置：[plot_ion_image.py:28-31](src/massflow/tools/plot_ion_image.py#L28-L31)、[region_mask.py:32-37](src/massflow/segmentation/region_mask.py#L32-L37)
   - 问题：流水线可以输出 `spectra_zarr`，UMAP/KMeans 也接受 `MSDataManagerZarr`，但 `read_ion_image`、`plot_ion_image`、`plot_tic_image` 和 `apply_region_mask` 都不支持它。结果是 `SegmentationPipeline` 用 `MSDataManagerZarr` 能跑完 UMAP，到 `apply_region_mask` 这一步才报错。
+  - 修复（2026-11-02）：核实发现 region_mask 一侧在本分支重构中已支持 zarr（`_apply_spectra_zarr_mask` + `apply_region_mask` 的 MSDataManagerZarr 分发、`_spatial_dimensions` 的 zarr 路径），条目此半已过时；实际缺口只剩 `plot_ion_image.py`。两个谱数据管理器在该读路径上同构（`flat_generator` 同签名、`Spectrum.x/y` 经 `SpectrumZarr` 继承、`load_head_data` 填充 ms、meta 有 `max_count_of_pixels_*`/`continuous`），故把 imzML 专用读路径泛化为谱管理器通用：新增 `SpectraDataManager = MSDataManagerImzML | MSDataManagerZarr` 并入 `SupportedDataManager`，`read_ion_image`/`read_tic_image` 分发按 `SpectraDataManager` 走原 imzML 路径，`_valid_region_mask` 的 ms 遍历分支同样扩到谱管理器；内部助手改名去 imzML 专属（`_ensure_spectra_loaded`/`_spectra_is_continuous`/`_spectra_image_geometry`/`_read_spectra_ion_image`/`_read_spectra_tic_image`），行为对 imzML 逐位不变。验证：新增 `tests/test_plot_ion_image.py::TestSpectraZarrIonImage` 5 项合成数据回归（continuous 离子图/TIC、processed 最近峰默认 ppm 窗、显式窗口求和、`_valid_region_mask`+structure_only 出图），连续/处理两种存储全过；plot/region_mask/umap/export 相关套件 69 项过，全量 366 过、零新增失败。
 
 - [x] **LOGIC-12 [P2][读码] 输入数据可能被意外修改或删除**
   - 位置：[umap_kmeans.py:938-943](src/massflow/segmentation/umap_kmeans.py#L938-L943)、[region_mask.py:203](src/massflow/segmentation/region_mask.py#L203)、[ms_data_manager.py:247-248](src/massflow/data_manager/ms_data_manager.py#L247-L248)、[ms_data_manager_imzml.py:254-258](src/massflow/data_manager/ms_data_manager_imzml.py#L254-L258)
@@ -234,15 +240,16 @@
     - `Spectrum` 定义了 `__eq__` 却没有定义 `__hash__`，因此不可哈希（实测）。
   - 决定暂缓（2026-10-29）：实际流程中未观察到触发（坐标流转不直接经过这些 API 边角）。五条均已核实存在，修法备忘：四元组索引加 else 兜底、`ms[x,y]` 读写统一 z 选取公式、类型检查放宽为 `(int, np.integer)` 且 setter 补 else 报错、y/z 报错文案改正、`Spectrum` 补 `__hash__`（与坐标 `__eq__` 一致）。
 
-- [ ] **LOGIC-17 [P2][读码] DataManager 基类的边界处理**
+- [x] **LOGIC-17 [P2][读码] DataManager 基类的边界处理**
   - 位置：[ms_data_manager.py:79-81](src/massflow/data_manager/ms_data_manager.py#L79-L81)、[:182-193](src/massflow/data_manager/ms_data_manager.py#L182-L193)、[:202](src/massflow/data_manager/ms_data_manager.py#L202)、[:214-215](src/massflow/data_manager/ms_data_manager.py#L214-L215)
   - 问题：
     - `_init_target_locs` 抛出的 `ValueError` 不带任何信息；
     - `ms` 为空时（例如 `target_locs` 没有选中任何像素），`detect_sorted` 调用 `randint(0, -1)` 会崩溃；而且它只随机抽一条谱来判断是否有序，结果不确定；
     - `create_ms_meta_mask` 的 `is None` 检查永远不成立（字段默认值是 0）；
     - 坐标用 int16 存储，超过 32767 会溢出。
+  - 已修（2026-10-30）：报错带完整信息；`load_head_data` 0 命中时打日志并跳过 finalize，`detect_sorted` 判空返回；死守卫删除，dims 缺失（≤0）时从坐标推导并回填 meta（1-based 约定）；int16→int32。单条抽查保留（承担误判风险）。`meta.mask` 无活跃消费方、下游坐标推导保留为兜底，均维持现状。
 
-- [ ] **LOGIC-18 [P2][读码] 同一参数在各层的默认值不一致**
+- [x] **LOGIC-18 [P2][读码] 同一参数在各层的默认值不一致**
 
   | 参数 | helper / 底层函数 | API 或另一处 | 位置 |
   |---|---|---|---|
@@ -253,106 +260,130 @@
   | `pipeline_stall_timeout` | 60（`InputMetaData`） | 180（`Preprocessor`） | [types.py:62](src/massflow/preprocess/pipeline/types.py#L62)、[preprocessor.py:59](src/massflow/preprocess/preprocessor.py#L59) |
 
   - 影响：通过 `Preprocessor` API 调用时不受影响；直接调用 helper 或自己构造 `InputMetaData` 时，行为会和 API 不同。
+  - 已修（2026-10-30）：五处全部对齐 API 层——isotope `max_charge` 1→3（4 处）、smoother `polyorder` 2→3、`noise_reduction_flat` method `ma_numba`→`gaussian_numba`、locmin `niter` 3→15、`InputMetaData.stall_timeout` 60→180（以 Preprocessor 为准）。内部调用均显式传参（含 est_noise 的 gaussian 不用 polyorder），pipeline 行为不变；仅直接调用 helper / 自构造 `InputMetaData` 的行为与 API 一致。
 
-- [ ] **LOGIC-19 [P3][读码] 任务顺序被静默重排，重复注册的任务会执行两次**
+- [x] **LOGIC-19 [P3][读码] 任务顺序被静默重排，重复注册的任务会执行两次**
   - 位置：[planner.py:20-30](src/massflow/preprocess/pipeline/planner.py#L20-L30)、[:58-77](src/massflow/preprocess/pipeline/planner.py#L58-L77)
   - 问题：planner 按固定顺序重排任务，用户注册的顺序被忽略，只在 info 日志里能看出来；同一个任务注册两次会执行两次。另外，`Preprocessor` 的类型注解只写了 `MSDataManagerImzML`（[preprocessor.py:44](src/massflow/preprocess/preprocessor.py#L44)），实际上 Zarr 输入也支持。
+  - 已修（2026-10-30）：重排为专门设计，维持现状（按 `_OPERATION_ORDER` 固定顺序，info 日志记录最终顺序）。重复注册：`_register_task` 同名任务直接 `raise ValueError`（换 backend 重复注册同名任务同样拒绝）。注解：`Preprocessor.__init__` 放宽为 `MSDataManagerImzML | MSDataManagerZarr`，连带把 runner 的 `run_segments`/`_flat_segment`/`_dataset_segment`/`_del_last_dm` 参数放宽到基类 `MSDataManager`（与 executor 实际签名一致），顺带移除两处 `# type: ignore`。
 
-- [ ] **LOGIC-20 [P3][读码] 流水线的停滞检测可能误杀正常运行的任务**
+- [x] **LOGIC-20 [P3][读码] 流水线的停滞检测可能误杀正常运行的任务**
   - 位置：[flat_executor.py:446-464](src/massflow/preprocess/pipeline/flat_executor.py#L446-L464)
   - 问题：只有在队列存取时才记录一次进度。如果单个 batch 的处理时间超过 `pipeline_stall_timeout`，就会被判定为停滞并中止。例如缓存为空时首次 JIT 编译全部内核，或者参考轴极长时做对齐，都可能超时。
+  - 已修（2026-10-30）：默认超时 180→600（`Preprocessor` 与 `InputMetaData` 两处同步，正常任务运行时间不受影响，仅推迟误杀阈值与真死锁的发现时间）。经确认现有数据规模下单 batch 处理远小于该值；如仍遇误杀，用户可继续调大 `pipeline_stall_timeout` 或设 `None` 关闭检测。若将来要根治，备忘：给每个阶段加 busy 标志（任一阶段处于计算中即视为有进度，停滞=全部阶段空闲且数据不流动），或流水线启动前用小合成数组预热全部 numba 内核消除首跑 JIT 场景。
 
-- [ ] **LOGIC-21 [P3][读码] 噪声估计与 Cardinal/matter 的细节差异**
+- [ ] **LOGIC-21 [P3][读码][部分修复] 噪声估计与 Cardinal/matter 的细节差异**
   - 位置：[est_noise_numba.py:381-395](src/massflow/preprocess/numba/est_noise_numba.py#L381-L395)、[:505-544](src/massflow/preprocess/numba/est_noise_numba.py#L505-L544)
   - 问题：`overlap == 0` 时，`dynamic=True` 会被静默忽略；`nbins > 1` 时，matter 用 `spline()` 做三次样条插值，这里用的是局部三次 Lagrange 插值，结果会不同。
+  - 已修（2026-11-03）：固定无重叠分箱分支增加 `not dynamic` 条件，使 `dynamic=True, overlap=0` 能进入动态分箱分支；动态分箱算法及其他参数组合的行为不变。验证：Python AST 语法检查及 `git diff --check` 通过；未运行测试。
+  - 未修：保留局部 Lagrange 插值，未替换为 matter 的 `spline()`（默认 `fmm` 三次样条）。原因：两者属于算法选择与数值兼容性差异，结果不同本身不足以证明当前实现错误；替换会改变 `nbins > 1` 时的噪声曲线，并可能改变临近 SNR 阈值的峰筛选结果，应在明确要求与 Cardinal/matter 对齐并完成数值对照后单独处理。默认峰提取使用 `nbins=1`，不经过这段插值。
 
-- [ ] **LOGIC-22 [P3][读码] 局部极大值检测的边界规则在两处不一致**
+- [x] **LOGIC-22 [P3][读码] 局部极大值检测的边界规则在两处不一致**
   - 位置：[peak_pick_numba.py:42](src/massflow/preprocess/numba/peak_pick_numba.py#L42)（`i > n - r`）；[baseline_correction_numba.py:229](src/massflow/preprocess/numba/baseline_correction_numba.py#L229)（`i >= n - r`）
   - 问题：峰提取在 `i = n - r` 处会接受一个窗口被截断的"峰"。
+  - 修复（2026-11-03）：峰提取的右边界排除条件由 `i > n - radius` 改为 `i >= n - radius`，与基线局部极大值检测一致，要求候选点左右均有完整窗口；此处候选点不一定是假峰，问题是右侧额外接受一个窗口不完整的候选点，导致左右边界规则不对称。验证：Python AST 语法检查及 `git diff --check` 通过；未运行测试。
 
-- [ ] **LOGIC-23 [P3][读码] 写入和读取两端的 API 不一致**
+- [x] **LOGIC-23 [P3][读码] 写入和读取两端的 API 不一致**
   - 位置：[msi_zarr/writer.py:126-131](src/massflow/msi_zarr/writer.py#L126-L131)、[ion_image_data_manager.py:51-52](src/massflow/data_manager/ion_image_data_manager.py#L51-L52)、[ion_image_data_manager_zarr.py:46](src/massflow/data_manager/ion_image_data_manager_zarr.py#L46)、[ion_image_data_manager_h5.py:66](src/massflow/data_manager/ion_image_data_manager_h5.py#L66)
   - 问题：
     - `MSIZarrWriter.add_spectrum(intensity, coordinates, mz)` 和 `ImzMLWriter.add_spectrum(mz, intensity, coords)` 的参数顺序不同；
     - 区间为空时，基类的 `get_ion_block` 返回形状 `(0, 0)`，H5 返回 `(0, n_pixels)`；
     - Zarr 后端直接 `del merge_workers`，H5 的 `_merge_workers` 从未被使用。
+  - 已修（2026-10-30）：① `MSIZarrWriter.add_spectrum` 参数顺序统一为 `(mz, intensity, coords)`（与 ImzMLWriter 一致；src 无调用点，测试 4 处同步）；② 空 ion 区间统一返回 `(0, n_pixels)`（基类与 Zarr 对齐 H5/numpy 切片语义，基类补 `n_pixels`/`intensity_dtype` 契约注记，三后端各加契约测试）；③ H5 的 `merge_workers` 照 Zarr 处理为 `del` + 注释（merge 实为单线程预取流水线：读下一块与写当前块重叠，无并发参数）。另：顺手把 `test_mean_spectrum_is_absent_by_default` 更新为覆盖 `include_spectra=False` 路径（a907909 后默认 `include_spectra=True` 连带计算 mean_spectrum，原测试契约已失效）。
 
-- [ ] **LOGIC-24 [P3][读码] 资源清理不完整**
+- [x] **LOGIC-24 [P3][读码] 资源清理不完整**
   - 位置：[ms_data_manager_zarr.py:268-276](src/massflow/data_manager/ms_data_manager_zarr.py#L268-L276)、[runner.py:52-86](src/massflow/preprocess/pipeline/runner.py#L52-L86)
   - 问题：`MSDataManagerZarr.close()` 在还没有 finalize 时直接关闭，既不报错也不警告，留下一个 `write_state="writing"`、无法读取的 store。`run_segments` 中途出错时不关闭中间的 DataManager，临时文件要等垃圾回收时才会被删除。
+  - 决定不改（2026-10-30）：触发面窄——常规 `Preprocessor` 用法的 finalize 由 pipeline 内部保证；`run_segments` 成功路径有 `_del_last_dm` 正常清理，崩溃即退出的脚本由进程退出时的 GC（`__del__`→`close()`）兜底。真实风险窗口需"失败 + 进程不退出（notebook/长驻/反复调试）+ 中间产物大 + temp 磁盘紧"多条件叠加。备忘修法：① `MSDataManagerZarr.close()` 检测写模式未 finalize 时 `logger.warning`（勿 raise——close 也在异常路径与 `__del__` 中被调，raise 会掩盖原始异常）；② `run_segments` 循环包 try/except，失败时 close 掉非原始输入的 `current_dm` 后 re-raise。
 
-- [ ] **LOGIC-25 [P3][读码] 潜在缺陷：目前没有调用方，将来启用时会出问题**
+- [x] **LOGIC-25 [P3][读码] 潜在缺陷：目前没有调用方，将来启用时会出问题**
   - 位置：[spectrum.py:97-116](src/massflow/module/spectrum.py#L97-L116)、[:214-220](src/massflow/module/spectrum.py#L214-L220)；[spectrum_imzml.py:101-114](src/massflow/module/spectrum_imzml.py#L101-L114)；[ms_meta_data.py:191-194](src/massflow/module/ms_meta_data.py#L191-L194)
   - 问题：
     - 使用 `shared_mz_list` 时，`sort_by_mz = True` 只排序了 `_mz_list`，getter 却返回共享的 m/z 轴，于是 m/z 与强度错位；
     - `SpectrumImzML.swap_out2disk` 在持有 reader 时不写出修改，只清空数据，之后会从原文件重新读回原始数据；
     - `crop_range(mode="new")` 生成的副本保留了 `_reader`，调用 `clear_data()` 后会重新加载未裁剪的数据；
     - `update_meta()` 会把通过 `_set` 写入的自定义键全部改成 None。
+  - 决定不改（2026-10-30，已核实零触发）：`swap_out2disk`、`update_meta()`、`sort_by_mz=True` setter 全仓库无调用方；`crop_range(mode="new")` 唯一调用方 plot.py `_slice_arrays` 只在副本上立即读取裁剪数组，不调用 `clear_data()`，不进入重载路径。将来若启用这些路径需先修，备忘：① setter 遇 `shared_mz_list` 先解除共享再排；② `swap_out2disk` 有修改时应写出或显式禁止；③ `crop_range(mode="new")` 副本置空 `_reader`；④ `update_meta` 保留 `_set` 写入的自定义键。
 
-- [ ] **LOGIC-26 [P3][读码] 谱图对比指标框的计算方式不对**
+- [x] **LOGIC-26 [P3][读码] 谱图对比指标框的计算方式不对**
   - 位置：[plot.py:172-201](src/massflow/tools/plot.py#L172-L201)
   - 问题：两条谱的强度是按下标逐点比较的。例如对比 profile 谱和峰提取后的谱时，两者的 m/z 轴完全不同，这样算出的相关性没有意义。此外，指标框忽略 `mz_range`，显示的是整条谱的范围。
+  - 已修（2026-10-30，先核实属实；**暂定方案，后续再考虑**）：① 相关性改为按 m/z 对齐——点数多的谱线性插值到点数少的轴上再逐点比较（`np.interp`，含乱序防御排序）；② TIC 比值改为窗口内整段求和，不再按短谱截断前缀；③ 新增 `_window_spectrum`（复用 `crop_range`），`plot_overlay`/`plot_compare` 的指标框改用 `mz_range` 裁剪后的窗口谱，Range/SNR 均按窗口计算。验证：正确对位峰列表 corr=1.0、错位负对照 -0.56、同轴恒等 1.0、乱序输入结果不变、Range 显示窗口范围。对齐口径（线性插值 vs 就近配对/公共轴）与指标选取后续再评估。
 
-- [ ] **LOGIC-27 [P3][读码] 默认把文件写进当前工作目录**
+- [x] **LOGIC-27 [P3][读码] 默认把文件写进当前工作目录**
   - 位置：`logs/`（[logger.py:101](src/massflow/tools/logger.py#L101)）、`./temp`（[preprocessor.py:51](src/massflow/preprocess/preprocessor.py#L51)）、`output/<uuid>`（[ion_image_data_manager_binary.py:163](src/massflow/data_manager/ion_image_data_manager_binary.py#L163)、[ion_image_data_manager_h5.py:57](src/massflow/data_manager/ion_image_data_manager_h5.py#L57)、[ion_image_data_manager_zarr.py:52](src/massflow/data_manager/ion_image_data_manager_zarr.py#L52)）、`./tic_image_output`（[plot_ion_image.py:728](src/massflow/tools/plot_ion_image.py#L728)）、`./segmentation_output`、`./umap_kmeans_output`
   - 建议：库函数不应默认写入当前工作目录。确实需要默认值时，放到 `tempfile.gettempdir()` 下，或者要求调用方显式传入路径。
+  - 决定不改（2026-10-30）：当前按应用形态使用（main.py CLI / 项目目录内运行脚本），CWD 默认值可见、可预测、产物持久——系统 temp 在 macOS 位于 `/var/folders/` 且被定期清理，不适合存放 preprocess 中间产物与离子图输出，可见的 `./temp` 也便于检查清理。且 `logs/` 仅由 main.py 显式调用 `init_app()` 创建，import 无副作用（logger.py:272 已有设计注释）。若将来作为库嵌入宿主程序或遇只读 CWD（容器/只读挂载），再重新评估各默认输出位置。
 
-- [ ] **LOGIC-28 [P3][读码] processed 输入默认不检查 m/z 是否升序**
+- [x] **LOGIC-28 [P3][读码] processed 输入默认不检查 m/z 是否升序**
   - 位置：[preprocessor.py:60](src/massflow/preprocess/preprocessor.py#L60)、[validation.py:81-82](src/massflow/preprocess/pipeline/validation.py#L81-L82)
   - 问题：`validate_processed_mz` 默认是 False。而对齐时的 `searchsorted`、参考轴构建和峰面积积分都假定 m/z 是升序的，m/z 未排序的 processed 数据会静默地得出错误结果。
   - 建议：默认抽样检查，或者在 `load_head_data()` 时做一次轻量检查。
+  - 决定不改（2026-10-30）：默认 False 为刻意设计——processed 数据无共享轴，全量校验需经 `flat_generator` 整遍读取所有谱的 m/z（最重的一遍额外 I/O），成本不可接受。且现状已分层兜底：continuous 数据的共享轴默认即校验（validation.py 共享轴早返回，零成本），imzML 加载时 `detect_sorted` 有单谱抽样检查（承担误判风险，见 LOGIC-17 备注）。需要严格保证时显式传 `validate_processed_mz=True`。
 
 ## 3. 性能
 
-- [ ] **PERF-01 [P1][读码] UMAP 在 Zarr/H5 离子图上的读取量是平方级的**
+- [x] **PERF-01 [P1][读码] UMAP 在 Zarr/H5 离子图上的读取量是平方级的**
   - 位置：[umap_kmeans.py:459-510](src/massflow/segmentation/umap_kmeans.py#L459-L510)、[:514-588](src/massflow/segmentation/umap_kmeans.py#L514-L588)
   - 问题：transform 阶段每处理一个像素 batch，都会把全部 ion block（也就是全部数据）读一遍，再从中切出需要的列。10 万像素、batch 为 1024 时，大约要把全量数据读 100 次；H5 每读一次还要解压整个数据集。
   - 建议：改成外层按 ion block 循环，一次性为所有像素累积；或者先把数据转置成 pixel-major 的临时文件。
+  - 决定不改（2026-10-30）：计划将支持格式收敛为 imzML 与 spectra_zarr 两种，离子图格式（binary/H5/ion_zarr）拟淘汰，此路径不值得再投入优化。原建议（外层按 ion block 循环 / pixel-major 临时转置）保留备查；若格式收敛计划变更，按 P1 重评。
 
-- [ ] **PERF-02 [P1][读码] 峰提取对每条谱做两遍完整的检测**
+- [x] **PERF-02 [P1][读码] 峰提取对每条谱做两遍完整的检测**
   - 位置：[peak_pick_numba.py:346-365](src/massflow/preprocess/numba/peak_pick_numba.py#L346-L365)、[:373-404](src/massflow/preprocess/numba/peak_pick_numba.py#L373-L404)
   - 问题：第一遍用来计数，第二遍用来写出，局部极大值检测、prominence 过滤和 SNR 过滤都完整做了两次。
   - 建议：第一遍把峰的索引存进按上界预分配的缓冲区，第二遍只做拷贝。
+  - 已修（2026-10-30）：按建议实现——第一遍检测时把每条谱的峰索引写入按上界预分配的 `peak_indices` 缓冲（int32，索引为谱内位置），第二遍只读缓存索引写出（`return_area` 的边界积分本就只在第二遍，维持不变）。合成基准（512 谱 × 20000 点，预热后，prominence+SNR 全开）：109 ms → 56.6 ms/iter，约 **1.9×**。真实数据实测（`tests/test_peak_pick_realdata.py`，4.8G example.ibd，512 谱 × 74749 点/batch × 3 batch）：① 正确性——两种 `return_area` 模式输出与逐谱参照实现**逐位一致**；② 端到端 `peak_pick_flat`（mad 噪声 + snr=2）单 batch 检出 6.75M 峰正常；③ 吞吐 **122 M points/s**（整库 ~12 亿点峰提取约 10 s）；④ 内存——int32 索引缓冲瞬时 4B/点（512 谱 batch 约 153MB，默认 256 谱减半），循环多轮峰值 RSS 稳定无泄漏（+1MB）。
 
-- [ ] **PERF-03 [P2][读码] 统计聚合的内存访问是跨步的**
+- [x] **PERF-03 [P2][读码] 统计聚合的内存访问是跨步的**
   - 位置：[stat_filter_numba.py:24-34](src/massflow/preprocess/numba/stat_filter_numba.py#L24-L34)、[:49-57](src/massflow/preprocess/numba/stat_filter_numba.py#L49-L57)、[:76-81](src/massflow/preprocess/numba/stat_filter_numba.py#L76-L81)
   - 问题：外层按峰循环（`prange`）、内层按谱循环，每次访问的步长都是一整条谱的长度，对缓存很不友好。
   - 建议：外层按谱分块，每个线程使用局部累加器，最后再归约。
+  - 决定不改（2026-10-30，已核实+实测）：访问模式属实（峰外层 prange，内层每步跨一整条谱）；原型实测分块+局部累加 **1.28~1.29×**、输出逐位一致，numpy `reshape+sum(axis=0)` 参照反而更慢（沿 axis 0 归约同样跨步）。但绝对量小——4.8G 数据全库统计共 ~0.75s，优化仅省 ~0.2s，相对峰提取 ~10s 不可见，实际优先级应为 P3。备忘修法（数据量大幅增长时再启用）：三核同构改分块 prange + 线程局部累加 + **循环外**归并——归并写在 prange 块内会产生读-改-写竞争丢更新（已实测踩坑：counts 32→29 类错误）。
 
-- [ ] **PERF-04 [P2][读码] Zarr reader 存在重复读取**
+- [x] **PERF-04 [P2][读码] Zarr reader 存在重复读取**
   - 位置：[msi_zarr/reader.py:173-174](src/massflow/msi_zarr/reader.py#L173-L174)、[:217-219](src/massflow/msi_zarr/reader.py#L217-L219)、[:359-366](src/massflow/msi_zarr/reader.py#L359-L366)
   - 问题：
     - `read_spectrum` 每读一条谱都会把共享 m/z 轴整个读一遍，而 `SpectrumZarr` 懒加载时每条谱都会触发它；
     - `read_flat_batch` 每个 batch 都重读一次 m/z 轴；
     - 索引不连续时逐条谱读取 zarr，同一个 chunk 会被反复解压。
   - 建议：缓存共享 m/z 轴；对不连续的索引按 chunk 合并读取。
+  - 修复（2026-11-03）：`MSIZarrReader` 按实例惰性缓存一份共享 m/z 轴，`read_shared_mz_axis`、continuous 单谱读取及批量读取复用同一数组，不再重复读取和解码共享轴；DataManager 预载时拿到的也是这份缓存。返回数组为共享对象，调用方如需修改应先复制。不连续索引按 chunk 合并读取已由提交 `afd102e` 实现，本次未改动。验证：Python AST 语法检查及 `git diff --check` 通过；未运行测试或性能基准，未量化加速幅度。
 
-- [ ] **PERF-05 [P2][读码] 给了 reference 但没给 tolerance 时，参考轴会被白白重建一遍**
+- [x] **PERF-05 [P2][读码] 给了 reference 但没给 tolerance 时，参考轴会被白白重建一遍**
   - 位置：[api.py:280-288](src/massflow/preprocess/api.py#L280-L288)、[peak_align_helper.py:451-456](src/massflow/preprocess/helper/peak_align_helper.py#L451-L456)
   - 问题：`_reference_computer` 没有收到用户传入的 reference，于是完整地重新分箱一遍（两次全量读取），最后却只用到了 tolerance。
   - 建议：把 reference 传进去，只估计 tolerance。
+  - 修复（2026-11-03）：`peak_align` 将用户提供的 `reference` 经 `_reference_computer` 传入 dataset 任务，利用 helper 现有的提前返回分支，保留第一次数据扫描及容差估算，跳过第二次扫描、分箱、合并和参考轴筛选。未提供 reference 时仍正常构建参考轴；reference 与 tolerance 均已提供时仍不注册计算任务。验证：Python AST 语法检查及 `git diff --check` 通过；未运行测试或性能基准。
 
-- [ ] **PERF-06 [P2][读码] 对齐内核在内循环里分配数组**
+- [x] **PERF-06 [P2][读码] 对齐内核在内循环里分配数组**
   - 位置：[peak_align_numba.py:77-78](src/massflow/preprocess/numba/peak_align_numba.py#L77-L78)、[:89-90](src/massflow/preprocess/numba/peak_align_numba.py#L89-L90)
   - 问题：在上采样分支中，每处理一个参考点，都要新建一个 `np.array([ref])` 和一个 `search_nearest_jit` 的结果数组。
   - 建议：改用标量版本的最近邻查找。
+  - 修复（2026-11-03）：上采样左右扩展中的二次确认改用 `_search_nearest_scalar_jit`，查询值保持 float64 转换，仅搜索 `mz_list[j:]`，返回原数组绝对索引。使用标量 `np.searchsorted`，省去单元素查询数组、批量结果数组及插入位置数组；保留原距离计算、容差包含等号、等距离优先左侧、重复值按左侧插入位置及无匹配返回 -1 的规则，二次确认步骤及批量查找函数不变。验证：Python AST 语法检查及 `git diff --check` 通过；未运行测试或性能基准，未量化加速幅度。
 
-- [ ] **PERF-07 [P2][读码] Zarr 写出器的 compaction 与切分效率低**
+- [x] **PERF-07 [P2][读码] Zarr 写出器的 compaction 与切分效率低**
   - 位置：[msi_zarr/writer.py:387-405](src/massflow/msi_zarr/writer.py#L387-L405)、[:529-551](src/massflow/msi_zarr/writer.py#L529-L551)、[:988-1000](src/massflow/msi_zarr/writer.py#L988-L1000)、[:439-443](src/massflow/msi_zarr/writer.py#L439-L443)
   - 问题：
     - 坐标去重之后的 compaction 逐行读写 zarr，同一个 chunk 会被反复解压、重写；
     - `_split_source_indices` 对每个 batch 都扫描一遍整个 `source_idx`，复杂度是 O(batch 数 × 像素数)，而 `source_idx` 本来就有序，可以用 `searchsorted`；
     - offsets 的 chunk 大小取第一个 batch 的长度加 1，大数据集会因此生成大量小文件。
+  - 核实：第一项的逐行读写描述已过时，修复前实际为全量读取 + 逐点 gather 索引，主要问题是去重时内存峰值随全量谱点数增长；pixel-major 当前保留输入行，常规入口不触发其 compaction，实际触发路径是 ion-image combined 输出存在重复坐标时的 `/spectra` 压缩。
+  - 已修（2026-11-03）：两处 compaction 共用 `_compact_flat_array`，合并连续保留区间，按约 16 MiB、与存储 chunk 对齐的工作块顺序读取和缓冲写出，不再全量读取或构造逐点索引；每个工作块至少容纳一个原始 chunk，offsets/保留行索引仍为 O(像素数)。利用保留源行有序、输出仅向前移动的约定，先消费源数据再覆盖，最后 resize。`_split_source_indices` 改用两次 `searchsorted` 定位 batch 边界，复杂度由 O(batch 数 × 保留像素数) 降为 O(batch 数 × log(保留像素数) + 保留像素数)。
+  - 保留设计：offsets 的小 chunk 用于网络查看，按用户要求不改；两处 offsets 创建函数经 AST 对比与修复前完全一致。16 MiB 是 compaction 的内存工作块，不改变存储 chunk 布局。
+  - 实测：先跑当前版本，再修复复测；输入 `/Users/dre/Desktop/data/example/example.imzML`（17176 个像素，无重复坐标），先统一完成基线校正、平滑、峰提取和对齐，得到 11467 离子的固定输入，测量其 combined Zarr 写出（不含预处理），修复前后各场景各 3 次、独立进程取中位数。正常写出 3.581→3.578 s，峰值 RSS 277.6→276.1 MiB；追加 256 条均匀抽取的真实谱并制造重复坐标后，写出 6.597→5.297 s（−19.7%），峰值 RSS 2728.2→274.7 MiB（−89.9%），compaction 2.619→1.266 s。两场景各 9 个数组的完整内容哈希前后一致。AST/差异空白检查通过，未运行 pytest 或全量测试。基准脚本、报告及中间产物已清理，核心实测结果保留于此。
 
-- [ ] **PERF-08 [P2][实测] 重复调用 `load_head_data()` 的耗时是 O(n²)，计数也会翻倍**
+- [x] **PERF-08 [P2][实测][决定不改] 重复调用 `load_head_data()` 的耗时是 O(n²)，计数也会翻倍**
   - 位置：[mass_spectrum_set.py:128-139](src/massflow/module/mass_spectrum_set.py#L128-L139)、[ms_data_manager_imzml.py:218-219](src/massflow/data_manager/ms_data_manager_imzml.py#L218-L219)
   - 问题：坐标已经存在时，程序用 `_queue.index(existing)` 线性查找旧谱（每次比较都要调用 Python 层的 `__eq__`）。实测 3000 条谱，第一次加载 0.09 秒，第二次 0.38 秒；按平方增长推算，10 万条谱的第二次加载需要数分钟。另外 `current_spectrum_num` 从 3000 变成了 6000。
   - 建议：维护一个坐标到下标的字典；`load_head_data()` 开始时先清空 `ms` 和计数。
+  - 决定不改（2026-11-03）：按当前使用约定，新建 DataManager 后仅调用一次 `load_head_data()`，且输入坐标不重复，此时每条谱直接追加，不进入查找旧谱的替换分支，计数也正常，不受本问题影响。重复加载同一对象或输入包含重复坐标时，查找开销与计数偏差仍存在；按用户决定暂不修复，原建议保留备查，若将来需要支持这些场景再评估。
 
-- [ ] **PERF-09 [P2][读码] ion-image finalize 的内存峰值随 `ion_block × 图像面积` 线性增长**
+- [x] **PERF-09 [P2][读码][暂不修复] ion-image finalize 的内存峰值随 `ion_block × 图像面积` 线性增长**
   - 位置：[ion_image_data_manager_h5.py:223-259](src/massflow/data_manager/ion_image_data_manager_h5.py#L223-L259)、[:407-429](src/massflow/data_manager/ion_image_data_manager_h5.py#L407-L429)；[ion_image_data_manager_binary.py:527-556](src/massflow/data_manager/ion_image_data_manager_binary.py#L527-L556)；[msi_zarr/writer.py:599-639](src/massflow/msi_zarr/writer.py#L599-L639)
   - 问题：H5 按稠密的 `H × W` 分配数据块，而且带预取，同一时间有两块数据在内存里。以 2000×2000 的图像、`ion_block=256`、float32 为例，一块约 4 GB，峰值接近 8 GB。Binary 的内存占用随 `merge_workers` 并发数成倍增加，Zarr 同样有双缓冲。
   - 建议：根据内存预算自动推算块大小，并在文档中说明。
+  - 暂不修复（2026-11-03）：按用户决定保留现有设计。目前使用的数据规模尚未出现明显内存压力，主要缓冲区可通过 `ion_block` 手动调节，属于可预期的内存与吞吐量取舍，暂不引入自动内存预算。大图或较高并发时仍可能增加内存占用，届时按后端调整 `ion_block`，Binary 另可降低 `merge_workers`。注意 `ion_block` 不是严格的字节上限：H5/Binary 实际块大小至少为 16，Zarr 会按存储 chunk 对齐，预取、中间数组与编解码也占内存。原建议保留备查，若后续实际遇到内存不足再评估。
 
 - [ ] **PERF-10 [P3][读码] 其他较小的性能问题**
   - `Spectrum.__str__` 用 Python 内置的 `min`/`max` 遍历 numpy 数组（[spectrum.py:132-133](src/massflow/module/spectrum.py#L132-L133)），每次 `load_head_data()` 中的 `inspect_data` 都会用到；
@@ -361,50 +392,63 @@
   - Zarr 的 `read_ion_image` 每次调用都读取完整的坐标数组（[msi_zarr/reader.py:236](src/massflow/msi_zarr/reader.py#L236)）；
   - `MSDataManagerZarr.storage_mode` 每次访问都重新校验并覆盖 dtype（[ms_data_manager_zarr.py:76-85](src/massflow/data_manager/ms_data_manager_zarr.py#L76-L85)），而 `matrix_generator` 每个 batch 都会访问它；
   - `_local_poly_interp_numba` 对每个查询点都线性扫描一遍节点（[est_noise_numba.py:528-532](src/massflow/preprocess/numba/est_noise_numba.py#L528-L532)）；
-  - H5 数据集的 `__getitem__` 多做了一次 `.clone()`（[ion_image_h5_dataset.py:57](src/massflow/morch/ion_image_h5_dataset.py#L57)）；
+  - 已修（2026-11-03）：H5 数据集的 `__getitem__` 删除多余的 `.clone()`（[ion_image_h5_dataset.py:57](src/massflow/morch/ion_image_h5_dataset.py#L57)）；`dset[idx]` 已读取到新的 NumPy 数组，直接转为 Tensor 并增加通道维度即可，无需再复制整张图，返回形状仍为 `(1, H, W)`。Python AST 语法检查及 `git diff --check` 通过，未运行测试。
   - `IonMajorTempStore.append_batch` 会把调用方已经复制过的数组再复制一次。
 
 ## 4. 文档与代码不一致
 
-- [ ] **DOC-01 [P1] 文档引用了已经不存在的方法和类名**
+- [x] **DOC-01 [P1] 文档引用了已经不存在的方法和类名**
   - `load_full_data_from_file()` 在 `ms-data-structures`、`metadata`、`contribution`、`naming-conventions` 的中英文版，以及 [imzml_monkey_patch.py:14](src/massflow/tools/imzml_monkey_patch.py#L14) 中共出现 27 处，而实际的方法名是 `load_head_data()`。
   - [naming-conventions.md:22-29](docs/en/naming-conventions.md#L22-L29) 中列出的 `MSIDataManager`、`MSIDataManagerZYS`、`load_meta_from_file`、`allocate_data_from_meta`、`add_msi_slice`、`get_msi_by_mz`、`plot_msi`、`write2local` 在代码中都不存在。
+  - 修复（2026-11-03）：中英文数据结构、元数据、命名规范和贡献指南改用当前类名、模块路径与 `load_head_data()`，移除旧版 API 示例；补充 `SpectrumZarr`、`MSDataManagerZarr`、`MetaDataImzMl` 和 `MetaDataZarr` 的真实职责，monkey-patch docstring 同步更新。
 
-- [ ] **DOC-02 [P1] peak_align 的默认值与代码不符**
+- [x] **DOC-02 [P1] peak_align 的默认值与代码不符**
   - [peak_alignment.md:36-40](docs/en/peak_alignment.md#L36-L40)（中文版相同）写的是 `binfun="median"`、`min_frequency=None`，而代码中（[api.py:258-261](src/massflow/preprocess/api.py#L258-L261)）分别是 `"min"` 和 `0.01`。文档还说 `"median"` 是推荐的默认值。
+  - 修复（2026-11-03）：中英文 `peak_align` 签名与参数说明对齐 `binfun="min"`、`min_frequency=0.01`；说明 `None` 可关闭频率筛选，helper 自身的独立默认值仍按其签名保留。
 
-- [ ] **DOC-03 [P1] peak_pick 的文档有三处与代码不符（中英文都一样）**
+- [x] **DOC-03 [P1] peak_pick 的文档有三处与代码不符（中英文都一样）**
   - `method` 的默认值：文档写 `"quantile"`，代码是 `"mad"`（[peak_pick.md:37](docs/en/peak_pick.md#L37)）。
   - `width`：文档称它是"半宽"（[:52](docs/en/peak_pick.md#L52)），但代码中 `radius = width // 2`，也就是说 width 实际是整个窗口的宽度。
   - `relheight`：文档说它只在 `return_type="area"` 时用来确定积分边界（[:59-61](docs/en/peak_pick.md#L59-L61)）。代码里它其实是一个过滤条件：峰高与最高峰之比小于 `relheight` 的峰被丢弃。它与 `return_type` 无关，计算面积边界时也不用它。
+  - 修复（2026-11-03）：中英文 `peak_pick` 默认噪声方法改为 `mad`；按 `radius=width//2` 说明有效窗口与边界；`relheight` 改为对 height/area 均生效的候选峰高比例筛选，并注明 Cardinal 忽略该参数。同步纠正 nbins/overlap 为噪声估计分箱参数，而非独立峰检测分块。
 
-- [ ] **DOC-04 [P2] noise_reduction 的签名和正文自相矛盾**
+- [x] **DOC-04 [P2] noise_reduction 的签名和正文自相矛盾**
   - [noise_reduction.md:33](docs/en/noise_reduction.md#L33) 的签名写的是 `method="ma_numba"`，但第 43 行的正文和代码都是 `gaussian_numba`。
+  - 修复（2026-11-03）：中英文降噪签名和正文统一默认 `gaussian_numba`，补齐 `backend` 参数。
 
-- [ ] **DOC-05 [P2] getting-started 对元数据输出的描述不准确**
+- [x] **DOC-05 [P2] getting-started 对元数据输出的描述不准确**
   - [getting-started.md:144](docs/en/getting-started.md#L144) 和 [:149](docs/en/getting-started.md#L149) 说 centroid 或 processed 数据会显示为 `False`。实际上这些字段的值是 None，而 `__str__` 会跳过 None，所以对应的行根本不会显示。
+  - 修复（2026-11-03）：中英文入门说明改为活动标志 `True`、对应另一标志 `None`，并明确 `None` 在打印时省略，补充 centroid/processed 对应字段。
 
-- [ ] **DOC-06 [P2] 没有说明任务会被按固定顺序重排**
+- [x] **DOC-06 [P2] 没有说明任务会被按固定顺序重排**
   - planner 按 [planner.py:20-30](src/massflow/preprocess/pipeline/planner.py#L20-L30) 中的固定顺序执行任务，用户注册的顺序会被忽略。按这个顺序，adduct（80）在 stats（90）之前执行，而 [getting-started.md:334-335](docs/en/getting-started.md#L334-L335) 表格里的顺序正好相反。
+  - 修复（2026-11-03）：中英文入门页补充单次 start 按 planner 固定顺序重排，以及 centroid 输入跳过 profile-only 任务；处理表中加合物过滤移到统计过滤之前。
 
-- [ ] **DOC-07 [P2] 归一化文档没有说明默认参考 m/z 会随 batch 变化**
+- [x] **DOC-07 [P2] 归一化文档没有说明默认参考 m/z 会随 batch 变化**
   - [normalization.md:126](docs/en/normalization.md#L126) 说不设 `ref` 时取"当前提供的 m/z 数据的中间位置"，但没有说明：对 processed 数据，每个 batch 取到的值都不一样（见 BUG-09）；找不到参考峰的谱会被清零。
+  - 修复（2026-11-03）：按 BUG-09 修复后的行为更新两种语言：ref_numba 必须显式给 ref；Python 后端无匹配或参考强度非正/NaN 时保留原值并汇总告警，scale 不作用于失败谱。补齐 backend，并区分 Cardinal 的匹配规则及 ref_tolerance 限制。
 
-- [ ] **DOC-08 [P3] 部分开发者文档不在侧边栏中**
+- [x] **DOC-08 [P3][暂不加入导航] 部分开发者文档不在侧边栏中**
   - `contribution`、`naming-conventions`、`ms-data-structures`、`metadata`、`testing_guide`、`collaboration_guide`、`zh/zarr_schema` 这 7 个页面在侧边栏中没有入口。DOC-01 所说的过时内容正好集中在这几页。另外 `zarr_schema` 只有中文版。
+  - 处理（2026-11-03）：新增英文 Zarr schema 页，同步中文版的 combined 默认、空谱支持、坐标保留规则和 Zarr v3 属性说明。按用户决定，这些文档暂不加入侧边栏，已撤回 config.mts 的新增导航入口，文档内容更新保留。
 
-- [ ] **DOC-09 [P3] R 环境文档对 locale 的描述不准确**
+- [x] **DOC-09 [P3] R 环境文档对 locale 的描述不准确**
   - [r_environment_setup.md](docs/en/r_environment_setup.md) 说"把 R 的 locale 设为英文"，实际修改的是整个 Python 进程的 `LANGUAGE` 和 `LC_ALL`（见 LOGIC-09）。
+  - 修复（2026-11-03）：按当前初始化实现说明临时修改 Python 进程 LANGUAGE/LC_ALL，成功或失败后恢复原值，避免误称为只修改 R 内部 locale。
 
-- [ ] **DOC-10 [P3] 示例代码和 README 过时**
+- [x] **DOC-10 [P3] 示例代码和 README 过时**
   - [main.py:1](main.py#L1) 的 docstring 写着 "imzML → binary ion image"，实际输出的是 `ion_image_h5`，而且 import 了没有用到的 `IonImageDataManagerBinary`。
   - README 的项目结构只列出了两个 DataManager，还提到了没有纳入版本控制的 `.vscode/`。
   - README 和 README_CN 的安装步骤不一致：中文版多了 `uv sync --group dev`、`pip install -e .` 等步骤。
+  - 修复（2026-11-03）：main.py 说明改为 H5 ion image 并移除未使用导入；两份 README 统一安装流程和可编辑/dev 依赖说明，列出现有谱/离子图管理器，移除未入库的编辑器配置目录，并说明示例需要用户提供数据。
 
-- [ ] **DOC-11 [P3] 过时的 docstring 和日志文案**
+- [x] **DOC-11 [P3] 过时的 docstring 和日志文案**
   - [tools/\_\_init\_\_.py:3-5](src/massflow/tools/__init__.py#L3-L5) 提到了一个不存在的 `__init___.py` 文件。
   - [logger.py:218](src/massflow/tools/logger.py#L218) 提示调用 `bootstrap.init_logging()`，这个函数并不存在。
   - [infer_spectrum_type.py:31](src/massflow/tools/infer_spectrum_type.py#L31) 的日志说 "Setting metadata accordingly"，实际上并没有写回元数据。
+  - 修复（2026-11-03）：移除 tools 包不存在的旧初始化文件说明；日志初始化提示改为 LOGGER_MANAGER.init_app()；谱类型推断日志不再声称会写回元数据。
+
+本节验证（2026-11-03）：`npm run docs:build` 通过（含中英文页面渲染与死链接检查）；8 处中英文 API 签名的全部参数及默认值与源码 AST 对比一致；相关 Python 文件语法检查及 `git diff --check` 通过。未运行 pytest 或全量测试。
 
 ## 5. 测试、CI 与工程化
 

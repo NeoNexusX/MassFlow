@@ -66,7 +66,9 @@ class IonImageDataManagerH5(IonImageDataManager):
         self.intensity_dtype = np.dtype(intensity_dtype).newbyteorder("<")
         self.ion_block = max(1, int(ion_block))
         self._temp_workers = max(1, int(temp_workers))
-        self._merge_workers = max(1, int(merge_workers))
+        # merge 阶段是单线程预取流水线（读下一块与写当前块重叠），不接受并发参数；
+        # 保留形参仅为与其他后端构造签名一致。
+        del merge_workers
         self._chunk_size = max(1, int(chunk_size))
         self._h5: h5py.File | None = None
         self._dset: h5py.Dataset | None = None

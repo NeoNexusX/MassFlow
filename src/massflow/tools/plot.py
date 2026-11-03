@@ -85,6 +85,14 @@ class SpectrumPlotter:
 
         return mz, intensity
 
+    def _window_spectrum(self, spectrum: Spectrum) -> Spectrum:
+        """按 mz_range 裁剪出指标计算用的窗口谱（mz_range 为 None 时原样返回）。"""
+        if self.config.mz_range is None:
+            return spectrum
+        return spectrum.crop_range(
+            mz_range=self.config.mz_range, sort_by_mz=True, mode="new"
+        )
+
     @staticmethod
     def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
         if a.size <= 1 or b.size <= 1:
@@ -170,29 +178,43 @@ class SpectrumPlotter:
             ax.set_ylim(y_min, y_max)
 
     def _metrics_text(self, base: Spectrum, target: Spectrum) -> str:
-        n = min(len(base), len(target))
-        base_intensity = np.asarray(base.intensity)
-        target_intensity = np.asarray(target.intensity)
         base_mz = np.asarray(base.mz_list)
+        base_intensity = np.asarray(base.intensity)
+        target_mz = np.asarray(target.mz_list)
+        target_intensity = np.asarray(target.intensity)
 
-        if base_intensity.size == 0 or target_intensity.size == 0 or base_mz.size == 0:
+        if (
+            base_mz.size == 0
+            or base_intensity.size == 0
+            or target_mz.size == 0
+            or target_intensity.size == 0
+        ):
             return "Metrics unavailable: empty spectrum window."
 
-        o = base_intensity[:n]
-        d = target_intensity[:n]
+        # 相关性按 m/z 对齐：点数多的一条线性插值到点数少的轴上再逐点比较，
+        # 避免 profile 谱与峰列表等不同 m/z 轴直接按下标配对。
+        if base_mz.size <= target_mz.size:
+            ref_mz, ref_int = base_mz, base_intensity
+            other_mz, other_int = target_mz, target_intensity
+        else:
+            ref_mz, ref_int = target_mz, target_intensity
+            other_mz, other_int = base_mz, base_intensity
+        if other_mz.size > 1 and np.any(np.diff(other_mz) < 0):
+            order = np.argsort(other_mz)
+            other_mz, other_int = other_mz[order], other_int[order]
+        corr = self._safe_corr(ref_int, np.interp(ref_mz, other_mz, other_int))
 
-        corr = self._safe_corr(o, d)
-
-        o_sum = float(np.sum(o))
-        d_sum = float(np.sum(d))
-        tic_ratio = d_sum / o_sum if abs(o_sum) > 1e-12 else 1.0
+        # TIC 比值用整段（窗口内）求和，不再按短谱截断。
+        o_sum = float(np.sum(base_intensity))
+        d_sum = float(np.sum(target_intensity))
+        tic_ratio = d_sum / o_sum if abs(o_sum) > self.ZERO_EPS else 1.0
 
         snr_orig = self._safe_snr(base)
         snr_now = self._safe_snr(target)
-        snr_gain = snr_now / snr_orig if snr_orig > 1e-12 else 1.0
+        snr_gain = snr_now / snr_orig if snr_orig > self.ZERO_EPS else 1.0
 
         return (
-            f"Range: {base_mz[0]:.4f} - {base_mz[-1]:.4f}\n"
+            f"Range: {float(np.min(base_mz)):.4f} - {float(np.max(base_mz)):.4f}\n"
             f"Correlation: {corr:.4f}\n"
             f"TIC ratio: {tic_ratio:.3f}\n"
             f"SNR orig: {snr_orig:.1f}\n"
@@ -257,7 +279,9 @@ class SpectrumPlotter:
         ax.legend(loc="upper right")
 
         if self.config.metrics_box:
-            self.add_metrics_box(ax, base, target)
+            self.add_metrics_box(
+                ax, self._window_spectrum(base), self._window_spectrum(target)
+            )
 
         fig.tight_layout()
         self._save_or_show(fig, self.config.save_path, self.config.dpi)
@@ -289,7 +313,9 @@ class SpectrumPlotter:
         self._style_axes(ax_bottom)
 
         if self.config.metrics_box:
-            self.add_metrics_box(ax_bottom, base, target)
+            self.add_metrics_box(
+                ax_bottom, self._window_spectrum(base), self._window_spectrum(target)
+            )
 
         fig.tight_layout()
         self._save_or_show(fig, self.config.save_path, self.config.dpi)

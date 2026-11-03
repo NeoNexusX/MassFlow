@@ -34,10 +34,10 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
     reference: np.ndarray | None = None,
     tolerance: float | None = None,
     units: str = "ppm",
-    binfun: str = "median",
+    binfun: str = "min",
     binratio: float = 2.0,
     min_count: int | None = None,
-    min_frequency: float | None = None,
+    min_frequency: float | None = 0.01,
     backend: Literal["python", "cardinal"] = "python",
 ) -> Self
 ```
@@ -47,16 +47,16 @@ massflow.preprocess.api.PreprocessorAPI.peak_align(
   - `reference`：外部参考 *m/z* 轴；`None` 时自动计算。提供现成 `reference` 后，程序不会重新建立参考轴，`min_count` 和 `min_frequency` 也不再参与参考轴筛选。
   - `tolerance`：容差半窗口；`None` 时根据数据分辨率自动估算。
   - `units`：容差单位，`"ppm"`（相对）或 `"da"`（绝对），不区分大小写（例如 `"Da"`、`"DA"`、`"PPM"` 均可）。默认使用 `"ppm"`（相对容差），对 *m/z* 范围变化有更好的适应性。
-  - `binfun`：分辨率聚合策略，`"median" | "min" | "max"`。
-    - `"median"`：中位数，稳健（默认推荐），
-    - `"min"`：最细分辨率，参考轴更大。
+  - `binfun`：分辨率聚合策略，`"median" | "min" | "max"`，默认 `"min"`。
+    - `"median"`：中位数，可显式选择。
+    - `"min"`：最细分辨率（默认），参考轴更大。
     - `"max"`：最粗分辨率，参考轴更小。
   - `binratio`：容差缩放因子，默认 2.0。容差 = 步长 × binratio。增大 `binratio` 可容入更多匹配，但可能引入误匹配。
   - `min_count`：参考峰最小支持谱数（仅 Python 后端）。
     - 合并后 count ≥ min_count 的参考峰被保留。
     - 用于预过滤低支持度的噪声峰，缩短参考轴。
     - 建议从 2 开始调参。较低的值保留更多峰，较高的值缩短参考轴更显著。
-  - `min_frequency`：参考峰最小出现频率，取值范围 [0, 1]（仅 Python 后端）。
+  - `min_frequency`：参考峰最小出现频率，取值范围 [0, 1]，默认 `0.01`（仅 Python 后端）；设为 `None` 可关闭频率筛选。
     - 频率 =` min(count, n_spectra)` / `n_spectra`。
     - 与 `min_count` 同时设置时取 逻辑与（AND） 语义。
     - 频率 = 0.01 表示要求每个参考峰至少在 1% 的谱图中出现过。

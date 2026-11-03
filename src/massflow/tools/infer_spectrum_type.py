@@ -28,7 +28,7 @@ def resolve_spectrum_type(data_manager: Any) -> SpectrumType:
     if (profile is None and centroid is None) or (profile is True and centroid is True):
         logger.info("Spectrum type is all True or all None. Falling back to inference.")
         inferred_spectrum_type = infer_spectrum_type(data_manager)
-        logger.info(f"Inferred spectrum type: {inferred_spectrum_type!r}. Setting metadata accordingly.")
+        logger.info(f"Inferred spectrum type: {inferred_spectrum_type!r}.")
         return inferred_spectrum_type
 
     raise ValueError(

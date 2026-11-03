@@ -14,6 +14,7 @@ from massflow.data_manager import (
     IonImageDataManagerH5,
     IonImageDataManagerZarr,
     MSDataManagerImzML,
+    MSDataManagerZarr,
 )
 from massflow.tools.funs import infer_shared_mz
 from massflow.tools.logger import get_logger
@@ -28,22 +29,23 @@ logger = get_logger("massflow.tools")
 IonImageManager = (
     IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr
 )
-SupportedDataManager = MSDataManagerImzML | IonImageManager
+SpectraDataManager = MSDataManagerImzML | MSDataManagerZarr
+SupportedDataManager = SpectraDataManager | IonImageManager
 
 
 # ---------------------------------------------------------------------------
-# imzML metadata helpers
+# Spectra manager metadata helpers
 # ---------------------------------------------------------------------------
 
 
-def _ensure_imzml_loaded(manager: Any) -> None:
-    """Load imzML spectrum headers if the manager has not been initialized yet."""
+def _ensure_spectra_loaded(manager: Any) -> None:
+    """Load spectrum headers if the manager has not been initialized yet."""
     if len(manager.ms) == 0:
         manager.load_head_data()
 
 
-def _imzml_is_continuous(manager: Any) -> bool | None:
-    """Return the imzML continuous flag from metadata when it is available."""
+def _spectra_is_continuous(manager: Any) -> bool | None:
+    """Return the continuous flag from metadata when it is available."""
     meta = getattr(getattr(manager, "ms", None), "meta", None)
     continuous = getattr(meta, "continuous", None)
     return None if continuous is None else bool(continuous)
@@ -54,8 +56,8 @@ def _batch_uses_shared_mz(
     mz_data: np.ndarray | None,
     lengths: np.ndarray,
 ) -> bool:
-    """Determine whether an imzML batch uses one shared m/z axis for all spectra."""
-    continuous = _imzml_is_continuous(manager)
+    """Determine whether a spectra batch uses one shared m/z axis for all spectra."""
+    continuous = _spectra_is_continuous(manager)
     if continuous is not None:
         return continuous
     if mz_data is None or mz_data.ndim != 1 or lengths.size == 0:
@@ -135,12 +137,12 @@ def _sum_processed_mz_values(
     mz: float,
     mz_tolerance: float | None,
 ) -> np.ndarray:
-    """Select nearest or window-summed intensities for processed imzML spectra."""
+    """Select nearest or window-summed intensities for processed spectra."""
     if mz_flat is None:
-        raise ValueError("Processed imzML ion image requires m/z data.")
+        raise ValueError("Processed spectra ion image requires m/z data.")
     if mz_flat.size != int(np.sum(lengths, dtype=np.int64)):
         raise ValueError(
-            "Processed imzML ion image requires flattened per-spectrum m/z data."
+            "Processed spectra ion image requires flattened per-spectrum m/z data."
         )
 
     values = np.zeros(
@@ -233,7 +235,7 @@ def _valid_region_mask(
     image_shape: tuple[int, int],
 ) -> np.ndarray:
     """Build an occupancy mask from the pixels present in the data manager."""
-    if isinstance(data_manager, MSDataManagerImzML):
+    if isinstance(data_manager, SpectraDataManager):
         coordinates = np.asarray(
             [(spectrum.x, spectrum.y, spectrum.z) for spectrum in data_manager.ms]
         )
@@ -259,8 +261,8 @@ def _valid_region_mask(
     return mask
 
 
-def _imzml_image_geometry(manager: Any) -> tuple[bool, int | None, int | None]:
-    """Infer imzML image coordinate base and dimensions from metadata and spectra."""
+def _spectra_image_geometry(manager: Any) -> tuple[bool, int | None, int | None]:
+    """Infer image coordinate base and dimensions from metadata and spectra."""
     meta = getattr(getattr(manager, "ms", None), "meta", None)
     width = getattr(meta, "max_count_of_pixels_x", None)
     height = getattr(meta, "max_count_of_pixels_y", None)
@@ -291,22 +293,23 @@ def _imzml_image_geometry(manager: Any) -> tuple[bool, int | None, int | None]:
 
 
 # ---------------------------------------------------------------------------
-# imzML backend readers
+# Spectra manager readers (imzML / spectra Zarr)
 # ---------------------------------------------------------------------------
 #
-# imzML may expose a shared m/z axis for continuous data or flattened
-# per-spectrum m/z values for processed data.  The public m/z semantics stay
-# the same in both cases: nearest peak inside the default ppm window when
-# mz_tolerance is None, otherwise sum the requested m/z window.
+# Both spectra managers expose flat_generator batches with either a shared
+# m/z axis (continuous storage) or flattened per-spectrum m/z values
+# (processed storage).  The public m/z semantics stay the same in both
+# cases: nearest peak inside the default ppm window when mz_tolerance is
+# None, otherwise sum the requested m/z window.
 
 
-def _read_imzml_tic_image(
+def _read_spectra_tic_image(
     manager: Any,
     *,
     batch_size: int,
 ) -> np.ndarray:
-    """Read a TIC image from imzML by summing each spectrum and scattering by coordinate."""
-    zero_based, width, height = _imzml_image_geometry(manager)
+    """Read a TIC image by summing each spectrum and scattering by coordinate."""
+    zero_based, width, height = _spectra_image_geometry(manager)
     image: np.ndarray | None = None
 
     for _mz_data, intensity_flat, lengths, coordinates in manager.flat_generator(
@@ -327,26 +330,26 @@ def _read_imzml_tic_image(
         _scatter_values_into_image(image, coordinates, values, zero_based=zero_based)
 
     if image is None:
-        raise ValueError("No pixels were read from imzML source.")
+        raise ValueError("No pixels were read from spectra source.")
 
     return image
 
 
-def _read_imzml_ion_image(
+def _read_spectra_ion_image(
     manager: Any,
     *,
     mz: float | None,
     batch_size: int,
     mz_tolerance: float | None,
 ) -> np.ndarray:
-    """Read an imzML ion image using nearest-peak or m/z-window selection."""
+    """Read an ion image using nearest-peak or m/z-window selection."""
     if mz is None:
         raise ValueError("'mz' is required.")
 
     selected_idx: int | None = None
     selected_indices: np.ndarray | None = None
     expected_n_ions: int | None = None
-    zero_based, width, height = _imzml_image_geometry(manager)
+    zero_based, width, height = _spectra_image_geometry(manager)
     image: np.ndarray | None = None
 
     for mz_data, intensity_flat, lengths, coordinates in manager.flat_generator(
@@ -361,16 +364,16 @@ def _read_imzml_ion_image(
         # Shared m/z axis: resolve the nearest ion or window once and reuse it for the whole batch.
         if _batch_uses_shared_mz(manager, mz_arr, lengths):
             if mz_arr is None:
-                raise ValueError("Shared m/z imzML batch did not include mz_axis.")
+                raise ValueError("Shared m/z batch did not include mz_axis.")
             n_ions = int(mz_arr.size)
             if expected_n_ions is None:
                 expected_n_ions = n_ions
             elif n_ions != expected_n_ions:
-                raise ValueError("All imzML batches must use the same shared mz_axis.")
+                raise ValueError("All batches must use the same shared mz_axis.")
 
             if not np.all(lengths == n_ions):
                 raise ValueError(
-                    "Shared m/z imzML batches must have uniform spectrum lengths."
+                    "Shared m/z batches must have uniform spectrum lengths."
                 )
             intensity_matrix = intensity_flat.reshape(lengths.size, n_ions)
             if mz_tolerance is None:
@@ -414,7 +417,7 @@ def _read_imzml_ion_image(
         _scatter_values_into_image(image, coordinates, values, zero_based=zero_based)
 
     if image is None:
-        raise ValueError("No pixels were read from imzML source.")
+        raise ValueError("No pixels were read from spectra source.")
 
     return image
 
@@ -571,10 +574,10 @@ def read_ion_image(
     if mz_tolerance is not None and mz_tolerance < 0:
         raise ValueError("mz_tolerance must be non-negative.")
 
-    if isinstance(data_manager, MSDataManagerImzML):
-        logger.info("Reading ion image from imzML data manager.")
-        _ensure_imzml_loaded(data_manager)
-        image = _read_imzml_ion_image(
+    if isinstance(data_manager, SpectraDataManager):
+        logger.info("Reading ion image from spectra data manager (imzML/Zarr).")
+        _ensure_spectra_loaded(data_manager)
+        image = _read_spectra_ion_image(
             data_manager,
             mz=mz,
             batch_size=int(batch_size),
@@ -604,10 +607,10 @@ def read_tic_image(
     batch_size: int = 256,
 ) -> np.ndarray:
     """Read a total-ion-current image from a supported data manager."""
-    if isinstance(data_manager, MSDataManagerImzML):
-        logger.info("Reading TIC image from imzML data manager.")
-        _ensure_imzml_loaded(data_manager)
-        return _read_imzml_tic_image(
+    if isinstance(data_manager, SpectraDataManager):
+        logger.info("Reading TIC image from spectra data manager (imzML/Zarr).")
+        _ensure_spectra_loaded(data_manager)
+        return _read_spectra_tic_image(
             data_manager,
             batch_size=int(batch_size),
         )

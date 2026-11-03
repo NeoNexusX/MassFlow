@@ -26,15 +26,15 @@ MassFlow/
 ├── docs/                    # 文档 (VitePress)
 │   ├── en/
 │   └── zh/
-├── logs/                    # 运行时日志
+├── logs/                    # 显式初始化后生成的日志
 ├── src/
 │   └── massflow/            # 核心源代码
-│       ├── data_manager/         # 数据管理器 (MSDataManager, MSDataManagerImzML)
+│       ├── data_manager/         # imzML / 谱 Zarr 及 Binary / H5 / Zarr 离子图管理器
 │       ├── module/               # 核心数据模型
 │       │   ├── spectrum.py       # 光谱基础类型 (Spectrum)
 │       │   ├── spectrum_imzml.py # 带惰性加载的 ImzML 光谱 (SpectrumImzML)
 │       │   ├── mass_spectrum_set.py  # 光谱集合容器 (MassSpectrumSet)
-│       │   ├── ms_meta_data.py       # 元数据结构 (ImzMlMetaData 等)
+│       │   ├── ms_meta_data.py       # 公共元数据 (MetaDataBase)
 │       │   └── ...
 │       ├── preprocess/              # 预处理入口与辅助函数
 │       │   ├── api.py               # 链式任务注册 API (PreprocessorAPI)
@@ -42,6 +42,7 @@ MassFlow/
 │       │   ├── flat_pre_fun.py      # 批处理工具 (FlatPreprocess)
 │       │   └── ...
 │       ├── r_preprocess/       # R/Cardinal 适配器
+│       ├── msi_zarr/           # MSI Zarr 规范、reader 和 writer
 │       └── tools/              # 工具函数
 ├── tests/                   # 测试用例
 ├── LICENSE

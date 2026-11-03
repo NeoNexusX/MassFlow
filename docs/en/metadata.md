@@ -1,180 +1,80 @@
-# MassFlow Metadata Module
+# MassFlow Metadata
 
-This document describes the metadata subsystem in MassFlow, focusing on the three classes defined in `module/ms_meta_data.py`: `MetaDataBase`, `MSIMetaData`, and `ImzMlMetaData`. It covers their fields, properties, typical usage, and key considerations.
+Metadata describes the dataset independently of spectrum arrays. Spectrum managers attach it to `dm.ms.meta`; ion-image managers expose `dm.meta`.
 
-## Overview
+## Current classes
 
-- Design
-  - Metadata (dataset info, instrument, coordinates, pixel sizes) is modeled as an object independent of the spectrum collection `MassSpectrumSet`. Data managers (e.g., `MSDataManagerImzML`) attach or update it while reading.
-  - All attributes exposed via properties automatically synchronize to the internal dictionary `_meta`, enabling serialization and dict-like access.
-- Capabilities
-  - Record image size (number of pixels) and physical pixel size (µm).
-  - Store occupancy mask (`mask`).
-  - Cache common imzML metadata (spectrum count, instrument model, centroid/profile mode, etc.).
-- Core classes
-  - `MetaDataFileBase`: abstract base providing auto-sync and dict interfaces.
-  - `MSIMetaData`: concrete subclass for MSI matrix-style metadata.
-  - `ImzMlMetaData`: concrete subclass for imzML metadata, managing an `ImzMLParser`.
+| Class | Module | Role |
+| --- | --- | --- |
+| `MetaDataBase` | `massflow.module.ms_meta_data` | Shared fields, descriptors, validation, and dictionary access |
+| `MetaDataImzMl` | `massflow.module.ms_meta_data_imzml` | imzML fields populated from the manager's parser |
+| `MetaDataZarr` | `massflow.module.ms_meta_data_zarr` | Metadata loaded from and written to Zarr |
 
 ```mermaid
 classDiagram
-    MetaDataBase <|-- MSIMetaData
-    MetaDataBase <|-- ImzMlMetaData
-
-    class MetaDataBase {
-        <<abstract base>>
-    }
-
-    class MSIMetaData {
-        <<concrete class>>
-    }
-
-    class ImzMlMetaData {
-        <<concrete class>>
-    }
+    MetaDataBase <|-- MetaDataImzMl
+    MetaDataBase <|-- MetaDataZarr
 ```
 
-## Core Types
+The parser belongs to `MSDataManagerImzML`; the metadata object stores extracted values. Construct a data manager to read a file rather than passing a file path to a metadata constructor.
 
-### MetaDataBase (abstract)
+## Fields and printed labels
+
+| Python field | Meaning |
+| --- | --- |
+| `name`, `version` | Dataset name and numeric metadata version |
+| `max_count_of_pixels_x`, `max_count_of_pixels_y` | Image width and height |
+| `pixel_size_x`, `pixel_size_y` | Physical pixel dimensions, when available |
+| `mask` | Two-dimensional occupancy mask |
+| `continuous`, `processed` | m/z encoding flags |
+| `profile_spectrum`, `centroid_spectrum` | Spectrum type flags |
+| `scan_type`, `scan_direction`, `line_scan_direction`, `scan_pattern` | Acquisition layout fields |
+| `spectrum_count_num`, `instrument_model` | Backend metadata fields |
+| `absolute_position_offset_x`, `absolute_position_offset_y` | Spatial offsets |
+| `ms1_spectrum`, `msn_spectrum` | MS-level flags |
+
+The last three table rows include fields defined by `MetaDataImzMl` and `MetaDataZarr`. Access fields without a `meta_` prefix, for example `dm.ms.meta.pixel_size_x`. Printed labels use names such as `meta_pixel_size_x`.
+
+Standard spectrum-type flags use `True` for the active type and `None` for the other type. Encoding flags use the same convention. `str(meta)` omits `None` values and prints an array's shape instead of all its contents. An omitted field does not mean it is `False`.
+
+## Reading metadata
 
 ```python
-class massflow.module.ms_meta_data.MetaDataBase(
-    name: str = "default",
-    version: float = 1.0,
-    storage_mode: str = "split",
-    max_count_of_pixels_x: int | None = None,
-    max_count_of_pixels_y: int | None = None,
-    pixel_size_x: float | None = None,
-    pixel_size_y: float | None = None,
-    mask: np.ndarray | None = None,
+from massflow.data_manager import MSDataManagerImzML
+
+with MSDataManagerImzML(filepath="data/example.imzML") as dm:
+    dm.load_head_data()
+    meta = dm.ms.meta
+    print(meta)
+    print(meta.pixel_size_x, meta.pixel_size_y)
+    print(meta.to_dict())
+```
+
+For spectra Zarr, use `MSDataManagerZarr(filepath="data/example.zarr")` with the same `load_head_data()` and `dm.ms.meta` access pattern. The file must already exist in read mode.
+
+## Creating and copying metadata
+
+```python
+from massflow.module.ms_meta_data_imzml import MetaDataImzMl
+
+meta = MetaDataImzMl(
+    name="example",
+    version=1.0,
+    max_count_of_pixels_x=227,
+    max_count_of_pixels_y=93,
+    pixel_size_x=100.0,
+    pixel_size_y=100.0,
 )
+meta.profile_spectrum = True
+meta.centroid_spectrum = None
+meta.continuous = True
+meta.processed = None
 ```
 
-- Purpose
-  - Provide common metadata fields and property wrappers; setters synchronize values into `_meta` via `self._set(key, value)`.
-- Key fields/properties (partial)
-  - `name`, `version`, `storage_mode`
-  - `max_count_of_pixels_x`, `max_count_of_pixels_y` (pixel count)
-  - `pixel_size_x`, `pixel_size_y` (µm)
-  - `processed`, `peakpick`
-  - `centroid_spectrum`, `profile_spectrum`
-  - `mask` (2D array; shape must be `(max_count_of_pixels_y, max_count_of_pixels_x)`)
-  - `meta_index` (CV mapping; used for extraction)
-- Access
-  - Dict-like: `__getitem__`, `keys()`, `items()`, `values()`, `get()`, `to_dict()`.
+Descriptors and properties synchronize standard values into `_meta`. Read values with `get()`, `keys()`, `items()`, `values()`, or `to_dict()`; these are Python field names, not printed labels.
 
-### MSIMetaData (matrix MSI)
+Use `target_dm.copy_meta(source_dm)` when preparing an output manager. Backend copy methods retain compatible descriptive fields while excluding fields such as mask, spectrum count, encoding, and spectrum type; output processing must set or rebuild those fields. Copying metadata does not copy spectrum arrays.
 
-```python
-class massflow.module.ms_meta_data.MSIMetaData(
-    mask=None,
-    need_base_mask: bool = False,
-    name: str = "default",
-    version: float = 1.0,
-    storage_mode: str = "split",
-    max_count_of_pixels_x: int | None = None,
-    max_count_of_pixels_y: int | None = None,
-    pixel_size_x: float | None = None,
-    pixel_size_y: float | None = None,
-    mz_num: int | None = None,
-)
-```
+`MetaDataZarr.to_zarr(root)` stores scalar values as group attributes and the optional mask as an array. `MetaDataZarr.from_zarr(root)` reads them back; the Zarr reader/writer normally handles this for users. See [Zarr schema](./zarr_schema.md).
 
-- Extra fields
-  - `need_base_mask`: whether to compute a base mask from intensities.
-  - `mz_num`: global m/z count (optional, for statistics/control).
-- Usage
-  - Non-imzML sources or MSI converted to dense matrix format.
-- Behavior
-  - Inherits auto-sync: setting attributes writes into `_meta`.
-
-### ImzMlMetaData (imzML)
-
-```python
-class massflow.module.ms_meta_data.ImzMlMetaData(
-    name: str = "ImzML",
-    version: float = 1.0,
-    storage_mode: str = "split",
-    filepath: str | None = None,
-    absolute_position_offset_x=None,
-    absolute_position_offset_y=None,
-    centroid_spectrum=None,
-    profile_spectrum=None,
-    ms1_spectrum=None,
-    msn_spectrum=None,
-    instrument_model=None,
-    spectrum_count_num=None,
-    min_pixel_x=None,
-    min_pixel_y=None,
-    mask=None,
-    pixel_size_x=None,
-    pixel_size_y=None,
-    max_count_of_pixels_x=None,
-    max_count_of_pixels_y=None,
-)
-```
-
-- Initialization
-  - Provide `filepath: str` pointing to an existing `.imzML` file; the path is validated when set.
-- Key fields
-  - `filepath`, `spectrum_count_num`
-  - `absolute_position_offset_x`, `absolute_position_offset_y`
-  - `instrument_model`, `ms1_spectrum`, `msn_spectrum`
-  - `min_pixel_x`, `min_pixel_y`
-- Validation/sync
-  - `filepath` must exist; otherwise a `FileNotFoundError` is raised.
-  - `min_pixel_x/min_pixel_y` must satisfy `0 ≤ value ≤ max_count_of_pixels_*`.
-
-## Usage Examples
-
-### Scenario 1: MSI matrix
-
-```python
->>> from massflow.module.ms_meta_data import MSIMetaData
->>> import numpy as np
->>>
->>> # 1. Create metadata object
->>> meta = MSIMetaData(name="test_dataset", mz_num=100, need_base_mask=True)
->>>
->>> # 2. Update metadata (e.g., set mask)
->>> my_mask = np.zeros((10, 10))
->>> meta.mask = my_mask
->>>
->>> # 3. Access via attribute and dict
->>> print(meta.name)
-test_dataset
->>> print(meta["name"])
-test_dataset
-```
-
-### Scenario 2: imzML
-
-```python
->>> from massflow.module.mass_spectrum_set import MassSpectrumSet
->>> from massflow.module.ms_data_manager_imzml import MSDataManagerImzML
->>>
->>> ms = MassSpectrumSet()
->>> ms_dm = MSDataManagerImzML(ms=ms, filepath="data/example.imzML")
-
->>> # Load spectra and extract metadata
->>> ms_dm.load_full_data_from_file()
->>>
->>> # Access metadata populated via CV index mapping
->>> print(f"X-axis pixels: {ms.meta.max_count_of_pixels_x}")
-X-axis pixels: [X value from example.imzML]
->>> print(f"Y-axis pixels: {ms.meta.max_count_of_pixels_y}")
-Y-axis pixels: [Y value from example.imzML]
->>> print(f"Min pixel x: {ms.meta.min_pixel_x}")
-Min pixel x: 0
-```
-
-## Relation to Data Managers
-- `MSDataManagerImzML` constructs and maintains `ImzMlMetaData` while reading, and attaches it to the underlying `MassSpectrumSet` (`ms.meta`) for subsequent analysis/plotting.
-- For coordinate filtering or visualization, read `mask` and pixel size from metadata.
-
-## Notes & Recommendations
-- `version` must be positive.
-- `filepath` must exist; for `ImzMlMetaData` this is validated when setting the `filepath` property.
-- `mask` must be a 2D NumPy array; conventionally its shape should match `(max_count_of_pixels_y, max_count_of_pixels_x)`.
-- Initialize `max_count_of_pixels_*` before setting `min_pixel_*` to pass bounds checks.
+imzML metadata copying in memory does not guarantee every field is serialized by the imzML writer: the current exporter does not write pixel-size or polarity terms. Zarr supports the metadata fields described by its schema.

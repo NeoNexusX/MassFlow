@@ -256,14 +256,16 @@ def _local_maxima_core_numba(
 def baseline_snip_numba(
     intensity: np.ndarray,
     lengths: np.ndarray | None = None,
-    m: int | None = None,
+    m: int | None = 100,
     decreasing: bool = True,
 ) -> np.ndarray:
     """Compute the SNIP baseline for a 1D spectrum.
 
     Args:
         intensity: 1D intensity array.
-        m: Maximum window radius; if None, choose based on spectrum length.
+        m: Maximum window radius. Defaults to a fixed 100 (matching
+            Cardinal/matter ``estbase_snip``); the jit loop clips it per
+            spectrum to half its length.
         decreasing: Whether to iterate window sizes from large to small.
 
     Returns:
@@ -296,11 +298,9 @@ def baseline_snip_numba(
     if m is not None and m < 1:
         raise ValueError("m must be a positive integer for SNIP baseline")
 
-    if m is None:
-        m_in = min(100, max(10, n // 10))
-    else:
-        m_in = int(m)
-    m_eval = max(1, min(m_in, (n - 1) // 2))
+    # Fixed default window, independent of batch composition (BUG-08);
+    # baseline_snip_jit clips it per spectrum to (seg_len - 1) // 2.
+    m_eval = 100 if m is None else int(m)
 
     xi = np.asarray(intensity_arr, dtype=np.float64)
     xi = np.ascontiguousarray(xi)
@@ -315,7 +315,7 @@ def baseline_locmin_numba(
     width: int = 5,
     upper: bool = False,
     span: float = 0.1,
-    niter: int = 3,
+    niter: int = 15,
     smooth: str | None = None,
 ) -> np.ndarray:
     """

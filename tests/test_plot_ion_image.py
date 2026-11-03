@@ -368,3 +368,99 @@ class TestDefaultMzToleranceWindow:
 
         assert _nearest_mz_index(axis, 100.01) == -1  # nearest peak is 100 ppm away
         assert _nearest_mz_index(axis, 100.0008) == 0  # 8 ppm away, inside the window
+
+
+class TestSpectraZarrIonImage:
+    """read/plot ion-image and TIC paths accept MSDataManagerZarr (LOGIC-11)."""
+
+    COORDINATES = np.array([[1, 1, 1], [2, 1, 1], [1, 2, 1], [2, 2, 1]])
+
+    @staticmethod
+    def _write_spectra_zarr(tmp_path, storage_mode):
+        from massflow.data_manager import MSDataManagerZarr
+
+        writer = MSDataManagerZarr(
+            filepath=tmp_path / "spectra.zarr",
+            mode="w",
+            storage_mode=storage_mode,
+            temp_dir=tmp_path,
+        )
+        if storage_mode == "continuous":
+            mz = np.array([100.0, 200.0, 300.0])
+            intensity = np.array(
+                [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]]
+            )
+            lengths = np.full(4, 3, dtype=np.int64)
+        else:
+            mz = np.concatenate(
+                [
+                    np.array([100.0, 200.0]),
+                    np.array([200.001, 300.0]),
+                    np.array([100.05, 250.0, 300.0]),
+                    np.array([150.0, 300.02]),
+                ]
+            )
+            intensity = np.concatenate(
+                [
+                    np.array([1.0, 2.0]),
+                    np.array([3.0, 4.0]),
+                    np.array([5.0, 6.0, 7.0]),
+                    np.array([8.0, 9.0]),
+                ]
+            )
+            lengths = np.array([2, 2, 3, 2], dtype=np.int64)
+        writer.write_flat_batch(
+            intensity_flat=intensity.reshape(-1),
+            lengths=lengths,
+            coordinates=TestSpectraZarrIonImage.COORDINATES,
+            mz_axis=mz,
+        )
+        writer.finalize()
+        writer.close()
+        return MSDataManagerZarr(filepath=tmp_path / "spectra.zarr")
+
+    def test_read_ion_image_continuous(self, tmp_path):
+        dm = self._write_spectra_zarr(tmp_path, "continuous")
+
+        image = read_ion_image(dm, mz=200.0)
+
+        np.testing.assert_allclose(image, [[2.0, 5.0], [8.0, 11.0]])
+
+    def test_read_tic_image_continuous(self, tmp_path):
+        dm = self._write_spectra_zarr(tmp_path, "continuous")
+
+        image = read_tic_image(dm)
+
+        np.testing.assert_allclose(image, [[6.0, 15.0], [24.0, 33.0]])
+
+    def test_read_ion_image_processed_nearest(self, tmp_path):
+        dm = self._write_spectra_zarr(tmp_path, "processed")
+
+        # Default ppm window: only pixels with a peak within ~10 ppm of m/z 200.
+        image = read_ion_image(dm, mz=200.0)
+
+        np.testing.assert_allclose(image, [[2.0, 3.0], [0.0, 0.0]])
+
+    def test_read_ion_image_processed_window_sum(self, tmp_path):
+        dm = self._write_spectra_zarr(tmp_path, "processed")
+
+        # Window [150, 250]: pixel 1 keeps only 200.001 (300.0 lies outside).
+        image = read_ion_image(dm, mz=200.0, mz_tolerance=50.0)
+
+        np.testing.assert_allclose(image, [[2.0, 3.0], [6.0, 8.0]])
+
+    def test_valid_region_mask_and_plot(self, tmp_path):
+        dm = self._write_spectra_zarr(tmp_path, "continuous")
+        dm.load_head_data()
+
+        mask = _valid_region_mask(dm, (2, 2))
+
+        np.testing.assert_array_equal(mask, np.ones((2, 2), dtype=bool))
+        plot_ion_image(
+            dm,
+            mz=200.0,
+            output_path=tmp_path / "ion.png",
+            show=False,
+            structure_only=True,
+        )
+        assert (tmp_path / "ion.png").exists()

@@ -77,4 +77,4 @@ env = init_r_environment(r_home="C:\\Program Files\\R\\R-4.3.1")
 
 ### 与 `UnicodeDecodeError` 相关的错误
 
-MassFlow 会自动将 R 的区域设置设为英语（`LANGUAGE=en`，`LC_ALL=C`），以避免字符编码问题。通常情况下，无需用户手动干预。
+R 初始化期间，MassFlow 会临时设置 Python 进程环境变量 `LANGUAGE=en`、`LC_ALL=C`，以减少加载 rpy2 和 R 包时的消息编码问题。`init_r_environment()` 在初始化成功或失败后都会恢复原值；原先不存在的变量会被移除。这是临时修改进程环境变量，并非只修改 R 内部的独立区域设置。

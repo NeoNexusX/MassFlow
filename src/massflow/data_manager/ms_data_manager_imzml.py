@@ -190,6 +190,7 @@ class MSDataManagerImzML(MSDataManager):
         Behavior:
                 - Iterates over `parser.coordinates` and creates a `SpectrumImzML` placeholder per pixel.
                 - If `target_locs` is provided, only pixels within the inclusive window are added.
+                - If no pixels match, a warning is logged and the finalize hooks are skipped.
                 - For continuous data, `ms.shared_mz_list` is populated once (on first seen spectrum)
                     and each placeholder gets `spectrum.mz_list = ms.shared_mz_list`.
         """
@@ -201,6 +202,7 @@ class MSDataManagerImzML(MSDataManager):
         self.preload_hook()
 
         # spectrum data load and create part  [find by coordinate]
+        total_pixels = len(self.parser.coordinates)
         for i, c in enumerate(self.parser.coordinates):
             x, y, z = c
             if self.target_locs[0][0] <= x <= self.target_locs[1][0] and self.target_locs[0][1] <= y <= self.target_locs[1][1]:
@@ -216,6 +218,11 @@ class MSDataManagerImzML(MSDataManager):
                 self.current_spectrum_num += 1
 
         # loaded part : finalize meta data load part
+        if self.current_spectrum_num == 0:
+            logger.warning(
+                f"target_locs {self.target_locs} matched 0 of {total_pixels} pixels in file; no spectra loaded, skipping finalize hooks."
+            )
+            return
         self.loaded_hook()
 
     def extract_metadata(self):
@@ -255,11 +262,13 @@ class MSDataManagerImzML(MSDataManager):
                 swap_base.with_suffix(suffix).unlink(missing_ok=True)
 
     def copy_meta(self, source_dm: MSDataManager):
-        # 检查 source_dm.ms.meta 是否也是 MetaDataImzMl 类型（或其子类）
-        if isinstance(source_dm.ms.meta, type(self.ms.meta)):
-            self.ms.meta.copy(source_dm.ms.meta)
-        else:
-            logger.warning("Source and target metadata types do not match.")
+        """Copy metadata from another data manager, dropping fields that may change here.
+
+        MetaDataBase.copy matches by field name, so cross-type sources
+        (e.g. MetaDataZarr from a spectra Zarr input) copy their shared
+        fields; source-only fields are ignored (LOGIC-01).
+        """
+        self.ms.meta.copy(source_dm.ms.meta)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()

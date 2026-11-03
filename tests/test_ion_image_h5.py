@@ -27,6 +27,21 @@ _SUDO_PASSWORD = "660789"
 ROUND = 1
 
 
+def test_empty_ion_block_keeps_pixel_width(tmp_path):
+    """空 ion 区间应返回 (0, n_pixels)，与 numpy 切片语义一致。"""
+    with IonImageDataManagerH5(
+        tmp_path / "tiny.h5", mode="w", width=2, height=2, temp_dir=tmp_path
+    ) as dm:
+        dm.write_flat_batch(
+            intensity_flat=np.array([1, 2, 3, 4, 5, 6, 7, 8], dtype=np.float32),
+            lengths=np.array([2, 2, 2, 2]),
+            coordinates=np.array([[1, 1], [2, 1], [1, 2], [2, 2]]),
+            mz_axis=np.array([100.0, 200.0]),
+        )
+        dm.finalize()
+        assert dm.get_ion_block(1, 1).shape == (0, dm.n_pixels)
+
+
 def _purge_cache() -> None:
     """清除系统磁盘缓存，随后暂停 5s 让系统稳定。"""
     try:

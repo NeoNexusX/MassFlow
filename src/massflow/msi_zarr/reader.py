@@ -32,6 +32,7 @@ class MSIZarrReader:
         self.root: zarr.Group = zarr.open_group(self.path, mode="r")
         self._combined = False
         self._spectra_group: zarr.Group | None = None
+        self._shared_mz_cache: np.ndarray | None = None
         self._validate_structure()
 
     # --- Store metadata and dimensions ---------------------------------------
@@ -111,9 +112,12 @@ class MSIZarrReader:
         )
 
     def read_shared_mz_axis(self) -> np.ndarray:
+        """Return the cached shared m/z axis; copy it before modifying."""
         if self.shared_mz_axis is None:
             raise ValueError("This store does not have a shared m/z axis.")
-        return np.asarray(self.shared_mz_axis[:])
+        if self._shared_mz_cache is None:
+            self._shared_mz_cache = np.asarray(self.shared_mz_axis[:])
+        return self._shared_mz_cache
 
     def read_mean_spectrum(self) -> np.ndarray | None:
         if "stats" not in self.root:
@@ -215,8 +219,7 @@ class MSIZarrReader:
         end = _read_array_int(offsets_array, pixel_index + 1)
         intensity = np.asarray(intensity_array[start:end])
         if encoding == ZARR_MODE_CONTINUOUS:
-            assert self.shared_mz_axis is not None
-            mz = np.asarray(self.shared_mz_axis[:])
+            mz = self.read_shared_mz_axis()
         else:
             assert point_mz is not None
             mz = np.asarray(point_mz[start:end])

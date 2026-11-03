@@ -3,6 +3,9 @@ import numpy as np
 from numba import jit, prange
 from massflow.preprocess.numba.peak_align_numba import search_nearest_jit
 from massflow.tools.funs import prepare_flat_inputs, lengths_to_offsets
+from massflow.tools.logger import get_logger
+
+logger = get_logger("massflow.preprocess.normalization")
 
 # -----------------------------------------------------------------------------
 # Core Calculation Kernels (Helpers)
@@ -26,22 +29,18 @@ def _get_rms(arr: np.ndarray) -> float:
     return np.sqrt(s / n)
 
 @jit(nopython=True, cache=True)
-def _get_ref(
-    intensity_arr: np.ndarray,
+def _get_ref_idx(
     mz_arr: np.ndarray,
     ref: float,
     ref_tolerance: float,
-) -> float:
-    if intensity_arr.shape[0] == 0 or mz_arr.shape[0] == 0:
-        return 0.0
+) -> int:
+    """Return the index of the m/z point matching ref within tolerance, or -1."""
+    if mz_arr.shape[0] == 0:
+        return -1
 
     query = np.array([ref], dtype=np.float64)
     idx_arr = search_nearest_jit(query, mz_arr, ref_tolerance, 2, -1, False)
-    idx = int(idx_arr[0])
-    if idx < 0:
-        return 0.0
-
-    return np.float64(intensity_arr[idx])
+    return int(idx_arr[0])
 
 
 # -----------------------------------------------------------------------------
@@ -78,16 +77,30 @@ def _normalize_core_ref(
     scale_factor: float,
     ref: float,
     ref_tolerance: float,
-):
-    """Normalize one spectrum using ref peak intensity base."""
-    base = _get_ref(in_arr, mz_arr, ref, ref_tolerance)
+) -> int:
+    """Normalize one spectrum using ref peak intensity base.
+
+    Returns 0 when normalized, 1 when no m/z matches ref within tolerance,
+    2 when the matched ref intensity is non-positive or NaN. On failure the
+    input spectrum is copied through unchanged instead of zeroed (BUG-09).
+    """
+    idx = _get_ref_idx(mz_arr, ref, ref_tolerance)
+    if idx < 0:
+        for i in range(in_arr.shape[0]):
+            out_arr[i] = in_arr[i]
+        return 1
+
+    base = np.float64(in_arr[idx])
     if base <= 0.0 or np.isnan(base):
-        return
+        for i in range(in_arr.shape[0]):
+            out_arr[i] = in_arr[i]
+        return 2
 
     factor = scale_factor / base
     n = in_arr.shape[0]
     for i in range(n):
         out_arr[i] = np.float64(in_arr[i]) * factor
+    return 0
 
 @jit(nopython=True, parallel=True, cache=True)
 def _normalize_flat_basic_jit(
@@ -122,9 +135,16 @@ def _normalize_flat_ref_jit(
     ref_tolerance: float,
     lengths: np.ndarray,
     mz_shared: bool,
-) -> np.ndarray:
-    """Normalize flat spectra in ref mode; supports per-spectrum or shared mz axis."""
+):
+    """Normalize flat spectra in ref mode; supports per-spectrum or shared mz axis.
+
+    Returns (result, status): status[p] is 0 when spectrum p was normalized,
+    1 when no m/z matched ref within tolerance, 2 when the matched ref
+    intensity was non-positive or NaN; both failure modes keep the original
+    spectrum values.
+    """
     res = np.zeros(flat.size, dtype=flat.dtype)
+    status = np.zeros(lengths.size, dtype=np.int64)
     offsets = lengths_to_offsets(lengths)
 
     for p in prange(lengths.size): # pylint: disable=not-an-iterable
@@ -135,7 +155,7 @@ def _normalize_flat_ref_jit(
                 mz_arr = mz_flat
             else:
                 mz_arr = mz_flat[start:end]
-            _normalize_core_ref(
+            status[p] = _normalize_core_ref(
                 flat[start:end],
                 res[start:end],
                 mz_arr,
@@ -144,7 +164,7 @@ def _normalize_flat_ref_jit(
                 ref_tolerance,
             )
 
-    return res
+    return res, status
 
 
 # -----------------------------------------------------------------------------
@@ -225,7 +245,7 @@ def normalizer_numba(
                     "Shared mz_flat length must match every spectrum length when using ref normalization"
                 )
 
-        return _normalize_flat_ref_jit(
+        result, status = _normalize_flat_ref_jit(
             intensity_arr,
             mz_arr,
             scale_factors,
@@ -234,6 +254,20 @@ def normalizer_numba(
             lengths_arr,
             mz_shared,
         )
+
+        # Spectra that could not be ref-normalized keep their original
+        # values; surface how many so the data loss is visible (BUG-09).
+        n_nomatch = int(np.count_nonzero(status == 1))
+        n_bad_base = int(np.count_nonzero(status == 2))
+        if n_nomatch > 0 or n_bad_base > 0:
+            logger.warning(
+                f"ref normalization kept {n_nomatch}/{n_spec} spectra unchanged "
+                f"(no m/z within {float(ref_tolerance)} of ref={float(ref)}) and "
+                f"{n_bad_base}/{n_spec} unchanged (non-positive ref intensity); "
+                f"original values preserved"
+            )
+
+        return result
 
     return _normalize_flat_basic_jit(
         intensity_arr,

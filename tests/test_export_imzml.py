@@ -288,6 +288,24 @@ def test_spectra_zarr_export(tmp_path, mode, selection):
         _assert_spectra(path, _COORDINATES, mz, intensity, lengths, indices, mode)
 
 
+def test_zarr_to_imzml_copy_meta_cross_type(tmp_path):
+    """copy_meta must copy shared fields from a MetaDataZarr source (LOGIC-01)."""
+    source, _, _, _ = _write_spectra_source(tmp_path, "processed")
+    source.extract_metadata()  # load on-disk metadata, as the pipeline read path does
+    source.ms.meta.pixel_size_x = 25.0
+    source.ms.meta.pixel_size_y = 25.0
+    source.ms.meta.instrument_model = "test instrument"
+
+    with MSDataManagerImzML(filepath=str(tmp_path / "out.imzML")) as dm:
+        dm.copy_meta(source)
+        assert dm.ms.meta.pixel_size_x == 25.0
+        assert dm.ms.meta.pixel_size_y == 25.0
+        assert dm.ms.meta.instrument_model == "test instrument"
+        assert dm.ms.meta.max_count_of_pixels_x == 6
+        # Fields excluded by copy must not leak from the source.
+        assert dm.ms.meta.processed is None
+
+
 def _write_imzml_source(tmp_path, mode, coordinates=_COORDINATES):
     path = tmp_path / "source.imzML"
     lengths = np.full(5, 3) if mode == "continuous" else np.array([2, 4, 1, 3, 2])

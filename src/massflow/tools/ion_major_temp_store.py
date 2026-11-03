@@ -19,8 +19,10 @@ from massflow.concurrency.runtime import get_io_executor
 
 _BINARY_OPEN_FLAG = getattr(os, "O_BINARY", 0)
 _OS_PREAD = getattr(os, "pread", None)
+_OS_PWRITE = getattr(os, "pwrite", None)
 _POSITIONED_IO_LOCK = threading.Lock()
 _TEMP_WRITE_ION_BLOCK = 2048
+_BATCH_FILE_NAME = "batches.bin"
 
 
 def positioned_read(fd: int, nbytes: int, offset: int) -> bytes:
@@ -30,6 +32,26 @@ def positioned_read(fd: int, nbytes: int, offset: int) -> bytes:
     with _POSITIONED_IO_LOCK:
         os.lseek(fd, offset, os.SEEK_SET)
         return os.read(fd, nbytes)
+
+
+def positioned_write(fd: int, data: Any, offset: int) -> None:
+    """Write the complete buffer at an explicit file offset."""
+    view = memoryview(data).cast("B")
+    if _OS_PWRITE is not None:
+        while view:
+            written = _OS_PWRITE(fd, view, offset)
+            if written == 0:
+                raise OSError("Positioned write returned zero bytes.")
+            view = view[written:]
+            offset += written
+        return
+    with _POSITIONED_IO_LOCK:
+        os.lseek(fd, offset, os.SEEK_SET)
+        while view:
+            written = os.write(fd, view)
+            if written == 0:
+                raise OSError("Write returned zero bytes.")
+            view = view[written:]
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +64,14 @@ class BatchInfo:
 
 
 class IonMajorTempStore:
-    """Own temporary transposed batches used by ion-major writers."""
+    """Own temporary transposed batches used by ion-major writers.
+
+    All batches live in one shared file: batch ``k`` occupies the contiguous
+    ``[n_ions, n_pixels]`` segment starting at
+    ``global_pixel_start * n_ions * itemsize``. Segments never overlap, so
+    concurrent batch writes need no coordination, and the store holds exactly
+    one open descriptor regardless of batch count (BUG-05).
+    """
 
     def __init__(
         self,
@@ -55,6 +84,7 @@ class IonMajorTempStore:
         base.mkdir(parents=True, exist_ok=True)
         self._root = base / f"massflow_ion_major_{uuid.uuid4().hex}"
         self._root.mkdir(parents=True, exist_ok=False)
+        self._batch_path = self._root / _BATCH_FILE_NAME
         self.dtype = np.dtype(dtype)
         self.workers = resolve_workers("io_write", workers, default=4)
         self._executor: ThreadPoolExecutor | None = None
@@ -62,10 +92,19 @@ class IonMajorTempStore:
         self._batches: list[tuple[int, BatchInfo]] = []
         self._batch_index = 0
         self._pixel_count = 0
-        self._read_fds: dict[Path, int] = {}
-        self._fd_lock = threading.Lock()
+        self._n_ions: int | None = None
+        self._fd: int | None = None
         self._finished = False
         self._closed = False
+
+    def _ensure_fd(self) -> int:
+        if self._fd is None:
+            self._fd = os.open(
+                self._batch_path,
+                os.O_RDWR | os.O_CREAT | _BINARY_OPEN_FLAG,
+                0o600,
+            )
+        return self._fd
 
     def append_batch(
         self,
@@ -79,6 +118,13 @@ class IonMajorTempStore:
             raise ValueError("Cannot append after finish or close.")
         n_pixels = int(n_pixels)
         n_ions = int(n_ions)
+        if self._n_ions is None:
+            self._n_ions = n_ions
+        elif n_ions != self._n_ions:
+            raise ValueError(
+                f"n_ions must stay constant across batches: "
+                f"{self._n_ions} != {n_ions}."
+            )
         values = np.array(
             intensity_flat,
             dtype=self.dtype,
@@ -90,9 +136,10 @@ class IonMajorTempStore:
 
         batch_index = self._batch_index
         self._batch_index += 1
-        batch_path = self._root / f"batch_{batch_index:08d}.bin"
-        info = BatchInfo(batch_path, n_pixels, self._pixel_count)
+        info = BatchInfo(self._batch_path, n_pixels, self._pixel_count)
         self._pixel_count += n_pixels
+        fd = self._ensure_fd()
+        segment_offset = info.global_pixel_start * n_ions * self.dtype.itemsize
         executor = get_io_executor()
         if executor is None:
             if self._executor is None:
@@ -102,6 +149,8 @@ class IonMajorTempStore:
             self._write_batch,
             batch_index,
             info,
+            fd,
+            segment_offset,
             values,
             n_ions,
         )
@@ -134,17 +183,21 @@ class IonMajorTempStore:
         n_ions = ion_end - ion_start
         if ion_start < 0 or n_ions < 0:
             raise ValueError("Invalid ion block.")
-        with self._fd_lock:
-            fd = self._read_fds.get(batch.path)
-            if fd is None:
-                fd = os.open(batch.path, os.O_RDONLY | _BINARY_OPEN_FLAG)
-                self._read_fds[batch.path] = fd
-        nbytes = n_ions * batch.n_pixels * self.dtype.itemsize
-        offset = ion_start * batch.n_pixels * self.dtype.itemsize
-        raw = positioned_read(fd, nbytes, offset)
+        if self._fd is None or self._n_ions is None:
+            raise ValueError("No batches were appended.")
+        if ion_end > self._n_ions:
+            raise ValueError(f"ion_end must not exceed n_ions ({self._n_ions}).")
+        itemsize = self.dtype.itemsize
+        nbytes = n_ions * batch.n_pixels * itemsize
+        offset = (
+            batch.global_pixel_start * self._n_ions * itemsize
+            + ion_start * batch.n_pixels * itemsize
+        )
+        raw = positioned_read(self._fd, nbytes, offset)
         if len(raw) != nbytes:
             raise OSError(
-                f"Short read from {batch.path}: expected {nbytes}, got {len(raw)}"
+                f"Short read from {self._batch_path}: "
+                f"expected {nbytes}, got {len(raw)}"
             )
         return np.frombuffer(raw, dtype=self.dtype).reshape(n_ions, batch.n_pixels)
 
@@ -156,24 +209,30 @@ class IonMajorTempStore:
         wait(self._pending)
         if self._executor is not None:
             self._executor.shutdown(wait=True)
-        for fd in self._read_fds.values():
-            os.close(fd)
-        self._read_fds.clear()
+        if self._fd is not None:
+            os.close(self._fd)
+            self._fd = None
         shutil.rmtree(self._root, ignore_errors=True)
 
     @staticmethod
     def _write_batch(
         batch_index: int,
         info: BatchInfo,
+        fd: int,
+        segment_offset: int,
         values: np.ndarray,
         n_ions: int,
     ) -> tuple[int, BatchInfo]:
+        itemsize = values.dtype.itemsize
         matrix = values.reshape(info.n_pixels, n_ions)
-        with info.path.open("wb") as output:
-            for ion_start in range(0, n_ions, _TEMP_WRITE_ION_BLOCK):
-                ion_end = min(n_ions, ion_start + _TEMP_WRITE_ION_BLOCK)
-                block = np.ascontiguousarray(matrix[:, ion_start:ion_end].T)
-                output.write(memoryview(block))
+        for ion_start in range(0, n_ions, _TEMP_WRITE_ION_BLOCK):
+            ion_end = min(n_ions, ion_start + _TEMP_WRITE_ION_BLOCK)
+            block = np.ascontiguousarray(matrix[:, ion_start:ion_end].T)
+            positioned_write(
+                fd,
+                block,
+                segment_offset + ion_start * info.n_pixels * itemsize,
+            )
         return batch_index, info
 
     def _collect(self, *, return_when: str) -> None:

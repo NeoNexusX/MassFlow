@@ -387,7 +387,7 @@ def findbins_numba(
         lower = np.clip(lower, 0, n - 1)
         upper = np.clip(upper, 0, n - 1)
 
-    elif overlap == 0.0:
+    elif overlap == 0.0 and not dynamic:
         edges = np.floor(np.linspace(0.0, float(n), nbins + 1)).astype(np.int64)
         lower = np.clip(edges[:-1], 0, n - 1)
         upper = np.clip(edges[1:] - 1, 0, n - 1)

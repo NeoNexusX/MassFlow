@@ -41,7 +41,7 @@ class Preprocessor(PreprocessorAPI):
 
     def __init__(
         self,
-        data_manager: MSDataManagerImzML,
+        data_manager: MSDataManagerImzML | MSDataManagerZarr,
         *,
         batch_size: int = 256,
         ion_block: int = 256,
@@ -54,7 +54,7 @@ class Preprocessor(PreprocessorAPI):
         compute_mean_spectrum: bool = False,
         compute_tic: bool = False,
         compute_rms: bool = False,
-        pipeline_stall_timeout: float | None = 180.0,
+        pipeline_stall_timeout: float | None = 600.0,
         validate_processed_mz: bool = False,
     ): # pylint: disable=super-init-not-called
         if data_manager is None or batch_size <= 0 or batch_size > 9056 or queue_ab_size <= 0 or queue_bc_size <= 0 :
@@ -97,6 +97,9 @@ class Preprocessor(PreprocessorAPI):
         apply_fn: Callable[..., FlatBatchResult] | Callable[..., Any],
         **kwargs: Any,
     ) -> "Preprocessor":
+        if any(task.name == name for task in self._tasks):
+            logger.error(f"Task '{name}' is already registered; each task can only be registered once.")
+            raise ValueError(f"Task '{name}' is already registered; each task can only be registered once.")
         self._tasks.append(
             PreprocessTask(
                 name=name,
@@ -140,4 +143,4 @@ class Preprocessor(PreprocessorAPI):
                 file_path=input_meta.result_path # type: ignore
             )
 
-        return run_segments(self.data_manager, task_segments)
+        return run_segments(self.data_manager, task_segments) # type: ignore

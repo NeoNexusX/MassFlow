@@ -129,9 +129,9 @@ class MSIZarrWriter:
 
     def add_spectrum(
         self,
+        mz: np.ndarray,
         intensity: np.ndarray,
         coordinates: np.ndarray | list[int] | tuple[int, ...],
-        mz: np.ndarray,
     ) -> None:
         intensity = np.asarray(intensity, dtype=self.intensity_dtype)
         mz = np.asarray(mz, dtype=self.mz_dtype)
@@ -160,8 +160,8 @@ class MSIZarrWriter:
             raise ValueError("intensity_flat, lengths, and mz_axis must be 1-D.")
         if lengths.size == 0:
             return
-        if np.any(lengths <= 0):
-            raise ValueError("Writer does not accept empty spectra.")
+        if np.any(lengths < 0):
+            raise ValueError("Spectrum lengths must be non-negative.")
         if coordinates.shape[0] != lengths.size:
             raise ValueError("coordinates row count must equal lengths size.")
         if intensity.size != int(np.sum(lengths, dtype=np.int64)):
@@ -391,23 +391,14 @@ class MSIZarrWriter:
     def _compact_spectra_arrays(self, source_idx: np.ndarray) -> None:
         assert self._spectra_intensity is not None
         assert self._spectra_offsets is not None
-        # Single bulk read from zarr, gather in numpy, single write back.
-        # Avoids per-row zarr sync overhead (and potential deadlocks with
-        # zarr v3's asyncio-based sync in constrained runtimes).
         old_offsets = np.asarray(self._spectra_offsets[:], dtype=np.int64)
         starts = old_offsets[source_idx]
         lengths = old_offsets[source_idx + 1] - starts
         total = int(lengths.sum())
-        gather_idx = np.repeat(starts, lengths) + np.concatenate(
-            [np.arange(n) for n in lengths]
-        )
-        all_intensity = np.asarray(self._spectra_intensity[:])
-        compacted = all_intensity[gather_idx]
         new_offsets = np.empty(source_idx.size + 1, dtype="<i8")
         np.cumsum(lengths, out=new_offsets[1:])
         new_offsets[0] = 0
-        self._spectra_intensity.resize((total,))
-        self._spectra_intensity[:] = compacted
+        _compact_flat_array(self._spectra_intensity, starts, lengths, total)
         self._spectra_offsets.resize(new_offsets.shape)
         self._spectra_offsets[:] = new_offsets
         self._spectra_total_points = total
@@ -487,13 +478,24 @@ class MSIZarrWriter:
         starts[0] = 0
         if lengths.size > 1:
             np.cumsum(lengths[:-1], dtype=np.int64, out=starts[1:])
+        nonempty = lengths > 0
+        nonempty_starts = starts[nonempty]
         work = intensity.astype(np.float64)
+        # Only nonempty rows have strictly increasing, in-bounds starts.
+        # Reduce each row independently so preceding spectra cannot affect it.
         if self.compute_tic:
-            self._tic_batches.append(np.add.reduceat(work, starts))
+            tic = np.zeros(lengths.size, dtype=np.float64)
+            if nonempty_starts.size:
+                tic[nonempty] = np.add.reduceat(work, nonempty_starts)
+            self._tic_batches.append(tic)
         if self.compute_rms:
             np.square(work, out=work)
-            sum_squares = np.add.reduceat(work, starts)
-            self._rms_batches.append(np.sqrt(sum_squares / lengths))
+            mean_square = np.zeros(lengths.size, dtype=np.float64)
+            if nonempty_starts.size:
+                mean_square[nonempty] = (
+                    np.add.reduceat(work, nonempty_starts) / lengths[nonempty]
+                )
+            self._rms_batches.append(np.sqrt(mean_square))
 
     def _write_tic(self, tic: np.ndarray | None = None) -> None:
         if not self.compute_tic:
@@ -540,21 +542,12 @@ class MSIZarrWriter:
         starts = old_offsets[source_idx]
         lengths = old_offsets[source_idx + 1] - starts
         total = int(lengths.sum())
-        gather_idx = np.repeat(starts, lengths) + np.concatenate(
-            [np.arange(n) for n in lengths]
-        )
         new_offsets = np.empty(source_idx.size + 1, dtype="<i8")
         np.cumsum(lengths, out=new_offsets[1:])
         new_offsets[0] = 0
-        # Bulk read → gather → write for intensity
-        all_intensity = np.asarray(self._intensity[:])
-        self._intensity.resize((total,))
-        self._intensity[:] = all_intensity[gather_idx]
-        # Same for mz if present
+        _compact_flat_array(self._intensity, starts, lengths, total)
         if self._point_mz is not None:
-            all_mz = np.asarray(self._point_mz[:])
-            self._point_mz.resize((total,))
-            self._point_mz[:] = all_mz[gather_idx]
+            _compact_flat_array(self._point_mz, starts, lengths, total)
         self._offsets.resize(new_offsets.shape)
         self._offsets[:] = new_offsets
         self._total_points = total
@@ -905,12 +898,18 @@ def _infer_encoding(
     lengths: np.ndarray,
 ) -> ZarrStorageMode | None:
     total_points = int(np.sum(lengths, dtype=np.int64))
+    nonzero = lengths[lengths > 0]
     shared_axis = bool(
-        mz_axis.size == int(lengths[0])
-        and np.all(lengths == lengths[0])
+        nonzero.size > 0
+        and mz_axis.size == int(nonzero[0])
+        and np.all(nonzero == nonzero[0])
     )
     point_axis = mz_axis.size == total_points
     if shared_axis and point_axis:
+        if nonzero.size != lengths.size:
+            # With empty rows a continuous reading would violate the
+            # equal-length contract, so processed is the only valid one.
+            return ZARR_MODE_PROCESSED
         return None
     if shared_axis:
         return ZARR_MODE_CONTINUOUS
@@ -976,6 +975,60 @@ def _ensure_xyz_coordinates(coordinates: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
+def _compact_flat_array(
+    array: zarr.Array,
+    starts: np.ndarray,
+    lengths: np.ndarray,
+    total: int,
+) -> None:
+    """Compact ordered row spans using bounded, chunk-aligned block buffers."""
+    nonempty = lengths > 0
+    starts = starts[nonempty]
+    ends = starts + lengths[nonempty]
+    if starts.size == 0:
+        array.resize((0,))
+        return
+
+    # Adjacent retained rows form one copy span, without per-point indices.
+    breaks = np.flatnonzero(starts[1:] != ends[:-1]) + 1
+    run_starts = np.concatenate((starts[:1], starts[breaks]))
+    run_ends = np.concatenate((ends[breaks - 1], ends[-1:]))
+    chunk_size = int(array.chunks[0])
+    # Group chunks to amortize synchronous Zarr calls without a full-data read.
+    chunks_per_block = max(1, (16 * 1024 * 1024) // (chunk_size * array.dtype.itemsize))
+    block_points = chunk_size * chunks_per_block
+    output = np.empty(min(block_points, total), dtype=array.dtype)
+    filled = 0
+    write_start = 0
+    block_start = int(run_starts[0]) // block_points * block_points
+    values = np.asarray(array[block_start : block_start + block_points])
+
+    for start, end in zip(run_starts, run_ends):
+        position = int(start)
+        end = int(end)
+        while position < end:
+            next_block = position // block_points * block_points
+            if next_block != block_start:
+                block_start = next_block
+                values = np.asarray(array[block_start : block_start + block_points])
+            source_end = min(end, block_start + values.size)
+            while position < source_end:
+                take = min(source_end - position, output.size - filled)
+                offset = position - block_start
+                output[filled : filled + take] = values[offset : offset + take]
+                filled += take
+                position += take
+                if filled == output.size:
+                    # Source rows are ordered: writes only cover consumed data.
+                    array[write_start : write_start + filled] = output
+                    write_start += filled
+                    filled = 0
+
+    if filled:
+        array[write_start : write_start + filled] = output[:filled]
+    array.resize((total,))
+
+
 def _rows_per_chunk(
     row_points: int,
     itemsize: int,
@@ -1003,7 +1056,9 @@ def _split_source_indices(
     for batch in batches:
         start = batch.global_pixel_start
         end = start + batch.n_pixels
-        selected = source_idx[(source_idx >= start) & (source_idx < end)] - start
+        left = int(np.searchsorted(source_idx, start))
+        right = int(np.searchsorted(source_idx, end))
+        selected = source_idx[left:right] - start
         selections.append(selected.astype(np.intp, copy=False))
     if sum(selection.size for selection in selections) != source_idx.size:
         raise ValueError("Coordinate selection does not match temporary batches.")

@@ -39,7 +39,7 @@ def _local_maxima_mask_jit(x: NDArray[np.float64], width: int) -> NDArray[np.boo
     radius = abs(width_val // 2)
 
     for i in range(n):
-        if i < radius or i > n - radius:
+        if i < radius or i >= n - radius:
             continue
 
         xi = x[i]
@@ -150,7 +150,7 @@ def _peak_rbound_jit(x: NDArray[np.float64], peak: int) -> int:
 
 @jit(nopython=True, cache=True)
 def _peak_boundaries_jit(
-    x: NDArray[np.float64], peaks: NDArray[np.int64]
+    x: NDArray[np.float64], peaks: NDArray[np.signedinteger]
 ) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
     """Compute left and right boundaries for each peak."""
     n = peaks.size
@@ -340,8 +340,13 @@ def peak_pick_flat_parallel_core_jit(
     """
     n_spectra = lengths_arr.size
     input_offsets = lengths_to_offsets(lengths_arr)
+    total_input = int(input_offsets[n_spectra])
 
     out_lengths = np.zeros(n_spectra, dtype=np.uint32)
+    # 第一遍检测时把每条谱的峰索引写进按上界（每谱点数）预分配的缓冲区，
+    # 第二遍直接读缓存索引，不再重复局部极大值/prominence/SNR 检测。
+    # 索引是谱内位置（< 谱长），int32 足够，比 int64 省一半瞬时内存。
+    peak_indices = np.empty(total_input, dtype=np.int32)
 
     for s in prange(n_spectra):  # pylint: disable=not-an-iterable
         start = int(input_offsets[s])
@@ -363,6 +368,8 @@ def peak_pick_flat_parallel_core_jit(
             noise_x=noise_seg,
         )
         out_lengths[s] = np.uint32(peaks.size)
+        if peaks.size > 0:
+            peak_indices[start:start + peaks.size] = peaks
 
     output_offsets = lengths_to_offsets(out_lengths)
     total_output = int(output_offsets[n_spectra])
@@ -389,22 +396,9 @@ def peak_pick_flat_parallel_core_jit(
             # processed: each spectrum has its own m/z slice in the flat buffer.
             mz_segment = mz_arr[in_start:in_end]
 
-        noise_segment = noise_arr[in_start:in_end] if use_snr else np.empty(0, dtype=np.float64)
-
-        peaks = _findpeaks_filtered_indices_safe_jit(
-            x=segment,
-            width=width,
-            use_prominence=use_prominence,
-            prominence=prominence,
-            use_relheight=use_relheight,
-            relheight=relheight,
-            use_snr=use_snr,
-            snr=snr,
-            noise_x=noise_segment,
-        )
-
-        if peaks.size == 0:
-            continue
+        # 峰索引来自第一遍的缓存，本遍只做写出。
+        n_out = out_end - out_start
+        peaks = peak_indices[in_start:in_start + n_out]
 
         if return_area:
             left, right = _peak_boundaries_jit(segment, peaks)

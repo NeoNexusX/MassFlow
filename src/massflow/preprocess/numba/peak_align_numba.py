@@ -24,6 +24,28 @@ def scalar_diff_jit(val1, val2, method_code):
     return diff / abs(denom)  # Relative difference
 
 @jit(nopython=True, cache=True)
+def _search_nearest_scalar_jit(query, targets, start, tolerance, code):
+    """Return an absolute nearest index in targets[start:], or -1 if unmatched."""
+    query = np.float64(query)
+    idx = int(np.searchsorted(targets[start:], query)) + start
+    best_idx = -1
+    min_diff = np.nan
+
+    if idx > start:
+        diff_left = scalar_diff_jit(query, targets[idx - 1], code)
+        if diff_left <= tolerance:
+            min_diff = diff_left
+            best_idx = idx - 1
+
+    if idx < targets.size:
+        diff_right = scalar_diff_jit(query, targets[idx], code)
+        if diff_right <= tolerance:
+            if best_idx == -1 or diff_right < min_diff:
+                best_idx = idx
+
+    return best_idx
+
+@jit(nopython=True, cache=True)
 def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
     """JIT-compiled core algorithm for spectrum peak alignment.
 
@@ -74,24 +96,24 @@ def align_spectrum_jit(mz_list, intensity, reference, tolerance, code):
             if processed_mask[i] or scalar_diff_jit(reference[i], curr_mz, code) > tolerance:
                 break
 
-            q_arr = np.array([reference[i]], dtype=np.float64)
-            best_match_arr = search_nearest_jit(q_arr, mz_list[j:], tolerance, code, -1, False)
-            best_match_idx = best_match_arr[0]
+            best_match_idx = _search_nearest_scalar_jit(
+                reference[i], mz_list, j, tolerance, code
+            )
 
             if best_match_idx != -1:
-                aligned[i] = intensity[j + best_match_idx]
+                aligned[i] = intensity[best_match_idx]
             processed_mask[i] = True
 
         for i in range(pj_int - 1, -1, -1):
             if processed_mask[i] or scalar_diff_jit(reference[i], curr_mz, code) > tolerance:
                 break
 
-            q_arr = np.array([reference[i]], dtype=np.float64)
-            best_match_arr = search_nearest_jit(q_arr, mz_list[j:], tolerance, code, -1, False)
-            best_match_idx = best_match_arr[0]
+            best_match_idx = _search_nearest_scalar_jit(
+                reference[i], mz_list, j, tolerance, code
+            )
 
             if best_match_idx != -1:
-                aligned[i] = intensity[j + best_match_idx]
+                aligned[i] = intensity[best_match_idx]
             processed_mask[i] = True
 
     return aligned

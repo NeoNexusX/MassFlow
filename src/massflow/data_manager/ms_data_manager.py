@@ -76,8 +76,8 @@ class MSDataManager(ABC):
         """Initialize target_locs with validation."""
         if target_locs is not None:
             if len(target_locs) <= 1 or (target_locs[0][0] > target_locs[1][0] or target_locs[0][1] > target_locs[1][1]):
-                logger.error("target_locs must be non-empty or locs must x1<x2,y1<y2")
-                raise ValueError
+                logger.error(f"Invalid target_locs {target_locs}: expected [[x1, y1], [x2, y2]] with x1 <= x2 and y1 <= y2.")
+                raise ValueError(f"Invalid target_locs {target_locs}: expected [[x1, y1], [x2, y2]] with x1 <= x2 and y1 <= y2.")
             self.target_locs = target_locs
         else:
             max_coord = int(np.iinfo(np.int32).max)
@@ -183,6 +183,9 @@ class MSDataManager(ABC):
         """Check if the m/z arrays in the MS data are sorted."""
 
         total_length = len(self.ms)
+        if total_length == 0:
+            logger.info("No spectra loaded; skip m/z sortedness detection.")
+            return
         check_num = random.randint(0, total_length -1)
         check_rsult = self.ms[check_num].is_sorted()
         if not check_rsult:
@@ -194,25 +197,38 @@ class MSDataManager(ABC):
 
 
     def create_ms_meta_mask(self):
-        """Create a binary occupancy mask for all available spectra coordinates."""
+        """Create a binary occupancy mask for all available spectra coordinates.
+
+        Coordinates are treated as 1-based (imzML convention). Image dimensions
+        missing from meta (<= 0) are derived from the coordinate extent and
+        written back to meta.
+        """
         if self.ms.meta is None:
             logger.error("MS meta data is None. Please load meta data first.")
             raise ValueError("MS meta data is None. Please load meta data first.")
 
-        if (self.ms.meta.max_count_of_pixels_x is None or self.ms.meta.max_count_of_pixels_y is None):
-            logger.error("Image dimensions missing in meta data.")
-            raise ValueError("Image dimensions missing in meta data.")
+        # Collect coordinates across all z-planes
+        xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict),dtype=np.int32,)
+        ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for y in ydict),dtype=np.int32,)
 
-        # Get image dimensions
+        # Get image dimensions; missing values are derived from the coordinate extent
         width = int(self.ms.meta.max_count_of_pixels_x)
         height = int(self.ms.meta.max_count_of_pixels_y)
+        if xs.size > 0:
+            if width <= 0:
+                width = int(xs.max())
+                self.ms.meta.max_count_of_pixels_x = width
+                logger.info(f"max_count_of_pixels_x missing in meta; derived from coordinates: {width}")
+            if height <= 0:
+                height = int(ys.max())
+                self.ms.meta.max_count_of_pixels_y = height
+                logger.info(f"max_count_of_pixels_y missing in meta; derived from coordinates: {height}")
+        if width <= 0 or height <= 0:
+            logger.warning("Image dimensions unavailable (missing in meta and no spectra coordinates); skip mask creation.")
+            return
 
         # Prepare an empty occupancy mask
         mask = np.zeros((height, width), dtype=np.int8)
-
-        # Fill the occupancy mask across all z-planes
-        xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict),dtype=np.int16,)
-        ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for y in ydict),dtype=np.int16,)
 
         valid = (1 <= xs) & (xs <= width) & (1 <= ys) & (ys <= height)
         mask[ys[valid] - 1, xs[valid] - 1] = 1
