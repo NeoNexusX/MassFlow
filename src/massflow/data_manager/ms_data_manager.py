@@ -12,7 +12,7 @@ import tempfile
 import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 import numpy as np
 
@@ -76,7 +76,7 @@ class MSDataManager(ABC):
         """Initialize target_locs with validation."""
         if target_locs is not None:
             if len(target_locs) <= 1 or (target_locs[0][0] > target_locs[1][0] or target_locs[0][1] > target_locs[1][1]):
-                logger.error(f"Invalid target_locs {target_locs}: expected [[x1, y1], [x2, y2]] with x1 <= x2 and y1 <= y2.")
+                logger.error("Invalid target_locs %s: expected [[x1, y1], [x2, y2]] with x1 <= x2 and y1 <= y2.", target_locs)
                 raise ValueError(f"Invalid target_locs {target_locs}: expected [[x1, y1], [x2, y2]] with x1 <= x2 and y1 <= y2.")
             self.target_locs = target_locs
         else:
@@ -208,21 +208,21 @@ class MSDataManager(ABC):
             raise ValueError("MS meta data is None. Please load meta data first.")
 
         # Collect coordinates across all z-planes
-        xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict),dtype=np.int32,)
-        ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for y in ydict),dtype=np.int32,)
+        xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict),dtype=np.uint16,)
+        ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for y in ydict),dtype=np.uint16,)
 
         # Get image dimensions; missing values are derived from the coordinate extent
-        width = int(self.ms.meta.max_count_of_pixels_x)
-        height = int(self.ms.meta.max_count_of_pixels_y)
+        width = int(cast(int, self.ms.meta.max_count_of_pixels_x))
+        height = int(cast(int, self.ms.meta.max_count_of_pixels_y))
         if xs.size > 0:
             if width <= 0:
                 width = int(xs.max())
                 self.ms.meta.max_count_of_pixels_x = width
-                logger.info(f"max_count_of_pixels_x missing in meta; derived from coordinates: {width}")
+                logger.info("max_count_of_pixels_x missing in meta; derived from coordinates: %s", width)
             if height <= 0:
                 height = int(ys.max())
                 self.ms.meta.max_count_of_pixels_y = height
-                logger.info(f"max_count_of_pixels_y missing in meta; derived from coordinates: {height}")
+                logger.info("max_count_of_pixels_y missing in meta; derived from coordinates: %s", height)
         if width <= 0 or height <= 0:
             logger.warning("Image dimensions unavailable (missing in meta and no spectra coordinates); skip mask creation.")
             return

@@ -190,6 +190,7 @@ class MSDataManagerImzML(MSDataManager):
         Behavior:
                 - Iterates over `parser.coordinates` and creates a `SpectrumImzML` placeholder per pixel.
                 - If `target_locs` is provided, only pixels within the inclusive window are added.
+                - Reports matched pixels and non-empty/empty spectra using header array lengths.
                 - If no pixels match, a warning is logged and the finalize hooks are skipped.
                 - For continuous data, `ms.shared_mz_list` is populated once (on first seen spectrum)
                     and each placeholder gets `spectrum.mz_list = ms.shared_mz_list`.
@@ -203,9 +204,14 @@ class MSDataManagerImzML(MSDataManager):
 
         # spectrum data load and create part  [find by coordinate]
         total_pixels = len(self.parser.coordinates)
+        matched_pixels = 0
+        empty_spectra = 0
         for i, c in enumerate(self.parser.coordinates):
             x, y, z = c
             if self.target_locs[0][0] <= x <= self.target_locs[1][0] and self.target_locs[0][1] <= y <= self.target_locs[1][1]:
+                matched_pixels += 1
+                if self.parser.mzLengths[i] == 0 or self.parser.intensityLengths[i] == 0:
+                    empty_spectra += 1
 
                 # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
                 spectrum = SpectrumImzML(reader=self.reader,
@@ -217,12 +223,22 @@ class MSDataManagerImzML(MSDataManager):
                 self.ms.add_spectrum(spectrum)
                 self.current_spectrum_num += 1
 
-        # loaded part : finalize meta data load part
-        if self.current_spectrum_num == 0:
+        if matched_pixels == 0:
             logger.warning(
                 f"target_locs {self.target_locs} matched 0 of {total_pixels} pixels in file; no spectra loaded, skipping finalize hooks."
             )
             return
+        logger.info(
+            f"target_locs {self.target_locs} matched {matched_pixels} of {total_pixels} pixels in file; "
+            f"{matched_pixels - empty_spectra} non-empty spectra and {empty_spectra} empty spectra."
+        )
+        if empty_spectra == matched_pixels:
+            logger.warning(
+                f"target_locs {self.target_locs} contains coordinates but all matched spectra are empty; "
+                "no spectral data available."
+            )
+
+        # loaded part : finalize meta data load part
         self.loaded_hook()
 
     def extract_metadata(self):

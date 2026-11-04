@@ -1,4 +1,3 @@
-from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 import tempfile
@@ -78,10 +77,7 @@ def _arrange_tasks(tasks, spectrum_type) -> list[PreprocessTask]:
 
 def make_task_segments(tasks, input_spectrum_type, input_meta: InputMetaData) -> tuple[list[Segment], InputMetaData]:
     """Execute registered tasks and return new data manager with processed data."""
-    # 规划工作在任务副本上：后续 planner 注入 output_path、runner 回写
-    # reference/tolerance 都只落在副本，不污染用户注册的原始任务，
-    # 保证对同一个 Preprocessor 重复调用 start() 时行为一致。
-    ordered_tasks = _arrange_tasks([deepcopy(task) for task in tasks], input_spectrum_type)
+    ordered_tasks = _arrange_tasks(tasks, input_spectrum_type)
     input_meta = _resolve_input_meta(input_meta)
     task_segments = []
     current_spectrum_type = input_spectrum_type

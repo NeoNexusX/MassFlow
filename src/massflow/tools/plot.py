@@ -1,4 +1,4 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from typing import Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
@@ -33,7 +33,6 @@ class SpectrumPlotter:
     """Unified plotter for single and paired spectrum visualization."""
 
     DEFAULT_COLORS = ("#EECF31", "#4AE38C")
-    ZERO_EPS = 1e-12
 
     def __init__(self, config: PlotConfig):
         self.config = config
@@ -92,17 +91,6 @@ class SpectrumPlotter:
         return spectrum.crop_range(
             mz_range=self.config.mz_range, sort_by_mz=True, mode="new"
         )
-
-    @staticmethod
-    def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
-        if a.size <= 1 or b.size <= 1:
-            return 0.0
-        std_a = float(np.std(a))
-        std_b = float(np.std(b))
-        if std_a <= SpectrumPlotter.ZERO_EPS or std_b <= SpectrumPlotter.ZERO_EPS:
-            return 0.0
-        value = float(np.corrcoef(a, b)[0, 1])
-        return 0.0 if np.isnan(value) else value
 
     @staticmethod
     def _safe_snr(spectrum: Spectrum) -> float:
@@ -191,35 +179,13 @@ class SpectrumPlotter:
         ):
             return "Metrics unavailable: empty spectrum window."
 
-        # 相关性按 m/z 对齐：点数多的一条线性插值到点数少的轴上再逐点比较，
-        # 避免 profile 谱与峰列表等不同 m/z 轴直接按下标配对。
-        if base_mz.size <= target_mz.size:
-            ref_mz, ref_int = base_mz, base_intensity
-            other_mz, other_int = target_mz, target_intensity
-        else:
-            ref_mz, ref_int = target_mz, target_intensity
-            other_mz, other_int = base_mz, base_intensity
-        if other_mz.size > 1 and np.any(np.diff(other_mz) < 0):
-            order = np.argsort(other_mz)
-            other_mz, other_int = other_mz[order], other_int[order]
-        corr = self._safe_corr(ref_int, np.interp(ref_mz, other_mz, other_int))
-
-        # TIC 比值用整段（窗口内）求和，不再按短谱截断。
-        o_sum = float(np.sum(base_intensity))
-        d_sum = float(np.sum(target_intensity))
-        tic_ratio = d_sum / o_sum if abs(o_sum) > self.ZERO_EPS else 1.0
-
         snr_orig = self._safe_snr(base)
         snr_now = self._safe_snr(target)
-        snr_gain = snr_now / snr_orig if snr_orig > self.ZERO_EPS else 1.0
 
         return (
             f"Range: {float(np.min(base_mz)):.4f} - {float(np.max(base_mz)):.4f}\n"
-            f"Correlation: {corr:.4f}\n"
-            f"TIC ratio: {tic_ratio:.3f}\n"
             f"SNR orig: {snr_orig:.1f}\n"
-            f"SNR den: {snr_now:.1f}\n"
-            f"SNR improvement: {snr_gain:.2f}x"
+            f"SNR den: {snr_now:.1f}"
         )
 
     @staticmethod

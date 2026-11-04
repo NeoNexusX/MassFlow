@@ -10,7 +10,7 @@ from massflow.tools.logger import get_logger
 from massflow.tools.funs import prepare_flat_inputs
 from massflow.preprocess.numba.est_noise_numba import estimate_flat_numba
 
-logger = get_logger("preprocesss")
+logger = get_logger("preprocess")
 
 def _input_validation(intensity,nbins,overlap):
 
