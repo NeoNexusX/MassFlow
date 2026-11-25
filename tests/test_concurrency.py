@@ -88,19 +88,22 @@ def test_pool_override_validates_key_and_value() -> None:
         set_budget(4, pools={"compute": 0})
 
 
-def test_initial_budget_uses_environment_or_detection(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "raw_budget,expected_budget",
+    [("6", 6), ("not-a-number", 7), ("0", 7), (None, 7)],
+)
+def test_initial_budget_uses_environment_or_detection(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_budget: str | None,
+    expected_budget: int,
+) -> None:
     monkeypatch.setattr(controller, "get_logical_cpu_count", lambda: 7)
-    monkeypatch.setenv("MASSFLOW_BUDGET", "6")
-    assert controller._read_initial_budget() == 6
+    if raw_budget is None:
+        monkeypatch.delenv("MASSFLOW_BUDGET", raising=False)
+    else:
+        monkeypatch.setenv("MASSFLOW_BUDGET", raw_budget)
 
-    monkeypatch.setenv("MASSFLOW_BUDGET", "not-a-number")
-    assert controller._read_initial_budget() == 7
-
-    monkeypatch.setenv("MASSFLOW_BUDGET", "0")
-    assert controller._read_initial_budget() == 7
-
-    monkeypatch.delenv("MASSFLOW_BUDGET")
-    assert controller._read_initial_budget() == 7
+    assert controller._read_initial_budget() == expected_budget
 
 
 def test_get_allocation_returns_default_when_disabled() -> None:
@@ -114,13 +117,29 @@ def test_get_allocation_rejects_unknown_pool() -> None:
         get_allocation("not_a_pool")
 
 
+def test_pipeline_caps_each_ratio_at_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_runtime(monkeypatch)
+    monkeypatch.setitem(
+        controller._PHASE_RATIOS,
+        "preprocess_pipeline",
+        {"io_read": 0.1, "compute": 1.2, "io_write": 0.1},
+    )
+    set_budget(10)
+    with phase("preprocess_pipeline") as allocations:
+        assert allocations == {"io_read": 1, "compute": 10, "io_write": 1}
+
+    set_budget(pools={"compute": 9})
+    with phase("preprocess_pipeline") as allocations:
+        assert allocations["compute"] == 9
+
+
 def test_phase_allocation_math(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_runtime(monkeypatch)
     set_budget(10)
 
     with phase("preprocess_pipeline") as allocations:
-        assert allocations == {"io_read": 2, "compute": 6, "io_write": 2}
-        assert get_allocation("io_read") == 2
+        assert allocations == {"io_read": 1, "compute": 10, "io_write": 1}
+        assert get_allocation("io_read") == 1
 
     with phase("dataset_task") as allocations:
         assert allocations == {"compute": 8, "io_read": 2}
@@ -135,17 +154,15 @@ def test_phase_allocation_math(monkeypatch: pytest.MonkeyPatch) -> None:
     assert get_status()["allocations"] == {}
 
 
-def test_phase_allocation_uses_full_budget(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remainder workers are handed out; the budget is not truncated away."""
+def test_phase_allocation_rounds_each_pool_independently(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_runtime(monkeypatch)
-    set_budget(8)
+    set_budget(16)
 
     with phase("preprocess_pipeline") as allocations:
-        assert sum(allocations.values()) == 8
-        assert allocations["compute"] == 5
+        assert allocations == {"io_read": 1, "compute": 16, "io_write": 1}
 
     with phase("dataset_task") as allocations:
-        assert sum(allocations.values()) == 8
+        assert allocations == {"compute": 12, "io_read": 3}
 
 
 @pytest.mark.parametrize("budget", [1, 2, 3, 8])
@@ -167,8 +184,6 @@ def test_all_phases_adapt_to_available_budget(
         assert get_effective_budget() == effective
         assert all(1 <= value <= effective for value in allocations.values())
         assert runs_sequentially() == (effective < len(allocations))
-        if not runs_sequentially():
-            assert sum(allocations.values()) <= effective
     assert get_status()["phase"] is None
     assert not runs_sequentially()
 
@@ -497,6 +512,41 @@ def test_parallel_phases_wait_for_admission(monkeypatch: pytest.MonkeyPatch) -> 
     assert get_status()["phase"] is None
 
 
+@pytest.mark.parametrize("inherit_context", [False, True])
+def test_overlapping_async_tasks_cannot_replace_phase_runtime(inherit_context: bool) -> None:
+    async def zarr_executor():
+        return asyncio.get_running_loop()._default_executor  # pylint: disable=protected-access
+
+    async def run() -> None:
+        owner_entered = asyncio.Event()
+
+        async def contender() -> None:
+            await owner_entered.wait()
+            with pytest.raises(RuntimeError, match="overlap controlled phases"):
+                with phase("compute"):
+                    pytest.fail("A different task entered the active phase")
+
+        original_executor = sync(zarr_executor())
+        original_concurrency = zarr.config.get("async.concurrency")
+        if not inherit_context:
+            task = asyncio.create_task(contender())
+        with phase("io_read"):
+            owner_executor = runtime.get_io_executor()
+            if inherit_context:
+                task = asyncio.create_task(contender())
+            owner_entered.set()
+            await task
+            assert sync(zarr_executor()) is owner_executor
+            with phase("compute"):
+                assert get_status()["phase"] == "compute"
+            assert sync(zarr_executor()) is owner_executor
+        assert sync(zarr_executor()) is original_executor
+        assert zarr.config.get("async.concurrency") == original_concurrency
+
+    set_budget(2)
+    asyncio.run(run())
+
+
 def test_exception_restores_phase_and_mask() -> None:
     previous = get_num_threads()
     set_budget(1)
@@ -758,10 +808,10 @@ def test_sequential_failure_closes_output_and_restores_context(budget: int) -> N
     [
         ("preprocess_pipeline", 1, 1),
         ("preprocess_pipeline", 2, 1),
-        ("preprocess_pipeline", 8, 3),
+        ("preprocess_pipeline", 8, 2),
         ("io_transfer", 1, 1),
         ("io_transfer", 2, 2),
-        ("io_transfer", 8, 8),
+        ("io_transfer", 8, 7),
     ],
 )
 def test_shared_io_executor_identity_and_peak(

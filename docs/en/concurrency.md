@@ -12,7 +12,7 @@ MassFlow uses reading threads, Numba computation threads, and writing threads to
 
 Concurrency control is enabled by default, with an initial budget based on the detected available CPU capacity. You can usually run preprocessing or segmentation directly. To leave computing resources for other programs, adjust the budget with `set_budget` before running a task.
 
-- **Total budget**: the limit used to allocate concurrent work within controlled processing phases in the current Python process.
+- **Base budget**: the worker count used to scale each pool independently in the current Python process. The automatic startup configuration uses the detected CPU capacity as the base.
 - **Processing phase**: a stage such as batch preprocessing, a whole-dataset task, or UMAP. Each phase uses its own allocation ratios.
 - **Resource pool**: an allocation category for reading, computation, writing, or OpenMP. These categories do not necessarily have separate thread pools.
 
@@ -55,31 +55,31 @@ export MASSFLOW_BUDGET=8
 
 ## Function Description
 
-### set_budget (Set the Total Budget and Pool Limits)
+### set_budget (Set the Base Budget and Pool Limits)
 
 ```python
 mc.set_budget(8, pools={"compute": 4})
 ```
 
-- Function: sets the total budget and optional pool limits for subsequent processing phases.
+- Function: sets the base budget and optional pool limits for subsequent processing phases.
 - Parameters:
-  - `budget`: a positive integer or `None`. Omitting it preserves the current budget; passing `None` disables the total budget and clears existing pool settings.
+  - `budget`: a positive integer or `None`. Omitting it preserves the current budget; passing `None` disables the base budget and clears existing pool settings.
   - `pools`: a dictionary with keys `compute`, `io_read`, `io_write`, or `openmp`. A positive integer sets the pool limit; `None` removes that pool's setting. Pools not listed keep their existing settings.
 - Output: the same status dictionary returned by `get_status()`.
 
 Common configuration options:
 
 ```python
-mc.set_budget(8)                          # Set the total budget; keep existing pool settings
+mc.set_budget(8)                          # Set the base budget; keep existing pool settings
 mc.set_budget(pools={"compute": 4})       # Change only the compute pool limit
 mc.set_budget(pools={"compute": None})    # Remove the compute pool limit
-mc.set_budget(None)                       # Disable the total budget and clear all pool settings
+mc.set_budget(None)                       # Disable the base budget and clear all pool settings
 mc.set_budget(mc.get_logical_cpu_count()) # Enable using the current available CPU capacity
 ```
 
-With a total budget, pool settings can only reduce a phase's allocation. They cannot increase it, and unused capacity is not redistributed. Calling `set_budget()` without arguments preserves the current configuration; it does not restore the defaults.
+With a base budget, pool settings can only reduce a phase's allocation. They cannot increase it, and unused capacity is not redistributed. Calling `set_budget()` without arguments preserves the current configuration; it does not restore the defaults.
 
-If you pass `budget=None` and `pools` in the same call, the old configuration is cleared before the new pool settings are applied. For example, `mc.set_budget(None, pools={"compute": 4})` still limits the compute pool but no longer sets a total budget. To disable control completely, call `mc.set_budget(None)` without `pools` and do not specify pool limits for subsequent `phase` calls.
+If you pass `budget=None` and `pools` in the same call, the old configuration is cleared before the new pool settings are applied. For example, `mc.set_budget(None, pools={"compute": 4})` still limits the compute pool but no longer sets a base budget. To disable control completely, call `mc.set_budget(None)` without `pools` and do not specify pool limits for subsequent `phase` calls.
 
 Change the configuration between tasks. Calling `set_budget` while any phase is running raises `RuntimeError`. Unknown pool names, non-integers, and non-positive values also raise errors without partially changing the configuration.
 
@@ -92,11 +92,11 @@ print(status)
 
 | Field | Meaning |
 |-------|---------|
-| `budget` | Configured total budget; `None` means no total budget is set |
+| `budget` | Configured base budget; `None` means no base budget is set |
 | `pool_overrides` | Current global pool settings |
 | `phase` | Phase name in the calling context; `None` outside a phase |
 | `allocations` | Current phase's pool allocations; an empty dictionary outside a phase |
-| `effective_budget` | Effective budget after applying the available CPU capacity limit; `None` when no total budget is set |
+| `effective_budget` | Effective budget after applying the available CPU capacity limit; `None` when no base budget is set |
 | `sequential` | Whether the current phase uses sequential execution; `False` outside a phase |
 
 This function returns the calling context's status, not a live view of all worker threads. To inspect a phase's allocations, call it inside that phase.
@@ -123,7 +123,7 @@ dm.close()
 ```
 
 - `name`: one of the phase names in the table below. Unknown names raise `ValueError`.
-- `pools`: optional limits for this phase, such as `mc.phase("compute", pools={"compute": 2})`. A non-`None` value replaces the global setting for the same pool and is then capped by the phase's allocation. `None` does not clear the global setting. Without a total budget, pool settings become the allocations directly.
+- `pools`: optional limits for this phase, such as `mc.phase("compute", pools={"compute": 2})`. A non-`None` value replaces the global setting for the same pool and is then capped by the phase's allocation. `None` does not clear the global setting. Without a base budget, pool settings become the allocations directly.
 - Output: `with ... as allocations` provides the phase's allocation dictionary. It is empty when control is completely disabled.
 
 The generator must be **iterated** inside the `with` block. Creating it inside the phase and iterating after leaving the phase does not preserve the runtime limits. You can also use `phase` as a function decorator.
@@ -139,9 +139,9 @@ The generator must be **iterated** inside the `with` block. Creating it inside t
 | `io_write` | The writing share of IO work, such as temporary writes, transposition, and merging |
 | `openmp` | Threads for OpenMP computation, such as KMeans |
 
-| Phase | Used by | Allocation ratios |
+| Phase | Used by | Pool multipliers |
 |-------|---------|-------------------|
-| `preprocess_pipeline` | Batch processing segments in `Preprocessor.start()` | Read 20% / compute 60% / write 20% |
+| `preprocess_pipeline` | Batch processing segments in `Preprocessor.start()` | Read 10% / compute 100% / write 10% |
 | `dataset_task` | Whole-dataset tasks such as peak alignment and statistical filtering | Compute 80% / read 20% |
 | `io_transfer` | Converting intermediate imzML results to ion-image storage during preprocessing | Read 20% / write 80% |
 | `io_read` | Preprocessing input validation or an explicitly scoped reading workflow | Read 100% |
@@ -151,10 +151,10 @@ The generator must be **iterated** inside the `with` block. Creating it inside t
 
 `run_umap_kmeans` uses the `umap` and `kmeans` phases in sequence; `plot_umap_image` uses only `umap`. `io_write` is a resource pool name, not a phase name accepted by `phase`.
 
-When the budget can provide at least 1 worker thread per pool, allocations are rounded according to the ratios and the remainder is adjusted so that their sum equals the effective budget. Pool limits are then applied. For example, with an effective budget of 10 and no pool settings, batch preprocessing receives:
+Each pool's allocation is the effective budget multiplied by its multiplier. Multipliers above 100% use 100% instead. The result is rounded down with a minimum of one worker per pool, then any configured pool limit is applied. Each pool is calculated independently, so the combined allocation can exceed the effective budget. With `set_budget(10)` and at least 10 available logical CPUs, batch preprocessing receives the following allocation by default.
 
 ```text
-io_read = 2, compute = 6, io_write = 2
+io_read = 1, compute = 10, io_write = 1
 ```
 
 ### Shared IO Capacity for Reading, Writing, and Zarr
@@ -163,9 +163,9 @@ Within a controlled phase, fragmented imzML reads, temporary writes, binary merg
 
 - When reading and writing can overlap, shared IO capacity is `io_read + io_write`. If there is only one IO pool, its allocation is used.
 - In sequential mode, capacity is the larger of the read and write allocations.
-- If a total budget exists but the phase has no IO allocation, 1 auxiliary IO worker is provided.
+- If a base budget exists but the phase has no IO allocation, 1 auxiliary IO worker is provided.
 
-The budget-10 example above therefore provides an allocation of 6 computation threads and 4 shared IO workers. The read and write shares are not separate, isolated thread pools. Zarr can use the shared IO capacity, while other reading, writing, and prefetch work draws on that same capacity.
+The budget-10 example above allocates 10 computation threads and 2 shared IO workers. Zarr, other reading and writing, and prefetch work draw on the same IO executor.
 
 Zarr's asynchronous concurrency matches the shared IO capacity, and its event loop uses the same executor. On exit, the phase restores the previous Zarr settings and executor, then shuts down the executor it created. Borrowers do not shut down shared resources early.
 
@@ -177,11 +177,11 @@ The compute pool then receives the full effective budget, while reading and writ
 
 ### CPU Capacity and Computation Libraries
 
-The effective budget is the smaller of the configured value and available CPU capacity. Detection considers logical cores, process CPU affinity where supported (the set of CPUs the process may use), and Linux cgroup v1/v2 quotas. The default total budget uses available logical cores; it is not automatically reduced to the performance-core count.
+The effective budget is the smaller of the configured value and available CPU capacity. Detection considers logical cores, process CPU affinity where supported (the set of CPUs the process may use), and Linux cgroup v1/v2 quotas. The default base budget uses available logical cores; it is not automatically reduced to the performance-core count.
 
 Numba limits parallel computation through the calling thread's thread mask. The effective value is also capped by Numba's fixed thread-pool size. UMAP's `n_jobs` uses the compute allocation. When `random_state` is set, the current UMAP implementation changes `n_jobs` to 1, so increasing the budget may not improve fitting speed.
 
-With a total budget, BLAS is limited to 1 thread. OpenMP uses its allocation in the `kmeans` phase and is limited to 1 in other phases. If the total budget is disabled but an `openmp` allocation is set, the corresponding OpenMP limit and single-thread BLAS limit still apply.
+With a base budget, BLAS is limited to 1 thread. OpenMP uses its allocation in the `kmeans` phase and is limited to 1 in other phases. If the base budget is disabled but an `openmp` allocation is set, the corresponding OpenMP limit and single-thread BLAS limit still apply.
 
 ## Scope and Usage Notes
 
@@ -189,6 +189,7 @@ With a total budget, BLAS is limited to 1 thread. OpenMP uses its allocation in 
 - **Direct reading or writing**: some interfaces query global allocations, but calling a data manager directly does not create a phase. For the full phase limits, wrap the actual work in `phase`.
 - **Restoring runtime settings**: normal and exceptional exits restore the Numba mask, native-library limits, and Zarr settings from before the phase. Native-library and Zarr settings affect the whole process. Phase admission does not manage separate processes, arbitrary external library calls, or R/Cardinal internal threads.
 - **Custom threads and nested phases**: internal threads must inherit context through `contextvars.copy_context()`. Threads running Numba kernels must also apply the compute mask and finish their work before the phase exits. Only the thread that entered the phase may enter a nested phase; wait for outer background work to finish first. Worker threads with inherited context cannot enter another phase.
+- **Async callers**: if an asyncio task holds a controlled phase across an `await`, other tasks on the same thread must wait for that phase to exit before entering their own.
 - **Stalls and shutdown**: the pipeline can detect stalls but cannot forcibly interrupt native computation or blocking IO that is already running. Shutdown still waits for worker threads to finish.
 
 Budget, batch size, and storage layout affect concurrency, memory use, and IO behavior separately. A larger budget does not guarantee better speed. When comparing performance, keep the data, batch size, output format, and cache conditions the same.
@@ -199,9 +200,9 @@ These interfaces are mainly for integrating custom execution workflows. Standard
 
 | Interface | Purpose |
 |-----------|---------|
-| `get_effective_budget()` | Returns the current effective total budget; `None` when no total budget is set |
+| `get_effective_budget()` | Returns the current effective base budget; `None` when no base budget is set |
 | `runs_sequentially()` | Checks whether the current phase uses sequential execution |
-| `get_allocation(pool, default=None)` | Looks up a pool allocation without creating a phase; unallocated auxiliary pools return 1 inside a phase with a total budget |
+| `get_allocation(pool, default=None)` | Looks up a pool allocation without creating a phase; unallocated auxiliary pools return 1 inside a phase with a base budget |
 | `resolve_workers(pool, requested, default=...)` | Caps a request at the pool allocation; uses the request or default when no allocation exists |
 | `apply_compute_mask()` | Applies the compute allocation to the calling thread and returns the effective value |
 | `apply_mask(target)` / `restore_mask(previous)` | Sets the Numba mask and returns its previous value / restores the previous mask |

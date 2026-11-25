@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
+from asyncio import Task, current_task
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
-from threading import RLock, get_ident
+from threading import RLock, get_ident, local
 from typing import Generator, Mapping, TypedDict, overload
 
 from massflow.concurrency.capacity import get_logical_cpu_count
@@ -16,7 +17,7 @@ from massflow.tools.logger import get_logger
 logger = get_logger("massflow.concurrency.controller")
 POOL_KEYS = ("compute", "io_read", "io_write", "openmp")
 _PHASE_RATIOS: dict[str, dict[str, float]] = {
-    "preprocess_pipeline": {"io_read": 0.2, "compute": 0.6, "io_write": 0.2},
+    "preprocess_pipeline": {"io_read": 0.1, "compute": 1.0, "io_write": 0.1},
     "dataset_task": {"compute": 0.8, "io_read": 0.2},
     "io_transfer": {"io_read": 0.2, "io_write": 0.8},
     "io_read": {"io_read": 1.0},
@@ -48,6 +49,7 @@ class _Phase:
     allocations: dict[str, int]
     bounded: bool
     owner: int
+    task: Task | None
     budget: int | None
     sequential: bool
 
@@ -62,21 +64,22 @@ class _Configuration:
 _STATE_LOCK = RLock()
 _RUN_LOCK = RLock()
 _ACTIVE: ContextVar[_Phase | None] = ContextVar("massflow_phase", default=None)
+_THREAD_PHASE = local()
 
 
 def _read_initial_budget() -> int:
     """Use an environment override or fall back to detected CPU capacity."""
     raw = os.environ.get(_BUDGET_ENV_VAR)
-    if not raw:
-        return get_logical_cpu_count()
-    try:
-        value = int(raw)
-        if value < 1:
-            raise ValueError
-    except ValueError:
-        logger.warning("Ignoring invalid %s=%r; must be a positive integer.", _BUDGET_ENV_VAR, raw)
-        return get_logical_cpu_count()
-    return value
+    if raw:
+        try:
+            value = int(raw)
+            if value < 1:
+                raise ValueError
+        except ValueError:
+            logger.warning("Ignoring invalid %s=%r; must be a positive integer.", _BUDGET_ENV_VAR, raw)
+        else:
+            return value
+    return get_logical_cpu_count()
 
 
 _CONFIG = _Configuration(budget=_read_initial_budget())
@@ -95,21 +98,11 @@ def _validate_workers(value: int) -> None:
 
 
 def _compute_allocations(phase_name: str, budget: int) -> dict[str, int]:
-    ratios = _PHASE_RATIOS[phase_name]
-    if budget < len(ratios):
-        # Sequential stages reuse the budget instead of reserving a worker
-        # per stage. Single-worker writes finish before the next batch starts.
-        return {pool: budget if pool == "compute" else 1 for pool in ratios}
-    raw = {pool: budget * ratio for pool, ratio in ratios.items()}
-    allocations = {pool: max(1, int(value)) for pool, value in raw.items()}
-    while sum(allocations.values()) > budget:
-        largest = max(allocations, key=allocations.__getitem__)
-        allocations[largest] -= 1
-    for pool in sorted(raw, key=lambda key: raw[key] - int(raw[key]), reverse=True):
-        if sum(allocations.values()) == budget:
-            break
-        allocations[pool] += 1
-    return allocations
+    """Scale each pool independently from the effective CPU budget."""
+    return {
+        pool: max(1, int(budget * min(ratio, 1.0)))
+        for pool, ratio in _PHASE_RATIOS[phase_name].items()
+    }
 
 
 def set_budget(
@@ -117,7 +110,7 @@ def set_budget(
     *,
     pools: Mapping[str, int | None] | None = None,
 ) -> Status:
-    """Configure idle execution. Omitted budget preserves it; None disables it.
+    """Set the worker allocation base. Omit it to keep it or pass None to disable it.
 
     Pool and per-call overrides are caps on the phase allocation. Configuration
     cannot change during execution: existing pools and masks cannot be resized
@@ -161,7 +154,7 @@ def get_status() -> Status:
 
 
 def get_effective_budget() -> int | None:
-    """Return this phase's worker budget after CPU-capacity resolution."""
+    """Return the allocation base after applying the available CPU limit."""
     active = _ACTIVE.get()
     if active is not None:
         return active.budget
@@ -217,6 +210,13 @@ def resolve_workers(pool: str, requested: int | None, *, default: int) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _current_async_task() -> Task | None:
+    try:
+        return current_task()
+    except RuntimeError:  # No running event loop in a synchronous caller.
+        return None
+
+
 @contextmanager
 def phase(
     name: str,
@@ -227,7 +227,7 @@ def phase(
 
     Internal worker threads must receive a copy_context() snapshot. They read
     their phase allocation without acquiring the admission lock. Nested phases
-    on the owner thread replace allocations only while the parent is suspended.
+    in the owner context replace allocations only while the parent is suspended.
     """
     if name not in _PHASE_RATIOS:
         raise ValueError(f"Unknown phase: {name!r}")
@@ -243,6 +243,10 @@ def phase(
         raise RuntimeError(
             "Worker threads must use their inherited phase; only its owner can enter a nested phase."
         )
+    task = _current_async_task()
+    owner_phase = getattr(_THREAD_PHASE, "active", None)
+    if owner_phase is not None and (owner_phase is not active or owner_phase.task is not task):
+        raise RuntimeError("Cannot overlap controlled phases in different contexts on the same thread.")
 
     _RUN_LOCK.acquire()
     with _STATE_LOCK:
@@ -262,17 +266,18 @@ def phase(
             return
         effective_budget = None if budget is None else min(budget, get_logical_cpu_count())
         allocations = _resolve_phase_allocations(name, effective_budget, configured, overrides)
-        token = _ACTIVE.set(
-            _Phase(
-                name,
-                allocations,
-                bounded=budget is not None,
-                owner=get_ident(),
-                budget=effective_budget,
-                sequential=effective_budget is not None
-                and effective_budget < len(_PHASE_RATIOS[name]),
-            )
+        current = _Phase(
+            name,
+            allocations,
+            bounded=budget is not None,
+            owner=get_ident(),
+            task=task,
+            budget=effective_budget,
+            sequential=effective_budget is not None
+            and effective_budget < len(_PHASE_RATIOS[name]),
         )
+        token = _ACTIVE.set(current)
+        _THREAD_PHASE.active = current
         try:
             # Imported lazily: the runtime bridge queries this controller.
             # pylint: disable-next=import-outside-toplevel
@@ -286,6 +291,7 @@ def phase(
             ):
                 yield dict(allocations)
         finally:
+            _THREAD_PHASE.active = owner_phase
             _ACTIVE.reset(token)
     finally:
         with _STATE_LOCK:
