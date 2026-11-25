@@ -31,7 +31,11 @@ from massflow.data_manager import (
     MSDataManagerZarr,
     ZARR_MODE_CONTINUOUS,
 )
-from massflow.segmentation.segmentation_pipeline import TAB20_COLOR_NAMES, UmapKmeansResult
+from massflow.segmentation.segmentation_pipeline import (
+    KMeansInit,
+    TAB20_COLOR_NAMES,
+    UmapKmeansResult,
+)
 from massflow.tools.logger import get_logger
 from massflow.tools.read_matrix import filter_target_indices
 
@@ -72,6 +76,14 @@ def _create_umap_reducer(
     *,
     n_components: int,
     metric: str,
+    n_neighbors: int,
+    min_dist: float,
+    spread: float,
+    n_epochs: int | None,
+    learning_rate: float,
+    umap_init: str | np.ndarray,
+    repulsion_strength: float,
+    negative_sample_rate: int,
     random_state: int | None,
 ) -> umap.UMAP:
     """Create the UMAP reducer used by feature analysis."""
@@ -84,6 +96,15 @@ def _create_umap_reducer(
         metric=metric,
         output_metric="euclidean",
         n_components=n_components,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        spread=spread,
+        n_epochs=n_epochs,
+        learning_rate=learning_rate,
+        # UMAP validates ndarray initial coordinates as well as method names.
+        init=umap_init,  # pyright: ignore[reportArgumentType]
+        repulsion_strength=repulsion_strength,
+        negative_sample_rate=negative_sample_rate,
         random_state=random_state,
         n_jobs=umap_jobs,
         force_approximation_algorithm=True,
@@ -96,14 +117,34 @@ def compute_streaming_umap_embeddings(
     *,
     n_components: int = 3,
     metric: str = "cosine",
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    spread: float = 1.0,
+    n_epochs: int | None = None,
+    learning_rate: float = 1.0,
+    umap_init: str | np.ndarray = "spectral",
+    repulsion_strength: float = 1.0,
+    negative_sample_rate: int = 5,
     random_state: int | None = None,
     sample_ratio: float = 1.0,
     transform_batch_size: int = 512,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute UMAP embeddings with sample-fit and batch-transform."""
+    """Compute UMAP embeddings with sample-fit and batch-transform.
+
+    ``n_epochs=None`` lets UMAP choose the training length. An array passed as
+    ``umap_init`` supplies one initial embedding vector per fitted row.
+    """
     reducer = _create_umap_reducer(
         n_components=n_components,
         metric=metric,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        spread=spread,
+        n_epochs=n_epochs,
+        learning_rate=learning_rate,
+        umap_init=umap_init,
+        repulsion_strength=repulsion_strength,
+        negative_sample_rate=negative_sample_rate,
         random_state=random_state,
     )
     spectra_input = isinstance(data_manager, (MSDataManagerImzML, MSDataManagerZarr))
@@ -369,16 +410,33 @@ def kmeans_clustering(
     embeddings: np.ndarray,
     *,
     n_clusters: int = 10,
+    kmeans_init: KMeansInit = "k-means++",
+    n_init: int | Literal["auto"] = "auto",
+    max_iter: int = 300,
+    tol: float = 1e-4,
+    algorithm: Literal["lloyd", "elkan"] = "lloyd",
     random_state: int | None = None,
 ) -> np.ndarray:
-    """Perform KMeans clustering on embeddings."""
+    """Perform KMeans clustering on embeddings.
+
+    With ``n_init="auto"``, scikit-learn chooses the number of runs from
+    ``kmeans_init``. The default ``"k-means++"`` uses one run.
+    """
     logger.info(f"Performing KMeans clustering with {n_clusters} clusters.")
 
+    if isinstance(kmeans_init, str) or callable(kmeans_init):
+        init = kmeans_init
+    else:
+        init = np.asarray(kmeans_init)
     with phase("kmeans"):
         clusters = KMeans(
             n_clusters=n_clusters,
+            init=init, # type: ignore
+            n_init=n_init,
+            max_iter=max_iter,
+            tol=tol,
+            algorithm=algorithm,
             random_state=random_state,
-            n_init="auto",
         ).fit_predict(embeddings)
 
     return clusters
@@ -880,18 +938,28 @@ def build_umap_image(
     width: int | None = None,
     height: int | None = None,
 ) -> np.ndarray:
-    """Map a 3-component scaled embedding to an RGBA spatial image."""
-    if scaled_embedding.shape[1] != 3:
-        raise ValueError(
-            f"UMAP image requires 3-component embedding, "
-            f"got {scaled_embedding.shape[1]}."
-        )
+    """Map a scaled embedding to an RGBA spatial image from its first three components.
+
+    Components beyond the third are not drawn.  A two-component embedding fills
+    the red and green channels, and a one-component embedding is drawn in grayscale.
+    """
+    n_components = scaled_embedding.shape[1]
+    if n_components < 1:
+        raise ValueError(f"UMAP image requires at least one component, got {n_components}.")
+    if n_components > 3:
+        logger.info(f"UMAP image shows the first 3 of {n_components} components.")
 
     scatter_x, scatter_y, _, w, h = _infer_spatial_params(
         coordinates, width=width, height=height,
     )
 
-    rgb = np.clip(scaled_embedding, 0.0, 1.0)
+    n_drawn = min(n_components, 3)
+    rgb = np.zeros((scaled_embedding.shape[0], 3), dtype=scaled_embedding.dtype)
+    if n_components == 1:
+        rgb[...] = scaled_embedding
+    else:
+        rgb[:, :n_drawn] = scaled_embedding[:, :n_drawn]
+    np.clip(rgb, 0.0, 1.0, out=rgb)
     rgba_uint8 = np.full((scaled_embedding.shape[0], 4), 255, dtype=np.uint8)
     rgba_uint8[:, :3] = (rgb * 255).astype(np.uint8)
 
@@ -971,8 +1039,8 @@ def _validate_umap_parameters(
     transform_batch_size: int | None,
     random_state: int | None,
 ) -> None:
-    if n_components != 3:
-        raise ValueError("n_components must be 3 for RGB image output.")
+    if n_components % 1 != 0 or n_components < 1:
+        raise ValueError(f"n_components must be a positive integer, got {n_components}.")
     if sample_ratio <= 0 or sample_ratio > 1:
         raise ValueError("sample_ratio must be in (0, 1].")
     if transform_batch_size is not None and transform_batch_size <= 0:
@@ -1027,6 +1095,14 @@ def _run_umap_stage(
     sample_ratio: float,
     transform_batch_size: int | None,
     umap_metric: str,
+    n_neighbors: int,
+    min_dist: float,
+    spread: float,
+    n_epochs: int | None,
+    learning_rate: float,
+    umap_init: str | np.ndarray,
+    repulsion_strength: float,
+    negative_sample_rate: int,
     random_state: int | None,
 ) -> tuple[np.ndarray, np.ndarray, int | None, int | None]:
     if (
@@ -1042,6 +1118,14 @@ def _run_umap_stage(
         data_manager,
         n_components=n_components,
         metric=umap_metric,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        spread=spread,
+        n_epochs=n_epochs,
+        learning_rate=learning_rate,
+        umap_init=umap_init,
+        repulsion_strength=repulsion_strength,
+        negative_sample_rate=negative_sample_rate,
         random_state=random_state,
         sample_ratio=sample_ratio,
         transform_batch_size=batch_size,
@@ -1141,6 +1225,14 @@ def plot_umap_image(
     transform_batch_size: int | None = 4096,
     n_components: int = 3,
     umap_metric: str = "cosine",
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    spread: float = 1.0,
+    n_epochs: int | None = None,
+    learning_rate: float = 1.0,
+    umap_init: str | np.ndarray = "spectral",
+    repulsion_strength: float = 1.0,
+    negative_sample_rate: int = 5,
     random_state: int | None = None,
 ) -> np.ndarray:
     """Run UMAP analysis, save the spatial UMAP image, and return it."""
@@ -1158,6 +1250,14 @@ def plot_umap_image(
         sample_ratio=sample_ratio,
         transform_batch_size=transform_batch_size,
         umap_metric=umap_metric,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        spread=spread,
+        n_epochs=n_epochs,
+        learning_rate=learning_rate,
+        umap_init=umap_init,
+        repulsion_strength=repulsion_strength,
+        negative_sample_rate=negative_sample_rate,
         random_state=random_state,
     )
     umap_img = build_umap_image(
@@ -1195,7 +1295,20 @@ def plot_umap_kmeans_image(
     save_matrix: Literal["npz", "zarr"] | None = None,
     n_components: int = 3,
     umap_metric: str = "cosine",
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    spread: float = 1.0,
+    n_epochs: int | None = None,
+    learning_rate: float = 1.0,
+    umap_init: str | np.ndarray = "spectral",
+    repulsion_strength: float = 1.0,
+    negative_sample_rate: int = 5,
     n_clusters: int = 10,
+    kmeans_init: KMeansInit = "k-means++",
+    n_init: int | Literal["auto"] = "auto",
+    max_iter: int = 300,
+    tol: float = 1e-4,
+    algorithm: Literal["lloyd", "elkan"] = "lloyd",
     random_state: int | None = None,
     show: bool = False,
 ) -> UmapKmeansResult:
@@ -1216,6 +1329,14 @@ def plot_umap_kmeans_image(
         sample_ratio=sample_ratio,
         transform_batch_size=transform_batch_size,
         umap_metric=umap_metric,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        spread=spread,
+        n_epochs=n_epochs,
+        learning_rate=learning_rate,
+        umap_init=umap_init,
+        repulsion_strength=repulsion_strength,
+        negative_sample_rate=negative_sample_rate,
         random_state=random_state,
     )
 
@@ -1223,6 +1344,11 @@ def plot_umap_kmeans_image(
     labels = kmeans_clustering(
         scaled_embedding,
         n_clusters=n_clusters,
+        kmeans_init=kmeans_init,
+        n_init=n_init,
+        max_iter=max_iter,
+        tol=tol,
+        algorithm=algorithm,
         random_state=random_state,
     )
 

@@ -40,21 +40,38 @@ massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
     save_matrix: Literal["npz", "zarr"] | None = None,
     n_components: int = 3,
     umap_metric: str = "cosine",
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    spread: float = 1.0,
+    n_epochs: int | None = None,
+    learning_rate: float = 1.0,
+    umap_init: str | np.ndarray = "spectral",
+    repulsion_strength: float = 1.0,
+    negative_sample_rate: int = 5,
     n_clusters: int = 10,
+    kmeans_init: KMeansInit = "k-means++",
+    n_init: int | Literal["auto"] = "auto",
+    max_iter: int = 300,
+    tol: float = 1e-4,
+    algorithm: Literal["lloyd", "elkan"] = "lloyd",
     random_state: int | None = None,
-    show: bool = False,
+    show: bool = True,
 ) -> UmapKmeansResult
 ```
 
 - 功能：根据每个像素的质谱特征运行 UMAP 和 KMeans，并生成空间聚类结果。
 - 参数：本页主要关注 KMeans 相关参数：
   - `n_clusters`：类别数量，默认 `10`，当前支持 `1–20`。数值越大，区域划分越细，但同一组织区域也更可能被拆成多个小类；
-  - `random_state`：固定随机种子便于重复比较；
-  - `transform_batch_size`：后续分批进行 UMAP 转换时，每批处理的像素数量，默认 `1024`。输入必须为正整数，且数值越大可能更快，但占用更多内存，内存不足时可以适当减小。
+  - `kmeans_init` 默认 `"k-means++"`，也支持 `"random"`、自定义初始化函数，以及形状为 `(n_clusters, n_components)` 的 NumPy 数组或二维数值序列。初始化函数接收特征矩阵、类别数和随机数生成器，并返回初始中心。
+  - `n_init` 控制 KMeans 的初始化次数，默认 `"auto"`。`"auto"` 对 `"k-means++"` 和给定中心运行一次，对 `"random"` 和自定义初始化函数运行十次。可以传入正整数指定次数，KMeans 会选取簇内平方和最小的结果。传入给定中心时只运行一次。
+  - `max_iter` 设置每次运行的最大迭代次数，默认 `300`。`tol` 设置根据中心变化判断收敛时使用的相对容差，默认 `1e-4`。
+  - `algorithm` 默认 `"lloyd"`，也可设为 `"elkan"`。`"elkan"` 在簇分隔明显时可能更快，同时需要额外内存。
+  - `random_state` 默认 `None`，传入整数会同时为 UMAP 和 KMeans 设置随机种子。
+  - `transform_batch_size`：后续分批进行 UMAP 转换时，每批处理的像素数量，默认 `1024`。可传入正整数或 `None`，其中 `None` 使用 `1024`。较大的值可能更快，但会占用更多内存。
   - `save_images`：是否保存 UMAP 和 KMeans 图像，默认 `True`。
   - `save_matrix`：是否保存可再次加载的聚类结果，可选 `"npz"`、`"zarr"` 或 `None`。
   - `dpi`：保存图片的分辨率，默认 `600`。
-  - `show`：是否在运行时显示 KMeans 图，默认 `False`。
+  - `show`：是否在运行时显示 KMeans 图，默认 `True`。
   - UMAP 相关参数见 [UMAP 降维与可视化](./umap.md)。
 - 输出：返回 `UmapKmeansResult`，其中包含 UMAP 空间图、KMeans 空间图、每个像素的聚类编号以及编号对应的显示颜色。
 
@@ -90,6 +107,7 @@ pipeline = SegmentationPipeline(
 result = pipeline.run_umap_kmeans(
     sample_ratio=1.0,
     n_clusters=10,
+    n_init="auto",
     random_state=0,
     save_images=True,
     save_matrix="zarr",
@@ -98,6 +116,8 @@ result = pipeline.run_umap_kmeans(
 ```
 
 该步骤会先获取每个像素的低维特征，再使用 KMeans 将像素划分为不同类别，并把聚类结果重新映射到组织空间。
+
+复现 K35 五类分割时，使用同一份含 20,346 个像素和 2,261 个共享 m/z 特征的峰对齐数据，并设置 `n_components=10`、`n_clusters=5`、`random_state=2026` 和 `n_init=10`。
 
 
 

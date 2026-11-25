@@ -26,7 +26,7 @@ MassFlow/
 ├── docs/                    # 文档 (VitePress)
 │   ├── en/
 │   └── zh/
-├── logs/                    # 显式初始化后生成的日志
+├── logs/                    # 运行时日志
 ├── src/
 │   └── massflow/            # 核心源代码
 │       ├── data_manager/         # imzML / 谱 Zarr 及 Binary / H5 / Zarr 离子图管理器

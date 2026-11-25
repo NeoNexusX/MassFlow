@@ -26,7 +26,7 @@ MassFlow/
 ├── docs/                    # Documentation (VitePress)
 │   ├── en/
 │   └── zh/
-├── logs/                    # Logs created by explicit initialization
+├── logs/                    # Runtime logs
 ├── src/
 │   └── massflow/            # Core source code
 │       ├── data_manager/         # imzML / spectra Zarr and Binary / H5 / Zarr ion-image managers

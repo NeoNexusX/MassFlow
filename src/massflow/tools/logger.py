@@ -268,25 +268,12 @@ class LoggerManager:
             for handler in logger.handlers:
                 handler.setLevel(level)
 
-# 创建日志管理器单例实例。
-# 注意：这里刻意不调用 init_app()——import 不应产生任何副作用（创建 logs/、
-# 修改 root logger、接管 warnings 等）。需要 massflow 自己的日志输出时，
-# 由应用入口显式调用 LOGGER_MANAGER.init_app()。
+# 创建日志管理器单例实例，并在 import 时初始化日志系统：
+# 用户无论在脚本还是 Jupyter 中调用 massflow，都无需额外初始化即可看到日志。
 LOGGER_MANAGER = LoggerManager()
-
-# 库模式标记：在包名 logger 上挂 NullHandler（官方推荐的库做法）。
-# NullHandler 不产生任何输出，仅声明"massflow 是一个日志配置权在使用者手中的库"。
-logging.getLogger("massflow").addHandler(logging.NullHandler())
+LOGGER_MANAGER.init_app()
 
 # 获取日志器的便捷函数
 def get_logger(name="app") -> logging.Logger:
-    """Get logger by name.
-
-    - 未显式初始化（库模式）：返回裸 logger，不挂任何 handler，
-      日志沿 propagate 冒泡到 root，由宿主程序统一控制输出。
-    - 已调用 LOGGER_MANAGER.init_app()（应用模式）：返回带 console/file
-      handler 的 logger，行为与原来一致。
-    """
-    if not LOGGER_MANAGER.initialized:
-        return logging.getLogger(name)
+    """Get logger by name."""
     return LOGGER_MANAGER.get_logger(name)

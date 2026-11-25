@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 import numpy as np
 import zarr
+from numpy.typing import ArrayLike
 
 from massflow.segmentation.region_mask import DataManager
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.segmentation.segmentation_pipeline")
+
+KMeansInit = (
+    Literal["k-means++", "random"]
+    | np.ndarray
+    | Sequence[Sequence[float]]
+    | Callable[[np.ndarray, int, np.random.RandomState], ArrayLike]
+)
 
 TAB20_COLOR_NAMES = (
     "blue",
@@ -170,11 +178,29 @@ class SegmentationPipeline:
         save_matrix: Literal["npz", "zarr"] | None = None,
         n_components: int = 3,
         umap_metric: str = "cosine",
+        n_neighbors: int = 15,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        n_epochs: int | None = None,
+        learning_rate: float = 1.0,
+        umap_init: str | np.ndarray = "spectral",
+        repulsion_strength: float = 1.0,
+        negative_sample_rate: int = 5,
         n_clusters: int = 10,
+        kmeans_init: KMeansInit = "k-means++",
+        n_init: int | Literal["auto"] = "auto",
+        max_iter: int = 300,
+        tol: float = 1e-4,
+        algorithm: Literal["lloyd", "elkan"] = "lloyd",
         random_state: int | None = None,
         show: bool = True,
     ) -> UmapKmeansResult:
-        """Run UMAP/KMeans, retain its result, and clear any previous mask."""
+        """Run UMAP/KMeans, retain its result, and clear any previous mask.
+
+        ``umap_init`` initializes the embedding and ``kmeans_init`` initializes
+        cluster centers. ``n_init`` controls the number of KMeans runs, and
+        ``random_state`` seeds both stages.
+        """
         from massflow.segmentation.umap_kmeans import plot_umap_kmeans_image
 
         self.result = plot_umap_kmeans_image(
@@ -187,7 +213,20 @@ class SegmentationPipeline:
             save_matrix=save_matrix,
             n_components=n_components,
             umap_metric=umap_metric,
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            spread=spread,
+            n_epochs=n_epochs,
+            learning_rate=learning_rate,
+            umap_init=umap_init,
+            repulsion_strength=repulsion_strength,
+            negative_sample_rate=negative_sample_rate,
             n_clusters=n_clusters,
+            kmeans_init=kmeans_init,
+            n_init=n_init,
+            max_iter=max_iter,
+            tol=tol,
+            algorithm=algorithm,
             random_state=random_state,
             show=show,
         )

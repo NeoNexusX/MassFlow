@@ -12,7 +12,7 @@ Authors: Leqiang Dong, Jingwei Dong
 
 In an MSI dataset, each pixel contains a large number of *m/z* positions and corresponding intensities. Directly comparing these high-dimensional mass-spectrometry features is difficult.
 
-UMAP compresses the high-dimensional spectral features of each pixel into a smaller number of feature dimensions, while trying to keep pixels with similar overall spectral characteristics close to one another in the low-dimensional space. MassFlow maps three UMAP features to the RGB color channels and places them back at the pixels' spatial coordinates to form a spatial UMAP image.
+UMAP compresses the high-dimensional spectral features of each pixel into a smaller number of feature dimensions, while trying to keep pixels with similar overall spectral characteristics close to one another in the low-dimensional space. MassFlow maps the first three UMAP features to the RGB color channels and places them back at the pixels' spatial coordinates to form a spatial UMAP image.
 
 The UMAP image shows whether the overall mass-spectrometry characteristics of different pixels are similar and how those differences are distributed in tissue space.
 
@@ -37,9 +37,22 @@ massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
     save_matrix: Literal["npz", "zarr"] | None = None,
     n_components: int = 3,
     umap_metric: str = "cosine",
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    spread: float = 1.0,
+    n_epochs: int | None = None,
+    learning_rate: float = 1.0,
+    umap_init: str | np.ndarray = "spectral",
+    repulsion_strength: float = 1.0,
+    negative_sample_rate: int = 5,
     n_clusters: int = 10,
+    kmeans_init: KMeansInit = "k-means++",
+    n_init: int | Literal["auto"] = "auto",
+    max_iter: int = 300,
+    tol: float = 1e-4,
+    algorithm: Literal["lloyd", "elkan"] = "lloyd",
     random_state: int | None = None,
-    show: bool = False,
+    show: bool = True,
 ) -> UmapKmeansResult
 ```
 
@@ -54,11 +67,16 @@ massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
   
     - `“euclidean”`: Calculates distance based on the absolute numerical differences between features. This can be used for comparison when the differences in feature amplitude themselves are intended to contribute to region differentiation;
   
-  - `n_components`: the current spatial color image uses exactly three features, corresponding to the RGB channels.
+  - `n_components`: number of feature dimensions produced by UMAP, default `3`. It must be a positive integer. KMeans uses all dimensions, while the spatial UMAP image maps the first three to the RGB channels. With one dimension the image is grayscale; with two dimensions only the red and green channels are used.
   
-  - `random_state`: fixing the random seed makes repeated results easier to compare, although the UMAP implementation may run with less parallelism when a fixed seed is used.
+  - `n_neighbors` controls how many neighbors UMAP considers when building the neighborhood graph. The default is `15`. Smaller values emphasize local structure, while larger values capture more global structure.
+  - `min_dist` and `spread` shape the distances in the embedding. `min_dist` defaults to `0.1`, and smaller values allow nearby points to pack more tightly. `spread` defaults to `1.0` and sets the distance scale. `min_dist` must be between `0` and `spread`, inclusive.
+  - `n_epochs` sets the number of optimization epochs. The default `None` lets UMAP select a value based on the number of fitted pixels. `learning_rate` sets the initial learning rate and defaults to `1.0`.
+  - `umap_init` defaults to `"spectral"`. It also accepts `"random"`, `"pca"`, `"tswspectral"`, or a NumPy array of shape `(number of fitted pixels, n_components)`.
+  - `repulsion_strength` weights negative samples during optimization and defaults to `1.0`. `negative_sample_rate` sets the number of negatives per positive sample and defaults to `5`. Higher rates increase optimization cost.
+  - `random_state` defaults to `None`. Passing an integer seeds both UMAP and KMeans and makes UMAP fitting single-threaded.
 
-This page explains only the UMAP part. For tissue-region segmentation, please see [KMeans Tissue Region Segmentation](./segmentation.md).
+To generate a spatial UMAP image on its own, pass the same UMAP model parameters to `massflow.segmentation.plot_umap_image()`. KMeans parameters are documented separately. [KMeans Tissue Region Segmentation](./segmentation.md)
 
 ```python
 from massflow.data_manager import MSDataManagerImzML
@@ -75,6 +93,8 @@ pipeline = SegmentationPipeline(
 
 result = pipeline.run_umap_kmeans(
     sample_ratio=1.0,
+    n_neighbors=15,
+    min_dist=0.1,
     n_clusters=10,
     save_images=True,
     show=False,
@@ -104,6 +124,7 @@ The following UMAP images were obtained with three different `sample_ratio` valu
 - Pixels with similar colors in space have similar UMAP features.
 - Locations where the color changes abruptly may correspond to spatial boundaries where the mass-spectrometry composition changes more clearly.
 - Continuous colors represent continuous differences; they do not mean that tissue classes have already been segmented.
+- When `n_components` is greater than 3, the UMAP image colors reflect only the first three dimensions while KMeans divides pixels using all dimensions, so pixels with similar colors may still fall into different clusters.
 - The same color has no fixed biological meaning across different datasets or parameter settings.
 
 UMAP results should be interpreted together with TIC images, known ion images, H&E images, or other experimental information.
