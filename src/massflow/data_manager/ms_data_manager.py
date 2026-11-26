@@ -208,8 +208,8 @@ class MSDataManager(ABC):
             raise ValueError("MS meta data is None. Please load meta data first.")
 
         # Collect coordinates across all z-planes
-        xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict),dtype=np.uint16,)
-        ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for y in ydict),dtype=np.uint16,)
+        xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict),dtype=np.uint32,)
+        ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for y in ydict),dtype=np.uint32,)
 
         # Get image dimensions; missing values are derived from the coordinate extent
         width = int(cast(int, self.ms.meta.max_count_of_pixels_x))
