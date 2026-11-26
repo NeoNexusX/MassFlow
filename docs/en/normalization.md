@@ -31,6 +31,7 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
     scale: float | None = None,
     ref: float | None = None,
     ref_tolerance: float = 0.1,
+    backend: Literal["python", "cardinal"] = "python",
 ) -> Self
 ```
 
@@ -46,11 +47,13 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
 
   - `scale`: optional scaling factor applied after normalization. The value must be finite and non-negative. If supplied, normalized intensities are multiplied by this value. A common use is to set TIC-normalized data to 1,000 or 10,000 for easier numerical display.
 
-  - `ref`: target internal-standard *m/z* value, used by `method="ref_numba"` and If no value is entered, the program will automatically use the midpoint of the currently input m/z data as a temporary reference value.
+  - `ref`: target internal-standard *m/z* value, required for `method="ref_numba"`. Omitting it raises `ValueError`; no reference is selected automatically.
 
-  - `ref_tolerance`: matching tolerance for the reference peak, used by `ref_numba`. Default: `0.1 Da`. The value must be finite and non-negative.
+  - `ref_tolerance`: matching tolerance for the reference peak, used by `ref_numba` on the Python backend. Default: `0.1 Da`. The value must be finite and non-negative. Cardinal ignores a non-default value with a warning.
 
     
+
+  - `backend`: `"python"` (default) or `"cardinal"`. The tolerance-matching and preserve-on-failure behavior described below applies to the Python backend; Cardinal uses its own reference-matching rules.
 
 Example:
 
@@ -121,9 +124,11 @@ Since intensity is squared during the calculation, high-intensity signals contri
 
 ### Reference-Peak Normalization (`ref_numba`)
 
+The following matching and warning rules describe the Python backend.
+
 Reference-peak normalization uses a predefined ion peak as a reference and scales the other peaks in each spectrum according to the intensity of that reference peak. If `scale` is set, the normalized result is multiplied by `scale`.
 
-It is recommended to explicitly set the target internal-standard *m/z* value with `ref` and choose an appropriate reference-peak matching tolerance with `ref_tolerance`. If `method="ref_numba"` is used without set  `ref`, the program automatically selects the middle position of the currently supplied *m/z* data as a temporary reference value. In actual analysis, set `ref` according to the internal standard used in the experiment or a known stable ion peak rather than relying on the automatically selected value.
+Set `ref` explicitly to the internal-standard or other stable reference ion, and choose `ref_tolerance` in Da. The same explicit reference is used across all batches. The nearest m/z point within tolerance supplies the normalization intensity. If no point matches, or the matched intensity is non-positive or NaN, that spectrum keeps its original intensities (without applying `scale`), and a warning summarizes the affected spectra. Missing `ref` raises `ValueError`.
 
 
 
@@ -147,7 +152,7 @@ Reference-peak normalization (`ref_numba`) with `ref=500`:
 
 - `method` validation: only `"tic_numba"`, `"rms_numba"`, and `"ref_numba"` are supported.
 
-- When using `“ref_numba”`, you should check whether `ref` falls within the *m/z* range of the current data and ensure that the reference peak has a valid signal in the mass spectrum to be compared.
+- `ref_numba` requires an explicit `ref`. Unmatched or non-positive/NaN reference intensities preserve the input spectrum and produce a summary warning.
 
   
 

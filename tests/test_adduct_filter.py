@@ -461,26 +461,64 @@ def test_apply_reuses_preview_mask_and_writes_matching_report(
         captured["keep_mask"],
         np.array([False, False, True, False, True]),
     )
-    report_text = report_path.read_text(encoding="utf-8")
-    assert "support_peak" in report_text
-    assert "correlation_threshold" in report_text
-    assert "summary_evidence" in report_text
-    assert "candidate_relationship_count" in report_text
+    with report_path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        assert reader.fieldnames == [
+            "representative_mz", "adduct_mz", "representative_adduct", "adduct"
+        ]
+        rows = list(reader)
+    selected = _select_summary_annotation_indices(result.annotations)
+    annotations = [
+        annotation for index, annotation in enumerate(result.annotations)
+        if index in selected
+    ]
+    assert len(rows) == len({item.removed_peak for item in result.annotations})
+    for row, annotation in zip(rows, annotations, strict=True):
+        assert float(row["representative_mz"]) == annotation.representative_mz
+        assert float(row["adduct_mz"]) == annotation.removed_mz
+        assert row["representative_adduct"] == annotation.representative_rule
+        assert row["adduct"] == annotation.removed_rule
+
+
+def test_adduct_report_defaults_to_no_removal(
+    synthetic_manager: _FakeContinuousDataManager,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_removal(*_args, **_kwargs):
+        pytest.fail("reporting must not apply a peak mask")
+
+    monkeypatch.setattr(adduct_helper, "filter_data_by_mask", unexpected_removal)
+    report_path = tmp_path / "preview.csv"
+    returned = adduct_helper.filter_peaks_by_adducts(
+        synthetic_manager,  # type: ignore[arg-type]
+        report_path=report_path,
+    )
+    assert returned is synthetic_manager
     with report_path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    assert len(rows) == len(result.annotations)
-    for row, annotation in zip(rows, result.annotations, strict=True):
-        assert int(row["representative_peak"]) == annotation.representative_peak
-        assert int(row["removed_peak"]) == annotation.removed_peak
-        assert int(row["support_peak"]) == annotation.support_peak
-        assert float(row["spatial_correlation"]) == annotation.spatial_correlation
-        assert row["summary_evidence"] == "True"
-        assert int(row["evidence_count_for_removed_peak"]) == 1
-        assert int(row["total_peak_count"]) == result.mz_axis.size
-        assert int(row["candidate_relationship_count"]) == len(result.pair_evidence)
-        assert float(row["mz_delta"]) == (
-            annotation.removed_mz - annotation.representative_mz
-        )
+    assert len(rows) == 3
+
+
+def test_report_contains_one_row_per_peak_and_handles_no_matches(
+    synthetic_manager: _FakeContinuousDataManager,
+    tmp_path,
+) -> None:
+    result = compute_adduct_annotations(synthetic_manager)  # type: ignore[arg-type]
+    duplicated = replace(
+        result, groups=result.groups * 2, annotations=result.annotations * 2,
+    )
+    report_path = write_adduct_filter_report(duplicated, tmp_path / "duplicates.csv")
+    with report_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == len({item.removed_peak for item in result.annotations})
+    assert len({row["adduct_mz"] for row in rows}) == len(rows)
+
+    empty = replace(result, groups=(), annotations=(), pair_evidence=())
+    empty_path = write_adduct_filter_report(empty, tmp_path / "empty.csv")
+    assert empty_path.read_text(encoding="utf-8").splitlines() == [
+        "representative_mz,adduct_mz,representative_adduct,adduct"
+    ]
 
 
 def test_report_rejects_non_csv_extension(
@@ -670,7 +708,7 @@ def test_plot_result_writes_png_and_closes_figure(
         newline="", encoding="utf-8"
     ) as handle:
         rows = list(csv.DictReader(handle))
-    assert len(rows) == len(result.annotations)
+    assert len(rows) == len({item.removed_peak for item in result.annotations})
     assert tuple(plt.get_fignums()) == figures_before
 
 

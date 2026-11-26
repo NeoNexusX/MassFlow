@@ -76,7 +76,6 @@ def _collect_imzml_matrix(data_manager: MSDataManagerImzML):
     for batch_mz, intensity_flat, lengths, _coords in data_manager.flat_generator(
         batch_size=128,
         include_mz=True,
-        max_threads=2,
     ):
         batch_mz = np.asarray(batch_mz)
         mz_axis = batch_mz.copy() if mz_axis is None else mz_axis
@@ -108,7 +107,7 @@ def _collect_spectra_tic(data_manager):
     """Sum every stored spectrum to recompute the expected per-pixel TIC."""
     tics = []
     for _mz, intensity_flat, lengths, _coords in data_manager.flat_generator(
-        batch_size=128, include_mz=False, max_threads=2
+        batch_size=128, include_mz=False
     ):
         intensity_flat = np.asarray(intensity_flat)
         lengths = np.asarray(lengths)
@@ -122,7 +121,7 @@ def _collect_spectra_rms(data_manager):
     """Recompute the per-pixel RMS from every stored spectrum."""
     values = []
     for _mz, intensity_flat, lengths, _coords in data_manager.flat_generator(
-        batch_size=128, include_mz=False, max_threads=2
+        batch_size=128, include_mz=False
     ):
         intensity_flat = np.asarray(intensity_flat, dtype=np.float64)
         lengths = np.asarray(lengths)

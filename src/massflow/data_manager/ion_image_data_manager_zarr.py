@@ -174,6 +174,10 @@ class IonImageDataManagerZarr(IonImageDataManager):
         return self._require_reader().read_ion_vector(ion_idx)
 
     def get_ion_block(self, start: int, end: int) -> np.ndarray:
+        # 空区间返回 (0, n_pixels)，与其他后端及 numpy 切片语义一致
+        # （read_rows 对空区间只能给出 (0, 0)，丢失列宽）。
+        if start == end:
+            return np.empty((0, self.n_pixels), dtype=self.intensity_dtype)
         return self._require_reader().read_rows(start, end)
 
     def get_pixel_spectrum(self, pixel_idx: int) -> np.ndarray:

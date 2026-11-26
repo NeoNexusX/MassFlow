@@ -31,7 +31,6 @@ class MSDataManagerZarr(MSDataManager):
         ms=None,
         target_locs=None,
         filepath=None,
-        max_threads: int = 8,
         temp_dir=None,
         mz_dtype: Any = np.float64,
         intensity_dtype: Any = np.float32,
@@ -52,7 +51,6 @@ class MSDataManagerZarr(MSDataManager):
             ms=ms,
             target_locs=target_locs,
             filepath=filepath,
-            max_threads=max_threads,
             mz_dtype=mz_dtype,
             intensity_dtype=intensity_dtype,
             temp_dir=temp_dir,
@@ -208,13 +206,11 @@ class MSDataManagerZarr(MSDataManager):
         self,
         batch_size: int = 256,
         include_mz: bool = True,
-        max_threads: int = 0,
     ) -> Generator[tuple, Any, None]:
         """Yield matrix spectra batches from the Zarr arrays."""
         for mz_data, intensity_flat, lengths, coordinates in self.flat_generator(
             batch_size=batch_size,
             include_mz=include_mz,
-            max_threads=max_threads,
         ):
             max_len = int(np.max(lengths))
             if self.storage_mode == ZARR_MODE_CONTINUOUS:
@@ -244,7 +240,6 @@ class MSDataManagerZarr(MSDataManager):
         self,
         batch_size: int = 256,
         include_mz: bool = True,
-        max_threads: int = 0,  # max_threads 用不到
     ) -> Generator[tuple, Any, None]:
         """Yield flat spectra batches from the Zarr arrays."""
         self._open_arrays_for_read()

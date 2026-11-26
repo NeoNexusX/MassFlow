@@ -22,13 +22,12 @@ def _save_transparent_image(
     mask: np.ndarray,
     output_path: Path,
 ) -> None:
-    """Apply mask as alpha and save an RGB image as transparent PNG."""
-    if image.shape != (*mask.shape, 3):
-        raise ValueError("Feature-analysis image must have shape (height, width, 3).")
+    """Apply mask as alpha and save an RGBA image as transparent PNG."""
+    if image.shape != (*mask.shape, 4):
+        raise ValueError("Feature-analysis image must have shape (height, width, 4).")
 
-    rgba = np.empty((*mask.shape, 4), dtype=np.uint8)
-    rgba[..., :3] = image
-    rgba[..., 3] = mask * 255
+    rgba = image.copy()
+    rgba[..., 3] = np.where(mask, rgba[..., 3], 0)
     plt.imsave(str(output_path), rgba)
 
 

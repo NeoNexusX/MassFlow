@@ -76,7 +76,7 @@ class FlatPreprocess:
         mz_data: np.ndarray,
         intensity: np.ndarray,
         lengths: np.ndarray,
-        method: str = "ma_numba",
+        method: str = "gaussian_numba",
         window: int = 5,
         sd: float | None = None,
         polyorder: int = 3,
@@ -168,6 +168,7 @@ class FlatPreprocess:
             max_isotope_count=max_isotope_count,
             use_decreasing_model=use_decreasing_model,
             start_intensity_check=start_intensity_check,
+            remove=True,
         )
         return FlatBatchResult(
             mz_data=filtered_mz,
@@ -243,17 +244,15 @@ class FlatPreprocess:
         Supported methods are limited to:
         - ``tic_numba``
         - ``rms_numba``
-        - ``ref_numba``
-
+        - ``ref_numba`` (requires an explicit ``ref``; spectra without a
+          matching reference point keep their original values and a warning
+          is logged)
         """
 
         method_norm = (method or "").strip().lower()
         supported_methods = {"tic_numba", "rms_numba", "ref_numba"}
         if method_norm not in supported_methods:
             raise ValueError("normalization_flat only supports: tic_numba, rms_numba, ref_numba")
-
-        if ref is None and method_norm == "ref_numba":
-            ref = float(mz_data[mz_data.size // 2]) if mz_data is not None and mz_data.size > 0 else None
 
         normalized_intensity = normalizer(
             intensity=intensity,

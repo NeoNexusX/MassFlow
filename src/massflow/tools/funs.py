@@ -67,3 +67,18 @@ def lengths_to_offsets(lengths: np.ndarray) -> np.ndarray:
     for i in range(n):
         offsets[i + 1] = offsets[i] + lengths[i]
     return offsets
+
+
+# Known massflow data file suffixes, matched case-insensitively
+KNOWN_DATA_SUFFIXES = (".imzml", ".ibd", ".zarr")
+
+def strip_known_suffix(path) -> str:
+    """Strip a known data suffix (.imzML/.ibd/.zarr, case-insensitive) from the
+    end of a path. Paths without a known suffix are returned unchanged, so dots
+    inside a filename (e.g. ``sample.v2``) are never touched."""
+    p = str(path)
+    lower = p.lower()
+    for suffix in KNOWN_DATA_SUFFIXES:
+        if lower.endswith(suffix):
+            return p[: -len(suffix)]
+    return p

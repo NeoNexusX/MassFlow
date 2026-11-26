@@ -56,7 +56,6 @@ def data_reading_full_benchmark(
             matrix_generator = ms_md.matrix_generator(
                 batch_size=batch_size,
                 include_mz=True,
-                max_threads=max_workers,
             )
             for _mz_data, intensity_matrix, lengths, _coords in matrix_generator:
                 assert len(intensity_matrix) > 0
@@ -68,7 +67,6 @@ def data_reading_full_benchmark(
             flat_generator = ms_md.flat_generator(
                 batch_size=batch_size,
                 include_mz=True,
-                max_threads=max_workers
             )
             for _mz_data, intensity_flat, lengths, _coords in flat_generator:
                 assert len(intensity_flat) > 0
@@ -133,12 +131,10 @@ def _stream_compare_read_modes(data_file_path: str, batch_size: int, max_workers
         matrix_iter = matrix_dm.matrix_generator(
             batch_size=batch_size,
             include_mz=True,
-            max_threads=max_workers,
         )
         flat_iter = flat_dm.flat_generator(
             batch_size=batch_size,
             include_mz=True,
-            max_threads=max_workers,
         )
 
         compared_batches = 0

@@ -1,6 +1,7 @@
 from dataclasses import replace
 from pathlib import Path
 import tempfile
+import uuid
 
 from massflow.preprocess.pipeline.types import (
     ION_IMAGE_OUTPUT_FORMATS,
@@ -40,7 +41,7 @@ def _normalize_output_path(input_meta: InputMetaData, temp_dir: str) -> str | No
             path = path.with_suffix(suffix)
     else:
         output_name = "ion_image_output" if input_meta.result_format in ION_IMAGE_OUTPUT_FORMATS else "preprocess_output"
-        path = Path(temp_dir) / f"{output_name}{suffix}"
+        path = Path(temp_dir) / uuid.uuid4().hex / f"{output_name}{suffix}"
 
     return str(path)
 
@@ -51,8 +52,6 @@ def _resolve_input_meta(input_meta: InputMetaData) -> InputMetaData:
         input_meta,
         temp_dir=temp_dir,
         result_path=_normalize_output_path(input_meta, temp_dir),
-        numba_max_threads=input_meta.numba_max_threads or None,
-        output_max_workers=max(1, input_meta.output_max_workers),
     )
 
 def _arrange_tasks(tasks, spectrum_type) -> list[PreprocessTask]:
@@ -65,12 +64,12 @@ def _arrange_tasks(tasks, spectrum_type) -> list[PreprocessTask]:
     if spectrum_type == "centroid":
         dropped_task_names = [task.name for task in ordered_tasks if task.name in _PROFILE_ONLY_TASKS]
         if dropped_task_names:
-            logger.warning(f"Detected centroid spectra; dropping unsupported tasks: {dropped_task_names}")
+            logger.warning(f"Detected centroid spectra; dropping unsupported tasks: {dropped_task_names}") # pylint: disable=W1203
             ordered_tasks = [task for task in ordered_tasks if task.name not in _PROFILE_ONLY_TASKS]
 
     if ordered_tasks:
         task_names = [f"{task.name}:{task.scope}" for task in ordered_tasks]
-        logger.info(f"async_pipeline_task_order: {task_names}")
+        logger.info(f"async_pipeline_task_order: {task_names}") # pylint: disable=W1203
     else:
         logger.warning("No supported preprocessing tasks remain after task arrangement.")
 

@@ -5,8 +5,6 @@ import warnings
 from logging.handlers import RotatingFileHandler
 from colorama import init, Fore, Back, Style
 
-init(autoreset=True)  # 自动重置颜色
-
 # 日志级别映射
 LOG_LEVELS = {
     "debug": logging.DEBUG,
@@ -107,6 +105,10 @@ class LoggerManager:
 
     def init_app(self, log_level="info", log_dir='logs'):
         """init logger system"""
+        # colorama 需要在输出彩色日志前初始化（包装 stdout/stderr），
+        # 属于显式初始化时才允许的全局副作用
+        init(autoreset=True)  # 自动重置颜色
+
         # set logger level
         self.log_level = LOG_LEVELS.get(log_level.lower(), logging.INFO)
 
@@ -132,10 +134,9 @@ class LoggerManager:
         root_logger = logging.getLogger()
         root_logger.setLevel(self.log_level)
 
-        # clear logger handlers
-        if root_logger.handlers:
-            for handler in root_logger.handlers:
-                root_logger.removeHandler(handler)
+        # clear logger handlers（遍历副本：removeHandler 会修改原列表，边遍历边删会漏删）
+        for handler in list(root_logger.handlers):
+            root_logger.removeHandler(handler)
 
         # add console handler
         console_handler = logging.StreamHandler(sys.stdout)
@@ -167,8 +168,8 @@ class LoggerManager:
 
     def _configure_logger(self, logger, name):
         """Configure a named logger with console and rotating file handlers."""
-        # Avoid adding duplicate handlers
-        if logger.handlers:
+        # Avoid adding duplicate handlers (NullHandler 是库标记，不算已配置)
+        if any(not isinstance(h, logging.NullHandler) for h in logger.handlers):
             return logger
 
         # Set base logger level
@@ -215,7 +216,7 @@ class LoggerManager:
         - file output keeps original record.name (bootstrap.xxx)
         """
         if not self.initialized:
-            raise RuntimeError("LoggerManager is not initialized. Call bootstrap.init_logging()")
+            raise RuntimeError("LoggerManager is not initialized. Call massflow.tools.logger.LOGGER_MANAGER.init_app()")
 
         group = self._logger_group(name)
 
@@ -267,16 +268,12 @@ class LoggerManager:
             for handler in logger.handlers:
                 handler.setLevel(level)
 
-# 创建日志管理器单例实例
+# 创建日志管理器单例实例，并在 import 时初始化日志系统：
+# 用户无论在脚本还是 Jupyter 中调用 massflow，都无需额外初始化即可看到日志。
 LOGGER_MANAGER = LoggerManager()
-
 LOGGER_MANAGER.init_app()
 
 # 获取日志器的便捷函数
 def get_logger(name="app") -> logging.Logger:
     """Get logger by name."""
-
-    if LOGGER_MANAGER is None:
-        raise RuntimeError("LoggerManager is not initialized")
-    else:
-        return LOGGER_MANAGER.get_logger(name)
+    return LOGGER_MANAGER.get_logger(name)

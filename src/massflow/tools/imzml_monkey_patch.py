@@ -11,7 +11,7 @@ def risky_imzml_loader():
 
     使用方法:
         with risky_imzml_loader():
-            data_manager.load_full_data_from_file()
+            data_manager.load_head_data()
 
     原理:
         pyimzml 的 _get_cv_param 函数在遇到 None 元素时会报错 (AttributeError)。

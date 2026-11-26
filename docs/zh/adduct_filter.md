@@ -10,7 +10,7 @@
 
 ## 概述
 
-加合物过滤用于在对齐后的共享 *m/z* 轴上寻找可能来自同一中性分子的不同离子形式，并结合 MSI 像素强度的空间相关性确认候选关系。确认后的每个加合物组保留总强度最高的代表峰，删除其余非受保护峰。
+加合物过滤用于在对齐后的共享 *m/z* 轴上寻找可能来自同一中性分子的不同离子形式，并结合 MSI 像素强度的空间相关性确认候选关系。Pipeline 中调用会实际过滤并输出数据；单独调用 helper 时默认只识别并报告，显式指定 `remove=True` 才过滤。过滤时每个确认组保留总强度最高的代表峰，删除其余非受保护峰。
 
 该实现不是简单的固定 *m/z* 差值过滤：
 
@@ -43,7 +43,7 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_adducts(
 ) -> Self
 ```
 
-- 功能：查找并过滤可能来自同一种化合物的加合物峰。在每个确认的加合物组中，程序会保留一个代表峰，并删除其他未受保护的重复峰。
+- 功能：查找可能来自同一种化合物的加合物峰，保留代表峰并删除其他未受保护的重复峰，输出过滤后的数据。Pipeline 入口不提供 `remove` 参数。
 - 参数：
   - `polarity`：正离子或负离子规则表。该参数必须与实验采集时使用的离子模式一致。离子模式设置错误会导致使用错误的加合物规则。
   - `ppm`：中性质量聚类的相对容差部分，默认 `5.0`。输入必须为正数
@@ -52,10 +52,10 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_adducts(
   - `require_quasi`：每个候选组件是否必须包含至少一个主要准分子规则，即 `quasi=True` 规则。可防止只由非准分子规则组成的组件进入删除阶段。
   - `min_spatial_correlation`：候选峰像素强度向量的最小 Pearson 相关系数。输入必须位于`[-1,1]`之间且值越高对峰空间分布一致性的要求越严格，过滤结果也越保守
   - `output_path`：该过滤阶段的 imZML 输出路径。
-  - `report_path`：CSV报告的输出路径；无后缀时自动添加 `.csv`。
+  - `report_path`：CSV报告的输出路径；无后缀时自动添加 `.csv`，省略时不写报告文件。
 - 输出：
-  - 过滤后的 .imzML 文件；与其配套的 .ibd 文件；
-  - CSV 报告。
+  - 过滤后的 .imzML 文件及配套的 .ibd 文件；
+  - 指定 `report_path` 时写入 CSV 报告。
 
 示例：
 
@@ -157,7 +157,15 @@ filtered_dm = apply_adduct_annotations(
 
 ## 推荐先预览后应用流程
 
-在预处理流程中直接调用： `filter_peaks_by_adducts()`会直接应用峰删除结果。建议先生成预览结果和CSV 报告，人工检查加合物关系后，再应用过滤结果：
+Pipeline 中的 `filter_peaks_by_adducts()` 始终过滤并输出数据。只生成报告请单独调用 helper，其默认 `remove=False`：
+
+```python
+from massflow.preprocess.helper.adduct_filter_helper import filter_peaks_by_adducts
+
+filter_peaks_by_adducts(aligned_dm, report_path="reports/adduct_filter.csv")
+```
+
+也可以先生成预览图和 CSV 报告，检查加合物关系后，再应用已确认的注释：
 
 ```python
 from massflow.preprocess.helper.adduct_filter_helper import apply_adduct_annotations
@@ -282,17 +290,16 @@ correlation >= min_spatial_correlation
 
 ## CSV 报告
 
-报告中的每一行代表一条删除证据，包含：
+每行对应一个拟移除的加合物峰，仅包含四列：
 
-- 代表峰、被删除峰和支持峰的索引、*m/z* 与加合物规则名称；
-- 中性质量、中性质量跨度和 *m/z* 差；
-- 空间相关系数及其阈值；
-- 候选关系数、通过阈值的关系数和唯一删除峰数；
-- 极性、`ppm`、`mzabs`、`require_quasi` 和 `batch_size`。
+| representative_mz | adduct_mz | representative_adduct | adduct |
+|---|---|---|---|
+| 501.007276 | 522.989218 | [M+H]+ | [M+Na]+ |
+| 501.007276 | 538.963158 | [M+H]+ | [M+K]+ |
 
-同一个被删除峰可能具有多条支持证据，`summary_evidence` 标记是否为当前删除结果的主要证据。
+`representative_mz` 是过滤时保留的代表峰，`adduct_mz` 是拟移除峰，后两列分别标注它们的加合物形式。代表峰仍由当前算法按总强度选择，不固定为 `[M+H]+`。
 
-![image-20260806211929916](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/image-20260806211929916.png_view)
+同一拟移除峰存在多条关系时，报告仅保留一条主要关系，沿用现有的最强证据选择规则。没有匹配时只写表头。参数、统计数量和详细证据不再重复写入 CSV；完整注释仍可通过 `compute_adduct_annotations` 获取。
 
 
 ## 错误处理

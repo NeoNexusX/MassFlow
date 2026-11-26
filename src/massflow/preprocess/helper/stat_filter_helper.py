@@ -192,7 +192,6 @@ def filter_data_by_mask(
     filtered_data = MSDataManagerImzML(
         filepath=None if output_path is None else str(output_path),
         temp_dir=None if temp_dir is None else str(temp_dir),
-        max_threads=data_manager.max_threads,
         mz_dtype=data_manager.mz_dtype,
         intensity_dtype=data_manager.intensity_dtype,
     )

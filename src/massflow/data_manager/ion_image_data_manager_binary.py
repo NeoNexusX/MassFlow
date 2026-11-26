@@ -7,13 +7,14 @@ import struct
 import threading
 import uuid
 from copy import deepcopy
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, Future, wait
 from dataclasses import astuple, dataclass, fields
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from massflow.concurrency.runtime import io_executor
 from massflow.data_manager.ion_image_data_manager import IonImageDataManager
 from massflow.tools.infer_spectrum_type import SpectrumType, set_spectrum_type_metadata
 from massflow.tools.ion_major_temp_store import BatchInfo, IonMajorTempStore
@@ -543,7 +544,7 @@ class IonImageDataManagerBinary(IonImageDataManager):
             _pwrite(output_fd, memoryview(np.ascontiguousarray(band)), output_offset)
 
         pending: set[Future[None]] = set()
-        with ThreadPoolExecutor(max_workers=self.merge_workers) as executor:
+        with io_executor(max_workers=self.merge_workers) as executor:
             for ion_start in range(0, n_ions, block_size):
                 pending.add(executor.submit(merge_block, ion_start))
                 if len(pending) >= self.merge_workers:

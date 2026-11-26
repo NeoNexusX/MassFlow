@@ -40,7 +40,6 @@ massflow.tools.plot_ion_image.read_ion_image(
     *,
     mz: float | None = None,
     batch_size: int = 256,
-    max_threads: int = 2,
     mz_tolerance: float | None = None,
 ) -> numpy.ndarray
 ```
@@ -51,7 +50,6 @@ massflow.tools.plot_ion_image.read_ion_image(
   - `data_manager`：已经打开的数据。
   - `mz`：目标 *m/z*，必须填写。
   - `batch_size`：imZML 每批读取的谱图数量，默认 `256`。值增大可能提高读取速度，同时增加内存占用。
-  - `max_threads`：imZML 读取时允许使用的线程数，默认 `2`。
   - `mz_tolerance`：目标 m/z 两侧的绝对范围。保持 `None` 时只读取最接近目标值的一个位置；填写数值时，会把范围内的全部强度相加。该参数必须为非负数。
 - 输出：
   - 一个形状为“图像高度 × 图像宽度”的二维矩阵；
@@ -65,7 +63,6 @@ massflow.tools.plot_ion_image.plot_ion_image(
     *,
     mz: float | None = None,
     batch_size: int = 256,
-    max_threads: int = 2,
     mz_tolerance: float | None = None,
     output_path: str | Path | None = None,
     show: bool = True,
@@ -81,7 +78,7 @@ massflow.tools.plot_ion_image.plot_ion_image(
 
 - 功能：读取目标 *m/z*，并绘制离子图。
 - 参数：
-  - `mz`、`batch_size`、`max_threads`、`mz_tolerance`：与 `read_ion_image` 相同。
+  - `mz`、`batch_size`、`mz_tolerance`：与 `read_ion_image` 相同。
   - `output_path`：图片保存路径。填写后会创建上级文件夹并保存图片。
   - `show`：是否弹出或显示图片。脚本批量运行时建议设为 `False`。当设置 `show=True` 时会在代码运行结束后自动显示图片 。
   - `dpi`：图片分辨率，默认 `300`。
@@ -128,7 +125,6 @@ massflow.tools.plot_ion_image.read_tic_image(
     data_manager,
     *,
     batch_size: int = 256,
-    max_threads: int = 2,
 ) -> numpy.ndarray
 ```
 
@@ -143,7 +139,6 @@ massflow.tools.plot_ion_image.plot_tic_image(
     data_manager,
     *,
     batch_size: int = 256,
-    max_threads: int = 2,
     output_path: str | Path = "./tic_image_output/tic_image.png",
     save_image: bool = True,
     save_matrix: bool = False,

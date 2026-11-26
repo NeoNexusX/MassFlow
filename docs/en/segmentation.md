@@ -33,28 +33,45 @@ If you are not familiar with Jupyter Notebook, please read [Best Practices](./ju
 ```python
 massflow.segmentation.SegmentationPipeline.run_umap_kmeans(
     *,
-    sample_ratio: float = 0.1,
+    sample_ratio: float = 1.0,
     transform_batch_size: int | None = 1024,
     dpi: int = 600,
     save_images: bool = True,
     save_matrix: Literal["npz", "zarr"] | None = None,
     n_components: int = 3,
     umap_metric: str = "cosine",
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    spread: float = 1.0,
+    n_epochs: int | None = None,
+    learning_rate: float = 1.0,
+    umap_init: str | np.ndarray = "spectral",
+    repulsion_strength: float = 1.0,
+    negative_sample_rate: int = 5,
     n_clusters: int = 10,
+    kmeans_init: KMeansInit = "k-means++",
+    n_init: int | Literal["auto"] = "auto",
+    max_iter: int = 300,
+    tol: float = 1e-4,
+    algorithm: Literal["lloyd", "elkan"] = "lloyd",
     random_state: int | None = None,
-    show: bool = False,
+    show: bool = True,
 ) -> UmapKmeansResult
 ```
 
 - Function: runs UMAP and KMeans using the mass-spectrometry features of each pixel and generates spatial clustering results.
 - Parameters: this page focuses on KMeans-related parameters:
   - `n_clusters`: number of classes, default `10`. The current implementation supports `1–20`. Larger values produce finer segmentation, but the same tissue region is also more likely to be split into several smaller classes.
-  - `random_state`: fixing the random seed makes repeated results easier to compare.
-  - `transform_batch_size`: number of pixels processed in each batch during subsequent UMAP transformation, default `1024`. The input must be a positive integer. Larger values may be faster but use more memory; reduce this value if memory is insufficient.
+  - `kmeans_init` defaults to `"k-means++"`. It also accepts `"random"`, a callable, or initial centers as a NumPy array or nested numeric sequence of shape `(n_clusters, n_components)`. The callable receives the feature matrix, cluster count, and random number generator, and returns the initial centers.
+  - `n_init` controls how many times KMeans is initialized. The default `"auto"` uses one run with `"k-means++"` or supplied centers, and ten runs with `"random"` or a callable. A positive integer sets the run count, with KMeans retaining the result with the lowest within-cluster sum of squares. Supplied centers always use a single run.
+  - `max_iter` limits iterations per run and defaults to `300`. `tol` is the relative tolerance for changes in the cluster centers when checking convergence and defaults to `1e-4`.
+  - `algorithm` accepts `"lloyd"` (the default) or `"elkan"`. `"elkan"` can be faster with well-separated clusters and uses additional memory.
+  - `random_state` defaults to `None`. Passing an integer seeds both UMAP and KMeans.
+  - `transform_batch_size` sets the number of pixels processed per batch during subsequent UMAP transformation. Pass a positive integer for a custom size or `None` for the default of `1024`. Larger values may be faster and use more memory.
   - `save_images`: whether to save UMAP and KMeans images, default `True`.
   - `save_matrix`: whether to save clustering results that can be loaded again. Available values are `"npz"`, `"zarr"`, or `None`.
   - `dpi`: resolution of saved images, default `600`.
-  - `show`: whether to display the KMeans image while running, default `False`.
+  - `show`: whether to display the KMeans image while running, default `True`.
   - For UMAP-related parameters, please see [UMAP Dimensionality Reduction and Visualization](./umap.md).
 - Output: returns `UmapKmeansResult`, which contains the spatial UMAP image, spatial KMeans image, cluster label for each pixel, and the display color corresponding to each label.
 
@@ -88,8 +105,9 @@ Continue using the `pipeline` created above:
 
 ```
 result = pipeline.run_umap_kmeans(
-    sample_ratio=0.1,
+    sample_ratio=1.0,
     n_clusters=10,
+    n_init="auto",
     random_state=0,
     save_images=True,
     save_matrix="zarr",
@@ -98,6 +116,8 @@ result = pipeline.run_umap_kmeans(
 ```
 
 This step first obtains low-dimensional features for each pixel, then uses KMeans to assign the pixels to different classes and maps the clustering result back to tissue space.
+
+To reproduce the five-cluster K35 segmentation, use the same peak-aligned data with 20,346 pixels and 2,261 shared m/z features. Set `n_components=10`, `n_clusters=5`, `random_state=2026`, and `n_init=10`.
 
 
 
@@ -300,7 +320,7 @@ pipeline.apply_region_mask(
   - `output_path`: path for saving the new dataset.
   - `batch_size`: amount of data processed in each batch, default `256`. It must be positive.
   - `temp_dir`: temporary directory used only when writing imZML; it can be omitted.
-- Output: returns a new data manager corresponding to the input data type.
+- Output: an `.imzML` output returns a loaded `MSDataManagerImzML`; same-format output returns the corresponding source-format manager.
 
 Example:
 

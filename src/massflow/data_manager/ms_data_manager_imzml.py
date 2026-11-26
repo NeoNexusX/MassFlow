@@ -42,7 +42,6 @@ class MSDataManagerImzML(MSDataManager):
         ms=None,
         target_locs=None,
         filepath=None,
-        max_threads: int = 8,
         temp_dir = None,
         mz_dtype = np.float64,
         intensity_dtype =  np.float32,
@@ -57,13 +56,11 @@ class MSDataManagerImzML(MSDataManager):
                 Expected shape: ([x1, y1], [x2, y2]) (inclusive bounds). When None, load all.
             filepath (str, optional): Path to the .imzML file (XML header; paired .ibd is
                 resolved automatically).
-            max_threads (int): Maximum worker threads for batch loading utilities.
         """
         super().__init__(ms=ms,
                          target_mz_range=None,
                          target_locs=target_locs,
                          filepath=filepath,
-                         max_threads=max_threads,
                          mz_dtype=mz_dtype,
                          intensity_dtype=intensity_dtype,
                          temp_dir=temp_dir)
@@ -193,6 +190,8 @@ class MSDataManagerImzML(MSDataManager):
         Behavior:
                 - Iterates over `parser.coordinates` and creates a `SpectrumImzML` placeholder per pixel.
                 - If `target_locs` is provided, only pixels within the inclusive window are added.
+                - Reports matched pixels and non-empty/empty spectra using header array lengths.
+                - If no pixels match, a warning is logged and the finalize hooks are skipped.
                 - For continuous data, `ms.shared_mz_list` is populated once (on first seen spectrum)
                     and each placeholder gets `spectrum.mz_list = ms.shared_mz_list`.
         """
@@ -204,9 +203,15 @@ class MSDataManagerImzML(MSDataManager):
         self.preload_hook()
 
         # spectrum data load and create part  [find by coordinate]
+        total_pixels = len(self.parser.coordinates)
+        matched_pixels = 0
+        empty_spectra = 0
         for i, c in enumerate(self.parser.coordinates):
             x, y, z = c
             if self.target_locs[0][0] <= x <= self.target_locs[1][0] and self.target_locs[0][1] <= y <= self.target_locs[1][1]:
+                matched_pixels += 1
+                if self.parser.mzLengths[i] == 0 or self.parser.intensityLengths[i] == 0:
+                    empty_spectra += 1
 
                 # Build (x,y,z)->index mapping and add SpectrumImzML placeholders
                 spectrum = SpectrumImzML(reader=self.reader,
@@ -217,6 +222,21 @@ class MSDataManagerImzML(MSDataManager):
 
                 self.ms.add_spectrum(spectrum)
                 self.current_spectrum_num += 1
+
+        if matched_pixels == 0:
+            logger.warning(
+                f"target_locs {self.target_locs} matched 0 of {total_pixels} pixels in file; no spectra loaded, skipping finalize hooks."
+            )
+            return
+        logger.info(
+            f"target_locs {self.target_locs} matched {matched_pixels} of {total_pixels} pixels in file; "
+            f"{matched_pixels - empty_spectra} non-empty spectra and {empty_spectra} empty spectra."
+        )
+        if empty_spectra == matched_pixels:
+            logger.warning(
+                f"target_locs {self.target_locs} contains coordinates but all matched spectra are empty; "
+                "no spectral data available."
+            )
 
         # loaded part : finalize meta data load part
         self.loaded_hook()
@@ -258,30 +278,21 @@ class MSDataManagerImzML(MSDataManager):
                 swap_base.with_suffix(suffix).unlink(missing_ok=True)
 
     def copy_meta(self, source_dm: MSDataManager):
-        # 检查 source_dm.ms.meta 是否也是 MetaDataImzMl 类型（或其子类）
-        if isinstance(source_dm.ms.meta, type(self.ms.meta)):
-            self.ms.meta.copy(source_dm.ms.meta)
-        else:
-            logger.warning("Source and target metadata types do not match.")
+        """Copy metadata from another data manager, dropping fields that may change here.
+
+        MetaDataBase.copy matches by field name, so cross-type sources
+        (e.g. MetaDataZarr from a spectra Zarr input) copy their shared
+        fields; source-only fields are ignored (LOGIC-01).
+        """
+        self.ms.meta.copy(source_dm.ms.meta)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def _ensure_multithread_mode(self, max_threads: int = 0) -> None:
-        """Apply thread configuration and reject single-thread mode for direct I/O generators."""
-        if max_threads != 0 and max_threads != self.max_threads:
-            self.max_threads = max_threads
-
-        if self.max_threads < 2:
-            raise ValueError("Single-thread mode is not supported. Please set max_threads >= 2.")
-
     def _prepare_direct_read_context(
         self,
-        max_threads: int,
     ) -> tuple[matrix_tools.IbdFileLayout, bool, np.ndarray | None, np.ndarray]:
         """Build and return common context shared by matrix and flat generators."""
-        self._ensure_multithread_mode(max_threads)
-
         layout = matrix_tools.extract_ibd_layout(
             self.parser,
             self.ibd_filepath,
@@ -300,7 +311,6 @@ class MSDataManagerImzML(MSDataManager):
         self,
         batch_size: int = 256,
         include_mz: bool = True,
-        max_threads: int = 0,
     ) -> Generator[tuple, Any, None]:
         """
         Read data directly from .ibd into pre-allocated NumPy matrices.
@@ -315,7 +325,7 @@ class MSDataManagerImzML(MSDataManager):
                 - Continuous → shared_mz (1-D)
                 - Processed + include_mz → mz_matrix (2-D)
         """
-        layout, is_continuous, shared_mz, target_indices = self._prepare_direct_read_context(max_threads)
+        layout, is_continuous, shared_mz, target_indices = self._prepare_direct_read_context()
         total = len(target_indices)
         if total == 0:
             return
@@ -349,7 +359,7 @@ class MSDataManagerImzML(MSDataManager):
                 intensity,
                 mz_data if (not is_continuous and include_mz) else None,
                 self.threads_executor,
-                self.max_threads,
+                self.read_workers,
             )
             yield (mz_data, intensity, lengths, coords)
 
@@ -357,7 +367,6 @@ class MSDataManagerImzML(MSDataManager):
         self,
         batch_size: int = 256,
         include_mz: bool = True,
-        max_threads: int = 0,
     ) -> Generator[tuple, Any, None]:
         """
         Read data directly from .ibd into a flat 1D array.
@@ -365,7 +374,6 @@ class MSDataManagerImzML(MSDataManager):
         Args:
             batch_size: The number of spectra per batch.
             include_mz: For Processed data only, True returns mz_flat, False returns None for mz.
-            max_threads: Number of threads to use, must be >= 2.
 
         Yields:
             (mz_data, intensity_flat, lengths, coordinates)
@@ -374,7 +382,7 @@ class MSDataManagerImzML(MSDataManager):
                 - Continuous → shared_mz (1-D, not flattened per spectrum)
                 - Processed + include_mz → mz_flat (1-D flat array)
         """
-        layout, is_continuous, shared_mz, target_indices = self._prepare_direct_read_context(max_threads)
+        layout, is_continuous, shared_mz, target_indices = self._prepare_direct_read_context()
         total = len(target_indices)
         if total == 0:
             return
@@ -413,7 +421,7 @@ class MSDataManagerImzML(MSDataManager):
                 mz_data if (not is_continuous and include_mz) else None,
                 offsets,
                 self.threads_executor,
-                self.max_threads,
+                self.read_workers,
             )
             yield (mz_data, intensity_flat, lengths, coords)
 

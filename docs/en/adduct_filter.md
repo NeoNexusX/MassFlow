@@ -10,7 +10,7 @@ Authors: Leqiang Dong, Jingwei Dong
 
 ## Overview
 
-Adduct filtering searches the aligned shared *m/z* axis for different ion forms that may originate from the same neutral molecule and uses spatial correlation of MSI pixel intensities to confirm candidate relationships. For each confirmed adduct group, the peak with the highest total intensity is retained as the representative peak, while the remaining unprotected peaks are removed.
+Adduct filtering searches the aligned shared *m/z* axis for different ion forms that may originate from the same neutral molecule and uses spatial correlation of MSI pixel intensities to confirm candidate relationships. Pipeline calls filter peaks and output data. Standalone helper calls only identify and report relationships by default; set `remove=True` to filter. Filtering retains the peak with the highest total intensity in each confirmed group and removes the remaining unprotected peaks.
 
 This implementation is not a simple fixed *m/z* difference filter:
 
@@ -43,7 +43,7 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_adducts(
 ) -> Self
 ```
 
-- Function: finds and filters adduct peaks that may originate from the same compound. In each confirmed adduct group, the program retains one representative peak and removes other unprotected duplicate peaks.
+- Function: finds adduct peaks that may originate from the same compound, retains each representative, removes other unprotected duplicate peaks, and outputs filtered data. The pipeline API does not expose a `remove` parameter.
 - Parameters:
   - `polarity`: positive-ion or negative-ion rule table. This parameter must match the ionization mode used during experimental acquisition. An incorrect polarity setting causes the wrong adduct rules to be used.
   - `ppm`: relative tolerance component for neutral-mass clustering, default `5.0`. The input must be positive.
@@ -52,10 +52,10 @@ massflow.preprocess.api.PreprocessorAPI.filter_peaks_by_adducts(
   - `require_quasi`: whether each candidate component must contain at least one major quasi-molecular rule, i.e. a rule with `quasi=True`. This prevents components composed only of non-quasi-molecular rules from entering the deletion stage.
   - `min_spatial_correlation`: minimum Pearson correlation coefficient between the pixel-intensity vectors of candidate peaks. The input must be in `[-1, 1]`. Higher values require more similar spatial distributions and make filtering more conservative.
   - `output_path`: imZML output path for this filtering stage.
-  - `report_path`: output path for the CSV report. If no suffix is given, `.csv` is added automatically.
+  - `report_path`: output path for the CSV report. If no suffix is given, `.csv` is added automatically. Omit this parameter to skip writing a report file.
 - Output:
   - the filtered `.imzML` file and its matching `.ibd` file;
-  - CSV report.
+  - a CSV report when `report_path` is provided.
 
 Example:
 
@@ -160,7 +160,15 @@ filtered_dm = apply_adduct_annotations(
 
 ## Recommended Preview-Then-Apply Workflow
 
-If you use  `filter_peaks_by_adducts()` directly in the preprocessing workflow, the peak removal results will be applied immediately. It is recommended to first generate a preview and CSV report, verifying the adduct relationships, and then applying the filter.
+The pipeline's `filter_peaks_by_adducts()` always filters peaks and outputs data. To generate only a report, call the standalone helper with its default `remove=False`:
+
+```python
+from massflow.preprocess.helper.adduct_filter_helper import filter_peaks_by_adducts
+
+filter_peaks_by_adducts(aligned_dm, report_path="reports/adduct_filter.csv")
+```
+
+You can also generate a preview and CSV report, review the relationships, and then apply the recorded annotations.
 
 example:
 
@@ -292,17 +300,16 @@ are considered sufficiently correlated in space. A candidate neutral-mass group 
 
 ## CSV Report
 
-Each row in the report represents one piece of evidence supporting a deletion and includes:
+Each row represents one adduct peak proposed for removal and contains four columns:
 
-- indices, *m/z* values, and adduct-rule names for the representative peak, removed peak, and supporting peak;
-- neutral mass, neutral-mass span, and *m/z* difference;
-- spatial correlation coefficient and its threshold;
-- number of candidate relationships, number of relationships passing the threshold, and number of unique removed peaks;
-- polarity, `ppm`, `mzabs`, `require_quasi`, and `batch_size`.
+| representative_mz | adduct_mz | representative_adduct | adduct |
+|---|---|---|---|
+| 501.007276 | 522.989218 | [M+H]+ | [M+Na]+ |
+| 501.007276 | 538.963158 | [M+H]+ | [M+K]+ |
 
-The same removed peak may have multiple supporting pieces of evidence. `summary_evidence` indicates whether a row is the main evidence for the current deletion result.
+`representative_mz` is the peak retained when filtering, and `adduct_mz` is the peak proposed for removal. The remaining columns identify their respective adduct forms. The representative is still selected by total intensity and is not fixed to `[M+H]+`.
 
-![image-20260806211929916](https://official-oss.oss-cn-hongkong.aliyuncs.com/docs/image-20260806211929916.png_view)
+When a peak has multiple relationships, the report includes only the main relationship selected by the existing strongest-evidence rule. Reports with no matches contain only the header. Parameters, statistics, and detailed evidence are no longer repeated in the CSV; complete annotations remain available through `compute_adduct_annotations`.
 
 
 ## Error Handling

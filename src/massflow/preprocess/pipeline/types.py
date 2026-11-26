@@ -48,8 +48,6 @@ class InputMetaData:
 
     batch_size: int
     temp_dir: str | None
-    numba_max_threads: int | None
-    output_max_workers: int
     queue_ab_size: int
     queue_bc_size: int
     result_path: str | None
@@ -59,7 +57,7 @@ class InputMetaData:
     compute_mean_spectrum: bool = False
     compute_tic: bool = False
     compute_rms: bool = False
-    pipeline_stall_timeout: float | None = 60.0
+    pipeline_stall_timeout: float | None = 600.0
 
 
 @dataclass(slots=True)

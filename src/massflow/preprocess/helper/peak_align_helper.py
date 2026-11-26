@@ -141,7 +141,6 @@ def estimate_domain_parallel(
     binratio: float = 2.0,
     units: str = "relative",
     batch_size: int = 256,
-    max_threads: int = 0,
 ) -> Tuple[NDArray, float]:
     """Parallel domain estimation based on flat_generator batches."""
     ref_method = "x" if units == "relative" else "abs"
@@ -152,7 +151,6 @@ def estimate_domain_parallel(
     for mz_data, intensity, lengths, _ in data_manager.flat_generator(
         batch_size=batch_size,
         include_mz=True,
-        max_threads=max_threads,
     ):
         if mz_data is None or lengths.size == 0:
             continue
@@ -266,7 +264,6 @@ def bin_peaks_parallel(
     tolerance: float,
     tol_method: str = "abs",
     batch_size: int = 256,
-    max_threads: int = 0,
 ) -> tuple[NDArray, NDArray]:
     """Parallel binning using flat_generator + parallel nearest search."""
     logger.info(
@@ -281,7 +278,6 @@ def bin_peaks_parallel(
     for mz_data, intensity, lengths, _ in data_manager.flat_generator(
         batch_size=batch_size,
         include_mz=True,
-        max_threads=max_threads,
     ):
         if mz_data is None or lengths.size == 0:
             continue
@@ -424,7 +420,6 @@ def reference_computer(
     tolerance: Optional[float] = None,
     units: str = "ppm",
     batch_size: int = 256,
-    max_threads: int = 2,
     min_count: Optional[int] = None,
     min_frequency: Optional[float] = None,
 ) -> Tuple[NDArray, float]:
@@ -443,7 +438,6 @@ def reference_computer(
         binratio=binratio,
         units=norm_units,
         batch_size=batch_size,
-        max_threads=max_threads,
     )
 
     tolerance = estimate_tolerance if tolerance is None else (tolerance * 1e-6 if units == "ppm" else tolerance)
@@ -459,7 +453,6 @@ def reference_computer(
         tolerance=tolerance,
         tol_method=tol_method,
         batch_size=batch_size,
-        max_threads=max_threads,
     )
 
     reference, reference_counts = _filter_reference_by_counts(

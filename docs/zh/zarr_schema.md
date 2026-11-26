@@ -1,6 +1,6 @@
 # MassFlow MSI Zarr 格式规范
 
-版本：`1.1`
+版本：`1.1`。英文版见 [Zarr Schema](/zarr_schema)。
 
 ## 1. 文件结构
 
@@ -8,14 +8,14 @@ v1.1 使用两个并列的布局数据组：`/ion_image`（ion-major）与 `/spe
 一份文件按写入模式取以下三种合法结构之一：
 
 ```text
-# 1) ion-only（IonImageDataManagerZarr 默认）
+# 1) ion-only（IonImageDataManagerZarr(include_spectra=False)）
 sample.zarr/
 ├── metadata/                       # 两种布局共用
 ├── axes/
 │   ├── coordinates                 # (n_pixels, 3), <u4，像素坐标 [x, y, z]
 │   └── mz                          # (n_ions,)，共享 m/z 轴
 ├── ion_image/
-│   ├── .zattrs                     # row_axis="ion", encoding="continuous"
+│   ├── zarr.json                   # row_axis="ion", encoding="continuous"
 │   ├── intensity                   # ion-major，shape=(n_ions * n_pixels,)
 │   └── offsets                     # [0, n_pixels, 2*n_pixels, ...]
 └── stats/
@@ -30,7 +30,7 @@ sample.zarr/
 │   ├── coordinates                 # (n_pixels, 3), <u4，像素坐标 [x, y, z]
 │   └── mz                          # continuous 模式必选；processed 模式不存在
 ├── spectra/
-│   ├── .zattrs                     # row_axis="pixel", encoding=continuous|processed
+│   ├── zarr.json                   # row_axis="pixel", encoding=continuous|processed
 │   ├── intensity                   # pixel-major，shape=(n_pixels * n_mz,) 或 (sum(lengths),)
 │   ├── offsets                     # [0, n_mz, 2*n_mz, ...] 或 cumulative lengths
 │   └── mz                          # 仅 processed 模式，逐点 m/z
@@ -40,18 +40,18 @@ sample.zarr/
 ```
 
 ```text
-# 3) continuous combined（IonImageDataManagerZarr(include_spectra=True)）
+# 3) continuous combined（IonImageDataManagerZarr 默认，include_spectra=True）
 sample.zarr/
 ├── metadata/                       # 两种布局共用
 ├── axes/                           # 两种布局共用
 │   ├── coordinates                 # (n_pixels, 3)，顺序与 /spectra 的行一致
 │   └── mz                          # (n_ions,)，continuous 共享 m/z 轴
 ├── ion_image/
-│   ├── .zattrs                     # row_axis="ion", encoding="continuous"
+│   ├── zarr.json                   # row_axis="ion", encoding="continuous"
 │   ├── intensity                   # ion-major，shape=(n_ions * n_pixels,)
 │   └── offsets                     # [0, n_pixels, 2*n_pixels, ...]
 ├── spectra/
-│   ├── .zattrs                     # row_axis="pixel", encoding="continuous"
+│   ├── zarr.json                   # row_axis="pixel", encoding="continuous"
 │   ├── intensity                   # pixel-major，shape=(n_pixels * n_ions,)
 │   └── offsets                     # [0, n_ions, 2*n_ions, ...]
 └── stats/
@@ -67,7 +67,7 @@ v1.1 不再有 `/data` 组。结构判定只依据合法组合：`/ion_image`、
 
 ## 2. 根属性
 
-所有根属性均为必需，位于 `/.zattrs`。
+所有根属性均为必需，通过根组 `.attrs` 访问。当前写出器使用 Zarr 库默认存储格式；Zarr v3 的属性位于 `zarr.json`，以下规范描述逻辑组与属性，不要求存在 `.zattrs` 文件。
 
 ```json
 {
@@ -111,7 +111,7 @@ dtype = <u4
   与 `/ion_image` 中每个 ion 向量内的第 `p` 个值对应。
 - ion-major 写入时自动去重；坐标重复时保留最后写入的像素并记录 warning。
   combined 文件中 `/spectra` 与 `/ion_image` 使用完全相同的有效像素集合与顺序。
-- 二维数据 `z` 固定为 `1`。
+- ion-major 写出将 `z` 规范为 `1`；pixel-major 保留输入 z 和所有输入行，不执行坐标去重。
 - `1 ≤ x ≤ width` 且 `1 ≤ y ≤ height`。
 
 坐标顺序和基准只记录在根属性，不在数组 attrs 中重复。
@@ -138,9 +138,9 @@ attrs.unit = "m/z"
 
 ### 4.1 布局组属性
 
-每个布局数据组的 `.zattrs` 均为必需。
+每个布局数据组的以下属性均为必需，通过组 `.attrs` 访问。
 
-`/ion_image/.zattrs`：
+`/ion_image` 的属性：
 
 ```json
 {
@@ -149,7 +149,7 @@ attrs.unit = "m/z"
 }
 ```
 
-`/spectra/.zattrs`：
+`/spectra` 的属性：
 
 ```json
 {
@@ -184,7 +184,7 @@ shape/dtype 直接推导的属性，避免形成不一致的第二事实来源�
   `offsets[0] == 0`、`offsets[i+1] >= offsets[i]`、`offsets[-1] == len(intensity)`。
 
 即使所有行等长，`offsets` 也必须落盘，使 reader 永远使用同一条行切片路径。
-空行由相等的相邻 offset 表达；reader 可读空行，writer 默认拒绝写入空谱。
+空行由相等的相邻 offset 表达；processed reader/writer 均支持空谱。continuous 谱仍要求每行长度与共享轴一致。
 
 #### `/ion_image`
 
@@ -262,7 +262,7 @@ v1.0 文件。
 
 ## 6. `metadata/` 规范
 
-### 6.1 `metadata/.zattrs`
+### 6.1 `metadata` 组属性
 
 所有标量元数据字段，由 `MetaDataZarr` 写入。以下是标准化字段名：
 
@@ -365,7 +365,7 @@ rms[p] = sqrt(sum(spectra 的第 p 行的 intensity ** 2) / spectrum_length[p])
 
 第 `p` 个元素对应 `axes/coordinates[p]`，顺序与 `stats/tic` 完全一致。
 continuous 模式下 `spectrum_length[p]` 等于共享 m/z 轴长度；processed 模式下取
-`spectra/offsets[p + 1] - spectra/offsets[p]`。RMS 在批写入阶段与 TIC 一起计算，
+`spectra/offsets[p + 1] - spectra/offsets[p]`。空的 processed 谱约定 TIC=RMS=0。RMS 在批写入阶段与 TIC 一起计算，
 finalize 时不重读完整 intensity。
 
 ---

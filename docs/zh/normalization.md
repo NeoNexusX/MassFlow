@@ -31,6 +31,7 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
     scale: float | None = None,
     ref: float | None = None,
     ref_tolerance: float = 0.1,
+    backend: Literal["python", "cardinal"] = "python",
 ) -> Self
 ```
 
@@ -46,11 +47,13 @@ massflow.preprocess.api.PreprocessorAPI.normalization(
 
   - `scale`：归一化后的幅度缩放因子（可选），输入值必须为有限非负数。若提供，强度会被乘以此值。常用场景：TIC 归一化后设为 1000 或 10000 便于数值展示。
 
-  - `ref`：目标内标峰 *m/z* 值（`ref_numba` 方法使用）若没有填写程序会自动取当前传入 m/z 数据的中间位置作为临时参考值。
+  - `ref`：目标内标峰 *m/z* 值，使用 `method="ref_numba"` 时必须显式提供；缺省会抛出 `ValueError`，不会自动选择参考值。
 
-  - `ref_tolerance`：参考峰匹配容差（`ref_numba` 方法使用），默认 0.1Da。例如 `ref=500`、`ref_tolerance=0.1` 可理解为在 `500 ± 0.1 Da` 的邻域内寻找参考信号。输入值必须为有限的非负数
+  - `ref_tolerance`：参考峰匹配容差（Python 后端的 `ref_numba` 方法使用），默认 0.1Da。例如 `ref=500`、`ref_tolerance=0.1` 可理解为在 `500 ± 0.1 Da` 的邻域内寻找参考信号。输入值必须为有限的非负数
 
     
+
+  - `backend`：`"python"`（默认）或 `"cardinal"`。下述容差匹配及失败时保留原值的行为适用于 Python 后端；Cardinal 使用自身参考匹配规则，非默认 `ref_tolerance` 会被告警并忽略。
 
 示例：
 
@@ -118,11 +121,13 @@ graph TD
 
 由于强度在计算过程中会被平方，高强度信号对 RMS 的贡献相对更大。因此，RMS 归一化与 TIC 归一化对不同强度分布的质谱可能产生不同的缩放结果
 
-### 参考峰归一化（ref_numba） 
+### 参考峰归一化（ref_numba）
+
+以下匹配和告警规则针对 Python 后端。
 
 参考峰归一化使用一个预先选定的离子峰作为参照，将每条谱图中的其他峰按该参考峰的强度进行缩放。如果设置了 `scale`，归一化结果会再乘以 `scale`。
 
-建议明确设置目标内标峰 *m/z* 值 `ref` 和合适的参考峰匹配容差 `ref_tolerance`。当使用 `method="ref_numba"` 但没有填写 `ref` 时，程序会自动取当前传入 *m/z* 数据的中间位置作为临时参考值。因此，在实际分析中建议根据实验使用的内标或已知稳定离子峰明确设置 `ref`，不要依赖程序自动选择参考值。
+必须通过 `ref` 显式指定内标或其他稳定参考离子，并用 `ref_tolerance` 设置 Da 容差。所有 batch 使用同一个参考值，在容差内选择最近的 m/z 点作为强度基准。没有匹配点，或匹配强度非正、为 NaN 时，该条谱保留原始强度，不再应用 `scale`，并汇总告警受影响谱数；未提供 `ref` 则抛出 `ValueError`。
 
 
 
@@ -146,7 +151,7 @@ RMS 归一化（rms_numba）：
 
 - method 校验：仅支持 `"tic_numba"`、`"rms_numba"`、`"ref_numba"`。
 
-- 使用 `"ref_numba"` 时，应检查 `ref` 是否位于当前数据的 *m/z* 范围内，并确保参考峰在需要比较的质谱中具有有效信号。
+- 使用 `"ref_numba"` 必须显式提供 `ref`；无匹配或匹配强度非正、为 NaN 的谱保留原值，并汇总告警。
 
   
 

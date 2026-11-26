@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from massflow.concurrency import phase
+
 from massflow.data_manager import MSDataManager
 from massflow.tools.funs import infer_shared_mz
 
@@ -63,6 +65,7 @@ def validate_flat_mz(
         offset = end
 
 
+@phase("io_read")
 def validate_data_manager_mz(
     data_manager: MSDataManager,
     *,

@@ -68,7 +68,6 @@ class TestNoiseEstimationAPI:
         for _, intensity_flat, lengths, _ in dm.flat_generator(
             batch_size=4096,
             include_mz=False,
-            max_threads=16,
         ):
             caches.append((intensity_flat, lengths))
 

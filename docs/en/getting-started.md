@@ -141,12 +141,12 @@ The following figure shows an example of the automatically displayed MSI data in
 
 When using MassFlow for the first time, you do not need to understand all of the information. You can first focus on the following fields:
 
-- `meta_profile_spectrum`: Indicates whether the data are profile data. It outputs `True` for profile data and `False` for centroid data.
+- `meta_profile_spectrum`: Shows `True` for profile data. For centroid data this field is `None` and omitted from the printed metadata; `meta_centroid_spectrum` is `True`.
 - `meta_max_count_of_pixels_x`: Number of pixels in the X direction.
 - `meta_max_count_of_pixels_y`: Number of pixels in the Y direction.
 - `meta_pixel_size_x`: Pixel size in the X direction.
 - `meta_pixel_size_y`: Pixel size in the Y direction.
-- `meta_continuous`: Indicates whether different pixels use the same *m/z* axis. It outputs `True` if the pixels share the same *m/z* axis and `False` otherwise.
+- `meta_continuous`: Shows `True` when pixels share the same *m/z* axis. For processed data this field is `None` and omitted; `meta_processed` is `True`.
 - `meta_mask`: Spatial matrix size of the MSI data.
 
 For example:
@@ -331,8 +331,10 @@ Common processing steps provided by MassFlow include:
 | Peak picking               | Identify major ion peaks from profile data                   |
 | Isotope peak filtering     | Reduce subsequent isotope peaks when needed                  |
 | Peak alignment             | Match peaks at similar positions across different pixels to a shared *m/z* axis |
-| Statistical peak filtering | Further filter peaks according to their occurrence and intensity |
 | Adduct filtering           | Identify and filter different adduct ions that may originate from the same compound |
+| Statistical peak filtering | Further filter peaks according to their occurrence and intensity |
+
+Within one `Preprocessor.start()` call, tasks run in a fixed order, regardless of the order in which chained methods are registered: baseline correction → noise reduction → normalization → peak picking → isotope filtering → automatic reference construction (when needed) → peak alignment → adduct filtering → statistical filtering. Profile-only tasks (baseline correction, noise reduction, peak picking) are skipped for centroid input. To control order across stages, run separate preprocessing calls with distinct output paths.
 
 When processing a new MSI dataset for the first time, it is not recommended to immediately run the entire preprocessing workflow after loading the data.
 

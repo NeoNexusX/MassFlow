@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextvars import copy_context
 from queue import Empty, Full, Queue
 from threading import Event, Lock, Thread
 from time import monotonic
@@ -17,6 +18,7 @@ from massflow.data_manager import (
     IonImageDataManagerH5,
     IonImageDataManagerZarr,
 )
+from massflow.concurrency import apply_compute_mask, phase, resolve_workers, runs_sequentially
 from massflow.preprocess.flat_pre_fun import FlatBatchResult
 from massflow.preprocess.pipeline.types import (
     OUTPUT_FORMAT_IMZML,
@@ -28,7 +30,6 @@ from massflow.preprocess.pipeline.types import (
     OutputMetaData,
     PreprocessTask,
 )
-from massflow.preprocess.numba.numba_runtime import apply_numba_runtime
 from massflow.tools.infer_spectrum_type import set_spectrum_type_metadata
 from massflow.tools.logger import get_logger
 from massflow.tools.read_matrix import filter_target_indices
@@ -36,7 +37,6 @@ from massflow.tools.read_matrix import filter_target_indices
 logger = get_logger("massflow.preprocess.pipeline.flat_executor")
 
 _QUEUE_WAIT_SECONDS = 0.1
-_THREAD_SHUTDOWN_SECONDS = 1.0
 
 
 @dataclass(slots=True)
@@ -120,14 +120,15 @@ class FlatOutputSink:
             if self.output_meta.output_format == OUTPUT_FORMAT_ION_IMAGE_ZARR
             else {}
         )
+        write_workers = resolve_workers("io_write", None, default=2)
         return ion_image_cls.from_flat_output_contract(
             self.source_data_manager,
             self.output_meta.file_path,
             shared_mz_axis=chunk.mz_data,
             output_spectrum_type=self.output_meta.spectrum_type,
             temp_dir=self.input_meta.temp_dir,
-            temp_workers=self.input_meta.output_max_workers,
-            merge_workers=self.input_meta.output_max_workers,
+            temp_workers=write_workers,
+            merge_workers=write_workers,
             ion_block=self.input_meta.ion_block,
             compute_mean_spectrum=self.input_meta.compute_mean_spectrum,
             **zarr_options, # type: ignore
@@ -212,7 +213,8 @@ def _stage_a_reader(
     """Stage A: producer; reads flat and pushes to queue_ab."""
     try:
         for mz_data, intensity, lengths, coords in data_manager.flat_generator(
-            batch_size=input_meta.batch_size, include_mz=True # include_mz must be True
+            batch_size=input_meta.batch_size,
+            include_mz=True, # include_mz must be True
         ):
             if stop_event.is_set():
                 break
@@ -242,7 +244,6 @@ def _stage_a_reader(
 
 
 def _stage_b_processor(
-    input_meta: InputMetaData,
     tasks: list[PreprocessTask],
     queue_ab: Queue[Optional[FlatChunk]],
     queue_bc: Queue[Optional[FlatChunk]],
@@ -254,7 +255,7 @@ def _stage_b_processor(
 ) -> None:
     """Stage B: middleware; runs ordered preprocessing tasks for each batch."""
     try:
-        apply_numba_runtime(override_workers=input_meta.numba_max_threads)
+        apply_compute_mask()
         while True:
             if stop_event.is_set():
                 break
@@ -266,22 +267,7 @@ def _stage_b_processor(
             if chunk is None:
                 break
 
-            current_chunk = chunk
-
-            for task in tasks:
-                batch_apply_fn = cast(Callable[..., FlatBatchResult], task.apply_fn)
-                output = batch_apply_fn(
-                    mz_data=current_chunk.mz_data,
-                    intensity=current_chunk.intensity,
-                    lengths=current_chunk.lengths,
-                    **task.kwargs,
-                )
-                current_chunk = FlatChunk(
-                    mz_data=output.mz_data,
-                    intensity=output.intensity,
-                    lengths=output.lengths,
-                    coordinates=current_chunk.coordinates,
-                )
+            current_chunk = _process_chunk(chunk, tasks)
 
             if not _put_interruptibly(
                 queue_bc,
@@ -302,6 +288,56 @@ def _stage_b_processor(
             last_progress,
             progress_lock,
         )
+
+
+def _process_chunk(chunk: FlatChunk, tasks: list[PreprocessTask]) -> FlatChunk:
+    """Apply the same ordered batch tasks in sequential and pipelined execution."""
+    for task in tasks:
+        batch_apply_fn = cast(Callable[..., FlatBatchResult], task.apply_fn)
+        output = batch_apply_fn(
+            mz_data=chunk.mz_data,
+            intensity=chunk.intensity,
+            lengths=chunk.lengths,
+            **task.kwargs,
+        )
+        chunk = FlatChunk(
+            mz_data=output.mz_data,
+            intensity=output.intensity,
+            lengths=output.lengths,
+            coordinates=chunk.coordinates,
+        )
+    return chunk
+
+
+def _run_sequential_flat_task(
+    data_manager: MSDataManager,
+    tasks: list[PreprocessTask],
+    input_meta: InputMetaData,
+    data_sink: FlatOutputSink,
+    total_batches: int,
+) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
+    """Stream one batch at a time when the budget cannot overlap three stages."""
+    completed = False
+    try:
+        apply_compute_mask()
+        written_batches = 0
+        for mz_data, intensity, lengths, coords in data_manager.flat_generator(
+            batch_size=input_meta.batch_size, include_mz=True,
+        ):
+            chunk = FlatChunk(
+                mz_data=np.asarray(mz_data),
+                intensity=np.asarray(intensity),
+                lengths=np.asarray(lengths, dtype=np.uint32),
+                coordinates=np.asarray(coords),
+            )
+            chunk = _process_chunk(chunk, tasks)
+            written_batches = _flush_chunk(data_sink, chunk, written_batches, total_batches)
+        result = data_sink.finalize()
+        completed = True
+        return result
+    finally:
+        if not completed:
+            data_sink.close()
 
 def _flush_chunk(
     data_sink: FlatOutputSink,
@@ -365,6 +401,16 @@ def run_flat_task(
     input_meta: InputMetaData,
     output_meta: OutputMetaData,
 ) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
+    with phase("preprocess_pipeline"):
+        return _run_flat_task(data_manager, tasks, input_meta, output_meta)
+
+
+def _run_flat_task(
+    data_manager: MSDataManager,
+    tasks: list[PreprocessTask],
+    input_meta: InputMetaData,
+    output_meta: OutputMetaData,
+) -> MSDataManagerImzML | MSDataManagerZarr | IonImageDataManagerBinary | IonImageDataManagerH5 | IonImageDataManagerZarr:
     # Count source records, including duplicate coordinates, as flat_generator does.
     if isinstance(data_manager, MSDataManagerImzML):
         total_spectra = filter_target_indices(
@@ -382,6 +428,9 @@ def run_flat_task(
         output_meta=output_meta,
     )
 
+    if runs_sequentially():
+        return _run_sequential_flat_task(data_manager, tasks, input_meta, data_sink, total_batches)
+
     queue_ab: Queue[Optional[FlatChunk]] = Queue(maxsize=input_meta.queue_ab_size)
     queue_bc: Queue[Optional[FlatChunk]] = Queue(maxsize=input_meta.queue_bc_size)
 
@@ -391,86 +440,89 @@ def run_flat_task(
     last_progress = [monotonic()]
     progress_lock = Lock()
 
+    shared_kwargs = {
+        "stop_event": stop_event,
+        "error_holder": error_holder,
+        "error_lock": error_lock,
+        "last_progress": last_progress,
+        "progress_lock": progress_lock,
+    }
     t_a = Thread(
-        target=_stage_a_reader,
+        target=copy_context().run,
+        args=(_stage_a_reader,),
         kwargs={
+            **shared_kwargs,
             "input_meta": input_meta,
             "data_manager": data_manager,
             "queue_ab": queue_ab,
-            "stop_event": stop_event,
-            "error_holder": error_holder,
-            "error_lock": error_lock,
-            "last_progress": last_progress,
-            "progress_lock": progress_lock,
         },
         name="massflow-stage-a-reader",
         daemon=True,
     )
     t_b = Thread(
-        target=_stage_b_processor,
+        target=copy_context().run,
+        args=(_stage_b_processor,),
         kwargs={
+            **shared_kwargs,
             "tasks": tasks,
             "queue_ab": queue_ab,
             "queue_bc": queue_bc,
-            "stop_event": stop_event,
-            "input_meta": input_meta,
-            "error_holder": error_holder,
-            "error_lock": error_lock,
-            "last_progress": last_progress,
-            "progress_lock": progress_lock,
         },
         name="massflow-stage-b-processor",
         daemon=True,
     )
     t_c = Thread(
-        target=_stage_c_writer,
+        target=copy_context().run,
+        args=(_stage_c_writer,),
         kwargs={
+            **shared_kwargs,
             "data_sink": data_sink,
             "queue_bc": queue_bc,
-            "stop_event": stop_event,
             "total_batches": total_batches,
-            "error_holder": error_holder,
-            "error_lock": error_lock,
-            "last_progress": last_progress,
-            "progress_lock": progress_lock,
         },
         name="massflow-stage-c-writer",
         daemon=True,
     )
 
-    t_a.start()
-    t_b.start()
-    t_c.start()
-
-    threads = (t_a, t_b, t_c)
-    while any(thread.is_alive() for thread in threads) and not error_holder:
-        stall_timeout = input_meta.pipeline_stall_timeout
-        if stall_timeout is not None:
-            with progress_lock:
-                stalled_for = monotonic() - last_progress[0]
-            if stalled_for >= stall_timeout:
-                stalled_threads = ", ".join(
-                    thread.name for thread in threads if thread.is_alive()
-                )
-                _set_error(
-                    error_holder=error_holder,
-                    error_lock=error_lock,
-                    stop_event=stop_event,
-                    exc=TimeoutError(
-                        "Async preprocessing pipeline made no progress for "
-                        f"{stall_timeout:g} seconds; active stages: {stalled_threads}."
-                    ),
-                )
-                break
+    started_threads: list[Thread] = []
+    completed = False
+    try:
+        threads = (t_a, t_b, t_c)
         for thread in threads:
-            thread.join(timeout=_QUEUE_WAIT_SECONDS)
+            thread.start()
+            started_threads.append(thread)
+        while any(thread.is_alive() for thread in threads) and not error_holder:
+            stall_timeout = input_meta.pipeline_stall_timeout
+            if stall_timeout is not None:
+                with progress_lock:
+                    stalled_for = monotonic() - last_progress[0]
+                if stalled_for >= stall_timeout:
+                    stalled_threads = ", ".join(
+                        thread.name for thread in threads if thread.is_alive()
+                    )
+                    _set_error(
+                        error_holder=error_holder,
+                        error_lock=error_lock,
+                        stop_event=stop_event,
+                        exc=TimeoutError(
+                            "Async preprocessing pipeline made no progress for "
+                            f"{stall_timeout:g} seconds; active stages: {stalled_threads}."
+                        ),
+                    )
+                    break
+            for thread in threads:
+                thread.join(timeout=_QUEUE_WAIT_SECONDS)
 
-    if error_holder:
+        if error_holder:
+            raise RuntimeError("Async preprocessing pipeline failed.") from error_holder[0]
+        result = data_sink.finalize()
+        completed = True
+        return result
+    finally:
         stop_event.set()
-        for thread in threads:
-            thread.join(timeout=_THREAD_SHUTDOWN_SECONDS)
-        if not t_c.is_alive():
+        # IO/native kernels cannot be cancelled. Retain admission until all
+        # started workers stop, including failed starts and caller interrupts.
+        for thread in started_threads:
+            thread.join()
+        if not completed:
             data_sink.close()
-        raise RuntimeError("Async preprocessing pipeline failed.") from error_holder[0]
-
-    return data_sink.finalize()

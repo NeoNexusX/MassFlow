@@ -32,6 +32,7 @@ class MSIZarrReader:
         self.root: zarr.Group = zarr.open_group(self.path, mode="r")
         self._combined = False
         self._spectra_group: zarr.Group | None = None
+        self._shared_mz_cache: np.ndarray | None = None
         self._validate_structure()
 
     # --- Store metadata and dimensions ---------------------------------------
@@ -111,9 +112,12 @@ class MSIZarrReader:
         )
 
     def read_shared_mz_axis(self) -> np.ndarray:
+        """Return the cached shared m/z axis; copy it before modifying."""
         if self.shared_mz_axis is None:
             raise ValueError("This store does not have a shared m/z axis.")
-        return np.asarray(self.shared_mz_axis[:])
+        if self._shared_mz_cache is None:
+            self._shared_mz_cache = np.asarray(self.shared_mz_axis[:])
+        return self._shared_mz_cache
 
     def read_mean_spectrum(self) -> np.ndarray | None:
         if "stats" not in self.root:
@@ -215,8 +219,7 @@ class MSIZarrReader:
         end = _read_array_int(offsets_array, pixel_index + 1)
         intensity = np.asarray(intensity_array[start:end])
         if encoding == ZARR_MODE_CONTINUOUS:
-            assert self.shared_mz_axis is not None
-            mz = np.asarray(self.shared_mz_axis[:])
+            mz = self.read_shared_mz_axis()
         else:
             assert point_mz is not None
             mz = np.asarray(point_mz[start:end])
@@ -358,12 +361,37 @@ class MSIZarrReader:
     ) -> np.ndarray:
         if indices.size > 1 and bool(np.all(np.diff(indices) == 1)):
             return np.asarray(array[int(starts[0]) : int(ends[-1])])
-        return np.concatenate(
-            [
-                np.asarray(array[int(start) : int(end)])
-                for start, end in zip(starts, ends)
-            ]
-        )
+
+        lengths = ends - starts
+        output_offsets = np.concatenate(([0], np.cumsum(lengths)))
+        result = np.empty(int(output_offsets[-1]), dtype=array.dtype)
+        order = np.argsort(indices, kind="stable")
+        order = order[lengths[order] > 0]
+        if order.size == 0:
+            return result
+        sorted_starts, sorted_ends = starts[order], ends[order]
+        chunk_size = array.chunks[0]
+        chunk_start = int(sorted_starts[0]) // chunk_size * chunk_size
+        first = 0
+        # Read each touched chunk once, then scatter into the requested row order.
+        while first < order.size:
+            chunk_end = min(chunk_start + chunk_size, array.shape[0])
+            last = int(np.searchsorted(sorted_starts, chunk_end, side="left"))
+            values = np.asarray(array[chunk_start:chunk_end])
+            for position in range(first, last):
+                row = order[position]
+                start = max(int(starts[row]), chunk_start)
+                end = min(int(ends[row]), chunk_end)
+                target = int(output_offsets[row]) + start - int(starts[row])
+                result[target : target + end - start] = values[
+                    start - chunk_start : end - chunk_start
+                ]
+            first = int(np.searchsorted(sorted_ends, chunk_end, side="right"))
+            if first < order.size:
+                chunk_start = max(
+                    chunk_end, int(sorted_starts[first]) // chunk_size * chunk_size
+                )
+        return result
 
     def _normalize_row_index(self, index: int) -> int:
         index = int(index)

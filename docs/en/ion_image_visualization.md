@@ -40,7 +40,6 @@ massflow.tools.plot_ion_image.read_ion_image(
     *,
     mz: float | None = None,
     batch_size: int = 256,
-    max_threads: int = 2,
     mz_tolerance: float | None = None,
 ) -> numpy.ndarray
 ```
@@ -51,7 +50,6 @@ massflow.tools.plot_ion_image.read_ion_image(
   - `data_manager`: the opened dataset.
   - `mz`: target *m/z*; this parameter is required.
   - `batch_size`: number of spectra read per imZML batch, default `256`. Increasing it may improve reading speed but also increases memory usage.
-  - `max_threads`: maximum number of threads used for imZML reading, default `2`.
   - `mz_tolerance`: absolute range on each side of the target *m/z*. When set as `None`, only the single position closest to the target value is read. When a value is provided, all intensities within the range are summed. This parameter must be non-negative.
 - Output:
   - a two-dimensional matrix with shape “image height × image width”;
@@ -65,7 +63,6 @@ massflow.tools.plot_ion_image.plot_ion_image(
     *,
     mz: float | None = None,
     batch_size: int = 256,
-    max_threads: int = 2,
     mz_tolerance: float | None = None,
     output_path: str | Path | None = None,
     show: bool = True,
@@ -81,7 +78,7 @@ massflow.tools.plot_ion_image.plot_ion_image(
 
 - Function: reads the target *m/z* and plots an ion image.
 - Parameters:
-  - `mz`, `batch_size`, `max_threads`, `mz_tolerance`: same as in `read_ion_image`.
+  - `mz`, `batch_size`, `mz_tolerance`: same as in `read_ion_image`.
   - `output_path`: image output path. When specified, the parent directory is created automatically and the image is saved.
   - `show`: whether to display the image. For batch scripts, `False` is recommended. When `show=True`, the image is displayed after the code finishes running.
   - `dpi`: image resolution, default `300`.
@@ -128,7 +125,6 @@ massflow.tools.plot_ion_image.read_tic_image(
     data_manager,
     *,
     batch_size: int = 256,
-    max_threads: int = 2,
 ) -> numpy.ndarray
 ```
 
@@ -143,7 +139,6 @@ massflow.tools.plot_ion_image.plot_tic_image(
     data_manager,
     *,
     batch_size: int = 256,
-    max_threads: int = 2,
     output_path: str | Path = "./tic_image_output/tic_image.png",
     save_image: bool = True,
     save_matrix: bool = False,

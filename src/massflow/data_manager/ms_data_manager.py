@@ -12,11 +12,14 @@ import tempfile
 import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 import numpy as np
 
+from massflow.concurrency import resolve_workers
+from massflow.concurrency.runtime import get_io_executor
 from massflow.module import MassSpectrumSet
+from massflow.tools.funs import strip_known_suffix
 from massflow.tools.logger import get_logger
 
 logger = get_logger("massflow.datamanager")
@@ -34,7 +37,6 @@ class MSDataManager(ABC):
         target_locs=None,
         filepath=None,
         temp_dir=None,
-        max_threads: int = 4,
         mz_dtype=np.float64,
         intensity_dtype=np.float32,
     ):
@@ -43,8 +45,8 @@ class MSDataManager(ABC):
         self.ms = MassSpectrumSet() if ms is None else ms
 
         # Multi-threading control part
-        self._max_threads = max_threads
-        self._threads_executor = None
+        self._threads_executor: ThreadPoolExecutor | None = None
+        self._executor_workers: int | None = None
 
         # data type part
         self.mz_dtype = mz_dtype
@@ -67,18 +69,15 @@ class MSDataManager(ABC):
             os.makedirs(base_dir ,exist_ok=True)
             self.file_base_path = os.path.join(base_dir, f"temp_{uuid.uuid4().hex}")
         else:
-            base_path = filepath
-            while (next_base := os.path.splitext(base_path)[0]) != base_path:
-                base_path = next_base
-            self.file_base_path = base_path
+            self.file_base_path = strip_known_suffix(filepath)
 
 
     def _init_target_locs(self, target_locs):
         """Initialize target_locs with validation."""
         if target_locs is not None:
             if len(target_locs) <= 1 or (target_locs[0][0] > target_locs[1][0] or target_locs[0][1] > target_locs[1][1]):
-                logger.error("target_locs must be non-empty or locs must x1<x2,y1<y2")
-                raise ValueError
+                logger.error("Invalid target_locs %s: expected [[x1, y1], [x2, y2]] with x1 <= x2 and y1 <= y2.", target_locs)
+                raise ValueError(f"Invalid target_locs {target_locs}: expected [[x1, y1], [x2, y2]] with x1 <= x2 and y1 <= y2.")
             self.target_locs = target_locs
         else:
             max_coord = int(np.iinfo(np.int32).max)
@@ -88,30 +87,31 @@ class MSDataManager(ABC):
 ############# Data define part #############
 
     @property
-    def max_threads(self) -> int:
-        return self._max_threads
-
-    @max_threads.setter
-    def max_threads(self, value: int):
-        if value != self._max_threads:
-            self._max_threads = value
-            if self._threads_executor is not None:
-                logger.info(f"Recreating ThreadPoolExecutor with max_workers={self._max_threads}")
-                self._threads_executor.shutdown(wait=True)
-                self._threads_executor = ThreadPoolExecutor(max_workers=self._max_threads)
+    def read_workers(self) -> int:
+        """Return the controller allocation for data reads."""
+        return resolve_workers("io_read", None, default=8)
 
     @property
     def threads_executor(self) -> ThreadPoolExecutor:
-        """lazy load for thread pool executor"""
+        """Borrow the phase IO pool or reuse this manager's standalone read pool."""
+        shared = get_io_executor()
+        if shared is not None:
+            return shared
+        workers = self.read_workers
+        if self._threads_executor is not None and self._executor_workers != workers:
+            self._threads_executor.shutdown(wait=True)
+            self._threads_executor = None
         if self._threads_executor is None:
-            logger.info(f"Creating ThreadPoolExecutor with max_workers={self.max_threads}")
-            self._threads_executor = ThreadPoolExecutor(max_workers=self.max_threads)
+            logger.info("Creating ThreadPoolExecutor with max_workers=%s", workers)
+            self._threads_executor = ThreadPoolExecutor(max_workers=workers)
+            self._executor_workers = workers
         return self._threads_executor
 
     @threads_executor.setter
     def threads_executor(self, executor: ThreadPoolExecutor):
         """set thread pool executor"""
         self._threads_executor = executor
+        self._executor_workers = self.read_workers
 
 ############# Method define part #############
     @abstractmethod
@@ -135,11 +135,11 @@ class MSDataManager(ABC):
         """Load data from the configured input file path."""
 
     @abstractmethod
-    def matrix_generator(self, batch_size: int = 256, include_mz: bool = True, max_threads: int = 0) -> Generator[tuple, Any, None]:
+    def matrix_generator(self, batch_size: int = 256, include_mz: bool = True) -> Generator[tuple, Any, None]:
         """Generate batches of spectra data in matrix format."""
 
     @abstractmethod
-    def flat_generator(self, batch_size: int = 256, include_mz: bool = True, max_threads: int = 0) -> Generator[tuple, Any, None]:
+    def flat_generator(self, batch_size: int = 256, include_mz: bool = True) -> Generator[tuple, Any, None]:
         """Generate batches of spectra data in flat format."""
 
     @abstractmethod
@@ -183,6 +183,9 @@ class MSDataManager(ABC):
         """Check if the m/z arrays in the MS data are sorted."""
 
         total_length = len(self.ms)
+        if total_length == 0:
+            logger.info("No spectra loaded; skip m/z sortedness detection.")
+            return
         check_num = random.randint(0, total_length -1)
         check_rsult = self.ms[check_num].is_sorted()
         if not check_rsult:
@@ -194,25 +197,38 @@ class MSDataManager(ABC):
 
 
     def create_ms_meta_mask(self):
-        """Create a binary occupancy mask for all available spectra coordinates."""
+        """Create a binary occupancy mask for all available spectra coordinates.
+
+        Coordinates are treated as 1-based (imzML convention). Image dimensions
+        missing from meta (<= 0) are derived from the coordinate extent and
+        written back to meta.
+        """
         if self.ms.meta is None:
             logger.error("MS meta data is None. Please load meta data first.")
             raise ValueError("MS meta data is None. Please load meta data first.")
 
-        if (self.ms.meta.max_count_of_pixels_x is None or self.ms.meta.max_count_of_pixels_y is None):
-            logger.error("Image dimensions missing in meta data.")
-            raise ValueError("Image dimensions missing in meta data.")
+        # Collect coordinates across all z-planes
+        xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict),dtype=np.uint32,)
+        ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for y in ydict),dtype=np.uint32,)
 
-        # Get image dimensions
-        width = int(self.ms.meta.max_count_of_pixels_x)
-        height = int(self.ms.meta.max_count_of_pixels_y)
+        # Get image dimensions; missing values are derived from the coordinate extent
+        width = int(cast(int, self.ms.meta.max_count_of_pixels_x))
+        height = int(cast(int, self.ms.meta.max_count_of_pixels_y))
+        if xs.size > 0:
+            if width <= 0:
+                width = int(xs.max())
+                self.ms.meta.max_count_of_pixels_x = width
+                logger.info("max_count_of_pixels_x missing in meta; derived from coordinates: %s", width)
+            if height <= 0:
+                height = int(ys.max())
+                self.ms.meta.max_count_of_pixels_y = height
+                logger.info("max_count_of_pixels_y missing in meta; derived from coordinates: %s", height)
+        if width <= 0 or height <= 0:
+            logger.warning("Image dimensions unavailable (missing in meta and no spectra coordinates); skip mask creation.")
+            return
 
         # Prepare an empty occupancy mask
         mask = np.zeros((height, width), dtype=np.int8)
-
-        # Fill the occupancy mask across all z-planes
-        xs = np.fromiter((int(x) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for _ in ydict),dtype=np.int16,)
-        ys = np.fromiter((int(y) for z in self.ms.coordinate_index.values() for x, ydict in z.items() for y in ydict),dtype=np.int16,)
 
         valid = (1 <= xs) & (xs <= width) & (1 <= ys) & (ys <= height)
         mask[ys[valid] - 1, xs[valid] - 1] = 1

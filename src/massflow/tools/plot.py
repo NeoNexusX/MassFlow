@@ -1,4 +1,4 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from typing import Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
@@ -33,7 +33,6 @@ class SpectrumPlotter:
     """Unified plotter for single and paired spectrum visualization."""
 
     DEFAULT_COLORS = ("#EECF31", "#4AE38C")
-    ZERO_EPS = 1e-12
 
     def __init__(self, config: PlotConfig):
         self.config = config
@@ -85,16 +84,13 @@ class SpectrumPlotter:
 
         return mz, intensity
 
-    @staticmethod
-    def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
-        if a.size <= 1 or b.size <= 1:
-            return 0.0
-        std_a = float(np.std(a))
-        std_b = float(np.std(b))
-        if std_a <= SpectrumPlotter.ZERO_EPS or std_b <= SpectrumPlotter.ZERO_EPS:
-            return 0.0
-        value = float(np.corrcoef(a, b)[0, 1])
-        return 0.0 if np.isnan(value) else value
+    def _window_spectrum(self, spectrum: Spectrum) -> Spectrum:
+        """按 mz_range 裁剪出指标计算用的窗口谱（mz_range 为 None 时原样返回）。"""
+        if self.config.mz_range is None:
+            return spectrum
+        return spectrum.crop_range(
+            mz_range=self.config.mz_range, sort_by_mz=True, mode="new"
+        )
 
     @staticmethod
     def _safe_snr(spectrum: Spectrum) -> float:
@@ -170,34 +166,26 @@ class SpectrumPlotter:
             ax.set_ylim(y_min, y_max)
 
     def _metrics_text(self, base: Spectrum, target: Spectrum) -> str:
-        n = min(len(base), len(target))
-        base_intensity = np.asarray(base.intensity)
-        target_intensity = np.asarray(target.intensity)
         base_mz = np.asarray(base.mz_list)
+        base_intensity = np.asarray(base.intensity)
+        target_mz = np.asarray(target.mz_list)
+        target_intensity = np.asarray(target.intensity)
 
-        if base_intensity.size == 0 or target_intensity.size == 0 or base_mz.size == 0:
+        if (
+            base_mz.size == 0
+            or base_intensity.size == 0
+            or target_mz.size == 0
+            or target_intensity.size == 0
+        ):
             return "Metrics unavailable: empty spectrum window."
-
-        o = base_intensity[:n]
-        d = target_intensity[:n]
-
-        corr = self._safe_corr(o, d)
-
-        o_sum = float(np.sum(o))
-        d_sum = float(np.sum(d))
-        tic_ratio = d_sum / o_sum if abs(o_sum) > 1e-12 else 1.0
 
         snr_orig = self._safe_snr(base)
         snr_now = self._safe_snr(target)
-        snr_gain = snr_now / snr_orig if snr_orig > 1e-12 else 1.0
 
         return (
-            f"Range: {base_mz[0]:.4f} - {base_mz[-1]:.4f}\n"
-            f"Correlation: {corr:.4f}\n"
-            f"TIC ratio: {tic_ratio:.3f}\n"
+            f"Range: {float(np.min(base_mz)):.4f} - {float(np.max(base_mz)):.4f}\n"
             f"SNR orig: {snr_orig:.1f}\n"
-            f"SNR den: {snr_now:.1f}\n"
-            f"SNR improvement: {snr_gain:.2f}x"
+            f"SNR den: {snr_now:.1f}"
         )
 
     @staticmethod
@@ -257,7 +245,9 @@ class SpectrumPlotter:
         ax.legend(loc="upper right")
 
         if self.config.metrics_box:
-            self.add_metrics_box(ax, base, target)
+            self.add_metrics_box(
+                ax, self._window_spectrum(base), self._window_spectrum(target)
+            )
 
         fig.tight_layout()
         self._save_or_show(fig, self.config.save_path, self.config.dpi)
@@ -289,7 +279,9 @@ class SpectrumPlotter:
         self._style_axes(ax_bottom)
 
         if self.config.metrics_box:
-            self.add_metrics_box(ax_bottom, base, target)
+            self.add_metrics_box(
+                ax_bottom, self._window_spectrum(base), self._window_spectrum(target)
+            )
 
         fig.tight_layout()
         self._save_or_show(fig, self.config.save_path, self.config.dpi)

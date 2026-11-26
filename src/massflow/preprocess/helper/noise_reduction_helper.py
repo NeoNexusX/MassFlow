@@ -38,7 +38,7 @@ def smoother(
     method: str = "ma_numba",
     window: int = 5,
     sd: Optional[float] = None,
-    polyorder: int = 2,
+    polyorder: int = 3,
     deriv: int = 0,
     delta: float = 1.0,
     lengths: Optional[np.ndarray] = None,

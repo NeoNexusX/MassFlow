@@ -228,10 +228,11 @@ class PreprocessorAPI(_TaskRegistrar):
     def _reference_computer(
         self,
         *,
+        reference: np.ndarray | None = None,
         binfun: str = "median",
         binratio: float = 2.0,
         tolerance: float | None = None,
-        units: str = "ppm",
+        units: Literal["da", "ppm"] = "ppm",
         min_count: int | None = None,
         min_frequency: float | None = None,
     ) -> Self:
@@ -240,6 +241,7 @@ class PreprocessorAPI(_TaskRegistrar):
             "reference_computer",
             scope="dataset",
             apply_fn=reference_computer,
+            reference=reference,
             binfun=binfun,
             binratio=binratio,
             tolerance=tolerance,
@@ -262,6 +264,9 @@ class PreprocessorAPI(_TaskRegistrar):
         backend: Backend = "python",
     ) -> Self:
         """Register peak alignment flat task."""
+        units = units.lower()
+        if units not in ("da", "ppm"):
+            raise ValueError(f"units must be 'da' or 'ppm', got {units!r}")
         if backend == "cardinal":
             if min_count is not None or min_frequency is not None:
                 logger.warning("min_count/min_frequency are only supported by the python peak_align backend")
@@ -279,6 +284,7 @@ class PreprocessorAPI(_TaskRegistrar):
 
         if reference is None or tolerance is None:
             self._reference_computer(
+                reference=reference,
                 binfun=binfun,
                 binratio=binratio,
                 tolerance=tolerance,

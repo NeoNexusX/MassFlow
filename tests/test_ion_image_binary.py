@@ -14,6 +14,21 @@ ROUND = 1
 _SUDO_PASSWORD = "660789"
 
 
+def test_empty_ion_block_keeps_pixel_width(tmp_path):
+    """空 ion 区间应返回 (0, n_pixels)，与 numpy 切片语义一致。"""
+    with IonImageDataManagerBinary(
+        tmp_path / "tiny.bin", mode="w", width=2, height=2, temp_dir=tmp_path
+    ) as dm:
+        dm.write_flat_batch(
+            intensity_flat=np.array([1, 2, 3, 4, 5, 6, 7, 8], dtype=np.float32),
+            lengths=np.array([2, 2, 2, 2]),
+            coordinates=np.array([[1, 1], [2, 1], [1, 2], [2, 2]]),
+            mz_axis=np.array([100.0, 200.0]),
+        )
+        dm.finalize()
+        assert dm.get_ion_block(1, 1).shape == (0, dm.n_pixels)
+
+
 def _purge_cache() -> None:
     """通过 sudo purge 清除磁盘缓存，然后暂停 10s 让系统稳定。"""
     try:
@@ -51,7 +66,6 @@ def _cache_example_flat_batches(
         for mz_axis, intensity_flat, lengths, coordinates in dm.flat_generator(
             batch_size=batch_size,
             include_mz=True,
-            max_threads=2,
         ):
             batches.append(
                 (
@@ -234,4 +248,3 @@ class TestIonImageBinary:
                     print(f"Merged binary size: {output_path.stat().st_size} bytes")
             finally:
                 processed_dm.close()
-

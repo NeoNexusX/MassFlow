@@ -31,7 +31,7 @@ more general rule tables. Isotope filtering should be run before this step.
 
 import csv
 from collections import defaultdict
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from itertools import combinations
 from pathlib import Path
 from typing import Literal
@@ -740,62 +740,29 @@ def write_adduct_filter_report(
     result: AdductAnnotationResult,
     report_path: str | Path,
 ) -> Path:
-    """Write a self-describing CSV audit report and return its actual path."""
+    """Write one four-column summary row per candidate peak."""
     _validate_annotation_result(result)
     path = _normalize_adduct_report_path(report_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    annotation_fields = [item.name for item in fields(AdductAnnotation)]
     fieldnames = [
-        "evidence_id",
-        "summary_evidence",
-        "evidence_count_for_removed_peak",
-        "mz_delta",
-        *annotation_fields,
-        "total_peak_count",
-        "candidate_relationship_count",
-        "passed_relationship_count",
-        "unique_removed_count",
-        "polarity",
-        "ppm",
-        "mzabs",
-        "require_quasi",
-        "batch_size",
+        "representative_mz",
+        "adduct_mz",
+        "representative_adduct",
+        "adduct",
     ]
     summary_indices = _select_summary_annotation_indices(result.annotations)
-    evidence_counts: dict[int, int] = defaultdict(int)
-    for annotation in result.annotations:
-        evidence_counts[annotation.removed_peak] += 1
-    passed_relationship_count = sum(
-        evidence.passes_threshold for evidence in result.pair_evidence
-    )
-    shared_values = {
-        "total_peak_count": result.mz_axis.size,
-        "candidate_relationship_count": len(result.pair_evidence),
-        "passed_relationship_count": passed_relationship_count,
-        "unique_removed_count": len(evidence_counts),
-        "polarity": result.config.polarity,
-        "ppm": result.config.ppm,
-        "mzabs": result.config.mzabs,
-        "require_quasi": result.config.require_quasi,
-        "batch_size": result.config.batch_size,
-    }
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for index, annotation in enumerate(result.annotations):
+            if index not in summary_indices:
+                continue
             writer.writerow(
                 {
-                    "evidence_id": index + 1,
-                    "summary_evidence": index in summary_indices,
-                    "evidence_count_for_removed_peak": evidence_counts[
-                        annotation.removed_peak
-                    ],
-                    "mz_delta": annotation.removed_mz - annotation.representative_mz,
-                    **{
-                        field_name: getattr(annotation, field_name)
-                        for field_name in annotation_fields
-                    },
-                    **shared_values,
+                    "representative_mz": annotation.representative_mz,
+                    "adduct_mz": annotation.removed_mz,
+                    "representative_adduct": annotation.representative_rule,
+                    "adduct": annotation.removed_rule,
                 }
             )
     return path

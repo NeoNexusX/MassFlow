@@ -1,97 +1,60 @@
 # MassFlow Naming Conventions
 
-This guide summarizes the existing naming style across the codebase (`module/ms_module.py`, `module/ms_data_manager_imzml.py`, `module/msi_data_manager_msi.py`, `module/msi_data_manager_zys.py`, `example.ipynb`, and `README*`) and standardizes it for Python code, HDF5 dataset names, and identifiers in examples/docs.
+This guide uses the classes, modules, and storage layouts in the current source tree.
 
-## General Rules
-- Prefer clear, readable, and semantically meaningful names; avoid ambiguity and excessive abbreviations.
-- Keep style consistent: use `snake_case` for files/functions/variables and `PascalCase` for classes.
-- Preserve domain abbreviations in uppercase inside class names, e.g., `MSI`, `HDF5`, `ZYS`.
-- Method names should start with verbs to express action semantics (e.g., `load_*`, `write_*`, `inspect_*`).
+## Python names
 
-## Files and Directories
-- Directory names are lowercase words; use underscores if needed: `module/`.
-- Python files use `snake_case`: `ms_module.py`, `ms_data_manager_imzml.py`, `msi_data_manager_msi.py`, `msi_data_manager_zys.py`.
-- Example file: `example.ipynb`; avoid placing business logic in examples.
+- Modules, functions, parameters, and variables use `snake_case`: `ms_data_manager_imzml.py`, `load_head_data`, `write_flat_batch`, `mz_axis`.
+- Classes use `PascalCase`, preserving established abbreviations: `MSDataManagerImzML`, `MSDataManagerZarr`, `IonImageDataManagerH5`, `MetaDataImzMl`.
+- Constants use `ALL_CAPS`: `ZARR_MODE_CONTINUOUS`, `ZARR_FORMAT_VERSION`.
+- Internal state and helpers use a leading underscore: `_reader`, `_queue`, `_require_reader`.
+- Use existing public exports, for example `from massflow.data_manager import MSDataManagerImzML`.
 
-## Modules and Packages
-- Maintain public exports in `module/__init__.py` when appropriate.
-- Prefer concise relative imports: `from .ms_module import MS, SpectrumBaseModule`.
+## Classes and responsibilities
 
-## Class Naming (PascalCase)
-- Domain model classes: `MSI`.
-- Manager/coordination classes: `MSIDataManager`, `MSIDataManagerZYS`.
-- Primitive/slice classes: `MSIBaseModule`.
-- Rules:
-  - Base names derive from the domain concept or responsibility.
-  - Keep domain abbreviations uppercase embedded in names, e.g., `MSIDataManager` (not `MsiDataManager`).
+| Responsibility | Current classes |
+| --- | --- |
+| Individual spectrum | `Spectrum`, `SpectrumImzML`, `SpectrumZarr` |
+| Spectrum collection | `MassSpectrumSet` |
+| Pixel coordinates | `PixelCoordinates` |
+| Spectrum managers | `MSDataManager`, `MSDataManagerImzML`, `MSDataManagerZarr` |
+| Ion-image managers | `IonImageDataManager`, `IonImageDataManagerBinary`, `IonImageDataManagerH5`, `IonImageDataManagerZarr` |
+| Metadata | `MetaDataBase`, `MetaDataImzMl`, `MetaDataZarr` |
+| Preprocessing | `Preprocessor`, `PreprocessorAPI`, `FlatPreprocess` |
 
-## Methods and Functions (snake_case)
-- Verb-first names to reflect operations and targets: `load_full_data_from_file`, `load_meta_from_file`, `allocate_data_from_meta`, `add_msi_slice`, `get_msi_by_mz`, `plot_msi`, `inspect_data`, `write2local`.
-- Helper/internal methods may use a leading underscore: `_inspect_hdf5_structure`, `_write_meta_data`, `_create_datasets`.
-- Use clear parameter phrases for ranges/filters: `target_mz_range`, `display_threshold_percent`.
+Source files are grouped by responsibility: `module/`, `data_manager/`, `preprocess/`, `msi_zarr/`, `segmentation/`, and `tools/`.
 
-## Variable Naming (snake_case)
-- Common variables: `mz`, `msroi`, `base_mask`, `coords`, `num_pixels`, `selected_channels`.
-- Booleans represent conditions/states: `need_base_mask`.
-- Constants use ALL_CAPS with underscores: `FILE_PATH`.
-- Avoid single-letter names except in loops/math contexts (e.g., `i`).
+## Operations and parameters
 
-## Attributes and Metadata
-- Private metadata fields use `_meta_*` prefix: `_meta_name`, `_meta_version`, `_meta_mask`, `_meta_mz_num`, `_meta_storage_mode`, `_meta_need_base_mask`.
-- Public properties use `meta_*` and are exposed via `@property`: `meta_name`, `meta_version`, `meta_mask`, `meta_mz_num`, `meta_storage_mode`, `meta_need_base_mask`.
-- Data matrix attribute: public `data`, private `_data`.
-- Use `update_metadata()` to automatically collect `_meta_*` fields into the metadata map.
-- Queue access is unified: `add_msi_slice()`, `get_queue()`, `__len__()`, `__iter__()`, `__getitem__()`.
+Use verb-first operation names from the current APIs:
 
-## Constants and Modes
-- Use ALL_CAPS with underscores: `FILE_PATH`, `FILE_PATH_ZYS` (in examples).
-- Mode strings are lowercase with clear semantics: `mode in {"merge", "split"}`; set `meta_storage_mode` before writing.
+- `load_head_data()` loads metadata and lazy spectrum placeholders.
+- `extract_metadata()` reads metadata into the manager's model.
+- `flat_generator()` and `matrix_generator()` yield batches.
+- `write_flat_batch()` writes flat batches; writer classes also expose `add_spectrum()`.
+- `read_ion_image()` / `plot_ion_image()` read or display an image through visualization helpers.
+- `get_ion_image()` is the ion-image manager operation.
+- `finalize()` completes supported writers, and `close()` releases resources.
 
-## Abbreviations and Proper Nouns
-- `MSI` (Mass Spectrometry Imaging): keep uppercase in class/method names.
-- `HDF5`: use the standard uppercase abbreviation in method/variable names (e.g., `_inspect_hdf5_structure`).
-- `ZYS`: source data abbreviation can be used in derived class names `MSIDataManagerZYS` and relevant methods.
-- Domain terms like `mz`, `msroi` follow dataset naming; do not translate or rename them.
+Use `mz`, `intensity`, `lengths`, `coordinates`, and `mz_axis` consistently. Verify signatures before copying examples between APIs: the low-level Zarr writer uses `add_spectrum(mz, intensity, coordinates)`.
 
-## Private/Internal Conventions
-- Internal methods/fields use a leading underscore: `_create_datasets`, `_write_meta_data`, `_metadata`, `_queue`.
-- Access internal state via public methods/properties; avoid direct use of private fields.
-- Assertions and error messages:
-  - Use `assert` with explicit messages: `assert self.meta_mz_num > 0, "meta_mz_num must be greater than 0"`.
-  - Parameter/file-type checks: `assert self.filepath.endswith('.mat'), "Error: filepath is not a .mat file."`.
+## Metadata fields
 
-## HDF5/Dataset Naming
-- Group names: `mz_{mz_value:.4f}` (four decimal places).
-- Datasets:
-  - `mz`: the single m/z value.
-  - `msroi`: 2D image matrix (gzip compression allowed).
-  - Metadata datasets use `meta_*` names aligned with public properties.
-- Metadata writing:
-  - Public keys omit the leading underscore: `meta_version`, `meta_mz_num`.
-  - Types: numeric for `version`/`num` (e.g., `np.float32`), strings via `h5py.string_dtype('utf-8')`.
+Public fields omit the `meta_` prefix: `meta.pixel_size_x`, `meta.continuous`, `meta.profile_spectrum`. Descriptors and properties synchronize values into the `_meta` dictionary. Printed output adds `meta_` to labels; these printed labels are not Python property names.
 
-## Parameters and Type Hints
-- Add type hints where helpful, prioritizing key interfaces and return types: `def get_msi(self) -> MSI`, `h5_data_zys: Optional[h5py.File]`.
-- Defaults should reflect common usage: `target_mz_range=None`, `storage_mode='split'`, `need_base_mask=False`.
+Use `to_dict()`, `get()`, `items()`, `keys()`, and `values()` for metadata access. See [Metadata](./metadata.md) for the current classes and field semantics.
 
-## Example Consistency
-- Example variables/instances follow the same style: `msi_dm`, `msi_dm_zys`, `target_mz_range=[101, 102]`.
-- Entry point follows the standard idiom:
-  ```python
-  if __name__ == "__main__":
-      ...
-  ```
+`MassSpectrumSet` exposes `add_spectrum()`, `update_spectrum_with_coord()`, `update_spectrum_with_index()`, iteration, indexing, and `len()`. Its queue is an implementation detail.
 
-## Anti-Patterns (Avoid)
-- Mixed casing styles: `MsiDataManager` (incorrect; use `MSIDataManager`).
-- CamelCase or uppercase file names: `MsiModule.py` (incorrect; use `msi_module.py`).
-- Non-semantic abbreviations: `tmp1`, `val2` (avoid; use semantic names).
+## Storage names
 
-## Practical Guidance
-- Determine class/method responsibilities and data semantics first, then settle on names.
-- Register domain abbreviations (e.g., `MSI`, `HDF5`, `ZYS`) and keep consistent uppercase usage.
-- For metadata, adopt the `meta_*` prefix for properties and maintain mapping to private `_meta_*` fields.
-- When writing/reading HDF5, strictly follow group/dataset naming and type conventions to prevent parsing inconsistencies.
+- Zarr group names are `axes`, `metadata`, `spectra`, `ion_image`, and `stats`. Array names include `intensity`, `offsets`, `coordinates`, and `mz`; see [Zarr schema](./zarr_schema.md).
+- H5 ion-image datasets are `mz_axis`, `coordinates`, and `ion_images`, with root attributes for dimensions and counts.
+- Encoding names are `continuous` and `processed`; writers may accept `auto` for inference. These names describe m/z organization.
+- File access uses `mode="r"` or `mode="w"` where supported. Do not reuse encoding names as access modes.
 
----
-To extend this guide for tests, logging, and exception categorization, add corresponding sections with code samples to this file as needed.
+## Examples and validation
+
+Use meaningful variables such as `source_dm`, `processed_dm`, `mz_axis`, and `coordinates`. Keep file paths explicit in examples and obtain method defaults from the source signature.
+
+Use exceptions at public input and I/O boundaries; assertions express internal invariants. Keep existing project naming when extending an API rather than introducing parallel aliases.

@@ -32,18 +32,19 @@ MassFlow 提供以下三种平滑方法：
 ```python
 massflow.preprocess.api.PreprocessorAPI.noise_reduction(
     *,
-    method: str = "ma_numba",
+    method: str = "gaussian_numba",
     window: int = 5,
     sd: float | None = None,
     polyorder: int = 3,
     deriv: int = 0,
     delta: float = 1.0,
+    backend: Literal["python", "cardinal"] = "python",
 ) -> Self
 ```
 
 - 功能：按批次对所有质谱执行平滑降噪。
 - 参数：
-  - `method`：平滑方法，默认 `"ma_numba"`。共有三种方法可供选择`"ma_numba"`、`"gaussian_numba"`、`"savgol_numba"`。
+  - `method`：平滑方法，默认 `"gaussian_numba"`。共有三种方法可供选择`"ma_numba"`、`"gaussian_numba"`、`"savgol_numba"`。
     - `"ma_numba"`：通用方法，最快速；
     - `"gaussian_numba"`：高斯平滑，平滑更柔和，对高斯噪声有理论支持；
     - `"savgol_numba"`：Savitzky–Golay平滑，保峰能力强，适合后续需要峰面积的场景。
@@ -54,6 +55,8 @@ massflow.preprocess.api.PreprocessorAPI.noise_reduction(
   - `polyorder`：Savitzky-Golay 多项式阶数，输入值必须小于 `window`值，默认 3。较低阶数（如 1）更平滑，较高阶数（如 3）保峰更好。
   - `deriv`：导数阶数，只用于Savitzky–Golay平滑，默认 `0`。普通平滑必须保持 0；大于 0 时输出的是导数，不再是原始强度。输入必须为非负整数
   - `delta`：采样间隔，只用于Savitzky–Golay平滑，计算导数时的数据点间隔，默认 1.0。
+
+  - `backend`：`"python"`（默认）或 `"cardinal"`。
 
 示例：
 

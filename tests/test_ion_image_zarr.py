@@ -1,5 +1,7 @@
 """Zarr 离子图像转写 + PyTorch 读取性能测试。"""
 
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-few-public-methods
+
 # pylint: disable=redefined-outer-name,broad-exception-caught,unused-argument,too-many-lines
 
 import os
@@ -21,6 +23,7 @@ from massflow.msi_zarr.writer import prepare_coordinate_index
 from massflow.module.ms_meta_data_zarr import MetaDataZarr
 from massflow.morch import IonImageZarrDataset
 from massflow.segmentation.region_mask import apply_region_mask
+from massflow.tools.export_imzml import export_imzml
 
 EXAMPLE_IMZML = Path("/Users/dre/Desktop/data/Example_read/example.imzML")
 EXAMPLE_ZARR_DIR = Path("data")
@@ -84,7 +87,6 @@ def _cache_example_flat_batches(*, batch_size: int = 256):
         for mz_axis, intensity_flat, lengths, coordinates in dm.flat_generator(
             batch_size=batch_size,
             include_mz=True,
-            max_threads=2,
         ):
             batches.append(
                 (
@@ -193,6 +195,7 @@ def _write_tiny_zarr(
     chunk_size: int = 1,
     compute_mean_spectrum: bool = False,
     compute_rms: bool = False,
+    include_spectra: bool = True,
     metadata=None,
 ) -> IonImageDataManagerZarr:
     """Write a tiny two-ion Zarr store for correctness tests."""
@@ -212,6 +215,7 @@ def _write_tiny_zarr(
         chunk_size=chunk_size,
         compute_mean_spectrum=compute_mean_spectrum,
         compute_rms=compute_rms,
+        include_spectra=include_spectra,
         metadata=metadata,
         shared_mz_axis=(
             np.array([100.0, 200.0], dtype=np.float64) if metadata is not None else None
@@ -355,7 +359,7 @@ class TestZarrCorrectness:
         assert root["metadata"].attrs["pixel_size_x"] == 50.0
         rms = cast(zarr.Array, root["stats/rms"])
         np.testing.assert_allclose(
-            rms[:],
+            np.asarray(rms[:], dtype=np.float64),
             np.array([np.sqrt(50.5), np.sqrt(202.0)], dtype=np.float64),
         )
         assert rms.attrs["source"] == "/spectra"
@@ -398,10 +402,24 @@ class TestZarrCorrectness:
         with IonImageDataManagerZarr(str(path), mode="r") as reopened:
             np.testing.assert_allclose(reopened.mean_spectrum, np.array([1.5, 15.0])) # type: ignore
 
-    def test_mean_spectrum_is_absent_by_default(self, tmp_path):
-        dm = _write_tiny_zarr(tmp_path / "no_mean.zarr", tmp_path, [(1, 1), (2, 1)])
+    def test_mean_spectrum_absent_when_spectra_excluded(self, tmp_path):
+        # include_spectra=True(默认)会连带计算 mean_spectrum;
+        # 显式排除 spectra 时才应缺席。
+        dm = _write_tiny_zarr(
+            tmp_path / "no_mean.zarr",
+            tmp_path,
+            [(1, 1), (2, 1)],
+            include_spectra=False,
+        )
         try:
             assert dm.mean_spectrum is None
+        finally:
+            dm.close()
+
+    def test_empty_ion_block_keeps_pixel_width(self, tmp_path):
+        dm = _write_tiny_zarr(tmp_path / "empty_block.zarr", tmp_path, [(1, 1), (2, 1)])
+        try:
+            assert dm.get_ion_block(0, 0).shape == (0, dm.n_pixels)
         finally:
             dm.close()
 
@@ -414,6 +432,7 @@ class TestZarrCorrectness:
             compute_rms=True,
         )
         try:
+            assert dm.rms is not None
             np.testing.assert_allclose(
                 dm.rms,
                 np.array([np.sqrt(50.5), np.sqrt(202.0)], dtype=np.float64),
@@ -422,6 +441,7 @@ class TestZarrCorrectness:
             dm.close()
 
         with IonImageDataManagerZarr(str(path), mode="r") as reopened:
+            assert reopened.rms is not None
             np.testing.assert_allclose(
                 reopened.rms,
                 np.array([np.sqrt(50.5), np.sqrt(202.0)], dtype=np.float64),
@@ -548,4 +568,49 @@ class TestZarrCorrectness:
         finally:
             if output is not None:
                 output.close()
+            source.close()
+
+    def test_region_mask_imzml_delegates_to_export(self, tmp_path):
+        metadata = MetaDataZarr(pixel_size_x=50.0, pixel_size_y=60.0)
+        metadata.continuous = True
+        metadata.centroid_spectrum = True
+        source = _write_tiny_zarr(
+            tmp_path / "delegate_source.zarr",
+            tmp_path,
+            [(2, 2), (3, 2)],
+            width=4,
+            height=3,
+            metadata=metadata,
+        )
+        try:
+            mask = np.zeros((3, 4), dtype=bool)
+            mask[1, 2] = True
+            direct_path = export_imzml(source, tmp_path / "direct.imzML", mask=mask)
+            with apply_region_mask(source, mask, tmp_path / "masked.imzML") as output:
+                assert isinstance(output, MSDataManagerImzML)
+                assert len(output.ms) == 1
+                assert output.ms.meta.pixel_size_x == 50.0
+                assert output.ms.meta.pixel_size_y == 60.0
+                with MSDataManagerImzML(filepath=str(direct_path)) as direct:
+                    direct.load_head_data()
+                    assert (
+                        output.parser.coordinates
+                        == direct.parser.coordinates
+                        == [(3, 2, 1)]
+                    )
+                    for actual, expected in zip(
+                        output.parser.getspectrum(0), direct.parser.getspectrum(0)
+                    ):
+                        np.testing.assert_array_equal(actual, expected)
+            # Reopen the file independently of the returned metadata copy.
+            with MSDataManagerImzML(
+                filepath=str(tmp_path / "masked.imzML")
+            ) as reopened:
+                reopened.load_head_data()
+                assert reopened.ms.meta.pixel_size_x is None
+                assert reopened.ms.meta.pixel_size_y is None
+                assert reopened.ms.meta.mask is not None
+                assert reopened.ms.meta.mask.shape == (2, 3)
+                assert reopened.ms.meta.mask.sum() == 1
+        finally:
             source.close()

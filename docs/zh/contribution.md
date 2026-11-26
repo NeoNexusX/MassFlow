@@ -4,13 +4,13 @@
 
 ## 快速开始
 - Fork 仓库后，首先切换到远程的 dev 分支，创建你的工作分支（分支命名规则见下文）。
-- 在本地安装推荐的 Cursor/Trae/VSCode 插件（见 README 与 `.vscode/extensions.json`）。Pycharm 可以略过
+- 在本地安装推荐的 Cursor/Trae/VSCode 插件（见 README）。Pycharm 可以略过
 - 安装依赖与开发环境：
   ```bash
   # 确保已安装 uv
-  uv sync && uv pip install -e .  
+  uv sync --group dev
   ```
-- 遵循命名规范与代码风格（`NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`、`.pylintrc`）。
+- 遵循命名规范与代码风格（[naming-conventions.md](./naming-conventions.md)、`.pylintrc`）。
 - 完成任务后提交 PR，按照评审清单自检并请求评审。
 
 ## 分支策略
@@ -39,17 +39,17 @@
 - 示例：`feat(data-manager): support split/merge write modes`
 
 ## 代码规范与命名
-- 遵循 `NAMING_CONVENTIONS.md` / `NAMING_CONVENTIONS_EN.md`：
-  - 类：`PascalCase`，领域缩写保持大写（如 `MSIDataManager`）
-  - 函数/变量/文件：`snake_case`（如 `load_full_data_from_file`）
-  - 属性：私有 `_meta_*` 与公开 `meta_*` 属性映射（通过 `@property`）
+- 遵循 [naming-conventions.md](./naming-conventions.md)：
+  - 类：`PascalCase`，领域缩写保持大写（如 `MSDataManagerImzML`）
+  - 函数/变量/文件：`snake_case`（如 `load_head_data`）
+  - 属性：元数据使用 `pixel_size_x`、`continuous` 等公开字段，值同步到 `_meta` 字典
 - 统一风格与静态检查：
   - 运行 `pylint`（遵循 `.pylintrc`）、`black`、`isort`
 
 ## 编辑器与工具
 - Cursor/Trae/VSCode：
   - 安装推荐扩展（Python、Pylance、Pylint、Ruff、Black、isort、Jupyter、Markdownlint、GitLens、H5Web）
-  - 工作区 `.vscode/extensions.json` 将自动提示安装
+  - 通过编辑器设置安装扩展，仓库不附带工作区配置
 - 可选：启用保存自动格式化（Format on Save）并配置 Black/isort 一致性。
 
 ## 测试与质量保障
